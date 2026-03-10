@@ -133,6 +133,81 @@ public class AnalyzeIndexStatementExecutionTest extends DbTestBase {
     result.close();
   }
 
+  /**
+   * T1: ANALYZE INDEX * with two classes having different property types and
+   * enough data (>1500) to build histograms. Verifies that the result has
+   * rows for both indexes with non-zero totalCount, distinctCount, and
+   * bucketCount > 0.
+   */
+  @Test
+  public void analyzeAllIndexes_multipleClassesAboveMinSize_returnsHistograms() {
+    // Given: two classes with different property types and indexes
+    var schema = session.getMetadata().getSchema();
+
+    var personClass = schema.createClass("AnalyzePerson");
+    personClass.createProperty("age", PropertyType.INTEGER);
+    personClass.createIndex(
+        "AnalyzePersonAgeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "age");
+
+    var productClass = schema.createClass("AnalyzeProduct");
+    productClass.createProperty("price", PropertyType.DOUBLE);
+    productClass.createIndex(
+        "AnalyzeProductPriceIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "price");
+
+    // Insert 1500+ records into each class
+    session.begin();
+    for (int i = 0; i < 1600; i++) {
+      var person = session.newEntity("AnalyzePerson");
+      person.setProperty("age", i % 120);
+      var product = session.newEntity("AnalyzeProduct");
+      product.setProperty("price", i * 0.99);
+    }
+    session.commit();
+
+    // When: ANALYZE INDEX * is executed
+    var result = session.execute("ANALYZE INDEX *");
+
+    // Then: result has rows for both indexes with non-zero stats
+    boolean foundPerson = false;
+    boolean foundProduct = false;
+    while (result.hasNext()) {
+      var row = result.next();
+      assertEquals("analyze index", row.getProperty("operation"));
+      String indexName = row.getProperty("indexName");
+      assertNotNull(indexName);
+      long totalCount =
+          ((Number) row.getProperty("totalCount")).longValue();
+      long distinctCount =
+          ((Number) row.getProperty("distinctCount")).longValue();
+      int bucketCount =
+          ((Number) row.getProperty("bucketCount")).intValue();
+
+      if ("AnalyzePersonAgeIdx".equals(indexName)) {
+        foundPerson = true;
+        assertTrue("Person totalCount should be >= 1600, was: "
+            + totalCount, totalCount >= 1600);
+        assertTrue("Person distinctCount should be > 0, was: "
+            + distinctCount, distinctCount > 0);
+        assertTrue("Person bucketCount should be > 0, was: "
+            + bucketCount, bucketCount > 0);
+      } else if ("AnalyzeProductPriceIdx".equals(indexName)) {
+        foundProduct = true;
+        assertTrue("Product totalCount should be >= 1600, was: "
+            + totalCount, totalCount >= 1600);
+        assertTrue("Product distinctCount should be > 0, was: "
+            + distinctCount, distinctCount > 0);
+        assertTrue("Product bucketCount should be > 0, was: "
+            + bucketCount, bucketCount > 0);
+      }
+    }
+    result.close();
+
+    assertTrue("Should have found AnalyzePersonAgeIdx in results",
+        foundPerson);
+    assertTrue("Should have found AnalyzeProductPriceIdx in results",
+        foundProduct);
+  }
+
   @Test
   public void analyzeWhileBackgroundRebalanceInProgress_waitsAndReturnsRefreshed()
       throws Exception {

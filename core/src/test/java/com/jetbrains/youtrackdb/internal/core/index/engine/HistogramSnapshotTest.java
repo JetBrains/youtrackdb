@@ -1,13 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+
+import org.junit.Test;
 
 /**
  * Tests for {@link HistogramSnapshot} — immutable point-in-time snapshot of
@@ -36,13 +36,12 @@ public class HistogramSnapshotTest {
     var stats = new IndexStatistics(1000, 800, 50);
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{1, 50, 100},
-        new long[]{500, 450},
-        new long[]{40, 35},
+        new Comparable<?>[] {1, 50, 100},
+        new long[] {500, 450},
+        new long[] {40, 35},
         950,
         50,
-        100L
-    );
+        100L);
     var hll = new HyperLogLogSketch();
     hll.add(42L);
 
@@ -102,12 +101,11 @@ public class HistogramSnapshotTest {
     var stats = new IndexStatistics(0, 0, 0);
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0,
-        null, 0
-    );
+        null, 0);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 500, 1000, 3, true, null, false);
 

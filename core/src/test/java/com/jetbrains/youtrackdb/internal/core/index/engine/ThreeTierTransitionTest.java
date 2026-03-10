@@ -100,7 +100,8 @@ public class ThreeTierTransitionTest {
     var stats = new IndexStatistics(0, 0, 0);
     assertEquals(0.0,
         SelectivityEstimator.estimateRange(
-            stats, null, 10, 90, true, true), 0.0);
+            stats, null, 10, 90, true, true),
+        0.0);
   }
 
   @Test
@@ -409,12 +410,12 @@ public class ThreeTierTransitionTest {
     // bucket 1 = [1,99] with freq=99
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 0, 99},
-        new long[]{hotKeyFreq, total - hotKeyFreq},
-        new long[]{1, 99},
+        new Comparable<?>[] {0, 0, 99},
+        new long[] {hotKeyFreq, total - hotKeyFreq},
+        new long[] {1, 99},
         total,
-        0,   // mcvValue
-        hotKeyFreq  // mcvFrequency
+        0, // mcvValue
+        hotKeyFreq // mcvFrequency
     );
     var stats = new IndexStatistics(total, 100, 0);
 
@@ -448,13 +449,12 @@ public class ThreeTierTransitionTest {
     int hotKeyFreq = 901;
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 0, 99},
-        new long[]{hotKeyFreq, total - hotKeyFreq},
-        new long[]{1, 99},
+        new Comparable<?>[] {0, 0, 99},
+        new long[] {hotKeyFreq, total - hotKeyFreq},
+        new long[] {1, 99},
         total,
         0,
-        hotKeyFreq
-    );
+        hotKeyFreq);
     var stats = new IndexStatistics(total, 100, 0);
 
     // Uniform estimate: 1/100 = 0.01 (same for all keys)
@@ -483,13 +483,12 @@ public class ThreeTierTransitionTest {
     int total = 2000;
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 500, 900, 1000},
-        new long[]{1600, 200, 150, 50},  // heavily skewed
-        new long[]{100, 400, 400, 100},
+        new Comparable<?>[] {0, 100, 500, 900, 1000},
+        new long[] {1600, 200, 150, 50}, // heavily skewed
+        new long[] {100, 400, 400, 100},
         total,
         null,
-        0
-    );
+        0);
     var stats = new IndexStatistics(total, 1000, 0);
 
     // Uniform range estimate for [0, 100]: 1/3 ≈ 0.333
@@ -506,8 +505,8 @@ public class ThreeTierTransitionTest {
     // The histogram estimate should be closer to the true value (~0.8)
     // than the uniform estimate (0.333)
     assertTrue("Histogram range estimate (" + histSel
-            + ") should exceed uniform (" + uniformSel
-            + ") for hot range",
+        + ") should exceed uniform (" + uniformSel
+        + ") for hot range",
         histSel > uniformSel);
   }
 
@@ -521,10 +520,12 @@ public class ThreeTierTransitionTest {
     var emptyStats = new IndexStatistics(0, 0, 0);
     assertEquals("Empty tier: equality should be 0", 0.0,
         SelectivityEstimator.estimateEquality(
-            emptyStats, null, 42), 0.0);
+            emptyStats, null, 42),
+        0.0);
     assertEquals("Empty tier: GT should be 0", 0.0,
         SelectivityEstimator.estimateGreaterThan(
-            emptyStats, null, 42), 0.0);
+            emptyStats, null, 42),
+        0.0);
 
     // Tier 2: Uniform (100 entries, 50 distinct)
     var uniformStats = new IndexStatistics(100, 50, 0);
@@ -578,13 +579,12 @@ public class ThreeTierTransitionTest {
     long f4 = n - q3;
     return new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, q1, q2, q3, n - 1},
-        new long[]{f1, f2, f3, f4},
-        new long[]{q1, q2 - q1, q3 - q2, n - q3},
+        new Comparable<?>[] {0, q1, q2, q3, n - 1},
+        new long[] {f1, f2, f3, f4},
+        new long[] {q1, q2 - q1, q3 - q2, n - q3},
         n,
         null,
-        0
-    );
+        0);
   }
 
   private static AtomicOperation mockOp(HistogramDeltaHolder holder) {

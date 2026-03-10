@@ -165,7 +165,8 @@ public class SelectivityEstimationIntegrationTest {
         SelectivityEstimator.estimateLessOrEqual(stats, null, 42), DELTA);
     Assert.assertEquals(1.0 / 3.0,
         SelectivityEstimator.estimateRange(
-            stats, null, 10, 90, true, true), DELTA);
+            stats, null, 10, 90, true, true),
+        DELTA);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -178,9 +179,9 @@ public class SelectivityEstimationIntegrationTest {
     // 1 bucket, NDV=1, MCV = "active", frequency = 1000.
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{"active", "active"},
-        new long[]{1000},
-        new long[]{1},
+        new Comparable<?>[] {"active", "active"},
+        new long[] {1000},
+        new long[] {1},
         1000,
         "active", 1000);
     var stats = new IndexStatistics(1000, 1, 0);
@@ -195,9 +196,9 @@ public class SelectivityEstimationIntegrationTest {
     // Same single-value index but querying a different value.
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{"active", "active"},
-        new long[]{1000},
-        new long[]{1},
+        new Comparable<?>[] {"active", "active"},
+        new long[] {1000},
+        new long[] {1},
         1000,
         "active", 1000);
     var stats = new IndexStatistics(1000, 1, 0);
@@ -261,9 +262,9 @@ public class SelectivityEstimationIntegrationTest {
     // IS NULL = 200 / (800 + 200) = 0.2
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{400, 400},
-        new long[]{25, 25},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {400, 400},
+        new long[] {25, 25},
         800, null, 0);
     var stats = new IndexStatistics(1000, 50, 200);
 
@@ -275,9 +276,9 @@ public class SelectivityEstimationIntegrationTest {
   public void isNotNullWithHistogramUsesHistogramNonNullCount() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{400, 400},
-        new long[]{25, 25},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {400, 400},
+        new long[] {25, 25},
         800, null, 0);
     var stats = new IndexStatistics(1000, 50, 200);
 
@@ -294,9 +295,9 @@ public class SelectivityEstimationIntegrationTest {
     // Sum = 0.01
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{50, 50, 50, 50},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {50, 50, 50, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 200, 0);
 
@@ -310,9 +311,9 @@ public class SelectivityEstimationIntegrationTest {
     // IN with enough values that summed equalities exceed 1.0
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 10},
-        new long[]{10},
-        new long[]{2},
+        new Comparable<?>[] {0, 10},
+        new long[] {10},
+        new long[] {2},
         10, null, 0);
     var stats = new IndexStatistics(10, 2, 0);
 
@@ -335,9 +336,9 @@ public class SelectivityEstimationIntegrationTest {
     // Approximation: P(GT 30) * P(LT 60) under independence
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -359,9 +360,9 @@ public class SelectivityEstimationIntegrationTest {
     // P(A OR B) = P(A) + P(B) - P(A) * P(B) (independence)
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -380,9 +381,9 @@ public class SelectivityEstimationIntegrationTest {
     // NOT (age = 50) = 1 - P(age = 50)
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -405,9 +406,9 @@ public class SelectivityEstimationIntegrationTest {
     // boundaries to produce a fraction.
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{"apple", "mango", "zebra"},
-        new long[]{500, 500},
-        new long[]{100, 100},
+        new Comparable<?>[] {"apple", "mango", "zebra"},
+        new long[] {500, 500},
+        new long[] {100, 100},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 200, 0);
 
@@ -425,9 +426,9 @@ public class SelectivityEstimationIntegrationTest {
     // f > "m" with boundaries ["aaa", "zzz"]
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{"aaa", "zzz"},
-        new long[]{1000},
-        new long[]{260},
+        new Comparable<?>[] {"aaa", "zzz"},
+        new long[] {1000},
+        new long[] {260},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 260, 0);
 
@@ -465,9 +466,9 @@ public class SelectivityEstimationIntegrationTest {
     // f > max_key → nothing above → selectivity = 0
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -480,9 +481,9 @@ public class SelectivityEstimationIntegrationTest {
     // f > (value below min) → everything above → ~1.0
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -495,9 +496,9 @@ public class SelectivityEstimationIntegrationTest {
     // f < min_key → nothing below → 0.0
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -509,9 +510,9 @@ public class SelectivityEstimationIntegrationTest {
   public void outOfRangeLessThanAboveMaxReturnsApproxOne() {
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
@@ -531,9 +532,9 @@ public class SelectivityEstimationIntegrationTest {
     // remainingInB1 = 0, no buckets above → 0.0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{false, true, true},
-        new long[]{300, 700},
-        new long[]{1, 1},
+        new Comparable<?>[] {false, true, true},
+        new long[] {300, 700},
+        new long[] {1, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 2, 0);
 
@@ -549,9 +550,9 @@ public class SelectivityEstimationIntegrationTest {
     // selectivity = 700/1000 = 0.7
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{false, true, true},
-        new long[]{300, 700},
-        new long[]{1, 1},
+        new Comparable<?>[] {false, true, true},
+        new long[] {300, 700},
+        new long[] {1, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 2, 0);
 
@@ -565,9 +566,9 @@ public class SelectivityEstimationIntegrationTest {
     // (1/1) * (700/1000) = 0.7
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{false, true, true},
-        new long[]{300, 700},
-        new long[]{1, 1},
+        new Comparable<?>[] {false, true, true},
+        new long[] {300, 700},
+        new long[] {1, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 2, 0);
 
@@ -587,9 +588,9 @@ public class SelectivityEstimationIntegrationTest {
     // Bucket 1 [B, C): B is at bucket 1
     var h = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{"A", "B", "C", "C"},
-        new long[]{200, 500, 300},
-        new long[]{1, 1, 1},
+        new Comparable<?>[] {"A", "B", "C", "C"},
+        new long[] {200, 500, 300},
+        new long[] {1, 1, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 3, 0);
 
@@ -613,9 +614,9 @@ public class SelectivityEstimationIntegrationTest {
     // (1/1) * (500/1000) = 0.5
     var h = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{"A", "B", "C", "C"},
-        new long[]{200, 500, 300},
-        new long[]{1, 1, 1},
+        new Comparable<?>[] {"A", "B", "C", "C"},
+        new long[] {200, 500, 300},
+        new long[] {1, 1, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 3, 0);
 
@@ -633,9 +634,9 @@ public class SelectivityEstimationIntegrationTest {
     // Manually construct a 4-bucket histogram with known nonNullCount.
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{900, 34, 33, 33},
-        new long[]{10, 10, 10, 10},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {900, 34, 33, 33},
+        new long[] {10, 10, 10, 10},
         1000,
         50, 900); // MCV = 50, freq = 900
     var stats = new IndexStatistics(1000, 40, 0);
@@ -652,9 +653,9 @@ public class SelectivityEstimationIntegrationTest {
     // MCV exact frequency: 900/1000 = 0.9 — much higher.
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{900, 34, 33, 33},
-        new long[]{10, 10, 10, 10},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {900, 34, 33, 33},
+        new long[] {10, 10, 10, 10},
         1000,
         50, 900); // MCV = 50, in bucket 0
     var stats = new IndexStatistics(1000, 40, 0);
@@ -677,9 +678,9 @@ public class SelectivityEstimationIntegrationTest {
     // MCV = 42, query value = 150 (non-MCV, different bucket)
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{50, 50, 50, 50},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {50, 50, 50, 50},
         1000,
         42, 500);
     var stats = new IndexStatistics(1000, 200, 0);
@@ -739,13 +740,13 @@ public class SelectivityEstimationIntegrationTest {
     // P(f >= X) + P(f < X) should approximate 1.0 for any X in range
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
-    for (int x : new int[]{10, 25, 50, 75, 90}) {
+    for (int x : new int[] {10, 25, 50, 75, 90}) {
       double gte = SelectivityEstimator.estimateGreaterOrEqual(stats, h, x);
       double lt = SelectivityEstimator.estimateLessThan(stats, h, x);
       Assert.assertEquals("GTE + LT should be ~1.0 for x=" + x,
@@ -757,13 +758,13 @@ public class SelectivityEstimationIntegrationTest {
   public void ltePlusGtApproximatesOne() {
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 100, 0);
 
-    for (int x : new int[]{10, 25, 50, 75, 90}) {
+    for (int x : new int[] {10, 25, 50, 75, 90}) {
       double lte = SelectivityEstimator.estimateLessOrEqual(stats, h, x);
       double gt = SelectivityEstimator.estimateGreaterThan(stats, h, x);
       Assert.assertEquals("LTE + GT should be ~1.0 for x=" + x,
@@ -776,9 +777,9 @@ public class SelectivityEstimationIntegrationTest {
     // For any stats, IS_NULL + IS_NOT_NULL = 1.0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{300, 500},
-        new long[]{10, 20},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {300, 500},
+        new long[] {10, 20},
         800, null, 0);
     var stats = new IndexStatistics(1000, 30, 200);
 

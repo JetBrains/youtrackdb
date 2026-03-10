@@ -175,7 +175,7 @@ public class WOWCacheDeleteTimeoutIT {
         BUFFER_POOL,
         wal,
         new DoubleWriteLogNoOP(),
-        1,  // pagesFlushInterval: 1ms — short interval to trigger frequent periodic flushes
+        1, // pagesFlushInterval: 1ms — short interval to trigger frequent periodic flushes
         10, // shutdownTimeout: 10ms — intentionally short for this test
         100,
         path,

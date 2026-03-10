@@ -31,8 +31,7 @@ public final class BTreeSingleValueIndexEngine
   private final String name;
   private final int id;
   private final AbstractStorage storage;
-  @Nullable
-  private volatile IndexHistogramManager histogramManager;
+  @Nullable private volatile IndexHistogramManager histogramManager;
 
   public BTreeSingleValueIndexEngine(
       int id, String name, AbstractStorage storage, int version) {
@@ -69,7 +68,8 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) {
-    @SuppressWarnings("unchecked") var keySerializer =
+    @SuppressWarnings("unchecked")
+    var keySerializer =
         (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     try {
       sbTree.create(
@@ -118,8 +118,8 @@ public final class BTreeSingleValueIndexEngine
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     @SuppressWarnings("unchecked")
-    var keySerializer = (BinarySerializer<Object>)
-        storage.resolveObjectSerializer(data.getKeySerializedId());
+    var keySerializer =
+        (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     sbTree.load(name, keySize, keyTypes, keySerializer, atomicOperation);
   }
 
@@ -137,7 +137,8 @@ public final class BTreeSingleValueIndexEngine
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during removal of key " + key + " from index " + name), e,
+              "Error during removal of key " + key + " from index " + name),
+          e,
           storage.getName());
     }
   }
@@ -212,7 +213,8 @@ public final class BTreeSingleValueIndexEngine
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during insertion of key " + key + " into index " + name), e,
+              "Error during insertion of key " + key + " into index " + name),
+          e,
           storage.getName());
     }
   }
@@ -237,7 +239,8 @@ public final class BTreeSingleValueIndexEngine
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during insertion of key " + key + " into index " + name), e,
+              "Error during insertion of key " + key + " into index " + name),
+          e,
           storage.getName());
     }
   }
@@ -326,8 +329,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  @Nullable
-  public IndexHistogramManager getHistogramManager() {
+  @Nullable public IndexHistogramManager getHistogramManager() {
     return histogramManager;
   }
 }

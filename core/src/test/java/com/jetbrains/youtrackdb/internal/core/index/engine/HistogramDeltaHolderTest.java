@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+
+import org.junit.Test;
 
 /**
  * Tests for {@link HistogramDeltaHolder} — per-transaction container for

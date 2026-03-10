@@ -46,10 +46,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Test;
 
@@ -588,12 +586,11 @@ public class IndexHistogramManagerUnitTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50},
-        new long[]{50, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50},
+        new long[] {50, 50},
         100,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 100, 100, 0, histogram);
 
     // When onPut is called with key=75 (should go to bucket 1)
@@ -614,12 +611,11 @@ public class IndexHistogramManagerUnitTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50},
-        new long[]{50, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50},
+        new long[] {50, 50},
         100,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 100, 100, 0, histogram);
 
     // When onRemove is called with key=25 (bucket 0)
@@ -640,12 +636,11 @@ public class IndexHistogramManagerUnitTest {
     var fixture = new Fixture();
     var histogram = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{50, 50},
-        new long[]{50, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50},
+        new long[] {50, 50},
         100,
-        null, 0
-    );
+        null, 0);
     installSnapshot(fixture, 100, 100, 0, histogram);
 
     var holder = new HistogramDeltaHolder();
@@ -657,8 +652,8 @@ public class IndexHistogramManagerUnitTest {
 
     var h = fixture.manager.getHistogram();
     assertNotNull(h);
-    assertEquals(51, h.frequencies()[0]);  // +1 (key=25)
-    assertEquals(52, h.frequencies()[1]);  // +2 (key=75, 80)
+    assertEquals(51, h.frequencies()[0]); // +1 (key=25)
+    assertEquals(52, h.frequencies()[1]); // +2 (key=75, 80)
     assertEquals(103, h.nonNullCount());
   }
 
@@ -807,13 +802,13 @@ public class IndexHistogramManagerUnitTest {
     var op = mockOp(holder);
     fixture.manager.onPut(op, 10, true, true);
     fixture.manager.onPut(op, 20, true, true);
-    fixture.manager.onPut(op, null, true, true);  // null insert
-    fixture.manager.onRemove(op, 10, true);       // non-null remove
+    fixture.manager.onPut(op, null, true, true); // null insert
+    fixture.manager.onRemove(op, 10, true); // non-null remove
     fixture.manager.applyDelta(holder.getDeltas().get(fixture.engineId));
 
     var stats = fixture.manager.getStatistics();
-    assertEquals(52, stats.totalCount());  // +3 inserts -1 remove = +2
-    assertEquals(3, stats.nullCount());    // +1 null insert
+    assertEquals(52, stats.totalCount()); // +3 inserts -1 remove = +2
+    assertEquals(3, stats.nullCount()); // +1 null insert
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1270,12 +1265,11 @@ public class IndexHistogramManagerUnitTest {
     int half = (int) (nonNullCount / 2);
     return new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, half, (int) (nonNullCount - 1)},
-        new long[]{half, nonNullCount - half},
-        new long[]{half, nonNullCount - half},
+        new Comparable<?>[] {0, half, (int) (nonNullCount - 1)},
+        new long[] {half, nonNullCount - half},
+        new long[] {half, nonNullCount - half},
         nonNullCount,
-        null, 0
-    );
+        null, 0);
   }
 
   /** Creates a mock AtomicOperation that returns the given holder. */

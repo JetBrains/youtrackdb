@@ -45,6 +45,5 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 public record IndexStatistics(
     long totalCount,
     long distinctCount,
-    long nullCount
-) {
+    long nullCount) {
 }

@@ -94,10 +94,10 @@ public class CompositeIndexHistogramTest {
   public void buildHistogram_compositeIndex_leadingFieldBoundariesAreStrings() {
     // Given 4 distinct leading-field values extracted from CompositeKeys
     Stream<Object> leadingFields = Stream.of(
-            Stream.generate(() -> (Object) "Alice").limit(100),
-            Stream.generate(() -> (Object) "Bob").limit(100),
-            Stream.generate(() -> (Object) "Carol").limit(100),
-            Stream.generate(() -> (Object) "Dave").limit(100))
+        Stream.generate(() -> (Object) "Alice").limit(100),
+        Stream.generate(() -> (Object) "Bob").limit(100),
+        Stream.generate(() -> (Object) "Carol").limit(100),
+        Stream.generate(() -> (Object) "Dave").limit(100))
         .flatMap(s -> s);
 
     var result = IndexHistogramManager.scanAndBuild(
@@ -109,7 +109,7 @@ public class CompositeIndexHistogramTest {
     // not CompositeKey objects
     for (int i = 0; i <= result.actualBucketCount; i++) {
       assertTrue("boundary[" + i + "] should be a String, got "
-              + result.boundaries[i].getClass().getSimpleName(),
+          + result.boundaries[i].getClass().getSimpleName(),
           result.boundaries[i] instanceof String);
     }
   }
@@ -139,9 +139,9 @@ public class CompositeIndexHistogramTest {
   public void buildHistogram_compositeIndex_threeFields_extractsFirstOnly() {
     // Given a stream of 3-field CompositeKeys
     Stream<Object> compositeKeys = Stream.of(
-            generateCompositeKeys3("Engineering", "Dev", 100),
-            generateCompositeKeys3("Marketing", "Mgr", 100),
-            generateCompositeKeys3("Sales", "Rep", 100))
+        generateCompositeKeys3("Engineering", "Dev", 100),
+        generateCompositeKeys3("Marketing", "Mgr", 100),
+        generateCompositeKeys3("Sales", "Rep", 100))
         .flatMap(s -> s);
 
     // Extract leading field (mimics buildHistogram keyFieldCnt > 1 path)
@@ -384,10 +384,10 @@ public class CompositeIndexHistogramTest {
   public void prefixQuery_rangeOnLeadingField_usesHistogram() {
     // Given a histogram with 4 equally distributed leading-field values
     Stream<Object> leadingFields = Stream.of(
-            Stream.generate(() -> (Object) "Alice").limit(100),
-            Stream.generate(() -> (Object) "Bob").limit(100),
-            Stream.generate(() -> (Object) "Carol").limit(100),
-            Stream.generate(() -> (Object) "Dave").limit(100))
+        Stream.generate(() -> (Object) "Alice").limit(100),
+        Stream.generate(() -> (Object) "Bob").limit(100),
+        Stream.generate(() -> (Object) "Carol").limit(100),
+        Stream.generate(() -> (Object) "Dave").limit(100))
         .flatMap(s -> s);
 
     var result = IndexHistogramManager.scanAndBuild(
@@ -564,9 +564,9 @@ public class CompositeIndexHistogramTest {
   private static EquiDepthHistogram createTwoValueHistogram() {
     return new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{"Alice", "Bob", "Bob"},
-        new long[]{100, 100},
-        new long[]{1, 1},
+        new Comparable<?>[] {"Alice", "Bob", "Bob"},
+        new long[] {100, 100},
+        new long[] {1, 1},
         200, null, 0);
   }
 
@@ -577,9 +577,9 @@ public class CompositeIndexHistogramTest {
   private static EquiDepthHistogram createThreeValueHistogram() {
     return new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{"Engineering", "Marketing", "Sales", "Sales"},
-        new long[]{100, 100, 100},
-        new long[]{1, 1, 1},
+        new Comparable<?>[] {"Engineering", "Marketing", "Sales", "Sales"},
+        new long[] {100, 100, 100},
+        new long[] {1, 1, 1},
         300, null, 0);
   }
 

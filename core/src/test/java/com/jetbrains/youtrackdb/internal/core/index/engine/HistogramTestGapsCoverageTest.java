@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -193,8 +192,8 @@ public class HistogramTestGapsCoverageTest {
       boundaries[i] = String.valueOf((char) ('A' + i))
           + "x".repeat(199);
     }
-    var frequencies = new long[]{100, 200, 300, 400};
-    var distinctCounts = new long[]{10, 20, 30, 40};
+    var frequencies = new long[] {100, 200, 300, 400};
+    var distinctCounts = new long[] {10, 20, 30, 40};
     var histogram = new EquiDepthHistogram(
         bucketCount, boundaries, frequencies, distinctCounts,
         1000, boundaries[2], 300);
@@ -208,8 +207,8 @@ public class HistogramTestGapsCoverageTest {
     try {
       @SuppressWarnings("unchecked")
       var serializer =
-          (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<Object>)
-              (Object) StringSerializer.INSTANCE;
+          (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+              Object>) (Object) StringSerializer.INSTANCE;
 
       var page = new HistogramStatsPage(entry);
       page.writeSnapshot(snapshot, StringSerializer.ID, serializer,
@@ -259,8 +258,8 @@ public class HistogramTestGapsCoverageTest {
       boundaries[i] = String.valueOf((char) ('A' + i))
           + "z".repeat(125);
     }
-    var frequencies = new long[]{500, 500};
-    var distinctCounts = new long[]{50, 50};
+    var frequencies = new long[] {500, 500};
+    var distinctCounts = new long[] {50, 50};
     var histogram = new EquiDepthHistogram(
         bucketCount, boundaries, frequencies, distinctCounts,
         1000, null, 0);
@@ -273,8 +272,8 @@ public class HistogramTestGapsCoverageTest {
     try {
       @SuppressWarnings("unchecked")
       var serializer =
-          (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<Object>)
-              (Object) StringSerializer.INSTANCE;
+          (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+              Object>) (Object) StringSerializer.INSTANCE;
 
       var page = new HistogramStatsPage(entry);
       page.writeSnapshot(snapshot, StringSerializer.ID, serializer,
@@ -309,7 +308,7 @@ public class HistogramTestGapsCoverageTest {
 
     var delta = new HistogramDelta();
     delta.totalCountDelta = -200; // more deletes than entries exist
-    delta.nullCountDelta = -50;   // more null deletes than nulls exist
+    delta.nullCountDelta = -50; // more null deletes than nulls exist
     delta.mutationCount = 200;
 
     var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
@@ -397,8 +396,8 @@ public class HistogramTestGapsCoverageTest {
         stats, null, 0, 50, 0, false, null, false);
 
     var delta = new HistogramDelta();
-    delta.totalCountDelta = -40;  // totalCount: 50 - 40 = 10
-    delta.nullCountDelta = -5;    // nullCount: 30 - 5 = 25
+    delta.totalCountDelta = -40; // totalCount: 50 - 40 = 10
+    delta.nullCountDelta = -5; // nullCount: 30 - 5 = 25
     delta.mutationCount = 40;
     // Now nullCount (25) > totalCount (10) — inconsistent but clamped
 
@@ -418,9 +417,9 @@ public class HistogramTestGapsCoverageTest {
   private static EquiDepthHistogram create4BucketHistogram() {
     return new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{250, 250, 250, 250},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250},
+        new long[] {25, 25, 25, 25},
         1000, null, 0);
   }
 

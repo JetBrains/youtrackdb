@@ -584,8 +584,8 @@ public class BTreeEngineHistogramWiringTest {
 
     // Call via the V1IndexEngine interface
     boolean result =
-        ((com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine)
-            fixture.engine).put(fixture.op, "key1", new RecordId(1, 1));
+        ((com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine) fixture.engine)
+            .put(fixture.op, "key1", new RecordId(1, 1));
     assertTrue(result);
   }
 

@@ -278,7 +278,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                     "Key size is more than allowed, operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
-                        + maxKeySize, getName());
+                        + maxKeySize,
+                    getName());
               }
               var bucketSearchResult =
                   findBucketForUpdate(key, serializedKey, atomicOperation);

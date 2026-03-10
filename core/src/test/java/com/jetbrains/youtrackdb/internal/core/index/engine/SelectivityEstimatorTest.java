@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,9 +51,9 @@ public class SelectivityEstimatorTest {
       String lo, String hi, long freq, long ndv) {
     return new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{lo, hi},
-        new long[]{freq},
-        new long[]{ndv},
+        new Comparable<?>[] {lo, hi},
+        new long[] {freq},
+        new long[] {ndv},
         freq,
         null, 0);
   }
@@ -221,9 +221,9 @@ public class SelectivityEstimatorTest {
     // A bucket with 0 frequency
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 100},
-        new long[]{0, 10},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 100},
+        new long[] {0, 10},
         100, null, 0);
     var stats = new IndexStatistics(100, 10, 0);
     Assert.assertEquals(0.0,
@@ -235,9 +235,9 @@ public class SelectivityEstimatorTest {
     // A bucket with frequency > 0 but distinctCount == 0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{100, 100},
-        new long[]{0, 10},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {100, 100},
+        new long[] {0, 10},
         200, null, 0);
     var stats = new IndexStatistics(200, 10, 0);
     Assert.assertEquals(0.0,
@@ -248,9 +248,9 @@ public class SelectivityEstimatorTest {
   public void histogramEqualityWithZeroNonNullReturnsZero() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -264,9 +264,9 @@ public class SelectivityEstimatorTest {
     // MCV value = 42 with frequency 500 out of 1000 nonNull
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{50, 50, 50, 50},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {50, 50, 50, 50},
         1000,
         42, 500);
     var stats = new IndexStatistics(1000, 200, 0);
@@ -280,9 +280,9 @@ public class SelectivityEstimatorTest {
     // MCV value = 42, but we query for 150 → normal bucket formula
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{50, 50, 50, 50},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {50, 50, 50, 50},
         1000,
         42, 500);
     var stats = new IndexStatistics(1000, 200, 0);
@@ -334,9 +334,9 @@ public class SelectivityEstimatorTest {
     // — reaches the histogram path, then returns 0.0 from nonNull <= 0 guard
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -442,9 +442,9 @@ public class SelectivityEstimatorTest {
     // Histogram with nonNullCount=0 but stats.totalCount > 0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -459,9 +459,9 @@ public class SelectivityEstimatorTest {
     // mass at an exact point negligible). This test documents that behavior.
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{100, 100, 100, 100},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {100, 100, 100, 100},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 400, 0);
 
@@ -525,9 +525,9 @@ public class SelectivityEstimatorTest {
     // BETWEEN 42 AND 42 delegates to equality: (1/1) * (500/1000) = 0.5.
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 42, 100},
-        new long[]{500, 500},
-        new long[]{50, 1},
+        new Comparable<?>[] {0, 42, 100},
+        new long[] {500, 500},
+        new long[] {50, 1},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
 
@@ -631,9 +631,9 @@ public class SelectivityEstimatorTest {
     // IS NULL selectivity = 200/1000 = 0.2
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{400, 400},
-        new long[]{10, 10},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {400, 400},
+        new long[] {10, 10},
         800, null, 0);
     var stats = new IndexStatistics(1000, 20, 200);
     Assert.assertEquals(0.2,
@@ -644,9 +644,9 @@ public class SelectivityEstimatorTest {
   public void histogramIsNotNullReturnsNonNullFraction() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{400, 400},
-        new long[]{10, 10},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {400, 400},
+        new long[] {10, 10},
         800, null, 0);
     var stats = new IndexStatistics(1000, 20, 200);
     Assert.assertEquals(0.8,
@@ -698,9 +698,9 @@ public class SelectivityEstimatorTest {
     // → STRICT_ABOVE fraction = 1.0 → nothing in bucket 0 is > 25
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},  // bucket 0 has NDV=1
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50}, // bucket 0 has NDV=1
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     // Bucket 0: fraction = 1.0, remainingInB0 = 0
@@ -715,9 +715,9 @@ public class SelectivityEstimatorTest {
     // f > -10: value(-10) < bucketVal(0) → fraction = 0.0 → everything above
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},  // bucket 0 has NDV=1
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50}, // bucket 0 has NDV=1
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     // Bucket 0: fraction = 0.0, remainingInB0 = 500
@@ -735,9 +735,9 @@ public class SelectivityEstimatorTest {
     // selectivity = 500/1000 = 0.5
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     Assert.assertEquals(0.5,
@@ -750,9 +750,9 @@ public class SelectivityEstimatorTest {
     // to > bucketVal → frac = 1.0. Interpolated range covers full bucket.
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{50, 50},
-        new long[]{100},
-        new long[]{1},
+        new Comparable<?>[] {50, 50},
+        new long[] {100},
+        new long[] {1},
         100, null, 0);
     var stats = new IndexStatistics(100, 1, 0);
     // Range [0, 100] spanning the single-value bucket
@@ -772,9 +772,9 @@ public class SelectivityEstimatorTest {
     // (can happen after boundary truncation)
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{"abc", "abc"},
-        new long[]{100},
-        new long[]{5},
+        new Comparable<?>[] {"abc", "abc"},
+        new long[] {100},
+        new long[] {5},
         100, null, 0);
     var stats = new IndexStatistics(100, 5, 0);
     // f > "abc": degenerate bucket → fraction = 0.5
@@ -815,9 +815,9 @@ public class SelectivityEstimatorTest {
     // Should be treated as 0 in formulas
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{-10, 200},
-        new long[]{5, 20},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {-10, 200},
+        new long[] {5, 20},
         190, null, 0);
     var stats = new IndexStatistics(190, 25, 0);
     // f > 25 in bucket 0 with freq=-10 → max(-10,0)=0
@@ -852,9 +852,9 @@ public class SelectivityEstimatorTest {
     // Bucket 0: 900 entries, Bucket 1: 100 entries
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 10, 100},
-        new long[]{900, 100},
-        new long[]{5, 50},
+        new Comparable<?>[] {0, 10, 100},
+        new long[] {900, 100},
+        new long[] {5, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 55, 0);
 
@@ -909,9 +909,9 @@ public class SelectivityEstimatorTest {
     // One bucket: [0, 100], 100 entries, 10 distinct
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 100},
-        new long[]{100},
-        new long[]{10},
+        new Comparable<?>[] {0, 100},
+        new long[] {100},
+        new long[] {10},
         100, null, 0);
     var stats = new IndexStatistics(100, 10, 0);
     // Equality: (1/10) * (100/100) = 0.1
@@ -923,9 +923,9 @@ public class SelectivityEstimatorTest {
   public void singleBucketHistogramGreaterThanMidpoint() {
     var h = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 100},
-        new long[]{100},
-        new long[]{10},
+        new Comparable<?>[] {0, 100},
+        new long[] {100},
+        new long[] {10},
         100, null, 0);
     var stats = new IndexStatistics(100, 10, 0);
     // f > 50: fraction = 0.5, remaining = 50, sel = 50/100 = 0.5
@@ -1014,9 +1014,9 @@ public class SelectivityEstimatorTest {
     // total = (0 + 500 + 500)/1000 = 1.0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     Assert.assertEquals(1.0,
@@ -1030,9 +1030,9 @@ public class SelectivityEstimatorTest {
     // total = 500/1000 = 0.5
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     Assert.assertEquals(0.5,
@@ -1046,9 +1046,9 @@ public class SelectivityEstimatorTest {
     // selectivity = 0/1000 = 0.0
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{500, 500},
-        new long[]{1, 50},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {1, 50},
         1000, null, 0);
     var stats = new IndexStatistics(1000, 51, 0);
     Assert.assertEquals(0.0,
@@ -1061,9 +1061,9 @@ public class SelectivityEstimatorTest {
   public void histogramLessThanWithZeroNonNullReturnsZero() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -1074,9 +1074,9 @@ public class SelectivityEstimatorTest {
   public void histogramGreaterOrEqualWithZeroNonNullReturnsZero() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -1087,9 +1087,9 @@ public class SelectivityEstimatorTest {
   public void histogramLessOrEqualWithZeroNonNullReturnsZero() {
     var h = new EquiDepthHistogram(
         2,
-        new Comparable<?>[]{0, 50, 100},
-        new long[]{0, 0},
-        new long[]{0, 0},
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 0},
+        new long[] {0, 0},
         0, null, 0);
     var stats = new IndexStatistics(100, 0, 100);
     Assert.assertEquals(0.0,
@@ -1106,14 +1106,115 @@ public class SelectivityEstimatorTest {
     // total = 0.505
     var h = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 100, 200, 300, 400},
-        new long[]{250, 250, 250, 250},
-        new long[]{50, 50, 50, 50},
+        new Comparable<?>[] {0, 100, 200, 300, 400},
+        new long[] {250, 250, 250, 250},
+        new long[] {50, 50, 50, 50},
         1000,
         42, 500);
     var stats = new IndexStatistics(1000, 200, 0);
     Assert.assertEquals(0.505,
         SelectivityEstimator.estimateIn(stats, h, List.of(42, 150)),
         DELTA);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  T6: Selectivity invariant property test (randomized)
+  //  — For random histograms, verify:
+  //    (a) all estimates are in [0, 1]
+  //    (b) GT(x) + LT(x) + EQ(x) ≈ 1.0
+  //    (c) estimateRange(min, max) ≈ 1.0
+  //    (d) isNull + isNotNull == 1.0 exactly
+  // ═══════════════════════════════════════════════════════════════════
+
+  @Test
+  public void selectivityInvariant_randomHistograms_estimatesInBounds() {
+    // Use a fixed seed for reproducibility
+    Random rng = new Random(42);
+
+    for (int trial = 0; trial < 20; trial++) {
+      // Random bucket count between 4 and 64
+      int bucketCount = 4 + rng.nextInt(61);
+
+      // Build sorted integer boundaries with random gaps
+      Comparable<?>[] boundaries = new Comparable<?>[bucketCount + 1];
+      int current = rng.nextInt(100);
+      for (int i = 0; i <= bucketCount; i++) {
+        boundaries[i] = current;
+        current += 1 + rng.nextInt(50); // step at least 1
+      }
+
+      // Random frequencies (1-1000) and distinct counts
+      long[] frequencies = new long[bucketCount];
+      long[] distinctCounts = new long[bucketCount];
+      long nonNull = 0;
+      for (int i = 0; i < bucketCount; i++) {
+        frequencies[i] = 1 + rng.nextInt(1000);
+        // distinctCounts must be >= 1 and <= frequencies[i]
+        distinctCounts[i] = 1 + rng.nextInt(
+            (int) Math.min(frequencies[i], 500));
+        nonNull += frequencies[i];
+      }
+
+      // Random null count
+      long nullCount = rng.nextInt(200);
+      long totalCount = nonNull + nullCount;
+      long totalDistinct = 0;
+      for (long dc : distinctCounts) {
+        totalDistinct += dc;
+      }
+
+      var histogram = new EquiDepthHistogram(
+          bucketCount, boundaries, frequencies, distinctCounts,
+          nonNull, null, 0);
+      var stats = new IndexStatistics(totalCount, totalDistinct, nullCount);
+
+      int minBound = (Integer) boundaries[0];
+      int maxBound = (Integer) boundaries[bucketCount];
+
+      // (d) isNull + isNotNull == 1.0 exactly
+      double isNullSel = SelectivityEstimator.estimateIsNull(
+          stats, histogram);
+      double isNotNullSel = SelectivityEstimator.estimateIsNotNull(
+          stats, histogram);
+      Assert.assertEquals(
+          "Trial " + trial + ": isNull + isNotNull must == 1.0",
+          1.0, isNullSel + isNotNullSel, DELTA);
+
+      // (c) estimateRange(min, max) ≈ 1.0
+      double fullRange = SelectivityEstimator.estimateRange(
+          stats, histogram, minBound, maxBound, true, true);
+      Assert.assertEquals(
+          "Trial " + trial + ": range(min, max) should be ~1.0",
+          1.0, fullRange, 0.05);
+
+      // For 50 random probe values within the boundary range, check (a) and (b)
+      for (int probe = 0; probe < 50; probe++) {
+        int val = minBound + rng.nextInt(
+            Math.max(1, maxBound - minBound));
+
+        double gt = SelectivityEstimator.estimateGreaterThan(
+            stats, histogram, val);
+        double lt = SelectivityEstimator.estimateLessThan(
+            stats, histogram, val);
+        double eq = SelectivityEstimator.estimateEquality(
+            stats, histogram, val);
+
+        // (a) All estimates in [0, 1]
+        String ctx = "Trial " + trial + ", probe " + probe
+            + ", val " + val;
+        Assert.assertTrue(ctx + ": GT must be >= 0", gt >= 0.0);
+        Assert.assertTrue(ctx + ": GT must be <= 1", gt <= 1.0);
+        Assert.assertTrue(ctx + ": LT must be >= 0", lt >= 0.0);
+        Assert.assertTrue(ctx + ": LT must be <= 1", lt <= 1.0);
+        Assert.assertTrue(ctx + ": EQ must be >= 0", eq >= 0.0);
+        Assert.assertTrue(ctx + ": EQ must be <= 1", eq <= 1.0);
+
+        // (b) GT + LT + EQ ≈ 1.0 (within tolerance for interpolation)
+        double sum = gt + lt + eq;
+        Assert.assertEquals(
+            ctx + ": GT + LT + EQ should be ~1.0 (was " + sum + ")",
+            1.0, sum, 0.15);
+      }
+    }
   }
 }

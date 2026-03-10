@@ -20,17 +20,17 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
-import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
-import java.util.Arrays;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
-import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import java.util.Arrays;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import org.junit.Test;
 
 /**
  * Histogram construction tests (Section 10.2 of the ADR).
@@ -184,7 +184,7 @@ public class HistogramConstructionTest {
     // 50 entries, ensuring all duplicates stay in the same bucket
     Object[] data = new Object[100];
     Arrays.fill(data, 0, 10, 0);
-    Arrays.fill(data, 10, 60, 5);  // 50 entries of value 5
+    Arrays.fill(data, 10, 60, 5); // 50 entries of value 5
     Arrays.fill(data, 60, 80, 10);
     Arrays.fill(data, 80, 100, 15);
     Arrays.sort(data);
@@ -302,7 +302,7 @@ public class HistogramConstructionTest {
 
     assertNotNull(result);
     assertTrue("Expected <= " + IndexHistogramManager.MINIMUM_BUCKET_COUNT
-            + " buckets, got " + result.actualBucketCount,
+        + " buckets, got " + result.actualBucketCount,
         result.actualBucketCount
             <= IndexHistogramManager.MINIMUM_BUCKET_COUNT);
     assertEquals(10, result.totalDistinct);
@@ -360,9 +360,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_keyInFirstBucket() {
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{25, 25, 25, 25},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {25, 25, 25, 25},
+        new long[] {25, 25, 25, 25},
         100, null, 0);
 
     assertEquals(0, histogram.findBucket(0));
@@ -374,9 +374,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_keyInMiddleBucket() {
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{25, 25, 25, 25},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {25, 25, 25, 25},
+        new long[] {25, 25, 25, 25},
         100, null, 0);
 
     assertEquals(1, histogram.findBucket(25));
@@ -390,9 +390,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_keyInLastBucket() {
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{25, 25, 25, 25},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {25, 25, 25, 25},
+        new long[] {25, 25, 25, 25},
         100, null, 0);
 
     assertEquals(3, histogram.findBucket(75));
@@ -405,9 +405,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_keyBelowMinimum_mapsToFirstBucket() {
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{10, 25, 50, 75, 100},
-        new long[]{25, 25, 25, 25},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {10, 25, 50, 75, 100},
+        new long[] {25, 25, 25, 25},
+        new long[] {25, 25, 25, 25},
         100, null, 0);
 
     assertEquals(0, histogram.findBucket(5));
@@ -417,9 +417,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_keyAboveMaximum_mapsToLastBucket() {
     var histogram = new EquiDepthHistogram(
         4,
-        new Comparable<?>[]{0, 25, 50, 75, 100},
-        new long[]{25, 25, 25, 25},
-        new long[]{25, 25, 25, 25},
+        new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {25, 25, 25, 25},
+        new long[] {25, 25, 25, 25},
         100, null, 0);
 
     assertEquals(3, histogram.findBucket(150));
@@ -431,9 +431,9 @@ public class HistogramConstructionTest {
     // because bucket i spans [boundaries[i], boundaries[i+1])
     var histogram = new EquiDepthHistogram(
         3,
-        new Comparable<?>[]{0, 10, 20, 30},
-        new long[]{10, 10, 10},
-        new long[]{10, 10, 10},
+        new Comparable<?>[] {0, 10, 20, 30},
+        new long[] {10, 10, 10},
+        new long[] {10, 10, 10},
         30, null, 0);
 
     assertEquals(1, histogram.findBucket(10)); // [10, 20)
@@ -444,9 +444,9 @@ public class HistogramConstructionTest {
   public void findBucket_linear_singleBucket() {
     var histogram = new EquiDepthHistogram(
         1,
-        new Comparable<?>[]{0, 100},
-        new long[]{100},
-        new long[]{100},
+        new Comparable<?>[] {0, 100},
+        new long[] {100},
+        new long[] {100},
         100, null, 0);
 
     assertEquals(0, histogram.findBucket(0));
@@ -492,7 +492,7 @@ public class HistogramConstructionTest {
     var frequencies = new long[10];
     var distinctCounts = new long[10];
     for (int i = 0; i <= 10; i++) {
-      boundaries[i] = i * 10 + 10;  // min = 10
+      boundaries[i] = i * 10 + 10; // min = 10
     }
     Arrays.fill(frequencies, 10L);
     Arrays.fill(distinctCounts, 10L);
@@ -522,12 +522,12 @@ public class HistogramConstructionTest {
   public void findBucket_linearAndBinary_consistentForSameKeys() {
     // Build a 5-bucket histogram (linear) and 10-bucket histogram (binary)
     // with matching boundaries, then verify consistent results
-    var linearBounds = new Comparable<?>[]{0, 20, 40, 60, 80, 100};
+    var linearBounds = new Comparable<?>[] {0, 20, 40, 60, 80, 100};
     var linear = new EquiDepthHistogram(5, linearBounds,
-        new long[]{20, 20, 20, 20, 20},
-        new long[]{20, 20, 20, 20, 20}, 100, null, 0);
+        new long[] {20, 20, 20, 20, 20},
+        new long[] {20, 20, 20, 20, 20}, 100, null, 0);
 
-    var binaryBounds = new Comparable<?>[]{
+    var binaryBounds = new Comparable<?>[] {
         0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
     var binary = new EquiDepthHistogram(10, binaryBounds,
         new long[10], new long[10], 100, null, 0);
@@ -854,8 +854,8 @@ public class HistogramConstructionTest {
     // The first bucket should contain more entries than the last bucket
     // (Zipf skew: low-rank values are dense, high-rank values are sparse).
     assertTrue("First bucket should have more entries than last bucket "
-            + "(Zipf skew): first=" + result.frequencies[0]
-            + " last=" + result.frequencies[result.actualBucketCount - 1],
+        + "(Zipf skew): first=" + result.frequencies[0]
+        + " last=" + result.frequencies[result.actualBucketCount - 1],
         result.frequencies[0] >= result.frequencies[result.actualBucketCount - 1]);
 
     // Verify total entries match
@@ -877,7 +877,7 @@ public class HistogramConstructionTest {
       }
     }
     assertTrue("At least 75% of buckets should be within 3x of target, "
-            + "but only " + withinBound + "/" + result.actualBucketCount + " are",
+        + "but only " + withinBound + "/" + result.actualBucketCount + " are",
         withinBound >= result.actualBucketCount * 3 / 4);
   }
 
@@ -915,7 +915,7 @@ public class HistogramConstructionTest {
     assertNotNull("fitToPage should produce a result (not fall to uniform)",
         fitResult);
     assertTrue("Bucket count should be reduced from " + buckets
-            + ", got " + fitResult.histogram().bucketCount(),
+        + ", got " + fitResult.histogram().bucketCount(),
         fitResult.histogram().bucketCount() < buckets);
     // Frequencies should sum to the original total
     long totalFreq = 0;
@@ -967,7 +967,7 @@ public class HistogramConstructionTest {
     assertNotNull(result);
 
     assertTrue("Bucket count " + result.actualBucketCount
-            + " should be <= sqrt-capped target " + targetBuckets,
+        + " should be <= sqrt-capped target " + targetBuckets,
         result.actualBucketCount <= targetBuckets);
 
     // Verify total entries preserved
@@ -980,7 +980,7 @@ public class HistogramConstructionTest {
     // Each bucket should have at least sqrt(n) entries on average
     long avgPerBucket = n / result.actualBucketCount;
     assertTrue("Average entries per bucket (" + avgPerBucket
-            + ") should be >= sqrt(n) (" + sqrtCap + ")",
+        + ") should be >= sqrt(n) (" + sqrtCap + ")",
         avgPerBucket >= sqrtCap);
   }
 
@@ -1054,10 +1054,10 @@ public class HistogramConstructionTest {
   @Test
   public void mergeBuckets_8to4_sumsFrequenciesAndNdv() {
     // Given: 8 buckets with known frequencies and NDVs
-    var boundaries = new Comparable<?>[]{
+    var boundaries = new Comparable<?>[] {
         0, 10, 20, 30, 40, 50, 60, 70, 80};
-    var frequencies = new long[]{10, 20, 30, 40, 50, 60, 70, 80};
-    var distinctCounts = new long[]{1, 2, 3, 4, 5, 6, 7, 8};
+    var frequencies = new long[] {10, 20, 30, 40, 50, 60, 70, 80};
+    var distinctCounts = new long[] {1, 2, 3, 4, 5, 6, 7, 8};
 
     // When: merge 8 → 4 (ratio = 2, pairs of 2)
     var merged = IndexHistogramManager.mergeBuckets(
@@ -1065,10 +1065,10 @@ public class HistogramConstructionTest {
 
     // Then: merged buckets sum adjacent pairs
     assertEquals(4, merged.actualBucketCount);
-    assertEquals(30, merged.frequencies[0]);   // 10+20
-    assertEquals(70, merged.frequencies[1]);   // 30+40
-    assertEquals(110, merged.frequencies[2]);  // 50+60
-    assertEquals(150, merged.frequencies[3]);  // 70+80
+    assertEquals(30, merged.frequencies[0]); // 10+20
+    assertEquals(70, merged.frequencies[1]); // 30+40
+    assertEquals(110, merged.frequencies[2]); // 50+60
+    assertEquals(150, merged.frequencies[3]); // 70+80
     assertEquals(3, merged.distinctCounts[0]); // 1+2
     assertEquals(7, merged.distinctCounts[1]); // 3+4
     assertEquals(11, merged.distinctCounts[2]); // 5+6
@@ -1084,10 +1084,10 @@ public class HistogramConstructionTest {
   @Test
   public void mergeBuckets_6to3_lastBucketAbsorbsRemainder() {
     // Given: 6 buckets (ratio = 2, but last bucket absorbs remainder)
-    var boundaries = new Comparable<?>[]{
+    var boundaries = new Comparable<?>[] {
         0, 10, 20, 30, 40, 50, 60};
-    var frequencies = new long[]{10, 10, 10, 10, 10, 10};
-    var distinctCounts = new long[]{5, 5, 5, 5, 5, 5};
+    var frequencies = new long[] {10, 10, 10, 10, 10, 10};
+    var distinctCounts = new long[] {5, 5, 5, 5, 5, 5};
 
     var merged = IndexHistogramManager.mergeBuckets(
         boundaries, frequencies, distinctCounts, 6, 3);
@@ -1121,10 +1121,10 @@ public class HistogramConstructionTest {
 
   @Test
   public void mergeBuckets_preservesMinAndMaxBoundaries() {
-    var boundaries = new Comparable<?>[]{
+    var boundaries = new Comparable<?>[] {
         "alpha", "bravo", "charlie", "delta", "echo"};
-    var frequencies = new long[]{25, 25, 25, 25};
-    var distinctCounts = new long[]{10, 10, 10, 10};
+    var frequencies = new long[] {25, 25, 25, 25};
+    var distinctCounts = new long[] {10, 10, 10, 10};
 
     var merged = IndexHistogramManager.mergeBuckets(
         boundaries, frequencies, distinctCounts, 4, 2);
@@ -1504,7 +1504,7 @@ public class HistogramConstructionTest {
     }
     // Bucket count should have been reduced from 128
     assertTrue("Bucket count should be reduced from " + buckets
-            + " but was " + h.bucketCount(),
+        + " but was " + h.bucketCount(),
         h.bucketCount() < buckets);
     assertTrue("Bucket count should be >= MINIMUM_BUCKET_COUNT (4)",
         h.bucketCount() >= 4);
