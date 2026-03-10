@@ -341,7 +341,13 @@ public class IndexHistogramManager extends DurableComponent {
 
   /**
    * Flushes dirty state and releases resources. Called by the engine
-   * during index close.
+   * during index-level close (e.g., drop index, rebuild index).
+   *
+   * <p><b>Not called during normal storage-level close.</b> The storage
+   * close path in {@code AbstractStorage} skips B-tree engine close calls
+   * (the write cache closes all files), but calls
+   * {@link #flushIfDirty()} via {@code flushDirtyHistograms()} to persist
+   * dirty histogram data before shutdown.
    *
    * <p>Waits for any in-progress background rebalance to finish before
    * cleanup, then permanently blocks future rebalances by leaving

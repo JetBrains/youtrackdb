@@ -266,7 +266,7 @@ public final class SelectivityEstimator {
     double remainingInB = (1.0 - fraction) * Math.max(h.frequencies()[b], 0);
     double aboveBuckets = sumFrequencies(h, b + 1, h.bucketCount());
     // Add equality contribution for the bucket containing key
-    double eqContrib = equalityFraction(b, h);
+    double eqContrib = equalityContribution(b, h);
     return clamp((remainingInB + aboveBuckets + eqContrib) / nonNull);
   }
 
@@ -304,7 +304,7 @@ public final class SelectivityEstimator {
     double fraction = fractionOf(key, b, h, FractionMode.STRICT_BELOW);
     double partialB = fraction * Math.max(h.frequencies()[b], 0);
     double belowBuckets = sumFrequencies(h, 0, b);
-    double eqContrib = equalityFraction(b, h);
+    double eqContrib = equalityContribution(b, h);
     return clamp((belowBuckets + partialB + eqContrib) / nonNull);
   }
 
@@ -571,10 +571,12 @@ public final class SelectivityEstimator {
   }
 
   /**
-   * Computes the equality contribution for a bucket — the probability
-   * of matching a single distinct value within the bucket.
+   * Computes the estimated number of rows matching a single distinct value
+   * within bucket {@code b}. This is an absolute row count (not a fraction
+   * of nonNullCount) — it is summed with other row counts before dividing
+   * by nonNullCount in the calling formula.
    */
-  private static double equalityFraction(int b, EquiDepthHistogram h) {
+  private static double equalityContribution(int b, EquiDepthHistogram h) {
     if (h.frequencies()[b] <= 0 || h.distinctCounts()[b] <= 0) {
       return 0.0;
     }
