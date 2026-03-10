@@ -330,12 +330,23 @@ public final class SelectivityEstimator {
    * @param toInclusive   true if upper bound is inclusive (informational)
    * @return selectivity in [0.0, 1.0]
    */
+  @SuppressWarnings("unchecked")
   public static double estimateRange(
       IndexStatistics stats,
       @Nullable EquiDepthHistogram histogram,
       Object fromKey, Object toKey,
       boolean fromInclusive, boolean toInclusive) {
     if (stats.totalCount() == 0) {
+      return 0.0;
+    }
+    // Check for empty or degenerate range before dispatching. When
+    // fromKey == toKey and at least one endpoint is exclusive, the range
+    // is empty (e.g., (X, X], [X, X), (X, X) all match nothing).
+    int cmp = COMPARATOR.compare(fromKey, toKey);
+    if (cmp > 0) {
+      return 0.0;
+    }
+    if (cmp == 0 && (!fromInclusive || !toInclusive)) {
       return 0.0;
     }
     if (histogram != null) {

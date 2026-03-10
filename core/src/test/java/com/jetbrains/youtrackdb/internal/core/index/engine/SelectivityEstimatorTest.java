@@ -540,6 +540,88 @@ public class SelectivityEstimatorTest {
     Assert.assertEquals(0.5, rangeEst, DELTA);
   }
 
+  // ── Degenerate range: BETWEEN X AND X with exclusive endpoints ─────
+
+  @Test
+  public void rangeWithIdenticalBounds_exclusiveFrom_returnsZero() {
+    // Regression: (X, X] is an empty range — no value satisfies X < f <= X.
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double est = SelectivityEstimator.estimateRange(
+        stats, h, 150, 150, false, true);
+
+    Assert.assertEquals("(X, X] should be empty", 0.0, est, DELTA);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_exclusiveTo_returnsZero() {
+    // Regression: [X, X) is an empty range — no value satisfies X <= f < X.
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double est = SelectivityEstimator.estimateRange(
+        stats, h, 150, 150, true, false);
+
+    Assert.assertEquals("[X, X) should be empty", 0.0, est, DELTA);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_bothExclusive_returnsZero() {
+    // Regression: (X, X) is an empty range.
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double est = SelectivityEstimator.estimateRange(
+        stats, h, 150, 150, false, false);
+
+    Assert.assertEquals("(X, X) should be empty", 0.0, est, DELTA);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_bothInclusive_nonZero() {
+    // [X, X] is a point query — must remain non-zero (existing behavior).
+    var h = uniform(4, 100, 250, 50);
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double est = SelectivityEstimator.estimateRange(
+        stats, h, 150, 150, true, true);
+
+    Assert.assertTrue("[X, X] should be non-zero", est > 0);
+  }
+
+  @Test
+  public void rangeWithIdenticalBounds_exclusiveEndpoints_uniformMode() {
+    // Uniform mode (no histogram) should also return 0 for exclusive
+    // degenerate ranges.
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    Assert.assertEquals("Uniform (X, X] should be empty", 0.0,
+        SelectivityEstimator.estimateRange(
+            stats, null, 150, 150, false, true),
+        DELTA);
+    Assert.assertEquals("Uniform [X, X) should be empty", 0.0,
+        SelectivityEstimator.estimateRange(
+            stats, null, 150, 150, true, false),
+        DELTA);
+    Assert.assertEquals("Uniform (X, X) should be empty", 0.0,
+        SelectivityEstimator.estimateRange(
+            stats, null, 150, 150, false, false),
+        DELTA);
+  }
+
+  @Test
+  public void rangeWithReversedBounds_uniformMode_returnsZero() {
+    // Uniform mode: fromKey > toKey should also return 0.
+    var stats = new IndexStatistics(1000, 200, 0);
+
+    double est = SelectivityEstimator.estimateRange(
+        stats, null, 200, 100, true, true);
+
+    Assert.assertEquals("Reversed range in uniform mode should be 0",
+        0.0, est, DELTA);
+  }
+
   // ── IS NULL / IS NOT NULL with histogram ──────────────────────────
 
   @Test
