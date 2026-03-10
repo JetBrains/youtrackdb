@@ -1274,10 +1274,15 @@ public class IndexHistogramManager extends DurableComponent {
           rebalanceInProgress.set(false);
         }
       });
-    } catch (RejectedExecutionException e) {
-      // Executor shut down (database closing) — reset the CAS guard
-      // so a future setBackgroundExecutor() can re-trigger if needed.
+    } catch (Exception e) {
+      // Any failure to submit (RejectedExecutionException on shutdown,
+      // OOME on lambda allocation, etc.) — reset the CAS guard so future
+      // schedules are not permanently blocked.
       rebalanceInProgress.set(false);
+      if (!(e instanceof RejectedExecutionException)) {
+        logger.warn("Failed to schedule histogram rebalance for {}",
+            getName(), e);
+      }
     }
   }
 
