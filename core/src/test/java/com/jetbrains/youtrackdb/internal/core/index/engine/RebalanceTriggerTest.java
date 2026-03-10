@@ -434,7 +434,7 @@ public class RebalanceTriggerTest {
   @Test
   public void getHistogram_skipsRebalanceWhenInCooldown() {
     // Given a manager with mutations exceeding the threshold but the
-    // lastRebalanceFailureTime set to now (simulating a recent failure)
+    // lastRebalanceFailureNanos set to now (simulating a recent failure)
     var fixture = createManagerFixture();
     var histogram = createTestHistogram();
     var stats = new IndexStatistics(2000, 2000, 0);
@@ -442,8 +442,8 @@ public class RebalanceTriggerTest {
         stats, histogram, 10000, 2000, 0, false, null, false);
     fixture.cache.put(fixture.engineId, snapshot);
 
-    // Set lastRebalanceFailureTime to now via reflection
-    setLastRebalanceFailureTime(fixture.manager, System.currentTimeMillis());
+    // Set lastRebalanceFailureNanos to now
+    setLastRebalanceFailureNanos(fixture.manager, System.nanoTime());
 
     var executor = Executors.newSingleThreadExecutor();
     fixture.manager.setBackgroundExecutor(executor);
@@ -548,8 +548,8 @@ public class RebalanceTriggerTest {
     manager.setFileIdForTest(value);
   }
 
-  private static void setLastRebalanceFailureTime(
+  private static void setLastRebalanceFailureNanos(
       IndexHistogramManager manager, long value) {
-    manager.setLastRebalanceFailureTime(value);
+    manager.setLastRebalanceFailureNanos(value);
   }
 }

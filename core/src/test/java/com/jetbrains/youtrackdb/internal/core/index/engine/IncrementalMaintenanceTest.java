@@ -584,12 +584,12 @@ public class IncrementalMaintenanceTest {
 
   @Test
   public void rebalanceFailureCooldown_blocksRetriggerWithinWindow() {
-    // Given a manager with lastRebalanceFailureTime set to now
+    // Given a manager with lastRebalanceFailureNanos set to now
     var fixture = new Fixture();
     var histogram = create4BucketHistogram();
     installSnapshot(fixture, 2000, 2000, 0, histogram, 10000, 2000, 0);
 
-    setLastRebalanceFailureTime(fixture.manager, System.currentTimeMillis());
+    setLastRebalanceFailureNanos(fixture.manager, System.nanoTime());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -622,8 +622,8 @@ public class IncrementalMaintenanceTest {
     installSnapshot(fixture, 2000, 2000, 0, histogram, 10000, 2000, 0);
 
     // Set failure time 120 seconds ago (default cooldown is 60s)
-    setLastRebalanceFailureTime(fixture.manager,
-        System.currentTimeMillis() - 120_000);
+    setLastRebalanceFailureNanos(fixture.manager,
+        System.nanoTime() - TimeUnit.SECONDS.toNanos(120));
 
     fixture.manager.setKeyStreamSupplier(
         () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
@@ -1166,9 +1166,9 @@ public class IncrementalMaintenanceTest {
     manager.setFileIdForTest(value);
   }
 
-  private static void setLastRebalanceFailureTime(
+  private static void setLastRebalanceFailureNanos(
       IndexHistogramManager manager, long value) {
-    manager.setLastRebalanceFailureTime(value);
+    manager.setLastRebalanceFailureNanos(value);
   }
 
   private static void setDirtyMutations(
