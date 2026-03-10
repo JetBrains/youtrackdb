@@ -178,6 +178,45 @@ public class SelectStatementTest extends DbTestBase {
   }
 
   @Test
+  public void testCaseWhenSimple() {
+    checkRightSyntax(
+        "select CASE WHEN status = 'A' THEN 'active' ELSE 'inactive' END from Foo");
+  }
+
+  @Test
+  public void testCaseWhenMultipleBranches() {
+    checkRightSyntax(
+        "select CASE WHEN score > 90 THEN 'A'"
+            + " WHEN score > 80 THEN 'B'"
+            + " WHEN score > 70 THEN 'C'"
+            + " ELSE 'F' END as grade from Student");
+  }
+
+  @Test
+  public void testCaseWhenWithoutElse() {
+    checkRightSyntax(
+        "select CASE WHEN active = true THEN 'yes' END from Person");
+  }
+
+  @Test
+  public void testCaseWhenInsideAggregateFunction() {
+    checkRightSyntax(
+        "select sum(CASE WHEN age > 18 THEN 1 ELSE 0 END) as adultCount from Person");
+  }
+
+  @Test
+  public void testCaseWhenWithCompoundCondition() {
+    checkRightSyntax(
+        "select CASE WHEN age > 18 AND city = 'NYC' THEN 'match' ELSE 'no' END from Person");
+  }
+
+  @Test
+  public void testCaseWhenMissingEnd() {
+    checkWrongSyntax(
+        "select CASE WHEN status = 'A' THEN 'active' from Foo");
+  }
+
+  @Test
   public void testSubSelect() {
     checkRightSyntax("select from (select from Foo)");
 

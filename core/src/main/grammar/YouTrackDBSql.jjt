@@ -317,6 +317,14 @@ TOKEN:
     |
     < ELSE: ( "E" | "e") ( "L" | "l") ( "S" | "s") ( "E" | "e") >
     |
+    < CASE: ( "C" | "c") ( "A" | "a") ( "S" | "s") ( "E" | "e") >
+    |
+    < WHEN: ( "W" | "w") ( "H" | "h") ( "E" | "e") ( "N" | "n") >
+    |
+    < THEN: ( "T" | "t") ( "H" | "h") ( "E" | "e") ( "N" | "n") >
+    |
+    < END: ( "E" | "e") ( "N" | "n") ( "D" | "d") >
+    |
     < CONTINUE: ( "C" | "c") ( "O" | "o") ( "N" | "n") ( "T" | "t") ( "I" | "i") ( "N" | "n") ( "U" | "u") ( "E" | "e") >
     |
     < FAIL: ( "F" | "f") ( "A" | "a") ( "I" | "i") ( "L" | "l") >
@@ -828,6 +836,14 @@ SQLIdentifier Identifier():
     token = <IF>
     |
     token = <ELSE>
+    |
+    token = <CASE>
+    |
+    token = <WHEN>
+    |
+    token = <THEN>
+    |
+    token = <END>
     |
     token = <CONTINUE>
     |
@@ -2294,6 +2310,9 @@ SQLMathExpression FirstLevelExpression():
 { SQLMathExpression expr;}
 {
     (
+        LOOKAHEAD( <CASE> )
+        expr = CaseExpression()
+        |
         LOOKAHEAD( ParenthesisExpression() )
         expr = ParenthesisExpression()
         |
@@ -2301,6 +2320,29 @@ SQLMathExpression FirstLevelExpression():
         expr = BaseExpression()
     )
     {return expr;}
+}
+
+SQLCaseExpression CaseExpression():
+{
+    SQLBooleanExpression whenCondition = null;
+    SQLExpression thenExpression = null;
+    SQLExpression elseExpression = null;
+}
+{
+    (
+        <CASE>
+        (
+            <WHEN> whenCondition = OrBlock()
+            <THEN> thenExpression = Expression()
+            { jjtThis.addWhen(whenCondition, thenExpression); }
+        )+
+        [
+            <ELSE> elseExpression = Expression()
+            { jjtThis.elseExpression = elseExpression; }
+        ]
+        <END>
+    )
+    { return jjtThis; }
 }
 
 SQLMathExpression ParenthesisExpression():
