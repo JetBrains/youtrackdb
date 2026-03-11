@@ -283,7 +283,18 @@ public class CompareInByteBufferTest {
   @Test
   public void testUTF8FourByteDifferent() {
     // U+1F600 (grinning face) vs U+1F601 (grinning face with smiling eyes)
+    // Same high surrogate (D83D), different low surrogate (DE00 vs DE01)
     assertCompare(UTF8Serializer.INSTANCE, "\uD83D\uDE00", "\uD83D\uDE01", -1);
+  }
+
+  @Test
+  public void testUTF8FourByteDifferentHighSurrogate() {
+    // U+10000 (high surrogate D800) vs U+1F600 (high surrogate D83D).
+    // Differ at the high surrogate level, exercising the early-return path.
+    var s1 = new String(Character.toChars(0x10000)); // D800 DC00
+    var s2 = "\uD83D\uDE00"; // D83D DE00
+    var expected = Integer.signum(s1.compareTo(s2));
+    assertCompare(UTF8Serializer.INSTANCE, s1, s2, expected);
   }
 
   @Test
