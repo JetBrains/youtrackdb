@@ -2608,14 +2608,22 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
 
+        final var engine = indexEngines.get(internalIndexId);
+        assert internalIndexId == engine.getId();
+
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
-              final var engine =
-                  deleteIndexEngineInternal(atomicOperation, internalIndexId);
-              final var engineName = engine.getName();
+              engine.delete(atomicOperation);
               ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engineName);
+                  .deleteIndexEngine(atomicOperation, engine.getName());
             });
+
+        // Update in-memory maps only AFTER the atomic operation commits
+        // successfully. If the atomic operation rolls back, the maps remain
+        // consistent so that addIndexEngine()'s "OLD INDEX FILE" recovery
+        // branch can find and clean up the stale engine.
+        indexEngines.set(internalIndexId, null);
+        indexEngineNameMap.remove(engine.getName());
 
       } catch (final IOException e) {
         throw BaseException.wrapException(new StorageException(name, "Error on index deletion"), e,
@@ -2632,19 +2640,6 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
-  }
-
-  private BaseIndexEngine deleteIndexEngineInternal(
-      final AtomicOperation atomicOperation, final int indexId)
-      throws IOException {
-    final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
-    indexEngines.set(indexId, null);
-    engine.delete(atomicOperation);
-
-    final var engineName = engine.getName();
-    indexEngineNameMap.remove(engineName);
-    return engine;
   }
 
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
