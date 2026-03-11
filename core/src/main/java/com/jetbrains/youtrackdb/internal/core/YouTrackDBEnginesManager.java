@@ -65,6 +65,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IteratorUtils;
 import org.slf4j.Logger;
@@ -164,6 +165,11 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    */
   private static boolean initInProgress = false;
 
+  // Package-private factory hook for testing. When non-null, startUp() uses this
+  // instead of the constructor, allowing tests to inject a subclass whose startup()
+  // throws — without relying on Mockito's mockConstruction (broken on JDK 25+).
+  static volatile Function<Boolean, YouTrackDBEnginesManager> instanceFactory;
+
   private static class WeakHashSetValueHolder<T> extends WeakReference<T> {
 
     private final int hashCode;
@@ -259,7 +265,11 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return instance;
       }
 
-      final var youTrack = new YouTrackDBEnginesManager(insideWebContainer);
+      final var factory = instanceFactory;
+      instanceFactory = null; // consume once; prevent leaking across calls
+      final var youTrack = factory != null
+          ? factory.apply(insideWebContainer)
+          : new YouTrackDBEnginesManager(insideWebContainer);
       // Assign instance before startup() so that re-entrant calls to instance()
       // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
       // in-progress object instead of returning null.

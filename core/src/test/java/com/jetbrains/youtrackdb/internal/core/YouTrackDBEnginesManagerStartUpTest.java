@@ -2,15 +2,13 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 /**
  * Tests the {@link YouTrackDBEnginesManager#startUp(boolean)} static lifecycle method,
@@ -42,6 +40,7 @@ public class YouTrackDBEnginesManagerStartUpTest {
    */
   @After
   public void restoreStaticState() throws Exception {
+    YouTrackDBEnginesManager.instanceFactory = null;
     instanceField.set(null, originalInstance);
     initInProgressField.set(null, originalInitInProgress);
   }
@@ -117,6 +116,10 @@ public class YouTrackDBEnginesManagerStartUpTest {
    * shutdownPools() must be called to clean up thread pools, and the initLock must be
    * released so that subsequent calls are not deadlocked. The original exception must be
    * re-thrown to the caller.
+   *
+   * <p>Uses a package-private factory hook ({@code instanceFactory}) to inject a subclass
+   * whose {@code startup()} throws, instead of Mockito's {@code mockConstruction} which
+   * is broken on JDK 25+.
    */
   @Test
   public void startUpCleansUpAndRethrowsWhenStartupFails() throws Exception {
@@ -124,43 +127,48 @@ public class YouTrackDBEnginesManagerStartUpTest {
     instanceField.set(null, null);
     initInProgressField.set(null, false);
 
-    // Intercept the YouTrackDBEnginesManager constructor so that the created instance's
-    // startup() method throws, simulating a failure during engine initialization.
-    // CALLS_REAL_METHODS ensures that the catch block's call to shutdownPools() invokes
-    // the real cleanup logic (which gracefully handles the null executor fields since
-    // the mock's constructor does not run).
-    try (var mocked = Mockito.mockConstruction(
-        YouTrackDBEnginesManager.class,
-        Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
-        (mock, context) -> doThrow(new RuntimeException("simulated startup failure"))
-            .when(mock).startup())) {
+    // Track the created instance so we can verify pool cleanup after the failure.
+    var createdRef = new AtomicReference<YouTrackDBEnginesManager>();
 
-      assertThatThrownBy(() -> YouTrackDBEnginesManager.startUp(false))
-          .isInstanceOf(RuntimeException.class)
-          .hasMessage("simulated startup failure");
+    // Install a factory that creates a real manager (with real pools) but whose
+    // startup() throws, simulating a failure during engine initialization.
+    YouTrackDBEnginesManager.instanceFactory = insideWebContainer -> {
+      var manager = new FailingStartupManager(insideWebContainer);
+      createdRef.set(manager);
+      return manager;
+    };
 
-      // After the failure, the static instance must be null — no half-initialized
-      // singleton should remain visible to other callers.
-      assertThat(instanceField.get(null)).isNull();
+    assertThatThrownBy(() -> YouTrackDBEnginesManager.startUp(false))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("simulated startup failure");
 
-      // Verify exactly one instance was created (and discarded).
-      assertThat(mocked.constructed()).hasSize(1);
+    // After the failure, the static instance must be null — no half-initialized
+    // singleton should remain visible to other callers.
+    assertThat(instanceField.get(null)).isNull();
 
-      // shutdownPools() must have been called on the discarded instance to clean
-      // up constructor-allocated thread pools (WAL, checkpoint, cache, etc.).
-      verify(mocked.constructed().get(0)).shutdownPools();
+    // Verify exactly one instance was created (and discarded).
+    var created = createdRef.get();
+    assertThat(created).isNotNull();
 
-      // The initLock must NOT be held after the failure — otherwise subsequent
-      // startUp() calls from other threads would deadlock.
-      Field lockField =
-          YouTrackDBEnginesManager.class.getDeclaredField("initLock");
-      lockField.setAccessible(true);
-      var lock = (ReentrantLock) lockField.get(null);
-      assertThat(lock.isHeldByCurrentThread()).isFalse();
+    // shutdownPools() must have been called on the discarded instance to clean
+    // up constructor-allocated thread pools (WAL, checkpoint, cache, etc.).
+    // We verify the effect: all pools must be in the shutdown state.
+    assertThat(created.getWalFlushExecutor().isShutdown()).isTrue();
+    assertThat(created.getWalWriteExecutor().isShutdown()).isTrue();
+    assertThat(created.getFuzzyCheckpointExecutor().isShutdown()).isTrue();
+    assertThat(created.getWowCacheFlushExecutor().isShutdown()).isTrue();
+    assertThat(created.getScheduledPool().isShutdown()).isTrue();
 
-      // initInProgress must be reset so that a retry can proceed.
-      assertThat(initInProgressField.get(null)).isEqualTo(false);
-    }
+    // The initLock must NOT be held after the failure — otherwise subsequent
+    // startUp() calls from other threads would deadlock.
+    Field lockField =
+        YouTrackDBEnginesManager.class.getDeclaredField("initLock");
+    lockField.setAccessible(true);
+    var lock = (ReentrantLock) lockField.get(null);
+    assertThat(lock.isHeldByCurrentThread()).isFalse();
+
+    // initInProgress must be reset so that a retry can proceed.
+    assertThat(initInProgressField.get(null)).isEqualTo(false);
   }
 
   /**
@@ -194,6 +202,23 @@ public class YouTrackDBEnginesManagerStartUpTest {
       if (!manager.getScheduledPool().isShutdown()) {
         manager.shutdownPools();
       }
+    }
+  }
+
+  /**
+   * Subclass that overrides {@code startup()} to throw a RuntimeException,
+   * simulating a failure during engine initialization. All other behavior
+   * (constructor, shutdownPools, pool getters) is inherited from the real class.
+   */
+  static class FailingStartupManager extends YouTrackDBEnginesManager {
+
+    FailingStartupManager(boolean insideWebContainer) {
+      super(insideWebContainer);
+    }
+
+    @Override
+    public YouTrackDBEnginesManager startup() {
+      throw new RuntimeException("simulated startup failure");
     }
   }
 }
