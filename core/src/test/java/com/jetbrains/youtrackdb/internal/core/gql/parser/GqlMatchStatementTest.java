@@ -140,6 +140,33 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     }
   }
 
+  // ── buildPlan: three anonymous → counter increments through $c0, $c1, $c2 ──
+
+  @Test
+  public void buildPlan_threeAnonymous_generatesC0C1C2() {
+    graph.addVertex(T.label, "MatchStF", "k", "v");
+    graph.tx().commit();
+
+    var patterns = List.of(
+        filter(null, "MatchStF"),
+        filter(null, "MatchStF"),
+        filter(null, "MatchStF"));
+    var statement = new GqlMatchStatement(patterns);
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      var row = (Result) stream.next();
+      var names = row.getPropertyNames();
+      Assert.assertTrue("Should contain $c0", names.contains("$c0"));
+      Assert.assertTrue("Should contain $c1", names.contains("$c1"));
+      Assert.assertTrue("Should contain $c2", names.contains("$c2"));
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
   // ── buildPlan: mix of named and anonymous ──
 
   @Test

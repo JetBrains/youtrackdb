@@ -393,6 +393,28 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
   }
 
   @Test
+  public void putInternal_storesCopy_notOriginalInstance() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(session);
+
+      var cache = new GqlExecutionPlanCache(10);
+      var original = GqlExecutionPlan.empty();
+      cache.putInternal("MATCH (z:V)", original);
+
+      var retrieved = cache.getInternal("MATCH (z:V)", ctx);
+      Assert.assertNotNull("Cached plan should be retrievable", retrieved);
+      Assert.assertNotSame("putInternal should store a copy, not the original",
+          original, retrieved);
+    } finally {
+      tx.commit();
+    }
+  }
+
+  @Test
   public void invalidate_clearsCache() {
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();

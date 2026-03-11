@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
@@ -153,5 +154,14 @@ public class GqlStatementCacheTest extends DbTestBase {
   public void contains_missingKey_returnsFalse() {
     var cache = new GqlStatementCache(10);
     Assert.assertFalse(cache.contains("MATCH (z:NoSuchClass)"));
+  }
+
+  @Test
+  public void getStatement_withNonNullSession_usesCacheAndReturnsSameInstance() {
+    var query = "MATCH (n:OUser)";
+    var stmt1 = GqlPlanner.getStatement(query, session);
+    var stmt2 = GqlPlanner.getStatement(query, session);
+    Assert.assertSame("GqlPlanner.getStatement with non-null session should return"
+        + " cached instance", stmt1, stmt2);
   }
 }

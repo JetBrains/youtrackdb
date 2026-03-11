@@ -224,6 +224,38 @@ public class GqlServiceTest extends GraphBaseTest {
     Assert.assertTrue(service.getRequirements().isEmpty());
   }
 
+  // ── GqlResultIterator lifecycle ──
+
+  @Test
+  public void execute_multipleResults_iteratedCorrectly() {
+    graph.addVertex(T.label, "GqlSvcIter", "name", "A");
+    graph.addVertex(T.label, "GqlSvcIter", "name", "B");
+    graph.addVertex(T.label, "GqlSvcIter", "name", "C");
+    graph.tx().commit();
+
+    var traversal = graph.traversal()
+        .call(GqlService.NAME, Map.of(GqlService.QUERY, "MATCH (a:GqlSvcIter)"));
+    var count = 0;
+    while (traversal.hasNext()) {
+      Assert.assertNotNull(traversal.next());
+      count++;
+    }
+    Assert.assertEquals(3, count);
+    Assert.assertFalse("hasNext after exhaustion should return false",
+        traversal.hasNext());
+  }
+
+  @Test
+  public void execute_resultMapContainsGremlinTypes() {
+    graph.addVertex(T.label, "GqlSvcType", "name", "TypeTest");
+    graph.tx().commit();
+
+    var results = graph.traversal().gql("MATCH (a:GqlSvcType)").toList();
+    Assert.assertEquals(1, results.size());
+    var map = (Map<String, Object>) results.getFirst();
+    Assert.assertTrue("Value should be a Vertex", map.get("a") instanceof Vertex);
+  }
+
   // ── Factory: arguments edge cases ──
 
   @Test

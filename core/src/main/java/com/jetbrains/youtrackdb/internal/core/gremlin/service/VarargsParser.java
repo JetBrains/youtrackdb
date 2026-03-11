@@ -39,19 +39,15 @@ final class VarargsParser {
       throw new IllegalArgumentException("First argument must be a String (command/query)");
     }
 
-    Map<?, ?> arguments = Map.of();
-    if (argsList.size() > 1) {
-      var rest = argsList.size() - 1;
-      if (rest % 2 != 0) {
-        throw new IllegalArgumentException("Arguments must be provided in key-value pairs");
-      }
-      var map = new LinkedHashMap<>();
-      for (var i = 1; i + 1 < argsList.size(); i += 2) {
-        map.put(argsList.get(i), argsList.get(i + 1));
-      }
-      arguments = map;
+    if (argsList.size() % 2 == 0) {
+      throw new IllegalArgumentException("Arguments must be provided in key-value pairs");
     }
 
-    return new ParseResult(command, arguments);
+    var map = new LinkedHashMap<>();
+    for (var i = 1; i < argsList.size(); i += 2) {
+      map.put(argsList.get(i), argsList.get(i + 1));
+    }
+
+    return new ParseResult(command, map);
   }
 }

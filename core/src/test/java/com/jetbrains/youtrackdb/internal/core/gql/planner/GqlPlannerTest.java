@@ -80,4 +80,15 @@ public class GqlPlannerTest {
     var statement = GqlPlanner.parse("MATCH (x)");
     Assert.assertNotNull(statement);
   }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void parse_syntaxError_includesNearToken() {
+    try {
+      GqlPlanner.parse("MATCH (a:V WHERE");
+    } catch (IllegalArgumentException e) {
+      Assert.assertTrue("Error should include 'near:' with offending token",
+          e.getMessage().contains("near:"));
+      throw e;
+    }
+  }
 }
