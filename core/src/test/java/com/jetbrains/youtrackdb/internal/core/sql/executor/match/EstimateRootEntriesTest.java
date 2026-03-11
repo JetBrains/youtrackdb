@@ -71,12 +71,13 @@ public class EstimateRootEntriesTest {
   }
 
   @Test
-  public void noFilterReturnsClassCount() {
+  public void noFilterReturnsClassCountPlusOne() {
+    // No filter → classCount + 1 bias so that filtered nodes are preferred.
     mockClass("Person", 5000L);
 
     var result = invoke(Map.of("a", "Person"), Map.of(), Map.of());
 
-    assertEquals(5000L, (long) result.get("a"));
+    assertEquals(5001L, (long) result.get("a"));
   }
 
   @Test
@@ -132,7 +133,8 @@ public class EstimateRootEntriesTest {
 
     assertEquals("RID alias", 1L, (long) result.get("r"));
     assertEquals("Capped filter", 1000L, (long) result.get("p"));
-    assertEquals("No filter", 50L, (long) result.get("c"));
+    // No filter → classCount + 1 bias
+    assertEquals("No filter", 51L, (long) result.get("c"));
   }
 
   @Test
