@@ -1266,42 +1266,29 @@ public final class WOWCache extends AbstractWriteCache
   public void deleteFile(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);
 
-    // Pause the periodic flush before acquiring filesLock to avoid deadlock:
-    // - caller holds filesLock write lock → waits for commitExecutor (DeleteFileTask)
-    // - commitExecutor runs PeriodicFlushTask → may need filesLock read lock for page I/O
-    // With stopFlush checks inside executePeriodicFlush, the flush aborts quickly,
-    // freeing the commitExecutor thread to process the DeleteFileTask.
-    pauseFlush();
+    filesLock.acquireWriteLock();
     try {
-      filesLock.acquireWriteLock();
+      checkForClose();
+
+      final RawPair<String, String> file;
+      final var future =
+          commitExecutor().submit(new DeleteFileTask(this, fileId));
       try {
-        checkForClose();
+        file = future.get();
+      } catch (final java.lang.InterruptedException e) {
+        throw BaseException.wrapException(
+            new ThreadInterruptedException("File data removal was interrupted"), e, storageName);
+      } catch (final Exception e) {
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName, "File data removal was abnormally terminated"), e,
+            storageName);
+      }
 
-        final RawPair<String, String> file;
-        final var future =
-            commitExecutor().submit(new DeleteFileTask(this, fileId));
-        try {
-          file = future.get();
-        } catch (final java.lang.InterruptedException e) {
-          throw BaseException.wrapException(
-              new ThreadInterruptedException("File data removal was interrupted"), e,
-              storageName);
-        } catch (final Exception e) {
-          throw BaseException.wrapException(
-              new WriteCacheException(storageName,
-                  "File data removal was abnormally terminated"),
-              e,
-              storageName);
-        }
-
-        if (file != null) {
-          writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
-        }
-      } finally {
-        filesLock.releaseWriteLock();
+      if (file != null) {
+        writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
       }
     } finally {
-      resumeFlush();
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -1310,29 +1297,23 @@ public final class WOWCache extends AbstractWriteCache
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
 
-    // Same deadlock pattern as deleteFile: filesLock + commitExecutor starvation.
-    pauseFlush();
+    filesLock.acquireWriteLock();
     try {
-      filesLock.acquireWriteLock();
-      try {
-        checkForClose();
+      checkForClose();
 
-        removeCachedPages(intId);
-        final var entry = files.acquire(fileId);
-        try {
-          entry.get().shrink(0);
-        } finally {
-          files.release(entry);
-        }
-      } catch (final java.lang.InterruptedException e) {
-        throw BaseException.wrapException(
-            new StorageException(storageName, "File truncation was interrupted"),
-            e, storageName);
+      removeCachedPages(intId);
+      final var entry = files.acquire(fileId);
+      try {
+        entry.get().shrink(0);
       } finally {
-        filesLock.releaseWriteLock();
+        files.release(entry);
       }
+    } catch (final java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new StorageException(storageName, "File truncation was interrupted"),
+          e, storageName);
     } finally {
-      resumeFlush();
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -1471,61 +1452,6 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  /**
-   * Temporarily pauses the periodic flush by setting {@link #stopFlush} and waiting for the
-   * current flush to complete. The flush now checks {@code stopFlush} at multiple points within
-   * {@link #executePeriodicFlush}, so it will abort quickly rather than running to completion.
-   *
-   * <p>Must be paired with {@link #resumeFlush()} in a finally block. Used by operations like
-   * {@link #deleteFile} that must run on the {@code commitExecutor} but cannot wait for a
-   * long-running periodic flush to finish naturally.
-   *
-   * <p><b>Not safe for concurrent callers.</b> Correctness relies on the subsequent
-   * {@code filesLock} write-lock acquisition serializing concurrent operations.
-   * Two concurrent {@code pauseFlush()} calls could race on the {@code stopFlush}
-   * flag and {@code flushFuture}, but this is harmless because the callers
-   * are serialized by the write lock immediately after.
-   */
-  private void pauseFlush() {
-    stopFlush = true;
-
-    if (flushFuture != null) {
-      try {
-        flushFuture.get(shutdownTimeout, TimeUnit.MILLISECONDS);
-      } catch (final java.lang.InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw BaseException.wrapException(
-            new WriteCacheException(storageName,
-                "Flush pause for storage " + storageName + " was interrupted"),
-            e, storageName);
-      } catch (final CancellationException e) {
-        // ignore
-      } catch (final ExecutionException e) {
-        throw BaseException.wrapException(
-            new WriteCacheException(storageName,
-                "Error in execution of data flush for storage " + storageName),
-            e, storageName);
-      } catch (final TimeoutException e) {
-        throw BaseException.wrapException(
-            new WriteCacheException(storageName,
-                "Timed out waiting for flush pause in storage " + storageName),
-            e, storageName);
-      }
-    }
-  }
-
-  /**
-   * Resumes the periodic flush after a {@link #pauseFlush()} call.
-   */
-  private void resumeFlush() {
-    stopFlush = false;
-    if (pagesFlushInterval > 0) {
-      flushFuture =
-          commitExecutor().schedule(
-              new PeriodicFlushTask(this), pagesFlushInterval, TimeUnit.MILLISECONDS);
-    }
-  }
-
   @Override
   public long[] close() throws IOException {
     flush();
@@ -1614,29 +1540,22 @@ public final class WOWCache extends AbstractWriteCache
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
 
-    // Same deadlock pattern as deleteFile: filesLock + commitExecutor starvation.
-    pauseFlush();
+    filesLock.acquireWriteLock();
     try {
-      filesLock.acquireWriteLock();
-      try {
-        checkForClose();
+      checkForClose();
 
-        if (flush) {
-          flush(intId);
-        } else {
-          removeCachedPages(intId);
-        }
+      if (flush) {
+        flush(intId);
+      } else {
+        removeCachedPages(intId);
+      }
 
-        if (!files.close(fileId)) {
-          throw new StorageException(storageName,
-              "Can not close file with id "
-                  + internalFileId(fileId) + " because it is still in use");
-        }
-      } finally {
-        filesLock.releaseWriteLock();
+      if (!files.close(fileId)) {
+        throw new StorageException(storageName,
+            "Can not close file with id " + internalFileId(fileId) + " because it is still in use");
       }
     } finally {
-      resumeFlush();
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -1817,12 +1736,6 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long[] delete() throws IOException {
-    // Stop periodic flush before acquiring filesLock write lock to avoid deadlock:
-    // main thread holds filesLock write lock -> waits for commitExecutor (DeleteFileTask)
-    // commitExecutor runs PeriodicFlushTask -> waits for async IO completion
-    // IO thread needs filesLock read lock (for page load) -> blocked by main thread
-    stopFlush();
-
     final var result = new LongArrayList(1_024);
     filesLock.acquireWriteLock();
     try {
@@ -1865,6 +1778,7 @@ public final class WOWCache extends AbstractWriteCache
       filesLock.releaseWriteLock();
     }
 
+    stopFlush();
     doubleWriteLog.close();
 
     return result.toLongArray();
@@ -3699,8 +3613,8 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        // Check stopFlush between flush phases so that pauseFlush() callers
-        // (e.g., deleteFile) don't have to wait for the entire flush to complete.
+        // Check stopFlush between flush phases so the flush aborts quickly
+        // when the cache is being shut down.
         if (stopFlush) {
           return;
         }
