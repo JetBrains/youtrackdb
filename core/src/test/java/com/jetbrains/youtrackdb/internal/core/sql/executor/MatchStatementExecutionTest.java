@@ -3114,7 +3114,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     // reply2 (id=20) by Carol who does NOT know Alice → false
     assertEquals(20, ((Number) results.get(1).getProperty("replyId")).intValue());
     assertEquals("Carol", results.get(1).getProperty("replyAuthorName"));
-    assertEquals(false, results.get(1).getProperty("knowsOriginalAuthor"))
+    assertEquals(false, results.get(1).getProperty("knowsOriginalAuthor"));
     session.commit();
   }
 
@@ -3232,7 +3232,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, results.size());
     assertEquals("a1", results.get(0).getProperty("aName"));
     assertEquals("b1", results.get(0).getProperty("bName"));
-    assertEquals("c1", results.get(0).getProperty("cName"))
+    assertEquals("c1", results.get(0).getProperty("cName"));
     session.commit();
   }
 
