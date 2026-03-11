@@ -287,5 +287,23 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     return left != null && left.varMightBeInUse(varName) ||
         right != null && right.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session)
+        || right != null && right.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLContainsTextCondition(-1);
+    result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
+    result.right = right == null ? null : right.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=b588492ba2cbd0f932055f1f64bbbecd (do not edit this line) */

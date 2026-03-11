@@ -5772,6 +5772,360 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Verifies that an aggregate function INSIDE a CASE THEN branch is correctly
+   * recognized by the planner. Before the fix, SQLCaseExpression.isAggregate()
+   * always returned false, so `CASE WHEN ... THEN sum(x) ELSE 0 END` was treated
+   * as a non-aggregate expression, producing wrong results.
+   */
+  @Test
+  public void testAggregateInsideCaseThenBranch() {
+    var className = "testAggInsideCaseThen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // values: 10, 20, 30, 40, 50 → sum = 150
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN 1 = 1 THEN sum(value) ELSE 0 END as total"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(150, item.<Number>getProperty("total").intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that an aggregate function inside the ELSE branch is recognized.
+   */
+  @Test
+  public void testAggregateInsideCaseElseBranch() {
+    var className = "testAggInsideCaseElse";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 4; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // values: 10, 20, 30, 40 → count = 4
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN 1 = 0 THEN 'x' ELSE count(*) END as cnt"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(4L, item.<Number>getProperty("cnt").longValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that an aggregate function inside a WHEN condition is recognized.
+   * E.g. CASE WHEN count(*) > 3 THEN 'many' ELSE 'few' END.
+   * Before the fix, isAggregate() on SQLBooleanExpression returned false,
+   * so the planner would not set up aggregation for the WHEN condition.
+   */
+  @Test
+  public void testAggregateInsideCaseWhenCondition() {
+    var className = "testAggInsideCaseWhen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // 5 records → count(*) = 5 > 3 → 'many'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 3 THEN 'many' ELSE 'few' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals("many", item.getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies aggregate in WHEN condition with result going to ELSE branch.
+   * CASE WHEN count(*) > 100 THEN 'over' ELSE 'under' END with 5 records.
+   */
+  @Test
+  public void testAggregateInsideCaseWhenConditionElsePath() {
+    var className = "testAggInsideCaseWhenElse";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", i);
+    }
+    session.commit();
+
+    // 5 records → count(*) = 5, not > 100 → 'under'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 100 THEN 'over' ELSE 'under' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals("under", item.getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies aggregates in both WHEN condition and THEN branch simultaneously.
+   * CASE WHEN sum(value) > 10 THEN count(*) ELSE 0 END.
+   */
+  @Test
+  public void testAggregateInBothCaseWhenAndThen() {
+    var className = "testAggBothWhenThen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // values: 10+20+30+40+50 = 150 > 10 → count(*) = 5
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN sum(value) > 10 THEN count(*) ELSE 0 END as total"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(5L, item.<Number>getProperty("total").longValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies aggregates in all three positions: WHEN, THEN, and ELSE simultaneously.
+   * CASE WHEN count(*) > 3 THEN sum(value) ELSE avg(value) END.
+   */
+  @Test
+  public void testAggregateInAllThreeCasePositions() {
+    var className = "testAggAllThreePos";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // 5 records → count(*) = 5 > 3 → sum(value) = 150
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 3 THEN sum(value) ELSE avg(value) END as res"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(150L, item.<Number>getProperty("res").longValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Same as above but forces the ELSE branch to verify the aggregate there works.
+   * CASE WHEN count(*) > 100 THEN sum(value) ELSE avg(value) END.
+   */
+  @Test
+  public void testAggregateInAllThreeCasePositionsElsePath() {
+    var className = "testAggAllThreePosElse";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // 5 records → count(*) = 5, not > 100 → avg(value) = 30
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 100 THEN sum(value) ELSE avg(value) END as res"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(30.0, item.<Number>getProperty("res").doubleValue(), 0.001);
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies multiple WHEN branches each containing an aggregate.
+   * Exercises the loop in splitForAggregation with more than one WHEN condition.
+   */
+  @Test
+  public void testMultipleWhenBranchesWithAggregates() {
+    var className = "testMultiWhenAgg";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 8; i++) {
+      session.newInstance(className);
+    }
+    session.commit();
+
+    // 8 records → count(*) = 8; first WHEN (>10) false, second WHEN (>5) true → 'some'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE"
+            + " WHEN count(*) > 10 THEN 'many'"
+            + " WHEN count(*) > 5 THEN 'some'"
+            + " ELSE 'few' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals("some", item.getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies AND/OR boolean operators in WHEN condition with multiple aggregates.
+   * Tests that SQLAndBlock.isAggregate and splitForAggregation work correctly.
+   */
+  @Test
+  public void testBooleanAndOrInWhenWithAggregates() {
+    var className = "testBoolAndOrAgg";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("value", (i + 1) * 10);
+    }
+    session.commit();
+
+    // count(*) = 5, sum(value) = 150
+    // WHEN count(*) > 3 AND sum(value) < 200 → true AND true → 'match'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 3 AND sum(value) < 200"
+            + " THEN 'match' ELSE 'no match' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals("match", item.getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies CASE with aggregate in WHEN works correctly with GROUP BY.
+   * Each group gets its own aggregate evaluation.
+   */
+  @Test
+  public void testCaseAggregateInWhenWithGroupBy() {
+    var className = "testCaseAggWhenGroupBy";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 6; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("category", i < 4 ? "A" : "B");
+    }
+    session.commit();
+
+    // Group A: 4 records → count(*) > 2 → 'popular'
+    // Group B: 2 records → count(*) = 2, not > 2 → 'rare'
+    session.begin();
+    var result = session.query(
+        "SELECT category,"
+            + " CASE WHEN count(*) > 2 THEN 'popular' ELSE 'rare' END as popularity"
+            + " FROM " + className + " GROUP BY category ORDER BY category");
+    Assert.assertTrue(result.hasNext());
+    var a = result.next();
+    Assert.assertEquals("A", a.getProperty("category"));
+    Assert.assertEquals("popular", a.getProperty("popularity"));
+    Assert.assertTrue(result.hasNext());
+    var b = result.next();
+    Assert.assertEquals("B", b.getProperty("category"));
+    Assert.assertEquals("rare", b.getProperty("popularity"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies CASE WHEN with aggregate on an empty table.
+   * count(*) on empty table = 0, so ELSE branch should be taken.
+   */
+  @Test
+  public void testCaseAggregateOnEmptyTable() {
+    var className = "testCaseAggEmpty";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 0 THEN 'has data' ELSE 'empty' END as status"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals("empty", item.getProperty("status"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Regression test: after the isCountStar() fix that adds isBaseIdentifier() check,
+   * a plain SELECT count(*) must still use the CountFromClassStep optimization.
+   */
+  @Test
+  public void testPlainCountStarStillUsesOptimization() {
+    var className = "testPlainCountOpt";
+    session.getMetadata().getSchema().createClass(className);
+
+    for (var i = 0; i < 3; i++) {
+      session.begin();
+      session.newEntity(className);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query("select count(*) from " + className);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(3L, (Object) item.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertThat(plan.getSteps())
+        .anyMatch(step -> step instanceof CountFromClassStep);
+    result.close();
+    session.commit();
+  }
+
   @Test
   public void testConditionalAggregationWithCompoundCondition() {
     var className = "testConditionalAggCompound";

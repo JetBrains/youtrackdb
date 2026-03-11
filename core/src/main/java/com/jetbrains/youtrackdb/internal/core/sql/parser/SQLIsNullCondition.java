@@ -184,5 +184,21 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
   public boolean varMightBeInUse(String varName) {
     return expression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return expression.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLIsNullCondition(-1);
+    result.expression = expression.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=29ebbc506a98f90953af91a66a03aa1e (do not edit this line) */

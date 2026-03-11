@@ -87,7 +87,48 @@ public class SQLCaseExpression extends SQLMathExpression {
 
   @Override
   public boolean isAggregate(DatabaseSessionEmbedded session) {
-    return false;
+    for (var cond : whenConditions) {
+      if (cond.isAggregate(session)) {
+        return true;
+      }
+    }
+    for (var expr : thenExpressions) {
+      if (expr.isAggregate(session)) {
+        return true;
+      }
+    }
+    return elseExpression != null && elseExpression.isAggregate(session);
+  }
+
+  @Override
+  public SimpleNode splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLCaseExpression(-1);
+    for (int i = 0; i < whenConditions.size(); i++) {
+      var splitWhen = whenConditions.get(i).splitForAggregation(aggregateProj, ctx);
+      var splitThen = thenExpressions.get(i).splitForAggregation(aggregateProj, ctx);
+      result.addWhen(splitWhen, wrapAsExpression(splitThen));
+    }
+    if (elseExpression != null) {
+      result.elseExpression = elseExpression.splitForAggregation(aggregateProj, ctx);
+    }
+    return result;
+  }
+
+  private static SQLExpression wrapAsExpression(SimpleNode node) {
+    if (node instanceof SQLExpression expr) {
+      return expr;
+    }
+    if (node instanceof SQLMathExpression math) {
+      var expr = new SQLExpression(-1);
+      expr.mathExpression = math;
+      return expr;
+    }
+    throw new IllegalStateException(
+        "Unexpected split result type: " + node.getClass().getName());
   }
 
   @Override

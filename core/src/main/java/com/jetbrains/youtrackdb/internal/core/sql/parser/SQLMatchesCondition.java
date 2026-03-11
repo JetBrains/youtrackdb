@@ -265,5 +265,27 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     return expression != null && expression.varMightBeInUse(varName) ||
         rightExpression != null && rightExpression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return expression != null && expression.isAggregate(session)
+        || rightExpression != null && rightExpression.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLMatchesCondition(-1);
+    result.expression = expression == null ? null
+        : expression.splitForAggregation(aggregateProj, ctx);
+    result.right = right;
+    result.rightParam = rightParam == null ? null : rightParam.copy();
+    result.rightExpression = rightExpression == null ? null
+        : rightExpression.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=68712f476e2e633c2bbfc34cb6c39356 (do not edit this line) */

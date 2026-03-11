@@ -701,5 +701,23 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   public boolean varMightBeInUse(String varName) {
     return left.varMightBeInUse(varName) || right.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left.isAggregate(session) || right.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLBinaryCondition(-1);
+    result.left = left.splitForAggregation(aggregateProj, ctx);
+    result.operator = operator.copy();
+    result.right = right.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=99ed1dd2812eb730de8e1931b1764da5 (do not edit this line) */

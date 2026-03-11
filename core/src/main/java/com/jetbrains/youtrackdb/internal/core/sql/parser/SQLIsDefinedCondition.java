@@ -164,5 +164,21 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
   public boolean varMightBeInUse(String varName) {
     return expression != null && expression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return expression != null && expression.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLIsDefinedCondition(-1);
+    result.expression = expression.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=075954b212c8cb44c8538bf5dea047d3 (do not edit this line) */

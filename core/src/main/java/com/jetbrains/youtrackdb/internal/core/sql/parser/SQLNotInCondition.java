@@ -302,5 +302,32 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     return left != null && left.varMightBeInUse(varName) ||
         rightMathExpression != null && rightMathExpression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session)
+        || rightMathExpression != null && rightMathExpression.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLNotInCondition(-1);
+    result.operator = operator == null ? null : operator.copy();
+    result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
+    if (rightMathExpression != null) {
+      var split = rightMathExpression.splitForAggregation(aggregateProj, ctx);
+      if (split instanceof SQLMathExpression math) {
+        result.rightMathExpression = math;
+      }
+    }
+    result.rightStatement = rightStatement == null ? null : rightStatement.copy();
+    result.rightParam = rightParam == null ? null : rightParam.copy();
+    result.right = right;
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=8fb82bf72cc7d9cbdf2f9e2323ca8ee1 (do not edit this line) */

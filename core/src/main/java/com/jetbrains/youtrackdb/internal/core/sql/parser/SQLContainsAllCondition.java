@@ -401,5 +401,26 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
         right != null && right.varMightBeInUse(varName) ||
         rightBlock != null && rightBlock.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session)
+        || right != null && right.isAggregate(session)
+        || rightBlock != null && rightBlock.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLContainsAllCondition(-1);
+    result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
+    result.right = right == null ? null : right.splitForAggregation(aggregateProj, ctx);
+    result.rightBlock = rightBlock == null ? null
+        : rightBlock.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=ab7b4e192a01cda09a82d5b80ef4ec60 (do not edit this line) */

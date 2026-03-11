@@ -310,5 +310,25 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
         second != null && second.varMightBeInUse(varName) ||
         third != null && third.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return first != null && first.isAggregate(session)
+        || second != null && second.isAggregate(session)
+        || third != null && third.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLBetweenCondition(-1);
+    result.first = first == null ? null : first.splitForAggregation(aggregateProj, ctx);
+    result.second = second == null ? null : second.splitForAggregation(aggregateProj, ctx);
+    result.third = third == null ? null : third.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=f94f4779c4a6c6d09539446045ceca89 (do not edit this line) */

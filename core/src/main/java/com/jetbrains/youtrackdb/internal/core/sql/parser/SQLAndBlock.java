@@ -350,5 +350,28 @@ public class SQLAndBlock extends SQLBooleanExpression {
     }
     return false;
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    for (var sub : subBlocks) {
+      if (sub.isAggregate(session)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLAndBlock(-1);
+    for (var sub : subBlocks) {
+      result.subBlocks.add(sub.splitForAggregation(aggregateProj, ctx));
+    }
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=cf1f66cc86cfc93d357f9fcdfa4a4604 (do not edit this line) */

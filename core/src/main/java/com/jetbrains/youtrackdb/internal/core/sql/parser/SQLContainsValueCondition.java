@@ -360,5 +360,28 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
         || condition != null && condition.varMightBeInUse(varName)
         || expression != null && expression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session)
+        || expression != null && expression.isAggregate(session)
+        || condition != null && condition.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLContainsValueCondition(-1);
+    result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
+    result.operator = operator;
+    result.expression = expression == null ? null
+        : expression.splitForAggregation(aggregateProj, ctx);
+    result.condition = condition == null ? null
+        : condition.splitForAggregation(aggregateProj, ctx);
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=6fda752f10c8d8731f43efa706e39459 (do not edit this line) */

@@ -530,5 +530,32 @@ public class SQLInCondition extends SQLBooleanExpression {
     return left != null && left.varMightBeInUse(varName) ||
         rightMathExpression != null && rightMathExpression.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session)
+        || rightMathExpression != null && rightMathExpression.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLInCondition(-1);
+    result.operator = operator == null ? null : operator.copy();
+    result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
+    if (rightMathExpression != null) {
+      var split = rightMathExpression.splitForAggregation(aggregateProj, ctx);
+      if (split instanceof SQLMathExpression math) {
+        result.rightMathExpression = math;
+      }
+    }
+    result.rightStatement = rightStatement == null ? null : rightStatement.copy();
+    result.rightParam = rightParam == null ? null : rightParam.copy();
+    result.right = right;
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=00df7cb1877c0a12d24205c1700653c7 (do not edit this line) */
