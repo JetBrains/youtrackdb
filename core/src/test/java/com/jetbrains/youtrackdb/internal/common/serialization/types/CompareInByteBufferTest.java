@@ -274,6 +274,48 @@ public class CompareInByteBufferTest {
     assertCompare(UTF8Serializer.INSTANCE, "a\u00e9", "a\u00ea", -1);
   }
 
+  @Test
+  public void testUTF8FourByteEqual() {
+    // Supplementary characters (U+1F600 = grinning face emoji, 4-byte UTF-8)
+    assertCompare(UTF8Serializer.INSTANCE, "\uD83D\uDE00", "\uD83D\uDE00", 0);
+  }
+
+  @Test
+  public void testUTF8FourByteDifferent() {
+    // U+1F600 (grinning face) vs U+1F601 (grinning face with smiling eyes)
+    assertCompare(UTF8Serializer.INSTANCE, "\uD83D\uDE00", "\uD83D\uDE01", -1);
+  }
+
+  @Test
+  public void testUTF8FourByteVsThreeByte() {
+    // Supplementary char (U+1F600, 4-byte UTF-8) vs BMP char (U+4E16, 3-byte UTF-8).
+    // String.compareTo() compares UTF-16 code units: high surrogate 0xD83D vs 0x4E16.
+    var supplementary = "\uD83D\uDE00"; // U+1F600
+    var bmp = "\u4E16"; // U+4E16
+    var expected = Integer.signum(supplementary.compareTo(bmp));
+    assertCompare(UTF8Serializer.INSTANCE, supplementary, bmp, expected);
+  }
+
+  @Test
+  public void testUTF8FourByteWithAsciiPrefix() {
+    // "a" + U+1F600 vs "a" + U+1F601: ASCII prefix matches, then 4-byte differs
+    assertCompare(UTF8Serializer.INSTANCE, "a\uD83D\uDE00", "a\uD83D\uDE01", -1);
+  }
+
+  @Test
+  public void testUTF8MixedBmpAndSupplementary() {
+    // U+4E16 (BMP, 3-byte) + U+1F600 (supplementary, 4-byte) vs same
+    assertCompare(UTF8Serializer.INSTANCE,
+        "\u4E16\uD83D\uDE00", "\u4E16\uD83D\uDE00", 0);
+  }
+
+  @Test
+  public void testUTF8MixedBmpAndSupplementaryDifferent() {
+    // Strings differ at the supplementary character position
+    assertCompare(UTF8Serializer.INSTANCE,
+        "\u4E16\uD83D\uDE00", "\u4E16\uD83D\uDE01", -1);
+  }
+
   // =====================================================================
   // CompositeKeySerializer tests
   // =====================================================================

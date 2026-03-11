@@ -175,42 +175,66 @@ public class UTF8Serializer implements BinarySerializer<String> {
     final var pageEnd = pagePos + pageByteLen;
     final var searchEnd = searchPos + searchByteLen;
 
-    // Decode one UTF-8 char at a time from each side and compare as UTF-16 code units.
-    // This preserves String.compareTo() semantics.
+    // Decode one code point at a time from each side and compare as UTF-16 code units.
+    // This preserves String.compareTo() semantics. Supplementary characters (4-byte UTF-8)
+    // are decoded to surrogate pairs so comparison matches Java's String.compareTo().
     while (pagePos < pageEnd && searchPos < searchEnd) {
       final var pb0 = buffer.get(pagePos) & 0xFF;
       final var sb0 = serializedKey[searchPos] & 0xFF;
 
-      final char pageChar;
+      // Decode page-side code point from UTF-8
+      final int pageCodePoint;
       if (pb0 < 0x80) {
-        pageChar = (char) pb0;
+        pageCodePoint = pb0;
         pagePos++;
       } else if ((pb0 >> 5) == 0x06) {
-        pageChar = (char) (((pb0 & 0x1F) << 6) | (buffer.get(pagePos + 1) & 0x3F));
+        pageCodePoint = ((pb0 & 0x1F) << 6) | (buffer.get(pagePos + 1) & 0x3F);
         pagePos += 2;
-      } else {
-        pageChar = (char) (((pb0 & 0x0F) << 12)
+      } else if ((pb0 >> 4) == 0x0E) {
+        pageCodePoint = ((pb0 & 0x0F) << 12)
             | ((buffer.get(pagePos + 1) & 0x3F) << 6)
-            | (buffer.get(pagePos + 2) & 0x3F));
+            | (buffer.get(pagePos + 2) & 0x3F);
         pagePos += 3;
+      } else {
+        // 4-byte sequence: supplementary character (U+10000 and above)
+        pageCodePoint = ((pb0 & 0x07) << 18)
+            | ((buffer.get(pagePos + 1) & 0x3F) << 12)
+            | ((buffer.get(pagePos + 2) & 0x3F) << 6)
+            | (buffer.get(pagePos + 3) & 0x3F);
+        pagePos += 4;
       }
 
-      final char searchChar;
+      // Decode search-side code point from UTF-8
+      final int searchCodePoint;
       if (sb0 < 0x80) {
-        searchChar = (char) sb0;
+        searchCodePoint = sb0;
         searchPos++;
       } else if ((sb0 >> 5) == 0x06) {
-        searchChar = (char) (((sb0 & 0x1F) << 6) | (serializedKey[searchPos + 1] & 0x3F));
+        searchCodePoint = ((sb0 & 0x1F) << 6) | (serializedKey[searchPos + 1] & 0x3F);
         searchPos += 2;
-      } else {
-        searchChar = (char) (((sb0 & 0x0F) << 12)
+      } else if ((sb0 >> 4) == 0x0E) {
+        searchCodePoint = ((sb0 & 0x0F) << 12)
             | ((serializedKey[searchPos + 1] & 0x3F) << 6)
-            | (serializedKey[searchPos + 2] & 0x3F));
+            | (serializedKey[searchPos + 2] & 0x3F);
         searchPos += 3;
+      } else {
+        // 4-byte sequence: supplementary character (U+10000 and above)
+        searchCodePoint = ((sb0 & 0x07) << 18)
+            | ((serializedKey[searchPos + 1] & 0x3F) << 12)
+            | ((serializedKey[searchPos + 2] & 0x3F) << 6)
+            | (serializedKey[searchPos + 3] & 0x3F);
+        searchPos += 4;
       }
 
-      if (pageChar != searchChar) {
-        return Character.compare(pageChar, searchChar);
+      // Compare as UTF-16 code units to match String.compareTo() semantics.
+      // BMP characters compare directly; supplementary characters compare via
+      // their surrogate pair representation (high surrogate first, then low).
+      if (pageCodePoint != searchCodePoint) {
+        if (pageCodePoint <= 0xFFFF && searchCodePoint <= 0xFFFF) {
+          return Character.compare((char) pageCodePoint, (char) searchCodePoint);
+        }
+        // At least one side is supplementary — compare surrogate pairs
+        return compareAsSurrogates(pageCodePoint, searchCodePoint);
       }
     }
 
@@ -218,6 +242,28 @@ public class UTF8Serializer implements BinarySerializer<String> {
     final var pageRemaining = pageEnd - pagePos;
     final var searchRemaining = searchEnd - searchPos;
     return Integer.compare(pageRemaining, searchRemaining);
+  }
+
+  /**
+   * Compare two code points as UTF-16 code unit sequences, matching String.compareTo()
+   * semantics. BMP code points produce one code unit; supplementary code points produce
+   * a high-low surrogate pair. Comparison proceeds code unit by code unit.
+   */
+  private static int compareAsSurrogates(int cp1, int cp2) {
+    if (cp1 <= 0xFFFF) {
+      // cp1 is BMP (1 code unit), cp2 is supplementary (2 code units)
+      return Character.compare((char) cp1, Character.highSurrogate(cp2));
+    }
+    if (cp2 <= 0xFFFF) {
+      // cp1 is supplementary, cp2 is BMP
+      return Character.compare(Character.highSurrogate(cp1), (char) cp2);
+    }
+    // Both supplementary — compare high surrogates, then low surrogates
+    var cmp = Character.compare(Character.highSurrogate(cp1), Character.highSurrogate(cp2));
+    if (cmp != 0) {
+      return cmp;
+    }
+    return Character.compare(Character.lowSurrogate(cp1), Character.lowSurrogate(cp2));
   }
 
   @Override
