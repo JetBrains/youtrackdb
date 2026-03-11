@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -289,6 +291,104 @@ public class OrderByStepTest extends DbTestBase {
     var text = copied.prettyPrint(0, 2);
     Assert.assertFalse(
         "copied step should preserve unbounded", text.contains("buffer size"));
+  }
+
+  // ── Bounded heap: equal elements keep the first inserted (stability) ──
+
+  @Test
+  public void boundedHeap_equalSortKey_keepsFirstInserted() {
+    var ctx = ctx();
+    var rows = new ArrayList<Result>();
+    var r1 = new ResultInternal(ctx.getDatabaseSession());
+    r1.setProperty("val", 1);
+    r1.setProperty("tag", "first");
+    rows.add(r1);
+    var r2 = new ResultInternal(ctx.getDatabaseSession());
+    r2.setProperty("val", 1);
+    r2.setProperty("tag", "second");
+    rows.add(r2);
+
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 1, ctx, -1, false);
+    step.setPrevious(upstream(ctx, rows));
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(1, results.size());
+    Assert.assertEquals("first", results.getFirst().getProperty("tag"));
+  }
+
+  // ── Bounded heap: maxElements boundary tests ──
+
+  @Test
+  public void boundedHeap_maxResultsEqualsElementLimit_doesNotThrow() {
+    var original = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(3);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 3, ctx, -1, false);
+      step.setPrevious(upstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2)));
+      var results = collect(step.start(ctx), ctx);
+      Assert.assertEquals(3, results.size());
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(original);
+    }
+  }
+
+  @Test(expected = CommandExecutionException.class)
+  public void boundedHeap_maxElementsZero_throws() {
+    var original = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(0);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 3, ctx, -1, false);
+      step.setPrevious(upstream(ctx, makeRows(ctx, 1)));
+      collect(step.start(ctx), ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(original);
+    }
+  }
+
+  // ── Unbounded: maxElements boundary tests ──
+
+  @Test
+  public void unbounded_sizeExactlyAtLimit_doesNotThrow() {
+    var original = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(5);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, -1, false);
+      step.setPrevious(upstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2)));
+      var results = collect(step.start(ctx), ctx);
+      Assert.assertEquals(5, results.size());
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(original);
+    }
+  }
+
+  @Test(expected = CommandExecutionException.class)
+  public void unbounded_sizeExceedsLimit_throws() {
+    var original = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(4);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, -1, false);
+      step.setPrevious(upstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2)));
+      collect(step.start(ctx), ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(original);
+    }
+  }
+
+  @Test(expected = CommandExecutionException.class)
+  public void unbounded_maxElementsZero_throws() {
+    var original = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(0);
+    try {
+      var ctx = ctx();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, -1, false);
+      step.setPrevious(upstream(ctx, makeRows(ctx, 1)));
+      collect(step.start(ctx), ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(original);
+    }
   }
 
   // ── canBeCached ──

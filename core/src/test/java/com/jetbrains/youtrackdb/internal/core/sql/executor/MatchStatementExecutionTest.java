@@ -3320,6 +3320,25 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that MATCH ... RETURN $elements ORDER BY ... SKIP N LIMIT M uses the
+   * bounded-heap optimization with buffer size = SKIP + LIMIT.
+   */
+  @Test
+  public void testExplainReturnElementsOrderBySkipLimitUsesBoundedHeap() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2 LIMIT 3")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should use bounded heap with buffer size 5 (skip 2 + limit 3)",
+        plan.contains("buffer size: 5"));
+    session.commit();
+  }
+
+  /**
    * Diamond graph with pathAlias: 0→1→3, 0→2→3. When pathAlias is declared the
    * user is asking for all distinct *paths*, so vertex 3 must appear twice — once
    * for each path that reaches it. Without the pathAlias-aware dedup bypass,
@@ -3380,6 +3399,25 @@ public class MatchStatementExecutionTest extends DbTestBase {
         "Only vertices at depth > 0 should be returned",
         List.of(1, 2, 3),
         uids);
+    session.commit();
+  }
+
+  /**
+   * Verifies that MATCH ... RETURN $elements ORDER BY ... LIMIT M (no SKIP) uses the
+   * bounded-heap optimization with buffer size = LIMIT.
+   */
+  @Test
+  public void testExplainReturnElementsOrderByLimitOnlyUsesBoundedHeap() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 3")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should use bounded heap with buffer size 3 (limit 3, no skip)",
+        plan.contains("buffer size: 3"));
     session.commit();
   }
 
