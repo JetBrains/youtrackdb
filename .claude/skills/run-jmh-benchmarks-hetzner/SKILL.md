@@ -92,6 +92,49 @@ Wait for BUILD SUCCESS (typically ~60-90 seconds on CCX33).
 
 Start the benchmark in a tmux session so it survives SSH disconnects.
 
+#### JVM flags
+
+**CRITICAL**: Use production-equivalent JVM flags for benchmarks. Do **NOT** copy flags from
+the `<argLine>` property in `core/pom.xml` or other test modules — those contain debug-only
+flags that distort results (up to 60-70% throughput loss).
+
+**Required flags** (heap + Java module opens):
+```
+-Xms4g -Xmx4g
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.nio=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED
+--add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+--add-opens=java.base/java.net=ALL-UNNAMED
+--add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+--add-opens=java.base/sun.security.x509=ALL-UNNAMED
+--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
+```
+
+**Flags to NEVER use in benchmarks:**
+
+| Flag | Why it must be excluded |
+|------|------------------------|
+| `-ea` | Enables assertions. `assertIfNotActive()` calls `ThreadLocal.get()` on every DB operation — measured at **5.77% of CPU**. Assertions are off in production. |
+| `-Dyoutrackdb.memory.directMemory.trackMode=true` | Debug tracking of every direct memory alloc/dealloc. Adds overhead not present in production. |
+| `-Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow` | Computes CRC checksum on **every page read**. Significant overhead on the hot read path. Production default is different. |
+| `-Dyoutrackdb.storage.diskCache.bufferSize=4096` | Overrides default disk cache buffer size. Unless intentionally testing a specific cache size, omit to use the production default. |
+| `-Dyoutrackdb.security.createDefaultUsers=false` | Unnecessary for benchmarks. |
+| `-Dyoutrackdb.security.userPasswordSaltIterations=10` | Only affects session open, not steady-state benchmarks. |
+| `-Dindex.flushAfterCreate=false` | Test-only optimization. |
+| `-Dstorage.makeFullCheckpoint*=false` | Test-only optimizations. |
+| `-Dstorage.wal.syncOnPageFlush=false` | Test-only optimization. |
+| `-Dstorage.configuration.syncOnUpdate=false` | Test-only optimization. |
+
+The `jmh-ldbc` module's `exec:exec` plugin configuration (line 145 of `jmh-ldbc/pom.xml`)
+already uses the correct production-equivalent flags. Use it as the reference.
+
+#### Running benchmarks
+
 **If the module has a `bench` Maven profile** (like `jmh-ldbc`):
 ```bash
 ssh root@<IP> 'tmux new-session -d -s bench \
@@ -106,6 +149,33 @@ ssh root@<IP> 'tmux new-session -d -s bench \
   "cd /root/ytdb && java -jar <module>/target/benchmarks.jar \
   <jmh-args> -rf json -rff /root/results.json \
   2>&1 | tee /root/bench.log"'
+```
+
+**If running a benchmark class from test scope** (e.g., benchmarks in `core/src/test/`),
+build the classpath and run `org.openjdk.jmh.Main` directly with the correct JVM flags:
+```bash
+# Build classpath
+ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl core -am test-compile -DskipTests -Dspotless.check.skip=true -q && \
+  ./mvnw -pl core dependency:build-classpath -DincludeScope=test -Dmdep.outputFile=/tmp/cp.txt -Dspotless.check.skip=true -q'
+
+# Run with production-equivalent flags (NO -ea, NO debug tracking)
+ssh root@<IP> 'CP=$(cat /tmp/cp.txt):/root/ytdb/core/target/test-classes:/root/ytdb/core/target/classes && \
+  java -Xms4g -Xmx4g \
+  --add-opens=java.base/java.lang=ALL-UNNAMED \
+  --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
+  --add-opens=java.base/java.lang.invoke=ALL-UNNAMED \
+  --add-opens=java.base/java.io=ALL-UNNAMED \
+  --add-opens=java.base/java.nio=ALL-UNNAMED \
+  --add-opens=java.base/java.util=ALL-UNNAMED \
+  --add-opens=java.base/java.util.concurrent=ALL-UNNAMED \
+  --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED \
+  --add-opens=java.base/java.net=ALL-UNNAMED \
+  --add-opens=java.base/sun.nio.cs=ALL-UNNAMED \
+  --add-opens=java.base/sun.security.x509=ALL-UNNAMED \
+  --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED \
+  -cp "$CP" org.openjdk.jmh.Main "<BenchmarkClass>" \
+  <jmh-args> -rf json -rff /root/results.json \
+  2>&1 | tee /root/bench.log'
 ```
 
 **JMH parameters explained:**
