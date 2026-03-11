@@ -168,6 +168,9 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   @Test
   public void buildPlan_nullLabel_usesDefaultTypeV() {
+    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchNL", "k", "v");
+    graph.tx().commit();
+
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
@@ -177,8 +180,9 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var statement = new GqlMatchStatement(
           List.of(filter("x", null)));
       var plan = statement.createExecutionPlan(ctx, false);
-      Assert.assertNotNull(plan);
       var stream = plan.start(session);
+      Assert.assertTrue("Null label should default to V and match vertices",
+          stream.hasNext());
       while (stream.hasNext()) {
         stream.next();
       }
@@ -191,6 +195,9 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   @Test
   public void buildPlan_blankLabel_usesDefaultTypeV() {
+    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchBL", "k", "v");
+    graph.tx().commit();
+
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
@@ -200,7 +207,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var statement = new GqlMatchStatement(
           List.of(filter("y", "")));
       var plan = statement.createExecutionPlan(ctx, false);
-      Assert.assertNotNull(plan);
+      var stream = plan.start(session);
+      Assert.assertTrue("Blank label should default to V and match vertices",
+          stream.hasNext());
+      while (stream.hasNext()) {
+        stream.next();
+      }
     } finally {
       tx.commit();
     }
@@ -316,4 +328,5 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var statement = new GqlMatchStatement(patterns);
     Assert.assertEquals(patterns, statement.getMatchFilters());
   }
+
 }

@@ -223,4 +223,27 @@ public class GqlServiceTest extends GraphBaseTest {
     var service = new GqlService.Factory().createService(true, null);
     Assert.assertTrue(service.getRequirements().isEmpty());
   }
+
+  // ── Factory: arguments edge cases ──
+
+  @Test
+  public void factory_argumentsListNonStringFirst_usesEmptyQuery() {
+    var service = new GqlService.Factory().createService(true,
+        Map.of(GqlService.ARGUMENTS, List.of(42, "key", "value")));
+    Assert.assertNotNull(service);
+  }
+
+  @Test
+  public void factory_argumentsEmptyList_usesEmptyQuery() {
+    var service = new GqlService.Factory().createService(true,
+        Map.of(GqlService.ARGUMENTS, List.of()));
+    Assert.assertNotNull(service);
+  }
+
+  @Test
+  public void factory_argumentsNotListOrMap_usesEmptyQuery() {
+    var service = new GqlService.Factory().createService(true,
+        Map.of(GqlService.ARGUMENTS, "not-a-list"));
+    Assert.assertNotNull(service);
+  }
 }

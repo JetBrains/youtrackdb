@@ -128,4 +128,30 @@ public class GqlStatementCacheTest extends DbTestBase {
     latch.await();
     Assert.assertEquals("No errors should occur during concurrent access", 0, errors.get());
   }
+
+  @Test
+  public void get_withNullSession_parsesDirectly() {
+    var stmt = GqlStatementCache.get("MATCH (n:V)", null);
+    Assert.assertNotNull(stmt);
+  }
+
+  @Test
+  public void clear_onDisabledCache_doesNotThrow() {
+    var cache = new GqlStatementCache(0);
+    cache.clear();
+  }
+
+  @Test
+  public void getCached_returnsSameInstanceOnRepeat() {
+    var cache = new GqlStatementCache(10);
+    var first = cache.getCached("MATCH (a:Person)");
+    var second = cache.getCached("MATCH (a:Person)");
+    Assert.assertSame(first, second);
+  }
+
+  @Test
+  public void contains_missingKey_returnsFalse() {
+    var cache = new GqlStatementCache(10);
+    Assert.assertFalse(cache.contains("MATCH (z:NoSuchClass)"));
+  }
 }
