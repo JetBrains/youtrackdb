@@ -265,7 +265,8 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
       position += ShortSerializer.SHORT_SIZE;
 
       var collectionPosition = getLongValue(position);
-      if (collectionId == value.getCollectionId() && collectionPosition == value.getCollectionPosition()) {
+      if (collectionId == value.getCollectionId()
+          && collectionPosition == value.getCollectionPosition()) {
         final var nextNextItem = getIntValue(nextItem);
         final var nextItemSize = 0xFF & getByteValue(nextItem + IntegerSerializer.INT_SIZE);
 
@@ -795,8 +796,7 @@ public final class CellBTreeMultiValueV2Bucket<K> extends DurablePage {
             + IntegerSerializer.INT_SIZE
             + LongSerializer.LONG_SIZE
             + RID_SIZE
-            + serializedKey
-            .length; // next item pointer + embedded entries count- entries count + mid + rid +
+            + serializedKey.length; // next item pointer + embedded entries count- entries count + mid + rid +
     // key
 
     final var size = getIntValue(SIZE_OFFSET);

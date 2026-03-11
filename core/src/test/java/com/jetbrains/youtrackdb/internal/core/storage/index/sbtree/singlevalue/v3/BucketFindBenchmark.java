@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -104,7 +103,8 @@ public class BucketFindBenchmark {
 
     // Generate sorted unique keys and populate the bucket
     var sortedKeys = keyType.generateSortedKeys(random);
-    var ridBytes = new byte[ShortSerializer.SHORT_SIZE + com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE];
+    var ridBytes = new byte[ShortSerializer.SHORT_SIZE
+        + com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE];
 
     var insertedCount = 0;
     for (var key : sortedKeys) {
@@ -248,7 +248,7 @@ public class BucketFindBenchmark {
 
       @Override
       Object[] hints() {
-        return new PropertyTypeInternal[]{
+        return new PropertyTypeInternal[] {
             PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
       }
 

@@ -255,8 +255,7 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
     return 0;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CompositeKey preprocess(BinarySerializerFactory serializerFactory, CompositeKey value,
       Object... hints) {
     if (value == null) {
@@ -284,11 +283,11 @@ public class CompositeKeySerializer implements BinarySerializer<CompositeKey> {
             && !(type == PropertyTypeInternal.EMBEDDEDMAP || type == PropertyTypeInternal.LINKMAP)
             && ((Map<?, ?>) key).size() == 1
             && ((Map<?, ?>) key)
-            .keySet()
-            .iterator()
-            .next()
-            .getClass()
-            .isAssignableFrom(type.getDefaultJavaType())) {
+                .keySet()
+                .iterator()
+                .next()
+                .getClass()
+                .isAssignableFrom(type.getDefaultJavaType())) {
           key = ((Map<?, ?>) key).keySet().iterator().next();
         }
         compositeKey.addKey(keySerializer.preprocess(serializerFactory, key));

@@ -22,9 +22,9 @@ public class UTF8Serializer implements BinarySerializer<String> {
   @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, byte[] stream,
       int startPosition) {
-    return
-        (ShortSerializer.INSTANCE.deserialize(serializerFactory, stream, startPosition) & INT_MASK)
-            + ShortSerializer.SHORT_SIZE;
+    return (ShortSerializer.INSTANCE.deserialize(serializerFactory, stream, startPosition)
+        & INT_MASK)
+        + ShortSerializer.SHORT_SIZE;
   }
 
   @Override

@@ -282,7 +282,7 @@ public class CompareInByteBufferTest {
   public void testCompositeKeyEqual() {
     var key1 = new CompositeKey(42, "hello");
     var key2 = new CompositeKey(42, "hello");
-    var types = new PropertyTypeInternal[]{
+    var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, 0, types);
   }
@@ -291,7 +291,7 @@ public class CompareInByteBufferTest {
   public void testCompositeKeyFirstFieldLess() {
     var key1 = new CompositeKey(10, "hello");
     var key2 = new CompositeKey(20, "hello");
-    var types = new PropertyTypeInternal[]{
+    var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, -1, types);
   }
@@ -300,7 +300,7 @@ public class CompareInByteBufferTest {
   public void testCompositeKeySecondFieldGreater() {
     var key1 = new CompositeKey(42, "xyz");
     var key2 = new CompositeKey(42, "abc");
-    var types = new PropertyTypeInternal[]{
+    var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, 1, types);
   }
@@ -312,7 +312,7 @@ public class CompareInByteBufferTest {
     key1.addKey(null);
     key1.addKey("hello");
     var key2 = new CompositeKey(42, "hello");
-    var types = new PropertyTypeInternal[]{
+    var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, -1, types);
   }
@@ -327,7 +327,7 @@ public class CompareInByteBufferTest {
     var key2 = new CompositeKey();
     key2.addKey(null);
     key2.addKey("xyz");
-    var types = new PropertyTypeInternal[]{
+    var types = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, -1, types);
   }
@@ -336,7 +336,7 @@ public class CompareInByteBufferTest {
   public void testCompositeKeySingleField() {
     var key1 = new CompositeKey((Object) 42);
     var key2 = new CompositeKey((Object) 43);
-    var types = new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER};
+    var types = new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER};
     assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, -1, types);
   }
 
@@ -345,8 +345,8 @@ public class CompareInByteBufferTest {
     // Keys with different numbers of fields
     var key1 = new CompositeKey((Object) 42);
     var key2 = new CompositeKey(42, "hello");
-    var types1 = new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER};
-    var types2 = new PropertyTypeInternal[]{
+    var types1 = new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER};
+    var types2 = new PropertyTypeInternal[] {
         PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
 
     // Serialize with their respective hints

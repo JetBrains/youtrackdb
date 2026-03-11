@@ -173,13 +173,15 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
             }
 
             try (final var rootCacheEntry = addPage(atomicOperation, fileId)) {
-              @SuppressWarnings("unused") final var rootBucket =
+              @SuppressWarnings("unused")
+              final var rootBucket =
                   new CellBTreeSingleValueBucketV3<K>(rootCacheEntry);
               rootBucket.init(true);
             }
 
             try (final var nullCacheEntry = addPage(atomicOperation, nullBucketFileId)) {
-              @SuppressWarnings("unused") final var nullBucket =
+              @SuppressWarnings("unused")
+              final var nullBucket =
                   new CellBTreeSingleValueV3NullBucket(nullCacheEntry);
               nullBucket.init();
             }
@@ -190,8 +192,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  @Nullable
-  public RID get(K key, @Nonnull AtomicOperation atomicOperation) {
+  @Nullable public RID get(K key, @Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         var k = key;
@@ -271,7 +272,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                     "Key size is more than allowed, operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
-                        + MAX_KEY_SIZE, getName());
+                        + MAX_KEY_SIZE,
+                    getName());
               }
               var bucketSearchResult =
                   findBucketForUpdate(key, serializedKey, atomicOperation);
@@ -530,7 +532,6 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           }
         });
   }
-
 
   /**
    * Balance leaf node after item deletion. If the node reaches the minimal size, it will be merged
@@ -989,8 +990,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  @Nullable
-  public K firstKey(AtomicOperation atomicOperation) {
+  @Nullable public K firstKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
@@ -1016,8 +1016,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  @Nullable
-  public K lastKey(AtomicOperation atomicOperation) {
+  @Nullable public K lastKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
@@ -1043,21 +1042,19 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   @Override
   public Stream<K> keyStream(AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () ->
-        StreamSupport.stream(
-                new SpliteratorForward<>(this, null, null,
-                    false, false, atomicOperation), false)
-            .map(RawPair::first)
-    );
+    return atomicOperationsManager.readUnderLock(this, () -> StreamSupport.stream(
+        new SpliteratorForward<>(this, null, null,
+            false, false, atomicOperation),
+        false)
+        .map(RawPair::first));
   }
 
   @Override
   public Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () ->
-        StreamSupport.stream(
-            new SpliteratorForward<>(this, null, null, false,
-                false, atomicOperation), false)
-    );
+    return atomicOperationsManager.readUnderLock(this, () -> StreamSupport.stream(
+        new SpliteratorForward<>(this, null, null, false,
+            false, atomicOperation),
+        false));
   }
 
   @Override
@@ -1071,11 +1068,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       if (ascSortOrder) {
         return StreamSupport.stream(
             iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       } else {
         return StreamSupport.stream(
             iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       }
     });
   }
@@ -1554,7 +1553,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
         if (rightBucketEntry == null) {
           throw new CellBTreeSingleValueV3Exception(
               "Page that supposed to be in free list of BTree was not found. Page index : "
-                  + freeListHead + ", file id : " + fileId, this);
+                  + freeListHead + ", file id : " + fileId,
+              this);
         }
 
         final CellBTreeSingleValueBucketV3<?> bucket =
@@ -1686,7 +1686,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       }
 
       try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-        @SuppressWarnings("ObjectAllocationInLoop") final var bucket =
+        @SuppressWarnings("ObjectAllocationInLoop")
+        final var bucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
 
         final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
@@ -1735,7 +1736,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       }
 
       try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-        @SuppressWarnings("ObjectAllocationInLoop") final var keyBucket =
+        @SuppressWarnings("ObjectAllocationInLoop")
+        final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
         final var index = keyBucket.find(key, keySerializer, serializerFactory);
 
@@ -1778,7 +1780,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       }
 
       try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-        @SuppressWarnings("ObjectAllocationInLoop") final var keyBucket =
+        @SuppressWarnings("ObjectAllocationInLoop")
+        final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
         final var index = keyBucket.find(serializedKey, keySerializer, serializerFactory);
 
@@ -1819,7 +1822,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
       path.add(pageIndex);
       try (final var bucketEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-        @SuppressWarnings("ObjectAllocationInLoop") final var keyBucket =
+        @SuppressWarnings("ObjectAllocationInLoop")
+        final var keyBucket =
             new CellBTreeSingleValueBucketV3<K>(bucketEntry);
         final var index = keyBucket.find(serializedKey, keySerializer, serializerFactory);
 

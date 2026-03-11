@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
-import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -174,10 +173,10 @@ public class BTreeGetBenchmark {
     INTEGER {
       @Override
       <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
-      serializer() {
-        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>)
-            (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<?>)
-                IntegerSerializer.INSTANCE;
+          serializer() {
+        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            K>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) IntegerSerializer.INSTANCE;
       }
 
       @Override
@@ -204,10 +203,10 @@ public class BTreeGetBenchmark {
     UTF8 {
       @Override
       <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
-      serializer() {
-        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>)
-            (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<?>)
-                UTF8Serializer.INSTANCE;
+          serializer() {
+        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            K>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) UTF8Serializer.INSTANCE;
       }
 
       @Override
@@ -233,15 +232,15 @@ public class BTreeGetBenchmark {
     COMPOSITE_INT_STRING {
       @Override
       <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
-      serializer() {
-        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>)
-            (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<?>)
-                CompositeKeySerializer.INSTANCE;
+          serializer() {
+        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            K>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) CompositeKeySerializer.INSTANCE;
       }
 
       @Override
       PropertyTypeInternal[] keyTypes() {
-        return new PropertyTypeInternal[]{
+        return new PropertyTypeInternal[] {
             PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
       }
 
@@ -263,7 +262,8 @@ public class BTreeGetBenchmark {
     };
 
     abstract <K>
-    com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K> serializer();
+        com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
+        serializer();
 
     abstract PropertyTypeInternal[] keyTypes();
 
