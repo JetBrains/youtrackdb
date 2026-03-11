@@ -341,9 +341,10 @@ public class CostModelEndToEndTest {
     var result = invokeEstimateRootEntries(
         aliasClasses, Map.of(), Map.of("p", filter));
 
-    // Filtered Person (50) should beat unfiltered City (200).
+    // Filtered Person (50) should beat unfiltered City (200+1 bias).
     assertEquals(50L, (long) result.get("p"));
-    assertEquals(200L, (long) result.get("c"));
+    // No filter → classCount + 1 bias
+    assertEquals(201L, (long) result.get("c"));
     assertTrue(
         "Filtered Person (50) should be preferred root over City (200)",
         result.get("p") < result.get("c"));
@@ -398,10 +399,11 @@ public class CostModelEndToEndTest {
     var result = invokeEstimateRootEntries(
         aliasClasses, Map.of(), aliasFilters);
 
-    // Person(100) < City(500) = Country(500)
+    // Person(100) < City(500) < Country(500+1 bias, no filter)
     assertEquals(100L, (long) result.get("p"));
     assertEquals(500L, (long) result.get("c"));
-    assertEquals(500L, (long) result.get("co"));
+    // No filter → classCount + 1 bias
+    assertEquals(501L, (long) result.get("co"));
     assertTrue(
         "Filtered Person should have lowest estimate",
         result.get("p") < result.get("c"));
