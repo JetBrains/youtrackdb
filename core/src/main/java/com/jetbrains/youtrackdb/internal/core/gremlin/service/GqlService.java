@@ -120,11 +120,19 @@ public class GqlService implements Service<Object, Object> {
       var schema = session.getMetadata().getImmutableSchemaSnapshot();
       return new GqlResultIterator(stream, executionPlan, graph, schema);
     } catch (Exception e) {
-      if (stream != null) {
-        stream.close();
+      try {
+        if (stream != null) {
+          stream.close();
+        }
+      } catch (Exception closeEx) {
+        e.addSuppressed(closeEx);
       }
-      if (executionPlan != null) {
-        executionPlan.close();
+      try {
+        if (executionPlan != null) {
+          executionPlan.close();
+        }
+      } catch (Exception closeEx) {
+        e.addSuppressed(closeEx);
       }
       throw e;
     }
@@ -190,8 +198,11 @@ public class GqlService implements Service<Object, Object> {
         return;
       }
       closed = true;
-      Objects.requireNonNull(stream).close();
-      Objects.requireNonNull(plan).close();
+      try {
+        Objects.requireNonNull(stream).close();
+      } finally {
+        Objects.requireNonNull(plan).close();
+      }
     }
   }
 

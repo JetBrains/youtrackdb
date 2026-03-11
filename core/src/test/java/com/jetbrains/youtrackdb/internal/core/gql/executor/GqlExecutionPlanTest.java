@@ -151,11 +151,18 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     try {
       var session = tx.getDatabaseSession();
       var gqlPlan = buildSqlPlan(session, "b", "EPCopy");
+
+      var orig = gqlPlan.start(session);
+      while (orig.hasNext()) {
+        orig.next();
+      }
+
       var copy = gqlPlan.copy();
       Assert.assertNotSame(gqlPlan, copy);
 
       var stream = copy.start(session);
-      Assert.assertTrue(stream.hasNext());
+      Assert.assertTrue("Copy must work independently after original is exhausted",
+          stream.hasNext());
       stream.next();
       Assert.assertFalse(stream.hasNext());
       copy.close();
@@ -200,6 +207,28 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
       gqlPlan.close();
+    } finally {
+      tx.commit();
+    }
+  }
+
+  // ── SqlStreamAdapter: next after exhaustion throws (verifies auto-close in hasNext) ──
+
+  @Test(expected = NoSuchElementException.class)
+  public void sqlStreamAdapter_next_afterExhaustion_throws() {
+    graph.addVertex(T.label, "EPExhNext", "name", "EN");
+    graph.tx().commit();
+
+    var tx = ((YTDBGraphInternal) graph).tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var gqlPlan = buildSqlPlan(session, "a", "EPExhNext");
+      var stream = gqlPlan.start(session);
+      while (stream.hasNext()) {
+        stream.next();
+      }
+      stream.next();
     } finally {
       tx.commit();
     }

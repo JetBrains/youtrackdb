@@ -32,6 +32,7 @@ public class GqlPlannerTest {
     GqlPlanner.parse("LIMIT 1");
   }
 
+  @SuppressWarnings("DataFlowIssue")
   @Test(expected = NullPointerException.class)
   public void parse_nullQuery_throws() {
     GqlPlanner.parse(null);
@@ -50,6 +51,33 @@ public class GqlPlannerTest {
   @Test
   public void getStatement_withNullSession_callsParse() {
     var statement = GqlPlanner.getStatement("MATCH (n:V)", null);
+    Assert.assertNotNull(statement);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void parse_syntaxError_includesLineAndPosition() {
+    try {
+      GqlPlanner.parse("MATCH !!!");
+    } catch (IllegalArgumentException e) {
+      Assert.assertTrue("Should contain 'line'", e.getMessage().contains("line "));
+      throw e;
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void parse_emptyQuery_throws() {
+    GqlPlanner.parse("");
+  }
+
+  @Test
+  public void parse_matchOnlyLabel_returnsStatement() {
+    var statement = GqlPlanner.parse("MATCH (:Person)");
+    Assert.assertNotNull(statement);
+  }
+
+  @Test
+  public void parse_matchAliasOnly_returnsStatement() {
+    var statement = GqlPlanner.parse("MATCH (x)");
     Assert.assertNotNull(statement);
   }
 }

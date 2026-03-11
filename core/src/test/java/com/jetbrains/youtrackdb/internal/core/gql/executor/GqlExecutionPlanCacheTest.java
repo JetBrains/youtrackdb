@@ -342,6 +342,57 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
   }
 
   @Test
+  public void invalidate_onDisabledCache_doesNotThrow() {
+    var cache = new GqlExecutionPlanCache(0);
+    cache.invalidate();
+  }
+
+  @Test
+  public void onSchemaUpdate_invalidatesCache() {
+    var cache = new GqlExecutionPlanCache(10);
+    cache.putInternal("MATCH (z:V)", GqlExecutionPlan.empty());
+    Assert.assertTrue(cache.contains("MATCH (z:V)"));
+    cache.onSchemaUpdate(null, "test", null);
+    Assert.assertFalse(cache.contains("MATCH (z:V)"));
+  }
+
+  @Test
+  public void onIndexManagerUpdate_invalidatesCache() {
+    var cache = new GqlExecutionPlanCache(10);
+    cache.putInternal("MATCH (y:V)", GqlExecutionPlan.empty());
+    Assert.assertTrue(cache.contains("MATCH (y:V)"));
+    cache.onIndexManagerUpdate(null, "test", null);
+    Assert.assertFalse(cache.contains("MATCH (y:V)"));
+  }
+
+  @Test
+  public void onFunctionLibraryUpdate_invalidatesCache() {
+    var cache = new GqlExecutionPlanCache(10);
+    cache.putInternal("MATCH (a:V)", GqlExecutionPlan.empty());
+    Assert.assertTrue(cache.contains("MATCH (a:V)"));
+    cache.onFunctionLibraryUpdate(null, "test");
+    Assert.assertFalse(cache.contains("MATCH (a:V)"));
+  }
+
+  @Test
+  public void onSequenceLibraryUpdate_invalidatesCache() {
+    var cache = new GqlExecutionPlanCache(10);
+    cache.putInternal("MATCH (b:V)", GqlExecutionPlan.empty());
+    Assert.assertTrue(cache.contains("MATCH (b:V)"));
+    cache.onSequenceLibraryUpdate(null, "test");
+    Assert.assertFalse(cache.contains("MATCH (b:V)"));
+  }
+
+  @Test
+  public void onStorageConfigurationUpdate_invalidatesCache() {
+    var cache = new GqlExecutionPlanCache(10);
+    cache.putInternal("MATCH (c:V)", GqlExecutionPlan.empty());
+    Assert.assertTrue(cache.contains("MATCH (c:V)"));
+    cache.onStorageConfigurationUpdate("test", null);
+    Assert.assertFalse(cache.contains("MATCH (c:V)"));
+  }
+
+  @Test
   public void invalidate_clearsCache() {
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
