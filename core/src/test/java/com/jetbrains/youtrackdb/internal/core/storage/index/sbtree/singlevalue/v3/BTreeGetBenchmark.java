@@ -127,11 +127,12 @@ public class BTreeGetBenchmark {
   }
 
   private long getTreeSize() throws Exception {
-    var atomicOperation = atomicOperationsManager.startAtomicOperation();
+    var atomicOperation = storage.startStorageTx();
     try {
       return tree.size(atomicOperation);
     } finally {
-      atomicOperationsManager.endAtomicOperation(atomicOperation, null);
+      atomicOperation.deactivate();
+      storage.resetTsMin();
     }
   }
 
@@ -153,14 +154,15 @@ public class BTreeGetBenchmark {
   public void btreeGet(Blackhole bh) throws Exception {
     var idx = random.nextInt(lookupKeys.length);
     final var key = lookupKeys[idx];
-    // Use startAtomicOperation/endAtomicOperation for read-only path to avoid
-    // the write freezer lock and commit timestamp overhead of executeInsideAtomicOperation.
-    var atomicOperation = atomicOperationsManager.startAtomicOperation();
+    // Use startStorageTx() for the read-only path: it creates a snapshot and
+    // registers with the tsMin tracking. Cleanup via deactivate() + resetTsMin().
+    var atomicOperation = storage.startStorageTx();
     try {
       RID result = tree.get(key, atomicOperation);
       bh.consume(result);
     } finally {
-      atomicOperationsManager.endAtomicOperation(atomicOperation, null);
+      atomicOperation.deactivate();
+      storage.resetTsMin();
     }
   }
 
