@@ -182,10 +182,9 @@ public class GqlExecutionStreamTest {
   @Test
   public void flatMap_skipsEmptyChildren() {
     var upstream = GqlExecutionStream.fromIterator(List.of(0, 1, 0, 2, 0).iterator());
-    var stream = upstream.flatMap(n ->
-        (int) n == 0
-            ? GqlExecutionStream.empty()
-            : GqlExecutionStream.fromIterator(List.of((int) n * 10).iterator()));
+    var stream = upstream.flatMap(n -> (int) n == 0
+        ? GqlExecutionStream.empty()
+        : GqlExecutionStream.fromIterator(List.of((int) n * 10).iterator()));
     Assert.assertEquals(List.of(10, 20), drain(stream));
   }
 
@@ -194,11 +193,20 @@ public class GqlExecutionStreamTest {
     var nullChild = new GqlExecutionStream() {
       boolean consumed;
 
-      @Override public boolean hasNext() { return !consumed; }
+      @Override
+      public boolean hasNext() {
+        return !consumed;
+      }
 
-      @Override public Object next() { consumed = true; return null; }
+      @Override
+      public Object next() {
+        consumed = true;
+        return null;
+      }
 
-      @Override public void close() { }
+      @Override
+      public void close() {
+      }
     };
     var stream = GqlExecutionStream.fromIterator(List.of(1).iterator())
         .flatMap(n -> nullChild);
@@ -407,24 +415,42 @@ public class GqlExecutionStreamTest {
 
     static GqlExecutionStream failOnClose() {
       return new GqlExecutionStream() {
-        @Override public boolean hasNext() { return true; }
+        @Override
+        public boolean hasNext() {
+          return true;
+        }
 
-        @Override public Object next() { return 1; }
+        @Override
+        public Object next() {
+          return 1;
+        }
 
-        @Override public void close() { throw new RuntimeException("child error"); }
+        @Override
+        public void close() {
+          throw new RuntimeException("child error");
+        }
       };
     }
 
     static org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<Object>
-    failOnCloseUpstream() {
+        failOnCloseUpstream() {
       return new org.apache.tinkerpop.gremlin.structure.util.CloseableIterator<>() {
         private final Iterator<Object> it = List.of((Object) 1).iterator();
 
-        @Override public boolean hasNext() { return it.hasNext(); }
+        @Override
+        public boolean hasNext() {
+          return it.hasNext();
+        }
 
-        @Override public Object next() { return it.next(); }
+        @Override
+        public Object next() {
+          return it.next();
+        }
 
-        @Override public void close() { throw new RuntimeException("upstream error"); }
+        @Override
+        public void close() {
+          throw new RuntimeException("upstream error");
+        }
       };
     }
   }
@@ -440,10 +466,20 @@ public class GqlExecutionStreamTest {
       this.closeOrder = closeOrder;
     }
 
-    @Override public boolean hasNext() { return !consumed; }
+    @Override
+    public boolean hasNext() {
+      return !consumed;
+    }
 
-    @Override public Object next() { consumed = true; return id; }
+    @Override
+    public Object next() {
+      consumed = true;
+      return id;
+    }
 
-    @Override public void close() { closeOrder.add(id); }
+    @Override
+    public void close() {
+      closeOrder.add(id);
+    }
   }
 }
