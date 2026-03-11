@@ -131,38 +131,41 @@ public class OrderByStep extends AbstractExecutionStep {
       ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
-    if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
-              + maxElementsAllowed
-              + ") . You can set "
-              + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
-              + " to increase this limit");
-    }
-    // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).
-    var heap = new PriorityQueue<Result>(
-        maxResults, (a, b) -> orderBy.compare(b, a, ctx));
-
-    while (upstream.hasNext(ctx)) {
-      if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
-        sendTimeout();
+    try {
+      if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+                + maxElementsAllowed
+                + ") . You can set "
+                + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+                + " to increase this limit");
       }
-      var item = upstream.next(ctx);
+      // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).
+      var heap = new PriorityQueue<Result>(
+          maxResults, (a, b) -> orderBy.compare(b, a, ctx));
 
-      if (heap.size() < maxResults) {
-        heap.offer(item);
-      } else if (orderBy.compare(item, heap.peek(), ctx) < 0) {
-        heap.poll();
-        heap.offer(item);
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+
+        if (heap.size() < maxResults) {
+          heap.offer(item);
+        } else if (orderBy.compare(item, heap.peek(), ctx) < 0) {
+          heap.poll();
+          heap.offer(item);
+        }
       }
-    }
-    upstream.close(ctx);
 
-    var result = new LinkedList<Result>();
-    while (!heap.isEmpty()) {
-      result.addFirst(heap.poll());
+      var result = new LinkedList<Result>();
+      while (!heap.isEmpty()) {
+        result.addFirst(heap.poll());
+      }
+      return result;
+    } finally {
+      upstream.close(ctx);
     }
-    return result;
   }
 
   /**
@@ -174,25 +177,27 @@ public class OrderByStep extends AbstractExecutionStep {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
     List<Result> cachedResult = new ArrayList<>();
-
-    while (upstream.hasNext(ctx)) {
-      if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
-        sendTimeout();
+    try {
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+        cachedResult.add(item);
+        if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+                  + maxElementsAllowed
+                  + ") . You can set "
+                  + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+                  + " to increase this limit");
+        }
       }
-      var item = upstream.next(ctx);
-      cachedResult.add(item);
-      if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
-                + maxElementsAllowed
-                + ") . You can set "
-                + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
-                + " to increase this limit");
-      }
+      cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
+      return cachedResult;
+    } finally {
+      upstream.close(ctx);
     }
-    upstream.close(ctx);
-    cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
-    return cachedResult;
   }
 
   @Override
