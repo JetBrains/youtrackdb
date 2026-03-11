@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
@@ -80,6 +82,14 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
+  public Map<RID, RID> monitoredCommitInternal(
+      @Nonnull TransactionMetricsListener listener,
+      @Nonnull QueryMonitoringMode mode,
+      @Nonnull String trackingId) {
+    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
+  }
+
+  @Override
   public int getEntryCount() {
     return 0;
   }
@@ -90,7 +100,8 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public @Nonnull Stream<com.jetbrains.youtrackdb.internal.core.tx.RecordOperation> getRecordOperations() {
+  public @Nonnull Stream<com.jetbrains.youtrackdb.internal.core.tx.RecordOperation>
+      getRecordOperations() {
     return Stream.empty();
   }
 
@@ -103,7 +114,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   public int activeTxCount() {
     return 0;
   }
-
 
   @Nonnull
   @Override
@@ -222,16 +232,10 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Map<RID, RID> commitInternal(boolean force) {
-    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
   @Override
@@ -431,16 +435,14 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RecordIdInternal getNextRidInCollection(
       @Nonnull RecordIdInternal rid,
       long upperBoundExclusive) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RecordIdInternal getPreviousRidInCollection(
       @Nonnull RecordIdInternal rid,
       long lowerBoundInclusive) {
@@ -467,8 +469,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity loadEntityOrNull(RID id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
@@ -480,14 +481,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex loadVertexOrNull(RID id) throws RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
@@ -499,14 +498,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
@@ -524,8 +521,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
@@ -549,8 +545,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     throw new UnsupportedOperationException("not supported in no tx mode");

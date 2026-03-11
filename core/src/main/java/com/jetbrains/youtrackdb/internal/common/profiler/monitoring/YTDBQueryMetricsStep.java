@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
@@ -60,8 +61,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
       Traversal.Admin<?, ?> traversal,
       YTDBTransaction ytdbTx,
       @Nullable String querySummary,
-      Ticker ticker
-  ) {
+      Ticker ticker) {
     super(traversal);
     this.ytdbTx = ytdbTx;
     this.querySummary = querySummary;
@@ -119,31 +119,36 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     }
 
     final var duration = isLightweight ? endNano - nano : nano;
-    ytdbTx.getQueryMetricsListener().queryFinished(
-        new QueryDetails() {
-          private String cachedQuery;
+    try {
+      ytdbTx.getQueryMetricsListener().queryFinished(
+          new QueryDetails() {
+            private String cachedQuery;
 
-          @Override
-          public String getQuery() {
-            if (cachedQuery == null) {
-              cachedQuery = GROOVY_TRANSLATOR.get().translate(traversal.getBytecode()).getScript();
+            @Override
+            public String getQuery() {
+              if (cachedQuery == null) {
+                cachedQuery =
+                    GROOVY_TRANSLATOR.get().translate(traversal.getBytecode()).getScript();
+              }
+              return cachedQuery;
             }
-            return cachedQuery;
-          }
 
-          @Override
-          public String getQuerySummary() {
-            return querySummary;
-          }
+            @Override
+            public String getQuerySummary() {
+              return querySummary;
+            }
 
-          @Override
-          public String getTransactionTrackingId() {
-            return ytdbTx.getTrackingId();
-          }
-        },
-        startMillis,
-        duration
-    );
+            @Override
+            public String getTransactionTrackingId() {
+              return ytdbTx.getTrackingId();
+            }
+          },
+          startMillis,
+          duration);
+    } catch (Exception e) {
+      LogManager.instance().error(this,
+          "Error in QueryMetricsListener callback", e);
+    }
   }
 
   private void queryHasStarted() {
@@ -207,8 +212,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
         "addV", "addE",
         "values", "valueMap", "elementMap", "properties", "propertyMap",
         "project", "select", "as", "by", "from", "to",
-        "aggregate", "cap", "subgraph"
-    );
+        "aggregate", "cap", "subgraph");
 
     ValueAnonymizingTypeTranslator() {
       // withParameters=true makes convertToScript() parameterize primitives and strings
