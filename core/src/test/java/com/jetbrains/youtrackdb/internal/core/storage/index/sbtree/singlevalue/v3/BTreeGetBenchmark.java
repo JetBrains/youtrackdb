@@ -14,7 +14,13 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -59,7 +65,8 @@ public class BTreeGetBenchmark {
   @Param({"10000", "100000"})
   public int keyCount;
 
-  @Param({"INTEGER", "UTF8", "COMPOSITE_INT_STRING"})
+  @Param({"INTEGER", "PERSON_FIRST_NAME", "FORUM_TITLE", "TAG_NAME",
+      "COMPOSITE_INT_FIRST_NAME"})
   public KeyType keyType;
 
   private YouTrackDBImpl youTrackDB;
@@ -193,7 +200,6 @@ public class BTreeGetBenchmark {
 
       @Override
       Object[] generateKeys(int count, Random rng) {
-        // Generate unique integer keys
         var set = new java.util.HashSet<Integer>(count * 2);
         while (set.size() < count) {
           set.add(rng.nextInt());
@@ -202,7 +208,12 @@ public class BTreeGetBenchmark {
       }
     },
 
-    UTF8 {
+    /**
+     * Real person first names from LDBC SNB SF 0.1 dataset (587 distinct names).
+     * Short strings (avg ~6 chars) with natural prefix distribution
+     * (e.g., many "A...", "Ma...", "Jo..." names).
+     */
+    PERSON_FIRST_NAME {
       @Override
       <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
           serializer() {
@@ -223,15 +234,74 @@ public class BTreeGetBenchmark {
 
       @Override
       Object[] generateKeys(int count, Random rng) {
-        var set = new java.util.HashSet<String>(count * 2);
-        while (set.size() < count) {
-          set.add(randomString(rng, 8 + rng.nextInt(8)));
-        }
-        return set.toArray();
+        return sampleFromResource("benchmarks/person-firstnames.txt", count, rng);
       }
     },
 
-    COMPOSITE_INT_STRING {
+    /**
+     * Real forum titles from LDBC SNB SF 0.1 dataset (12,837 distinct titles).
+     * Long strings (avg ~24 chars) with very long shared prefixes
+     * ("Album N of ..." = 11+ byte common prefix for ~90% of entries).
+     * Stress-tests the vectorized comparison path.
+     */
+    FORUM_TITLE {
+      @Override
+      <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
+          serializer() {
+        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            K>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) UTF8Serializer.INSTANCE;
+      }
+
+      @Override
+      PropertyTypeInternal[] keyTypes() {
+        return null;
+      }
+
+      @Override
+      int keySize() {
+        return 1;
+      }
+
+      @Override
+      Object[] generateKeys(int count, Random rng) {
+        return sampleFromResource("benchmarks/forum-titles.txt", count, rng);
+      }
+    },
+
+    /**
+     * Real tag names from LDBC SNB SF 0.1 dataset (16,080 distinct tags).
+     * Medium-length strings (avg ~17 chars) with moderate prefix sharing.
+     */
+    TAG_NAME {
+      @Override
+      <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
+          serializer() {
+        return (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            K>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) UTF8Serializer.INSTANCE;
+      }
+
+      @Override
+      PropertyTypeInternal[] keyTypes() {
+        return null;
+      }
+
+      @Override
+      int keySize() {
+        return 1;
+      }
+
+      @Override
+      Object[] generateKeys(int count, Random rng) {
+        return sampleFromResource("benchmarks/tag-names.txt", count, rng);
+      }
+    },
+
+    /**
+     * Composite key (INTEGER, STRING) using real LDBC first names as the string component.
+     */
+    COMPOSITE_INT_FIRST_NAME {
       @Override
       <K> com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<K>
           serializer() {
@@ -253,11 +323,12 @@ public class BTreeGetBenchmark {
 
       @Override
       Object[] generateKeys(int count, Random rng) {
+        var names = loadResource("benchmarks/person-firstnames.txt");
         var set = new java.util.HashSet<CompositeKey>(count * 2);
         while (set.size() < count) {
           set.add(new CompositeKey(
               rng.nextInt(count / 10 + 1),
-              randomString(rng, 6 + rng.nextInt(4))));
+              names.get(rng.nextInt(names.size()))));
         }
         return set.toArray();
       }
@@ -273,12 +344,52 @@ public class BTreeGetBenchmark {
 
     abstract Object[] generateKeys(int count, Random rng);
 
-    static String randomString(Random rng, int len) {
-      var sb = new StringBuilder(len);
-      for (var i = 0; i < len; i++) {
-        sb.append((char) ('a' + rng.nextInt(26)));
+    /**
+     * Loads all lines from a classpath resource, then samples {@code count} unique entries.
+     * If the resource has fewer unique entries than requested, entries are extended with
+     * a numeric suffix to ensure uniqueness.
+     */
+    static Object[] sampleFromResource(String resource, int count, Random rng) {
+      var lines = loadResource(resource);
+      var set = new java.util.HashSet<String>(count * 2);
+      // First, try to add original entries
+      var shuffled = new ArrayList<>(lines);
+      java.util.Collections.shuffle(shuffled, rng);
+      for (var line : shuffled) {
+        if (set.size() >= count) {
+          break;
+        }
+        set.add(line);
       }
-      return sb.toString();
+      // If we need more unique keys than the resource has, append numeric suffixes
+      var suffix = 0;
+      while (set.size() < count) {
+        var base = lines.get(rng.nextInt(lines.size()));
+        var candidate = base + "_" + suffix++;
+        set.add(candidate);
+      }
+      return set.toArray();
+    }
+
+    static List<String> loadResource(String resource) {
+      try (var is = BTreeGetBenchmark.class.getClassLoader()
+          .getResourceAsStream(resource)) {
+        if (is == null) {
+          throw new IllegalStateException("Resource not found: " + resource);
+        }
+        var reader = new BufferedReader(
+            new InputStreamReader(is, StandardCharsets.UTF_8));
+        var lines = new ArrayList<String>();
+        String line;
+        while ((line = reader.readLine()) != null) {
+          if (!line.isEmpty()) {
+            lines.add(line);
+          }
+        }
+        return lines;
+      } catch (IOException e) {
+        throw new RuntimeException("Failed to load resource: " + resource, e);
+      }
     }
   }
 
