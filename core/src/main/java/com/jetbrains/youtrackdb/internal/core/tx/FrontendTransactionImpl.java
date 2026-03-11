@@ -914,8 +914,13 @@ public class FrontendTransactionImpl implements
         atomicOperation = null;
         // Release the lifecycle read guard that was pinned at TX begin.
         // Must happen after atomicOperation cleanup to maintain ordering.
+        // Only release on the owning thread — pool shutdown may close a session
+        // cross-thread, and ScalableRWLock uses ThreadLocal state, so calling
+        // sharedUnlock() from the wrong thread throws IllegalMonitorStateException.
         try {
-          session.getStorage().releaseLifecycleReadGuard();
+          if (storageTxThreadId == Thread.currentThread().threadId()) {
+            session.getStorage().releaseLifecycleReadGuard();
+          }
         } finally {
           storageTxThreadId = 0;
         }
