@@ -693,5 +693,5 @@ Each step = 1 commit = 1 session. Code review loop required before each commit.
 | 8 | Phase 5 | Periodic scheduling | Add scheduled GC task on `fuzzyCheckpointExecutor`; wire start/stop lifecycle; cancellation on shutdown | DONE |
 | 9 | Phase 6 | Testing — unit tests | Tests for `CollectionDirtyPageBitSet`, dead record counter, GC trigger condition | DONE |
 | 10 | Phase 6 | Testing — integration & crash recovery | Integration tests (create/update/delete → GC reclaims); crash recovery tests; concurrent read/write + GC tests | DONE |
-| 11 | Phase 7 | Benchmarks & threshold tuning | JMH benchmarks for GC overhead, write-path overhead, throughput under GC, space reclamation; tune defaults | TODO |
+| 11 | Phase 7 | Benchmarks & threshold tuning | JMH benchmarks for GC overhead, write-path overhead, throughput under GC, space reclamation; tune defaults | DONE |
 
