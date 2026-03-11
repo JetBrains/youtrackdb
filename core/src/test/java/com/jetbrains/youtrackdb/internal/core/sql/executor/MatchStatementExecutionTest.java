@@ -3161,6 +3161,42 @@ public class MatchStatementExecutionTest extends DbTestBase {
    * by LDBC IC5.
    */
   @Test
+  public void testUnwindBeforeOrderByLimit() {
+    session.execute("CREATE class UWPerson extends V").close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'alice', tags = ['zulu', 'bravo', 'alpha']").close();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'bob', tags = ['yankee', 'charlie']").close();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'carol', tags = ['delta']").close();
+    session.commit();
+
+    // Grammar requires ORDER BY before UNWIND, but the execution planner must
+    // run UNWIND first (it changes cardinality), then ORDER BY + LIMIT on the
+    // expanded rows. Without this fix, the bounded heap in OrderByStep would
+    // discard rows before UNWIND expands them, producing wrong results.
+    //
+    // 3 persons × variable tag counts = 6 rows after UNWIND.
+    // ORDER BY tags ASC, LIMIT 3 → alpha, bravo, charlie.
+    // If ORDER BY ran before UNWIND with bounded heap of 3, it would keep
+    // only 3 of the 3 original person rows and we'd lose tags from discarded persons.
+    var results = session.query(
+        "MATCH {class: UWPerson, as: p}"
+            + " RETURN p.name as name, p.tags as tags"
+            + " ORDER BY tags ASC"
+            + " UNWIND tags"
+            + " LIMIT 3")
+        .stream().toList();
+
+    assertEquals(3, results.size());
+    assertEquals("alpha", results.get(0).getProperty("tags"));
+    assertEquals("bravo", results.get(1).getProperty("tags"));
+    assertEquals("charlie", results.get(2).getProperty("tags"));
+  }
+
+  @Test
   public void testWhileMatchSubqueryWithLet() {
     // Baseline: existing while test query that returns 2 results
     // (same as testWhile second query)
