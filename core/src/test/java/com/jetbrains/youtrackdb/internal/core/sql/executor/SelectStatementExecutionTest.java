@@ -6126,6 +6126,143 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Covers count(*) with WHERE on a single-field
+   * indexed property uses CountFromIndexWithKeyStep optimization.
+   */
+  @Test
+  public void testCountStarWithIndexedWhereField() {
+    var className = "testCountStarWithIndexedWhereField";
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(className + ".name", INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      session.newEntity(className).setProperty("name", "alice");
+    }
+    session.newEntity(className).setProperty("name", "bob");
+    session.commit();
+
+    session.begin();
+    var result = session.query("select count(*) from " + className + " where name = 'alice'");
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals(3L, (Object) row.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertThat(plan.getSteps())
+        .anyMatch(step -> step instanceof CountFromIndexWithKeyStep);
+    result.close();
+    session.commit();
+  }
+
+  /**
+   *  isCountStar() returns false for
+   * a single-aggregate query that is NOT count(*), like max(name).
+   */
+  @Test
+  public void testMaxAggregateDoesNotUseCountStarOptimization() {
+    var className = "testMaxAggregateDoesNotUseCountStarOptimization";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    session.newEntity(className).setProperty("name", "alice");
+    session.newEntity(className).setProperty("name", "bob");
+    session.commit();
+
+    session.begin();
+    var result = session.query("select max(name) from " + className);
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals("bob", row.getProperty("max(name)"));
+    Assert.assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertThat(plan.getSteps())
+        .noneMatch(step -> step instanceof CountFromClassStep);
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Covers SelectExecutionPlanner lines 657-658: isCountOnly() filters out
+   * synthetic ORDER BY aliases so that count(*) with ORDER BY still triggers
+   * GuaranteeEmptyCountStep.
+   */
+  @Test
+  public void testCountStarWithOrderByUsesGuaranteeEmptyCount() {
+    var className = "testCountStarWithOrderByGuarantee";
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    session.newEntity(className).setProperty("name", "alice");
+    session.newEntity(className).setProperty("name", "bob");
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "select count(*) from " + className + " group by name order by name");
+    var results = result.stream().toList();
+    Assert.assertEquals(2, results.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * when a class name starts with $
+   * but the class actually exists, it should be treated as a class (not a variable).
+   */
+  @Test
+  public void testSelectFromDollarPrefixedClassThatExists() {
+    var className = "$DollarPrefixedClass";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    session.newEntity(className).setProperty("val", 42);
+    session.commit();
+
+    session.begin();
+    var result = session.query("select from `" + className + "`");
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals(42, (int) row.getProperty("val"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * handleClassWithIndexForSortOnly
+   * filters out indexes without definitions. An index with a definition should
+   * be considered for sort-only optimization.
+   */
+  @Test
+  public void testOrderByUsesIndexForSortWhenAvailable() {
+    var className = "testOrderByIndexSort";
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createIndex(className + ".name", INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    session.newEntity(className).setProperty("name", "charlie");
+    session.newEntity(className).setProperty("name", "alice");
+    session.newEntity(className).setProperty("name", "bob");
+    session.commit();
+
+    session.begin();
+    var result = session.query("select from " + className + " order by name ASC");
+    var items = result.stream().toList();
+    Assert.assertEquals(3, items.size());
+    Assert.assertEquals("alice", items.get(0).getProperty("name"));
+    Assert.assertEquals("bob", items.get(1).getProperty("name"));
+    Assert.assertEquals("charlie", items.get(2).getProperty("name"));
+    result.close();
+    session.commit();
+  }
+
   @Test
   public void testConditionalAggregationWithCompoundCondition() {
     var className = "testConditionalAggCompound";
