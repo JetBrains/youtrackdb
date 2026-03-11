@@ -193,6 +193,33 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
   }
 
   /**
+   * Unsigned lexicographic comparison of two serialized byte arrays without deserialization.
+   * Format: 4-byte native int length prefix followed by the raw bytes.
+   */
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    final var pageLen = buffer.getInt(bufferOffset);
+    bufferOffset += Integer.BYTES;
+
+    final var searchLen = IntegerSerializer.deserializeNative(serializedKey, keyOffset);
+    keyOffset += Integer.BYTES;
+
+    final var minLen = Math.min(pageLen, searchLen);
+    for (int i = 0; i < minLen; i++) {
+      final int cmp = Byte.compareUnsigned(
+          buffer.get(bufferOffset + i),
+          serializedKey[keyOffset + i]);
+      if (cmp != 0) {
+        return cmp;
+      }
+    }
+    return Integer.compare(pageLen, searchLen);
+  }
+
+  /**
    * {@inheritDoc}
    */
   @Override
