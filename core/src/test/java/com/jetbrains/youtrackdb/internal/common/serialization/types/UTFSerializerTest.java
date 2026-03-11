@@ -123,8 +123,42 @@ public class UTFSerializerTest {
 
     Assert.assertEquals(
         stringSerializer.deserializeFromByteBufferObject(serializerFactory, serializationOffset,
-            buffer), OBJECT);
+            buffer),
+        OBJECT);
     Assert.assertEquals(0, buffer.position());
+  }
+
+  @Test
+  public void testGetObjectSizeFromByteArray() {
+    // getObjectSize(byte[], int) uses non-native (big-endian) deserialization,
+    // so serialize with serialize() not serializeNativeObject().
+    stream = new byte[stringSerializer.getObjectSize(serializerFactory, OBJECT) + 7];
+    stringSerializer.serialize(OBJECT, serializerFactory, stream, 7);
+
+    final var expectedSize = stringSerializer.getObjectSize(serializerFactory, OBJECT);
+    Assert.assertEquals(expectedSize,
+        stringSerializer.getObjectSize(serializerFactory, stream, 7));
+  }
+
+  @Test
+  public void testGetObjectSizeFromByteArrayAtZeroOffset() {
+    stream = new byte[stringSerializer.getObjectSize(serializerFactory, OBJECT)];
+    stringSerializer.serialize(OBJECT, serializerFactory, stream, 0);
+
+    final var expectedSize = stringSerializer.getObjectSize(serializerFactory, OBJECT);
+    Assert.assertEquals(expectedSize,
+        stringSerializer.getObjectSize(serializerFactory, stream, 0));
+  }
+
+  @Test
+  public void testGetObjectSizeFromByteArrayEmptyString() {
+    var empty = "";
+    stream = new byte[stringSerializer.getObjectSize(serializerFactory, empty)];
+    stringSerializer.serialize(empty, serializerFactory, stream, 0);
+
+    // Empty string: 2-byte length prefix + 0 data bytes = 2
+    Assert.assertEquals(ShortSerializer.SHORT_SIZE,
+        stringSerializer.getObjectSize(serializerFactory, stream, 0));
   }
 
   @Test
@@ -132,9 +166,9 @@ public class UTFSerializerTest {
     final var serializationOffset = 5;
     final var buffer =
         ByteBuffer.allocateDirect(
-                stringSerializer.getObjectSize(serializerFactory, OBJECT)
-                    + serializationOffset
-                    + WALPageChangesPortion.PORTION_BYTES)
+            stringSerializer.getObjectSize(serializerFactory, OBJECT)
+                + serializationOffset
+                + WALPageChangesPortion.PORTION_BYTES)
             .order(ByteOrder.nativeOrder());
 
     final var data = new byte[stringSerializer.getObjectSize(serializerFactory, OBJECT)];

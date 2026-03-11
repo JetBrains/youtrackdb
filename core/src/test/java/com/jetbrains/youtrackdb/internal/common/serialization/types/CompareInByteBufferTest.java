@@ -333,6 +333,19 @@ public class CompareInByteBufferTest {
   }
 
   @Test
+  public void testCompositeKeyNonNullPageVsNullSearch() {
+    // Page key has non-null first field, search key has null first field.
+    // This covers the "non-null > search null" branch (line 497).
+    var key1 = new CompositeKey(42, "hello"); // page value: non-null first field
+    var key2 = new CompositeKey();
+    key2.addKey(null);
+    key2.addKey("hello"); // search value: null first field
+    var types = new PropertyTypeInternal[] {
+        PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING};
+    assertCompare(CompositeKeySerializer.INSTANCE, key1, key2, 1, types);
+  }
+
+  @Test
   public void testCompositeKeySingleField() {
     var key1 = new CompositeKey((Object) 42);
     var key2 = new CompositeKey((Object) 43);
