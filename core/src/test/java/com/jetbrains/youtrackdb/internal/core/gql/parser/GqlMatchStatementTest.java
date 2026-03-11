@@ -167,6 +167,32 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     }
   }
 
+  // ── buildPlan: explicit blank alias (not null) exercises isBlank() branch ──
+
+  @Test
+  public void buildPlan_explicitBlankAliases_incrementsCounter() {
+    graph.addVertex(T.label, "MatchStH", "k", "v");
+    graph.tx().commit();
+
+    var f1 = SQLMatchFilter.fromGqlNode(null, "MatchStH");
+    f1.setAlias("");
+    var f2 = SQLMatchFilter.fromGqlNode(null, "MatchStH");
+    f2.setAlias("");
+    var statement = new GqlMatchStatement(List.of(f1, f2));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      Assert.assertTrue(stream.hasNext());
+      var row = (Result) stream.next();
+      var names = row.getPropertyNames();
+      Assert.assertTrue("Should contain $c0", names.contains("$c0"));
+      Assert.assertTrue("Should contain $c1", names.contains("$c1"));
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
+  }
+
   // ── buildPlan: mix of named and anonymous ──
 
   @Test
