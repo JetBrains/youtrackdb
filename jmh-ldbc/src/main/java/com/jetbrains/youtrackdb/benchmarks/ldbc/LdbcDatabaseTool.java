@@ -131,7 +131,7 @@ public class LdbcDatabaseTool {
       @SuppressWarnings("unchecked")
       var personCount =
           ((com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource) traversal)
-              .sqlCommand("SELECT count(*) as cnt FROM Person").toList();
+              .yql("SELECT count(*) as cnt FROM Person").toList();
       System.out.println("Verification - Person count: " + personCount);
       traversal.close();
     }

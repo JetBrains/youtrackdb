@@ -713,7 +713,7 @@ public class LdbcQueryCorrectnessTest {
   private static List<Map<String, Object>> sql(String query, Object... keyValues) {
     return g.computeInTx(t -> {
       var ytg = (YTDBGraphTraversalSource) t;
-      return ytg.sqlCommand(query, keyValues).toList().stream()
+      return ytg.yql(query, keyValues).toList().stream()
           .map(obj -> (Map<String, Object>) obj)
           .toList();
     });
@@ -736,7 +736,7 @@ public class LdbcQueryCorrectnessTest {
     g.executeInTx(t -> {
       var ytg = (YTDBGraphTraversalSource) t;
       for (String stmt : statements) {
-        ytg.sqlCommand(stmt).iterate();
+        ytg.yql(stmt).iterate();
       }
     });
   }
@@ -775,11 +775,11 @@ public class LdbcQueryCorrectnessTest {
       createEdge(ytg, "HAS_TYPE", "Tag", TAG_PYTHON, "TagClass", TC_ARTIST);
 
       // ---- Organisations ----
-      ytg.sqlCommand(
+      ytg.yql(
           "INSERT INTO Organisation SET id = :id, type = :type, name = :name, url = :url",
           "id", ORG_ACME, "type", "Company", "name", "ACME",
           "url", "http://acme.com").iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "INSERT INTO Organisation SET id = :id, type = :type, name = :name, url = :url",
           "id", ORG_MIT, "type", "University", "name", "MIT",
           "url", "http://mit.edu").iterate();
@@ -816,32 +816,32 @@ public class LdbcQueryCorrectnessTest {
       createEdge(ytg, "HAS_INTEREST", "Person", BOB, "Tag", TAG_PYTHON);
 
       // ---- Work / Study ----
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Organisation WHERE id = :to) SET workFrom = :wf",
           "from", BOB, "to", ORG_ACME, "wf", 2009).iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Organisation WHERE id = :to) SET workFrom = :wf",
           "from", DAVE, "to", ORG_ACME, "wf", 2008).iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE STUDY_AT FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Organisation WHERE id = :to) SET classYear = :cy",
           "from", ALICE, "to", ORG_MIT, "cy", 2005).iterate();
 
       // ---- Forums ----
-      ytg.sqlCommand(
+      ytg.yql(
           "INSERT INTO Forum SET id = :id, title = :title, creationDate = :cd",
           "id", FORUM_ALICE_WALL, "title", "Wall of Alice",
           "cd", DATE_2010_06_01).iterate();
       createEdge(ytg, "HAS_MODERATOR", "Forum", FORUM_ALICE_WALL, "Person", ALICE);
       createEdge(ytg, "HAS_TAG", "Forum", FORUM_ALICE_WALL, "Tag", TAG_JAVA);
 
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE HAS_MEMBER FROM (SELECT FROM Forum WHERE id = :from)"
               + " TO (SELECT FROM Person WHERE id = :to) SET joinDate = :jd",
           "from", FORUM_ALICE_WALL, "to", BOB, "jd", DATE_2012_01_01).iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE HAS_MEMBER FROM (SELECT FROM Forum WHERE id = :from)"
               + " TO (SELECT FROM Person WHERE id = :to) SET joinDate = :jd",
           "from", FORUM_ALICE_WALL, "to", CAROL, "jd", DATE_2011_01_01).iterate();
@@ -911,15 +911,15 @@ public class LdbcQueryCorrectnessTest {
       createEdge(ytg, "HAS_TAG", "Comment", COMMENT_1, "Tag", TAG_JAVA);
 
       // ---- LIKES ----
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE LIKES FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Post WHERE id = :to) SET creationDate = :cd",
           "from", BOB, "to", POST_1, "cd", DATE_2012_08_01).iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE LIKES FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Post WHERE id = :to) SET creationDate = :cd",
           "from", CAROL, "to", POST_1, "cd", DATE_2012_08_15).iterate();
-      ytg.sqlCommand(
+      ytg.yql(
           "CREATE EDGE LIKES FROM (SELECT FROM Person WHERE id = :from)"
               + " TO (SELECT FROM Post WHERE id = :to) SET creationDate = :cd",
           "from", EVE, "to", POST_1, "cd", DATE_2012_09_01).iterate();
@@ -928,7 +928,7 @@ public class LdbcQueryCorrectnessTest {
 
   private static void insertPlace(YTDBGraphTraversalSource ytg,
       long id, String name, String type) {
-    ytg.sqlCommand(
+    ytg.yql(
         "INSERT INTO Place SET id = :id, name = :name, url = :url, type = :type",
         "id", id, "name", name, "url", "http://dbpedia.org/" + name,
         "type", type).iterate();
@@ -936,7 +936,7 @@ public class LdbcQueryCorrectnessTest {
 
   private static void insertVertex(YTDBGraphTraversalSource ytg,
       String className, long id, String propName, String propValue) {
-    ytg.sqlCommand(
+    ytg.yql(
         "INSERT INTO " + className + " SET id = :id, " + propName + " = :pv,"
             + " url = :url",
         "id", id, "pv", propValue,
@@ -946,7 +946,7 @@ public class LdbcQueryCorrectnessTest {
   private static void insertPerson(YTDBGraphTraversalSource ytg,
       long id, String firstName, String lastName, String gender,
       long birthday, long creationDate, String locationIP, String browserUsed) {
-    ytg.sqlCommand(
+    ytg.yql(
         "INSERT INTO Person SET id = :id, firstName = :fn, lastName = :ln,"
             + " gender = :g, birthday = :bd, creationDate = :cd,"
             + " locationIP = :ip, browserUsed = :br,"
@@ -960,7 +960,7 @@ public class LdbcQueryCorrectnessTest {
   private static void insertPost(YTDBGraphTraversalSource ytg,
       long id, String content, String imageFile, long creationDate,
       String locationIP, String browserUsed, String language, int length) {
-    ytg.sqlCommand(
+    ytg.yql(
         "INSERT INTO Post SET id = :id, content = :content, imageFile = :img,"
             + " creationDate = :cd, locationIP = :ip, browserUsed = :br,"
             + " language = :lang, length = :len",
@@ -972,7 +972,7 @@ public class LdbcQueryCorrectnessTest {
   private static void insertComment(YTDBGraphTraversalSource ytg,
       long id, String content, long creationDate,
       String locationIP, String browserUsed, int length) {
-    ytg.sqlCommand(
+    ytg.yql(
         "INSERT INTO Comment SET id = :id, content = :content,"
             + " creationDate = :cd, locationIP = :ip, browserUsed = :br,"
             + " length = :len",
@@ -984,7 +984,7 @@ public class LdbcQueryCorrectnessTest {
   private static void createEdge(YTDBGraphTraversalSource ytg,
       String edgeLabel, String fromClass, long fromId,
       String toClass, long toId) {
-    ytg.sqlCommand(
+    ytg.yql(
         "CREATE EDGE " + edgeLabel
             + " FROM (SELECT FROM " + fromClass + " WHERE id = :from)"
             + " TO (SELECT FROM " + toClass + " WHERE id = :to)",
@@ -997,7 +997,7 @@ public class LdbcQueryCorrectnessTest {
         + " FROM (SELECT FROM Person WHERE id = :from)"
         + " TO (SELECT FROM Person WHERE id = :to)"
         + " SET creationDate = :cd";
-    ytg.sqlCommand(sql, "from", person1, "to", person2, "cd", creationDate).iterate();
-    ytg.sqlCommand(sql, "from", person2, "to", person1, "cd", creationDate).iterate();
+    ytg.yql(sql, "from", person1, "to", person2, "cd", creationDate).iterate();
+    ytg.yql(sql, "from", person2, "to", person1, "cd", creationDate).iterate();
   }
 }

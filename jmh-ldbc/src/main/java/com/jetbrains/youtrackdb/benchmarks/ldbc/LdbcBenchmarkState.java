@@ -125,7 +125,7 @@ public class LdbcBenchmarkState {
   List<Map<String, Object>> executeSql(String sql, Object... keyValues) {
     return traversal.computeInTx(g -> {
       var ytg = (YTDBGraphTraversalSource) g;
-      return ytg.sqlCommand(sql, keyValues).toList().stream()
+      return ytg.yql(sql, keyValues).toList().stream()
           .map(obj -> (Map<String, Object>) obj)
           .toList();
     });
@@ -448,7 +448,7 @@ public class LdbcBenchmarkState {
     traversal.executeInTx(g -> {
       var ytg = (YTDBGraphTraversalSource) g;
       for (String sql : statements) {
-        ytg.sqlCommand(sql).iterate();
+        ytg.yql(sql).iterate();
       }
     });
   }
@@ -556,7 +556,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] fields : batch) {
-          ytg.sqlCommand(sql, paramBuilder.apply(fields)).iterate();
+          ytg.yql(sql, paramBuilder.apply(fields)).iterate();
         }
       });
     });
@@ -576,7 +576,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "id", Long.parseLong(f[0]),
               "firstName", f[1], "lastName", f[2], "gender", f[3],
               "birthday", Long.parseLong(f[4]),
@@ -601,7 +601,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "id", Long.parseLong(f[0]),
               "title", f[1],
               "creationDate", Long.parseLong(f[2])).iterate();
@@ -624,7 +624,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "id", Long.parseLong(f[0]),
               "creationDate", Long.parseLong(f[2]),
               "locationIP", f[3], "browserUsed", f[4],
@@ -649,7 +649,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "id", Long.parseLong(f[0]),
               "creationDate", Long.parseLong(f[1]),
               "locationIP", f[2], "browserUsed", f[3],
@@ -675,7 +675,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] fields : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "fromId", Long.parseLong(fields[0]),
               "toId", Long.parseLong(fields[1])).iterate();
         }
@@ -700,7 +700,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] fields : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "fromId", Long.parseLong(fields[0]),
               "toId", Long.parseLong(fields[1]),
               "propValue", Integer.parseInt(fields[2])).iterate();
@@ -726,7 +726,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] fields : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "fromId", Long.parseLong(fields[0]),
               "toId", Long.parseLong(fields[1]),
               "propValue", Long.parseLong(fields[2])).iterate();
@@ -754,8 +754,8 @@ public class LdbcBenchmarkState {
           long p2 = Long.parseLong(fields[1]);
           long cd = Long.parseLong(fields[2]);
           // Bidirectional
-          ytg.sqlCommand(sql, "fromId", p1, "toId", p2, "creationDate", cd).iterate();
-          ytg.sqlCommand(sql, "fromId", p2, "toId", p1, "creationDate", cd).iterate();
+          ytg.yql(sql, "fromId", p1, "toId", p2, "creationDate", cd).iterate();
+          ytg.yql(sql, "fromId", p2, "toId", p1, "creationDate", cd).iterate();
         }
       });
     });
