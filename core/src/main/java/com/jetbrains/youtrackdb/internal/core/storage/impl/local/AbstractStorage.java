@@ -3984,6 +3984,33 @@ public abstract class AbstractStorage
   }
 
   /**
+   * Waits for any in-progress background histogram rebalances to finish
+   * and permanently blocks future ones. Must be called before clearing
+   * index engines and deleting/closing the cache to prevent background
+   * rebalance threads from holding page references on deleted pages.
+   *
+   * <p>Uses {@link IndexHistogramManager#closeStatsFile()} which
+   * internally calls {@code waitForAndBlockRebalance()}, flushes dirty
+   * data, removes the cache entry, and resets the fileId.
+   */
+  private void cancelHistogramRebalances() {
+    for (var engine : indexEngines) {
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        var mgr = btreeEngine.getHistogramManager();
+        if (mgr != null) {
+          try {
+            mgr.closeStatsFile();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to close histogram stats for engine %d (%s)",
+                e, btreeEngine.getId(), mgr.getName());
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Propagates a general-purpose executor to all histogram managers for
    * background rebalance work. Called after the database is fully open.
    * <p>
@@ -4639,7 +4666,10 @@ public abstract class AbstractStorage
       status = STATUS.CLOSING;
 
       if (!isInError()) {
-        flushDirtyHistograms();
+        // Cancel in-progress histogram rebalances, flush dirty data, and
+        // block future rebalances — must happen before flushAllData so
+        // that no background thread holds page references.
+        cancelHistogramRebalances();
         flushAllData();
       }
 
@@ -4723,6 +4753,13 @@ public abstract class AbstractStorage
     try {
       if (!isInError()) {
         preCloseSteps();
+
+        // Cancel any in-progress histogram rebalances and block future
+        // ones before clearing engines and deleting the cache. A running
+        // rebalance holds page read locks; deleting the cache while
+        // those locks are held causes "page is used" errors and JVM
+        // crashes.
+        cancelHistogramRebalances();
 
         for (final var engine : indexEngines) {
           if (engine != null
