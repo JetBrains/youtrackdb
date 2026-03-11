@@ -128,11 +128,12 @@ public class BTreeGetBenchmark {
   }
 
   private long getTreeSize() throws Exception {
-    final long[] size = {0};
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      size[0] = tree.size(atomicOperation);
-    });
-    return size[0];
+    var atomicOperation = atomicOperationsManager.startAtomicOperation();
+    try {
+      return tree.size(atomicOperation);
+    } finally {
+      atomicOperationsManager.endAtomicOperation(atomicOperation, null);
+    }
   }
 
   @TearDown(Level.Trial)
@@ -153,10 +154,15 @@ public class BTreeGetBenchmark {
   public void btreeGet(Blackhole bh) throws Exception {
     var idx = random.nextInt(lookupKeys.length);
     final var key = lookupKeys[idx];
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+    // Use startAtomicOperation/endAtomicOperation for read-only path to avoid
+    // the write freezer lock and commit timestamp overhead of executeInsideAtomicOperation.
+    var atomicOperation = atomicOperationsManager.startAtomicOperation();
+    try {
       RID result = tree.get(key, atomicOperation);
       bh.consume(result);
-    });
+    } finally {
+      atomicOperationsManager.endAtomicOperation(atomicOperation, null);
+    }
   }
 
   // =====================================================================
