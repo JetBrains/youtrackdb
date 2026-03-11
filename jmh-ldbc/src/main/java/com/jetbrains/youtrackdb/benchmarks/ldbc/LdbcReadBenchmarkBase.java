@@ -29,8 +29,6 @@ import org.openjdk.jmh.annotations.Warmup;
 @Measurement(iterations = 5, time = 10)
 @Fork(value = 1, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
-    "-Dyoutrackdb.storage.diskCache.bufferSize=4096",
-    "-Dyoutrackdb.memory.directMemory.trackMode=false",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",

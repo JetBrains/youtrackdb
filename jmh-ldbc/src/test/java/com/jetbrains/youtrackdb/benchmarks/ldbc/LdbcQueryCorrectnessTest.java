@@ -43,7 +43,7 @@ import org.junit.Test;
  * <p><b>Known limitation:</b> YouTrackDB's {@code $parent.$current} references in LET subqueries
  * do not resolve correctly when the outer SELECT wraps a MATCH subquery — the query planner
  * produces a broken execution plan that returns 0 rows. This affects correlated LET subqueries
- * in IC1 (universities/companies), IC3 (xCount/yCount), IC5 (postCount), and IC10
+ * in IC1 (universities/companies), IC3 (xCount/yCount), and IC10
  * (commonInterestScore). Tests for these queries verify the main MATCH structure but skip
  * LET-computed field assertions.
  */
@@ -411,11 +411,6 @@ public class LdbcQueryCorrectnessTest {
    * IC5: Forums joined by FoF after a date with post counts.
    *
    * <p>Verifies the inner MATCH structure (forum membership filter) independently.
-   * The full IC5 query uses a correlated LET subquery with {@code $parent.$current}
-   * which is blocked by a known query planner bug: adding any LET clause to a SELECT
-   * wrapping a MATCH subquery causes the MATCH results to vanish (returns 0 rows).
-   * See LetQueryStep for the {@code $parent.$current} resolution fix that will become
-   * effective once the planner bug is resolved.
    *
    * <p>Bob joined Forum1 on 2012-01-01 ({@code >= minDate}).
    * Carol joined 2011-01-01 (excluded).
@@ -479,53 +474,22 @@ public class LdbcQueryCorrectnessTest {
   }
 
   /**
-   * End-to-end regression test: full IC5 query with {@code class: Forum} filter,
-   * while traversal, correlated LET subquery using {@code $parent.$current},
-   * GROUP BY, and ORDER BY. This is the actual LDBC IC5 query pattern that
-   * exercises both the planner fix (class filter must not flip traversal root)
-   * and the LET evaluation fix (MATCH subquery results must survive the LET).
+   * End-to-end test: full IC5 query using the rewritten MATCH-based approach.
+   * The MATCH extends through Forum -> CONTAINER_OF -> Post -> HAS_CREATOR
+   * to count posts by friends, eliminating the slow correlated LET subquery.
+   *
+   * <p>Bob joined FORUM_ALICE_WALL on 2012-01-01 (>= minDate) and created
+   * POST_2 and POST_3 in that forum. Carol joined on 2011-01-01 (excluded).
+   * Expected: 1 forum (FORUM_ALICE_WALL) with postCount=2.
    */
   @Test
-  public void testIC5_fullQueryWithCorrelatedLet() {
-    // The full IC5 SQL from the resource file uses:
-    //   LET $postCount = (SELECT count(*) ... WHERE @rid = $parent.$current.forumVertex)
-    // The middle SELECT wraps the MATCH subquery, so the LET is a per-record
-    // subquery that must be evaluated for each (person, forum) pair.
-    var results = sql(
-        "SELECT forumTitle, forumId, sum(postCount) as postCount FROM ("
-            + " SELECT forumTitle, forumId,"
-            + "   $postCount[0].cnt as postCount"
-            + " FROM ("
-            + "   SELECT DISTINCT person as personVertex,"
-            + "     forum as forumVertex,"
-            + "     forum.id as forumId,"
-            + "     forum.title as forumTitle"
-            + "   FROM ("
-            + "     MATCH {class: Person, as: start, where: (id = :personId)}"
-            + "       .out('KNOWS'){while: ($depth < 2), as: person,"
-            + "         where: (@rid <> $matched.start.@rid)}"
-            + "       .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}"
-            + "       .outV(){class: Forum, as: forum}"
-            + "     RETURN person, forum"
-            + "   )"
-            + " )"
-            + " LET $postCount = ("
-            + "   SELECT count(*) as cnt"
-            + "   FROM ("
-            + "     SELECT expand(out('CONTAINER_OF')) FROM Forum"
-            + "     WHERE @rid = $parent.$current.forumVertex"
-            + "   )"
-            + "   WHERE out('HAS_CREATOR').@rid = $parent.$current.personVertex"
-            + " )"
-            + ")"
-            + " GROUP BY forumTitle, forumId"
-            + " ORDER BY postCount DESC, forumId ASC"
-            + " LIMIT :limit",
+  public void testIC5_fullQueryWithMatchBasedPostCount() {
+    var results = sql(LdbcQuerySql.IC5,
         "personId", ALICE, "minDate", new Date(DATE_2012_01_01), "limit", 20);
-    // Expected: Forum "Alice's Wall" (FORUM_ALICE_WALL) with Bob as member,
-    // and Bob's posts in that forum counted.
-    assertEquals("Full IC5 query should return at least 1 forum", 1, results.size());
+    assertEquals("IC5 should return 1 forum", 1, results.size());
     assertEquals(FORUM_ALICE_WALL, toLong(results.get(0).get("forumId")));
+    assertEquals("Wall of Alice", results.get(0).get("forumTitle"));
+    assertEquals(2L, toLong(results.get(0).get("postCount")));
   }
 
   /**

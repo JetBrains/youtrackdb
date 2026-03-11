@@ -1,31 +1,25 @@
 /* IC5: New groups.
    Find Forums joined by friends/friends-of-friends after a given date,
-   counting Posts by those friends. */
-SELECT forumTitle, forumId, sum(postCount) as postCount
+   counting Posts by those friends.
+
+   Extends the MATCH pattern to traverse Forum -> CONTAINER_OF -> Post ->
+   HAS_CREATOR -> Person (matching the friend), avoiding the correlated
+   LET subquery that caused an N+1 scan over all forum posts. */
+SELECT forumTitle, forumId, count(post) as postCount
 FROM (
-  SELECT forumTitle, forumId,
-    $postCount[0].cnt as postCount
+  SELECT DISTINCT forum.title as forumTitle,
+    forum.id as forumId,
+    post.@rid as post
   FROM (
-    SELECT DISTINCT person as personVertex,
-      forum as forumVertex,
-      forum.id as forumId,
-      forum.title as forumTitle
-    FROM (
-      MATCH {class: Person, as: start, where: (id = :personId)}
-        .out('KNOWS'){while: ($depth < 2), as: person,
-          where: (@rid <> $matched.start.@rid)}
-        .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}
-        .outV(){class: Forum, as: forum}
-      RETURN person, forum
-    )
-  )
-  LET $postCount = (
-    SELECT count(*) as cnt
-    FROM (
-      SELECT expand(out('CONTAINER_OF')) FROM Forum
-      WHERE @rid = $parent.$current.forumVertex
-    )
-    WHERE out('HAS_CREATOR').@rid = $parent.$current.personVertex
+    MATCH {class: Person, as: start, where: (id = :personId)}
+      .out('KNOWS'){while: ($depth < 2), as: person,
+        where: (@rid <> $matched.start.@rid)}
+      .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}
+      .outV(){class: Forum, as: forum}
+      .out('CONTAINER_OF'){as: post}
+      .out('HAS_CREATOR'){as: creator,
+        where: (@rid = $matched.person.@rid)}
+    RETURN forum, post
   )
 )
 GROUP BY forumTitle, forumId
