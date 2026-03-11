@@ -656,6 +656,8 @@ guard to short-circuit and skip cleanup entirely — defeating the purpose of th
 ### Phase 7: Benchmarks and Threshold Tuning
 Determine default values for `minThreshold` and `scaleFactor` by measuring GC impact on
 representative workloads. JMH benchmarks go in `tests/src/main/java/.../benchmarks/`.
+All benchmarks in this phase must be run on a **CCX33 Hetzner node** to ensure reproducible,
+production-representative results.
 
 1. **GC overhead benchmark**: Measure the per-page cost of the GC pass (page load, record
    scan, delete, WAL write) to establish a baseline cost model. Vary page fill factor and
