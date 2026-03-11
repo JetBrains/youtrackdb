@@ -83,19 +83,24 @@ public class FrontendTransactionImpl implements
       new IdentityHashMap<>();
   protected final TreeSet<RecordIdInternal> recordsInTransaction = new TreeSet<>();
 
-  protected final HashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
-  private final IdentityHashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacksIdentityMap =
-      new IdentityHashMap<>();
+  protected final HashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacks =
+      new HashMap<>();
+  private final IdentityHashMap<RecordIdInternal,
+      RecordOperation> operationsBetweenCallbacksIdentityMap =
+          new IdentityHashMap<>();
   private final ArrayList<RecordOperation> operationsForCallbackIteration = new ArrayList<>();
 
-  protected HashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
-      new HashMap<>();
-  private final IdentityHashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
-      new IdentityHashMap<>();
+  protected HashMap<RecordIdInternal,
+      List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
+          new HashMap<>();
+  private final IdentityHashMap<RecordIdInternal,
+      List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
+          new IdentityHashMap<>();
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
 
-  protected final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap = new HashMap<>();
+  protected final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap =
+      new HashMap<>();
 
   protected long id;
   protected int newRecordsPositionsGenerator = -2;
@@ -107,7 +112,8 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   private final boolean readOnly;
 
-  private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
+  private final RecordSerializationContext recordSerializationContext =
+      new RecordSerializationContext();
   private AtomicOperation atomicOperation;
 
   // Thread that called startStorageTx() and incremented the per-thread activeTxCount.
@@ -126,7 +132,7 @@ public class FrontendTransactionImpl implements
     assert storageTxThreadId == 0
         || storageTxThreadId == Thread.currentThread().threadId()
         : "Transaction used from thread " + Thread.currentThread().threadId()
-        + " but was started on thread " + storageTxThreadId;
+            + " but was started on thread " + storageTxThreadId;
   }
 
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
@@ -409,7 +415,7 @@ public class FrontendTransactionImpl implements
           : "atomicOperation must be null after rollback close";
       assert recordOperations.isEmpty()
           : "recordOperations must be cleared after rollback, but had "
-          + recordOperations.size() + " entries";
+              + recordOperations.size() + " entries";
 
       //There are could be exceptions during session opening
       // that will force to rollback of txs started during this process.
@@ -419,7 +425,6 @@ public class FrontendTransactionImpl implements
       }
     }
   }
-
 
   private void invalidateChangesInCacheDuringRollback() {
     for (final var v : recordOperations.values()) {
@@ -481,7 +486,7 @@ public class FrontendTransactionImpl implements
 
     assert record.getSession() == session
         : "Deleted record's session must match the transaction's session. Record: "
-        + record.getIdentity();
+            + record.getIdentity();
 
     try {
       addRecordOperation(record, RecordOperation.DELETED);
@@ -620,7 +625,8 @@ public class FrontendTransactionImpl implements
       } catch (final Exception e) {
         throw BaseException.wrapException(
             new DatabaseException(session,
-                "Error on execution of operation on record " + record.getIdentity()), e, session);
+                "Error on execution of operation on record " + record.getIdentity()),
+            e, session);
       }
 
       assert txEntry.recordBeforeCallBackDirtyCounter <= record.getDirtyCounter();
@@ -858,7 +864,6 @@ public class FrontendTransactionImpl implements
         recordOperation.record.processingInCallback = false;
       }
 
-
     } else {
       throw new IllegalStateException(
           "Invalid record operation type " + recordOperation.type);
@@ -981,8 +986,8 @@ public class FrontendTransactionImpl implements
 
       final var indexChanges = entry.getValue();
       for (final var keyChanges : indexChanges.changesPerKey.values()) {
-        assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies) :
-            "Index key " + keyChanges.key
+        assert !isIndexKeyMayDependOnRid(keyChanges.key, oldRid, fieldRidDependencies)
+            : "Index key " + keyChanges.key
                 + " may depend on RID " + oldRid
                 + ", but it was not updated during record update. Index: "
                 + index.getName()
@@ -1034,8 +1039,8 @@ public class FrontendTransactionImpl implements
     }
 
     for (final var indexEntry : changesPerKey.getEntriesAsList()) {
-      assert !indexEntry.getValue().getIdentity().equals(oldRid) :
-          "Index entry " + indexEntry.getValue()
+      assert !indexEntry.getValue().getIdentity().equals(oldRid)
+          : "Index entry " + indexEntry.getValue()
               + " may depend on RID " + oldRid
               + ", but it was not updated during record update. Index: "
               + indexName
@@ -1054,8 +1059,7 @@ public class FrontendTransactionImpl implements
     return userData.get(iName);
   }
 
-  @Nullable
-  private static Dependency[] getIndexFieldRidDependencies(Index index) {
+  @Nullable private static Dependency[] getIndexFieldRidDependencies(Index index) {
     final var definition = index.getDefinition();
 
     if (definition == null) { // type for untyped index is still not resolved
@@ -1124,8 +1128,8 @@ public class FrontendTransactionImpl implements
     return switch (type) {
       case EMBEDDED, LINK -> Dependency.Yes;
       case LINKLIST, LINKSET, LINKMAP, LINKBAG, EMBEDDEDLIST, EMBEDDEDSET, EMBEDDEDMAP ->
-        // under normal conditions, collection field type is already resolved to its
-        // component type
+          // under normal conditions, collection field type is already resolved to its
+          // component type
           throw new IllegalStateException("Collection field type is not allowed here");
       default -> // all other primitive types which doesn't depend on rids
           Dependency.No;
@@ -1183,11 +1187,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  @Nullable
-  public RecordIdInternal getNextRidInCollection(
+  @Nullable public RecordIdInternal getNextRidInCollection(
       @Nonnull RecordIdInternal rid,
-      long upperBoundExclusive
-  ) {
+      long upperBoundExclusive) {
     final var collectionId = rid.getCollectionId();
     while (true) {
       var result = recordsInTransaction.higher(rid);
@@ -1209,11 +1211,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  @Nullable
-  public RecordIdInternal getPreviousRidInCollection(
+  @Nullable public RecordIdInternal getPreviousRidInCollection(
       @Nonnull RecordIdInternal rid,
-      long lowerBoundInclusive
-  ) {
+      long lowerBoundInclusive) {
     final var collectionId = rid.getCollectionId();
 
     while (true) {
@@ -1221,8 +1221,7 @@ public class FrontendTransactionImpl implements
 
       if (result == null ||
           result.getCollectionId() != collectionId ||
-          result.getCollectionPosition() < lowerBoundInclusive
-      ) {
+          result.getCollectionPosition() < lowerBoundInclusive) {
         return null;
       }
 
@@ -1247,9 +1246,7 @@ public class FrontendTransactionImpl implements
   }
 
   private enum Dependency {
-    Unknown,
-    Yes,
-    No
+    Unknown, Yes, No
   }
 
   protected void checkTransactionValid() {
@@ -1357,8 +1354,7 @@ public class FrontendTransactionImpl implements
     return session.loadEntity(identifiable.getIdentity());
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException {
     checkIfActive();
     if (identifiable instanceof Entity entity) {
@@ -1377,8 +1373,7 @@ public class FrontendTransactionImpl implements
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity loadEntityOrNull(RID id) throws DatabaseException {
     checkIfActive();
     try {
@@ -1395,8 +1390,7 @@ public class FrontendTransactionImpl implements
     return session.loadVertex(id);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex loadVertexOrNull(RID id) throws RecordNotFoundException {
     checkIfActive();
     try {
@@ -1424,8 +1418,7 @@ public class FrontendTransactionImpl implements
     return session.loadVertex(identifiable.getIdentity());
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException {
     checkIfActive();
     if (identifiable instanceof Vertex vertex) {
@@ -1452,8 +1445,7 @@ public class FrontendTransactionImpl implements
     return session.loadEdge(id);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     checkIfActive();
     try {
@@ -1507,8 +1499,7 @@ public class FrontendTransactionImpl implements
     return session.loadBlob(id);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     checkIfActive();
     try {
@@ -1666,8 +1657,7 @@ public class FrontendTransactionImpl implements
     return session.load(recordId);
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     checkIfActive();
@@ -1695,8 +1685,7 @@ public class FrontendTransactionImpl implements
     return session.load(identifiable.getIdentity());
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
     checkIfActive();
@@ -1788,10 +1777,11 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public @Nonnull Stream<com.jetbrains.youtrackdb.internal.core.tx.RecordOperation> getRecordOperations() {
+  public @Nonnull Stream<com.jetbrains.youtrackdb.internal.core.tx.RecordOperation>
+      getRecordOperations() {
     checkIfActive();
-    return getRecordOperationsInternal().stream().map(recordOperation ->
-        switch (recordOperation.type) {
+    return getRecordOperationsInternal().stream()
+        .map(recordOperation -> switch (recordOperation.type) {
           case RecordOperation.CREATED ->
               new com.jetbrains.youtrackdb.internal.core.tx.RecordOperation(recordOperation.record,
                   RecordOperationType.CREATED);

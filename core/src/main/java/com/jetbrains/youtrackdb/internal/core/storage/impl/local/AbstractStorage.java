@@ -20,6 +20,8 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import com.google.common.collect.MapMaker;
+import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.HighLevelException;
@@ -128,8 +130,6 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
-import com.google.common.collect.MapMaker;
-import com.google.common.collect.Sets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -209,8 +209,7 @@ public abstract class AbstractStorage
   private final AtomicBoolean walVacuumInProgress = new AtomicBoolean();
 
   protected volatile WriteAheadLog writeAheadLog;
-  @Nullable
-  private StorageRecoverListener recoverListener;
+  @Nullable private StorageRecoverListener recoverListener;
 
   protected volatile ReadCache readCache;
   protected volatile WriteCache writeCache;
@@ -382,8 +381,7 @@ public abstract class AbstractStorage
     return configuration.getIndexMgrRecordId();
   }
 
-  @Nullable
-  public TimeZone getTimeZone() {
+  @Nullable public TimeZone getTimeZone() {
     return configuration.getTimeZone();
   }
 
@@ -755,7 +753,7 @@ public abstract class AbstractStorage
       }
     }
 
-    final var additionalArgs = new Object[]{getURL(), YouTrackDBConstants.getVersion()};
+    final var additionalArgs = new Object[] {getURL(), YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .info(this, "Storage '%s' is opened under YouTrackDB distribution : %s", additionalArgs);
   }
@@ -895,7 +893,7 @@ public abstract class AbstractStorage
       synch();
     }
 
-    final var additionalArgs = new Object[]{getURL(), YouTrackDBConstants.getVersion()};
+    final var additionalArgs = new Object[] {getURL(), YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .info(this, "Storage '%s' is created under YouTrackDB distribution : %s", additionalArgs);
   }
@@ -987,8 +985,7 @@ public abstract class AbstractStorage
         .setProperty(atomicOperation, DATABASE_INSTANCE_ID, UUID.randomUUID().toString());
   }
 
-  @Nullable
-  protected UUID readDatabaseInstanceId() {
+  @Nullable protected UUID readDatabaseInstanceId() {
     var id = configuration.getProperty(DATABASE_INSTANCE_ID);
     if (id != null) {
       return UUID.fromString(id);
@@ -1132,7 +1129,8 @@ public abstract class AbstractStorage
         } catch (final IOException e) {
           throw BaseException.wrapException(
               new StorageException(name,
-                  "Error in creation of new collection '" + collectionName), e,
+                  "Error in creation of new collection '" + collectionName),
+              e,
               name);
         } finally {
           ddlLock.unlock();
@@ -1166,10 +1164,10 @@ public abstract class AbstractStorage
           if (requestedId < collections.size() && collections.get(requestedId) != null) {
             throw new ConfigurationException(
                 database.getDatabaseName(), "Requested collection ID ["
-                + requestedId
-                + "] is occupied by collection with name ["
-                + collections.get(requestedId).getName()
-                + "]");
+                    + requestedId
+                    + "] is occupied by collection with name ["
+                    + collections.get(requestedId).getName()
+                    + "]");
           }
           if (collectionMap.containsKey(collectionName)) {
             throw new ConfigurationException(
@@ -1184,7 +1182,8 @@ public abstract class AbstractStorage
         } catch (final IOException e) {
           throw BaseException.wrapException(
               new StorageException(name,
-                  "Error in creation of new collection '" + collectionName + "'"), e,
+                  "Error in creation of new collection '" + collectionName + "'"),
+              e,
               name);
         } finally {
           ddlLock.unlock();
@@ -1238,7 +1237,8 @@ public abstract class AbstractStorage
         } catch (final Exception e) {
           throw BaseException.wrapException(
               new StorageException(name,
-                  "Error while removing collection '" + collectionId + "'"), e,
+                  "Error while removing collection '" + collectionId + "'"),
+              e,
               name);
 
         } finally {
@@ -1531,8 +1531,7 @@ public abstract class AbstractStorage
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public final RecordMetadata getRecordMetadata(DatabaseSessionEmbedded session,
       final RID rid) {
     try {
@@ -1595,8 +1594,7 @@ public abstract class AbstractStorage
           throw new StorageException(name, "Collection Id " + collectionId + " is invalid");
         }
         return new Iterator<>() {
-          @Nullable
-          private CollectionBrowsePage page;
+          @Nullable private CollectionBrowsePage page;
           private long lastPos = forward ? -1 : Long.MAX_VALUE;
 
           @Override
@@ -2011,7 +2009,7 @@ public abstract class AbstractStorage
                   if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
                     throw new ConcurrentCreateException(name,
                         rid, new RecordId(collection.getId(),
-                        physicalPosition.collectionPosition));
+                            physicalPosition.collectionPosition));
                   }
                 }
                 positions.put(recordOperation, physicalPosition);
@@ -2341,7 +2339,6 @@ public abstract class AbstractStorage
   public BinarySerializer<?> resolveObjectSerializer(final byte serializerId) {
     return componentsFactory.binarySerializerFactory.getObjectSerializer(serializerId);
   }
-
 
   private static int generateIndexId(final int internalId, final BaseIndexEngine indexEngine) {
     return indexEngine.getEngineAPIVersion() << ((IntegerSerializer.INT_SIZE << 3) - 5)
@@ -3091,7 +3088,6 @@ public abstract class AbstractStorage
     return engine.size(this, transformer, atomicOperation);
   }
 
-
   private void rollback(final Throwable error, @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.endAtomicOperation(atomicOperation, error);
@@ -3100,8 +3096,8 @@ public abstract class AbstractStorage
   public void moveToErrorStateIfNeeded(final Throwable error) {
     if (error != null
         && !((error instanceof HighLevelException)
-        || (error instanceof NeedRetryException)
-        || (error instanceof InternalErrorException))) {
+            || (error instanceof NeedRetryException)
+            || (error instanceof InternalErrorException))) {
       setInError(error);
     }
   }
@@ -3160,8 +3156,7 @@ public abstract class AbstractStorage
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public final String getPhysicalCollectionNameById(final int iCollectionId) {
     try {
       stateLock.readLock().lock();
@@ -3185,7 +3180,6 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(t, false);
     }
   }
-
 
   @Override
   public String getCollectionName(DatabaseSessionEmbedded database, int collectionId) {
@@ -3583,8 +3577,7 @@ public abstract class AbstractStorage
   protected abstract LogSequenceNumber copyWALToBackup(
       ZipOutputStream zipOutputStream, long startSegment) throws IOException;
 
-  @Nullable
-  @SuppressWarnings("unused")
+  @Nullable @SuppressWarnings("unused")
   public StorageRecoverListener getRecoverListener() {
     return recoverListener;
   }
@@ -3820,8 +3813,7 @@ public abstract class AbstractStorage
     return false;
   }
 
-  @Nullable
-  protected String getOpenedAtVersion() {
+  @Nullable protected String getOpenedAtVersion() {
     return null;
   }
 
@@ -3831,10 +3823,10 @@ public abstract class AbstractStorage
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
-          + rid
-          + " since the position is invalid in database '"
-          + name
-          + '\'');
+              + rid
+              + " since the position is invalid in database '"
+              + name
+              + '\'');
     }
     stateLock.readLock().lock();
     try {
@@ -3857,10 +3849,10 @@ public abstract class AbstractStorage
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
-          + rid
-          + " since the position is invalid in database '"
-          + name
-          + '\'');
+              + rid
+              + " since the position is invalid in database '"
+              + name
+              + '\'');
     }
     stateLock.readLock().lock();
     try {
@@ -4090,8 +4082,8 @@ public abstract class AbstractStorage
       // MVCC TRANSACTION: CHECK IF VERSION IS THE SAME
       if (version > -1 && ppos.recordVersion != version) {
         collection.meters().conflict().record();
-        throw new ConcurrentModificationException(name
-            , rid, ppos.recordVersion, version, RecordOperation.DELETED);
+        throw new ConcurrentModificationException(name, rid, ppos.recordVersion, version,
+            RecordOperation.DELETED);
       }
 
       collection.deleteRecord(atomicOperation, ppos.collectionPosition);
@@ -4367,7 +4359,7 @@ public abstract class AbstractStorage
               for (final var engine : indexEngines) {
                 if (engine != null
                     && !(engine instanceof BTreeSingleValueIndexEngine
-                    || engine instanceof BTreeMultiValueIndexEngine)) {
+                        || engine instanceof BTreeMultiValueIndexEngine)) {
                   engine.close();
                 }
               }
@@ -4439,7 +4431,7 @@ public abstract class AbstractStorage
         for (final var engine : indexEngines) {
           if (engine != null
               && !(engine instanceof BTreeSingleValueIndexEngine
-              || engine instanceof BTreeMultiValueIndexEngine)) {
+                  || engine instanceof BTreeMultiValueIndexEngine)) {
             // delete method is implemented only in non native indexes, so they do not use ODB
             // atomic operation
             engine.delete(null);
@@ -4516,7 +4508,6 @@ public abstract class AbstractStorage
     indexEngines.clear();
     indexEngineNameMap.clear();
   }
-
 
   private void commitEntry(
       FrontendTransactionImpl frontendTransaction,
@@ -4750,7 +4741,7 @@ public abstract class AbstractStorage
           if ((reportBatchSize > 0 && recordsProcessed % reportBatchSize == 0)
               || currentTime - lastReportTime > WAL_RESTORE_REPORT_INTERVAL) {
             final var additionalArgs =
-                new Object[]{recordsProcessed, walRecord.getLsn(), writeAheadLog.end()};
+                new Object[] {recordsProcessed, walRecord.getLsn(), writeAheadLog.end()};
             LogManager.instance()
                 .info(
                     this,
@@ -4985,7 +4976,7 @@ public abstract class AbstractStorage
         || runtimeException instanceof InternalErrorException
         || runtimeException instanceof IllegalArgumentException)) {
       final var iAdditionalArgs =
-          new Object[]{
+          new Object[] {
               System.identityHashCode(runtimeException), getURL(), YouTrackDBConstants.getVersion()
           };
       LogManager.instance()
@@ -5010,7 +5001,7 @@ public abstract class AbstractStorage
       }
 
       final var iAdditionalArgs =
-          new Object[]{System.identityHashCode(error), getURL(), YouTrackDBConstants.getVersion()};
+          new Object[] {System.identityHashCode(error), getURL(), YouTrackDBConstants.getVersion()};
       LogManager.instance()
           .error(this, "Exception `%08X` in storage `%s`: %s", error, iAdditionalArgs);
     }
@@ -5031,7 +5022,7 @@ public abstract class AbstractStorage
         setInError(throwable);
       }
       final var iAdditionalArgs =
-          new Object[]{System.identityHashCode(throwable), getURL(),
+          new Object[] {System.identityHashCode(throwable), getURL(),
               YouTrackDBConstants.getVersion()};
       LogManager.instance()
           .error(this, "Exception `%08X` in storage `%s`: %s", throwable, iAdditionalArgs);
@@ -5045,7 +5036,7 @@ public abstract class AbstractStorage
   private InvalidIndexEngineIdException logAndPrepareForRethrow(
       final InvalidIndexEngineIdException exception) {
     final var iAdditionalArgs =
-        new Object[]{System.identityHashCode(exception), getURL(),
+        new Object[] {System.identityHashCode(exception), getURL(),
             YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
@@ -5064,8 +5055,8 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              storageConfiguration.setSchemaRecordId(atomicOperation, schemaRecordId));
+          atomicOperation -> storageConfiguration.setSchemaRecordId(atomicOperation,
+              schemaRecordId));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5190,8 +5181,8 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              storageConfiguration.setIndexMgrRecordId(atomicOperation, indexMgrRecordId));
+          atomicOperation -> storageConfiguration.setIndexMgrRecordId(atomicOperation,
+              indexMgrRecordId));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5216,8 +5207,8 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              storageConfiguration.setDateTimeFormat(atomicOperation, dateTimeFormat));
+          atomicOperation -> storageConfiguration.setDateTimeFormat(atomicOperation,
+              dateTimeFormat));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5435,7 +5426,6 @@ public abstract class AbstractStorage
       walVacuumInProgress.set(false);
     }
   }
-
 
   @Override
   public int[] getCollectionsIds(Set<String> filterCollections) {

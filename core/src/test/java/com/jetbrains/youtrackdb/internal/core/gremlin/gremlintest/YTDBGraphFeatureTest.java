@@ -12,9 +12,9 @@ import io.cucumber.java.Scenario;
 import io.cucumber.junit.Cucumber;
 import io.cucumber.junit.CucumberOptions;
 import java.io.File;
-import java.util.Locale;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -55,8 +55,7 @@ public class YTDBGraphFeatureTest {
 
   private static final Map<String, String> IGNORED_TESTS = Map.of(
       "g_injectXhello_hiX_concat_XV_valuesXnameXX",
-      "YouTrackDB doesn't guarantee a consistent order of element's IDs"
-  );
+      "YouTrackDB doesn't guarantee a consistent order of element's IDs");
 
   public static final class ServiceModule extends AbstractModule {
 
@@ -94,38 +93,38 @@ public class YTDBGraphFeatureTest {
       var fileName = Paths.get(pathToFileFromGremlin).getFileName().toString();
       @SuppressWarnings("UnnecessaryLocalVariable")
       var realPath = PATHS.compute(fileName, (file, path) -> {
-            try {
-              if (file.endsWith(".kryo")) {
-                var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.kryo";
-                return TestHelper.generateTempFileFromResource(GryoResourceAccess.class, resourceName,
-                        "")
-                    .getAbsolutePath();
-              }
-              if (file.endsWith(".json")) {
-                var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.json";
-                return TestHelper.generateTempFileFromResource(GraphSONResourceAccess.class,
-                        resourceName,
-                        "")
-                    .getAbsolutePath();
-              }
-              if (file.endsWith(".xml")) {
-                return TestHelper.generateTempFileFromResource(GraphMLResourceAccess.class, fileName,
-                    "").getAbsolutePath();
-              }
-            } catch (IOException e) {
-              throw new RuntimeException(e);
-            }
-
-            throw new IllegalArgumentException(file + " is not supported");
+        try {
+          if (file.endsWith(".kryo")) {
+            var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.kryo";
+            return TestHelper.generateTempFileFromResource(GryoResourceAccess.class, resourceName,
+                "")
+                .getAbsolutePath();
           }
-      );
+          if (file.endsWith(".json")) {
+            var resourceName = fileName.substring(0, fileName.length() - 5) + "-v3.json";
+            return TestHelper.generateTempFileFromResource(GraphSONResourceAccess.class,
+                resourceName,
+                "")
+                .getAbsolutePath();
+          }
+          if (file.endsWith(".xml")) {
+            return TestHelper.generateTempFileFromResource(GraphMLResourceAccess.class, fileName,
+                "").getAbsolutePath();
+          }
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+
+        throw new IllegalArgumentException(file + " is not supported");
+      });
       return realPath;
     }
 
     private static YTDBGraph initGraph(GraphData graphData) {
       final var configs = new BaseConfiguration();
       final var directory =
-          makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase(Locale.ROOT));
+          makeTestDirectory(
+              graphData == null ? "default" : graphData.name().toLowerCase(Locale.ROOT));
 
       try {
         FileUtils.deleteDirectory(new File(directory));
@@ -199,8 +198,7 @@ public class YTDBGraphFeatureTest {
             graph.getClass(),
             GryoResourceAccess.class,
             Paths.get(graphData.location()).getFileName().toString(),
-            "", false
-        ).getAbsolutePath();
+            "", false).getAbsolutePath();
         graph.traversal().io(dataFile).read().iterate();
         // Commit the loaded data and close the auto-opened TX so the lifecycle
         // read guard is released before scenarios start.
