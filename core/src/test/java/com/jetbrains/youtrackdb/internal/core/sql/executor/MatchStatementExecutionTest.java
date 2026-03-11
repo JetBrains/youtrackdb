@@ -2138,6 +2138,64 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that ORDER BY + SKIP + LIMIT on the RETURN $elements path computes
+   * the bounded-heap size as skip + limit. With 6 Person vertices:
+   * ORDER BY name ASC → n1,n2,n3,n4,n5,n6; SKIP 2 LIMIT 3 → n3,n4,n5.
+   * The bounded heap must keep top 5 (2+3) elements so that after SKIP 2
+   * there are still 3 results. If the heap size ignores SKIP, it keeps only 3,
+   * and after SKIP 2 only 1 result remains — which is wrong.
+   */
+  @Test
+  public void testReturnElementsOrderBySkipLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2 LIMIT 3")
+        .toList();
+    assertEquals(3, result.size());
+    assertEquals("n3", result.get(0).getProperty("name"));
+    assertEquals("n4", result.get(1).getProperty("name"));
+    assertEquals("n5", result.get(2).getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY + LIMIT 0 on RETURN $elements returns nothing.
+   * Exercises the maxResults=0 fast path in OrderByStep.init() which
+   * must close the upstream stream without consuming it.
+   */
+  @Test
+  public void testReturnElementsOrderByLimitZero() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 0")
+        .toList();
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY + SKIP (without LIMIT) on the RETURN $elements path
+   * does NOT use the bounded-heap (maxResults is null). All elements are sorted,
+   * then the first 2 are skipped.
+   */
+  @Test
+  public void testReturnElementsOrderBySkipWithoutLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2")
+        .toList();
+    assertEquals(4, result.size());
+    assertEquals("n3", result.get(0).getProperty("name"));
+    assertEquals("n4", result.get(1).getProperty("name"));
+    assertEquals("n5", result.get(2).getProperty("name"));
+    assertEquals("n6", result.get(3).getProperty("name"));
+    session.commit();
+  }
+
+  /**
    * Exercises ReturnMatchPathElementsStep by using RETURN $pathElements.
    * Unlike $elements, $pathElements includes auto-generated aliases too, yielding
    * more elements per row. Each result should be an identifiable record.
