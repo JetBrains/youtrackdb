@@ -58,12 +58,59 @@ public class SubQueryStep extends AbstractExecutionStep {
     }
 
     var parentRs = subExecutionPlan.start();
+
+    // The sub-plan's pipeline was built with the plan's own context (planCtx).
+    // Steps like MatchPrefetchStep store data in planCtx during start().
+    // However, when the outer pipeline iterates this stream, it passes the
+    // OUTER context to hasNext/next — which propagates down and replaces
+    // planCtx, making prefetched data invisible to inner traversers.
+    //
+    // Fix: wrap the stream to always use planCtx for inner iteration, while
+    // the outer mapResult still receives the caller's context for setting
+    // $current on the outer pipeline.
+    if (subExecutionPlan instanceof SelectExecutionPlan selectPlan) {
+      var planCtx = selectPlan.ctx;
+      return new ContextBindingStream(parentRs, planCtx).map(this::mapResult);
+    }
     return parentRs.map(this::mapResult);
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
     ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
     return result;
+  }
+
+  /**
+   * An {@link ExecutionStream} wrapper that binds a fixed context for the inner
+   * stream's {@code hasNext}/{@code next}/{@code close} calls, ignoring the
+   * context passed by the outer pipeline. This ensures that the sub-plan's
+   * steps always see their own context (with prefetched data, matched
+   * variables, etc.) rather than the outer pipeline's context.
+   */
+  private static final class ContextBindingStream implements ExecutionStream {
+
+    private final ExecutionStream inner;
+    private final CommandContext boundCtx;
+
+    ContextBindingStream(ExecutionStream inner, CommandContext boundCtx) {
+      this.inner = inner;
+      this.boundCtx = boundCtx;
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ignored) {
+      return inner.hasNext(boundCtx);
+    }
+
+    @Override
+    public Result next(CommandContext ignored) {
+      return inner.next(boundCtx);
+    }
+
+    @Override
+    public void close(CommandContext ignored) {
+      inner.close(boundCtx);
+    }
   }
 
   @Override

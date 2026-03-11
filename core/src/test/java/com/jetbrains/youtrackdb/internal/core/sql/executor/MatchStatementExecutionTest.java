@@ -2985,4 +2985,161 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     return session.execute(query).stream().map(Result::getIdentity).toList();
   }
+
+  // -------------------------------------------------------------------
+  // Regression: LET clause on a SELECT wrapping a MATCH subquery must
+  // not cause the MATCH to return 0 rows.
+  // -------------------------------------------------------------------
+
+  /**
+   * Verifies that a constant LET expression added to a SELECT wrapping a MATCH
+   * subquery does not cause the MATCH results to vanish.
+   *
+   * <p>Without the bug fix, adding {@code LET $x = 42} causes the outer query
+   * to return 0 rows even though the same query without the LET returns results.
+   */
+  @Test
+  public void testMatchSubqueryWithConstantLetExpression() {
+    // Baseline: MATCH without LET returns results
+    var baselineQuery =
+        "SELECT name FROM ("
+            + "  MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "    .out('Friend'){as: friend}"
+            + "  RETURN friend"
+            + ")";
+
+    var baselineResults = session.query(baselineQuery).stream().toList();
+    assertFalse("Baseline MATCH should return results", baselineResults.isEmpty());
+    int expectedCount = baselineResults.size();
+
+    // Same query with a trivial constant LET - must return the same rows
+    var letQuery =
+        "SELECT name, $x as x FROM ("
+            + "  MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "    .out('Friend'){as: friend}"
+            + "  RETURN friend"
+            + ") LET $x = 42";
+
+    var letResults = session.query(letQuery).stream().toList();
+    assertEquals(
+        "Adding LET $x = 42 must not change the number of rows",
+        expectedCount,
+        letResults.size());
+    // Verify the LET variable is accessible
+    for (var r : letResults) {
+      assertEquals(42, ((Number) r.getProperty("x")).intValue());
+    }
+  }
+
+  /**
+   * Verifies that an uncorrelated LET subquery (one that does not reference
+   * {@code $parent.$current}) on a SELECT wrapping a MATCH subquery does not
+   * cause the MATCH results to vanish.
+   *
+   * <p>This variant uses {@code LET $cnt = (SELECT count(*) FROM Person)}
+   * which the planner should promote to a global (once-evaluated) LET.
+   */
+  @Test
+  public void testMatchSubqueryWithLetSubquery() {
+    var baselineQuery =
+        "SELECT name FROM ("
+            + "  MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "    .out('Friend'){as: friend}"
+            + "  RETURN friend"
+            + ")";
+
+    var baselineResults = session.query(baselineQuery).stream().toList();
+    assertFalse("Baseline MATCH should return results", baselineResults.isEmpty());
+    int expectedCount = baselineResults.size();
+
+    // LET with a subquery that does not reference $parent.$current
+    var letQuery =
+        "SELECT name, $cnt as cnt FROM ("
+            + "  MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "    .out('Friend'){as: friend}"
+            + "  RETURN friend"
+            + ") LET $cnt = (SELECT count(*) FROM Person)";
+
+    var letResults = session.query(letQuery).stream().toList();
+    assertEquals(
+        "Adding a LET subquery must not change the number of rows",
+        expectedCount,
+        letResults.size());
+  }
+
+  /**
+   * Verifies that a nested {@code SELECT DISTINCT} wrapping a MATCH still works
+   * when the outermost SELECT has a LET clause. This reproduces the three-level
+   * nesting pattern used by LDBC IC5: outer SELECT with LET wraps a SELECT
+   * DISTINCT which wraps the MATCH subquery.
+   */
+  @Test
+  public void testNestedSelectDistinctMatchWithLet() {
+    // Baseline: nested SELECT DISTINCT around MATCH, no LET
+    var baselineQuery =
+        "SELECT DISTINCT friendName FROM ("
+            + "  MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "    .out('Friend'){as: friend}"
+            + "  RETURN friend.name as friendName"
+            + ")";
+
+    var baselineResults = session.query(baselineQuery).stream().toList();
+    assertFalse("Baseline should return results", baselineResults.isEmpty());
+    int expectedCount = baselineResults.size();
+
+    // Wrap with an outer SELECT + LET
+    var letQuery =
+        "SELECT friendName, $x as x FROM ("
+            + "  SELECT DISTINCT friendName FROM ("
+            + "    MATCH {class: Person, as: p, where: (name = 'n1')}"
+            + "      .out('Friend'){as: friend}"
+            + "    RETURN friend.name as friendName"
+            + "  )"
+            + ") LET $x = 42";
+
+    var letResults = session.query(letQuery).stream().toList();
+    assertEquals(
+        "Outer LET on nested SELECT DISTINCT + MATCH must not lose rows",
+        expectedCount,
+        letResults.size());
+  }
+
+  /**
+   * Verifies that adding a LET clause to a SELECT wrapping a MATCH with while
+   * traversal does not cause the results to vanish.
+   *
+   * <p>This is a regression test for the planner bug where a LET clause on an
+   * outer SELECT caused the inner MATCH subquery to return 0 rows. The while
+   * traversal exercises the recursive matching path, which is the pattern used
+   * by LDBC IC5.
+   */
+  @Test
+  public void testWhileMatchSubqueryWithLet() {
+    // Baseline: existing while test query that returns 2 results
+    // (same as testWhile second query)
+    var baselineQuery =
+        "select friend.name as name from (match {class:Person, where:(name ="
+            + " 'n1')}.out('Friend'){as:friend, while: ($depth < 2), where: ($depth=1) }"
+            + " return friend)";
+
+    var baselineResults = session.query(baselineQuery).stream().toList();
+    assertEquals("Baseline while MATCH should return 2 results", 2, baselineResults.size());
+
+    // Same query wrapped in outer SELECT with LET
+    var letQuery =
+        "SELECT name, $x as x FROM ("
+            + "  SELECT friend.name as name FROM ("
+            + "    MATCH {class:Person, where:(name = 'n1')}"
+            + "      .out('Friend'){as:friend, while: ($depth < 2), where: ($depth=1)}"
+            + "    RETURN friend"
+            + "  )"
+            + ") LET $x = 42";
+
+    var letResults = session.query(letQuery).stream().toList();
+    assertEquals(
+        "Adding LET $x = 42 must not change the number of rows from while MATCH",
+        2,
+        letResults.size());
+  }
+
 }

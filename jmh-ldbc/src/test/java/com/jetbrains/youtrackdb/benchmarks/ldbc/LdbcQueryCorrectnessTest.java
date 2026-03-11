@@ -438,6 +438,97 @@ public class LdbcQueryCorrectnessTest {
   }
 
   /**
+   * Regression test for the MATCH planner bug: verifies that adding a
+   * {@code class: Forum} filter on the {@code outV()} step does not cause
+   * the planner to pick Forum as the traversal root, which would reverse
+   * the traversal direction and break {@code $matched} references.
+   *
+   * <p>Without the fix, the planner sees Forum (with a known class and
+   * therefore an estimated weight) as a better starting node than the
+   * anonymous intermediate steps, reversing the entire chain and producing
+   * 0 results.
+   */
+  @Test
+  public void testIC5_matchWithClassForumAndWhile() {
+    // First: verify without class filter works (control)
+    var noClassResults = sql(
+        "SELECT DISTINCT person.id as personId, forum.id as forumId FROM ("
+            + " MATCH {class: Person, as: start, where: (id = :personId)}"
+            + "  .out('KNOWS'){while: ($depth < 2), as: person,"
+            + "   where: (@rid <> $matched.start.@rid)}"
+            + "  .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}"
+            + "  .outV(){as: forum}"
+            + " RETURN person, forum)",
+        "personId", ALICE, "minDate", new Date(DATE_2012_01_01));
+    assertEquals("Without class filter should return 1", 1, noClassResults.size());
+
+    // With class filter
+    var results = sql(
+        "SELECT DISTINCT person.id as personId, forum.id as forumId FROM ("
+            + " MATCH {class: Person, as: start, where: (id = :personId)}"
+            + "  .out('KNOWS'){while: ($depth < 2), as: person,"
+            + "   where: (@rid <> $matched.start.@rid)}"
+            + "  .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}"
+            + "  .outV(){class: Forum, as: forum}"
+            + " RETURN person, forum)",
+        "personId", ALICE, "minDate", new Date(DATE_2012_01_01));
+    assertEquals(
+        "MATCH with class:Forum + while should return results",
+        1,
+        results.size());
+  }
+
+  /**
+   * End-to-end regression test: full IC5 query with {@code class: Forum} filter,
+   * while traversal, correlated LET subquery using {@code $parent.$current},
+   * GROUP BY, and ORDER BY. This is the actual LDBC IC5 query pattern that
+   * exercises both the planner fix (class filter must not flip traversal root)
+   * and the LET evaluation fix (MATCH subquery results must survive the LET).
+   */
+  @Test
+  public void testIC5_fullQueryWithCorrelatedLet() {
+    // The full IC5 SQL from the resource file uses:
+    //   LET $postCount = (SELECT count(*) ... WHERE @rid = $parent.$current.forumVertex)
+    // The middle SELECT wraps the MATCH subquery, so the LET is a per-record
+    // subquery that must be evaluated for each (person, forum) pair.
+    var results = sql(
+        "SELECT forumTitle, forumId, sum(postCount) as postCount FROM ("
+            + " SELECT forumTitle, forumId,"
+            + "   $postCount[0].cnt as postCount"
+            + " FROM ("
+            + "   SELECT DISTINCT person as personVertex,"
+            + "     forum as forumVertex,"
+            + "     forum.id as forumId,"
+            + "     forum.title as forumTitle"
+            + "   FROM ("
+            + "     MATCH {class: Person, as: start, where: (id = :personId)}"
+            + "       .out('KNOWS'){while: ($depth < 2), as: person,"
+            + "         where: (@rid <> $matched.start.@rid)}"
+            + "       .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}"
+            + "       .outV(){class: Forum, as: forum}"
+            + "     RETURN person, forum"
+            + "   )"
+            + " )"
+            + " LET $postCount = ("
+            + "   SELECT count(*) as cnt"
+            + "   FROM ("
+            + "     SELECT expand(out('CONTAINER_OF')) FROM Forum"
+            + "     WHERE @rid = $parent.$current.forumVertex"
+            + "   )"
+            + "   WHERE out('HAS_CREATOR').@rid = $parent.$current.personVertex"
+            + " )"
+            + ")"
+            + " GROUP BY forumTitle, forumId"
+            + " ORDER BY postCount DESC, forumId ASC"
+            + " LIMIT :limit",
+        "personId", ALICE, "minDate", new Date(DATE_2012_01_01), "limit", 20);
+    // Expected: Forum "Alice's Wall" (FORUM_ALICE_WALL) with Bob as member,
+    // and Bob's posts in that forum counted.
+    assertEquals("Full IC5 query should return at least 1 forum", 1, results.size());
+    assertEquals(FORUM_ALICE_WALL, toLong(results.get(0).get("forumId")));
+  }
+
+  /**
    * IC6: Tags co-occurring with "Java" on posts by Alice's friends/FoF.
    * Post2 (Bob) has both Java and Python -> Python co-occurs with Java.
    */

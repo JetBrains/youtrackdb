@@ -43,13 +43,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -1194,7 +1194,8 @@ public class MatchExecutionPlanner {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
+            context);
       }
     }
   }
@@ -1293,8 +1294,7 @@ public class MatchExecutionPlanner {
    * Returns the more specific of two class names if one is a subclass of the other,
    * or `null` if they are unrelated in the class hierarchy.
    */
-  @Nullable
-  private static String getLowerSubclass(
+  @Nullable private static String getLowerSubclass(
       DatabaseSessionEmbedded db, String className1, String className2) {
     Schema schema = db.getMetadata().getSchema();
     var class1 = schema.getClass(className1);
@@ -1381,16 +1381,24 @@ public class MatchExecutionPlanner {
             "class not defined: " + className);
       }
       var oClass = schema.getClassInternal(className);
+      var classCount = oClass.approximateCount(ctx.getDatabaseSession());
       long upperBound;
       var filter = aliasFilters.get(alias);
       if (filter != null) {
-        upperBound = filter.estimate(oClass, THRESHOLD, ctx);
+        // A WHERE filter always reduces or equals the full class scan.
+        // The estimate() heuristic may return a higher value (e.g.
+        // count/2 > count for another class), so we cap it to ensure
+        // filtered nodes are always preferred over unfiltered ones.
+        upperBound = Math.min(filter.estimate(oClass, THRESHOLD, ctx), classCount);
       } else {
-        upperBound = oClass.approximateCount(ctx.getDatabaseSession());
+        // No WHERE filter — full class scan. Add +1 bias so that a
+        // filtered node with the same class count is preferred.
+        upperBound = classCount + 1;
       }
       result.put(alias, upperBound);
     }
 
     return result;
   }
+
 }
