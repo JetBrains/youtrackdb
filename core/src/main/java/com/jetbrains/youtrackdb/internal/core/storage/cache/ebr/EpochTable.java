@@ -18,8 +18,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.ebr;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Cleaner;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -58,6 +60,12 @@ public final class EpochTable {
     }
   }
 
+  // Shared Cleaner for all EpochTable instances. Used to release slots
+  // when their owning thread dies and the SlotHandle becomes unreachable.
+  // One daemon thread per JVM is acceptable — slot release is infrequent
+  // and non-blocking.
+  private static final Cleaner CLEANER = Cleaner.create();
+
   /**
    * Sentinel value indicating a slot is not in a critical section.
    * Chosen as {@code Long.MAX_VALUE} so that INACTIVE slots do not lower
@@ -88,9 +96,28 @@ public final class EpochTable {
   // The array reference is volatile to support dynamic growth (see step 1.2).
   private volatile long[] slots;
 
+  // Per-slot released guard. Prevents double-free when both the Cleaner and
+  // scan-based reclamation (added in step 1.4) attempt to reclaim the same
+  // slot. Only the first CAS from 0 → 1 wins; the loser is a no-op.
+  // Indexed by logical slot index. Grown in lockstep with slots under
+  // growLock. Replaced atomically on grow (AtomicIntegerArray cannot be
+  // resized in place).
+  private volatile AtomicIntegerArray slotReleased;
+
+  // Per-slot Cleaner.Cleanable handle returned by Cleaner.register(). Stored
+  // so that a new thread reusing a slot can cancel the previous owner's
+  // pending Cleaner action before resetting slotReleased to 0. Without this,
+  // a dead thread's Cleaner could fire after the reset, CAS 0→1 on the
+  // freshly reset slotReleased, and return the slot to the free list while
+  // the new thread is actively using it — a use-after-free. Calling
+  // oldCleanable.clean() deregisters the action idempotently (safe even if
+  // the Cleaner or scan-based reclamation already ran). Indexed by logical
+  // slot index. Grown in lockstep with slots under growLock.
+  private volatile Cleaner.Cleanable[] slotCleanables;
+
   // Lock for dynamic array growth. Serializes grow() to prevent concurrent
-  // resizes. Also used by releaseSlot() and reclaimSlot() (added in later
-  // steps) to ensure their CAS targets the current arrays.
+  // resizes. Also used by releaseSlot() and reclaimSlot() (added in step
+  // 1.4) to ensure their CAS targets the current arrays.
   // Lock ordering: evictionLock → growLock (from reclaimSlot);
   // growLock only (from grow, releaseSlot). No cycles.
   private final ReentrantLock growLock = new ReentrantLock();
@@ -118,6 +145,8 @@ public final class EpochTable {
     for (int i = 0; i < arraySize; i += SLOT_STRIDE) {
       s[i] = INACTIVE;
     }
+    this.slotReleased = new AtomicIntegerArray(initialSlotCount);
+    this.slotCleanables = new Cleaner.Cleanable[initialSlotCount];
     this.slots = s;
   }
 
@@ -283,7 +312,10 @@ public final class EpochTable {
 
   /**
    * Gets or allocates a SlotHandle for the current thread. On first call,
-   * allocates a new slot index from the free list or the next-index counter.
+   * allocates a new slot index from the free list or the next-index counter,
+   * registers a Cleaner action to release the slot when the handle becomes
+   * unreachable, and cancels any pending Cleaner action from a previous
+   * owner of the reused slot.
    */
   private SlotHandle getOrAllocateSlot() {
     SlotHandle handle = threadLocal.get();
@@ -291,7 +323,35 @@ public final class EpochTable {
       return handle;
     }
     int slotIndex = allocateSlotIndex();
+
+    // Cancel any pending Cleaner action from the previous owner of this slot.
+    // Without this, the dead thread's Cleaner could fire after slotReleased is
+    // reset to 0 below, CAS 0→1 on the freshly reset flag, and return the slot
+    // to the free list while the new thread is actively using it — a
+    // use-after-free. Cleanable.clean() is idempotent: if the Cleaner already
+    // ran, the internal action is a no-op (the slotReleased CAS fails). In all
+    // cases, clean() deregisters the Cleanable from the Cleaner's reference
+    // queue, ensuring the old action can never fire after this point.
+    //
+    // AIOOBE safety: slotIndex came from either the free list (always within
+    // the current array bounds) or allocateSlotIndex() which calls grow()
+    // before returning. grow() publishes slotCleanables (volatile write) before
+    // slots (volatile write), and the calling thread saw the grown slots array
+    // (or held growLock), so the volatile read of slotCleanables here sees the
+    // resized array.
+    Cleaner.Cleanable oldCleanable = slotCleanables[slotIndex];
+    if (oldCleanable != null) {
+      oldCleanable.clean();
+    }
+
+    // Note: `handle` remains reachable from this stack frame throughout the
+    // initialization sequence below, so the Cleaner cannot fire prematurely
+    // between slotReleased.set(0) and threadLocal.set(handle).
     handle = new SlotHandle(slotIndex);
+    slotReleased.set(slotIndex, 0); // mark as not-yet-released
+    Cleaner.Cleanable cleanable = CLEANER.register(handle,
+        new ReleaseSlotAction(this, slotIndex));
+    slotCleanables[slotIndex] = cleanable;
     threadLocal.set(handle);
     return handle;
   }
@@ -326,7 +386,8 @@ public final class EpochTable {
    * immediately (double-checked locking).
    *
    * <p>The volatile write of {@code slots} must be the <b>last</b> publish
-   * in {@code grow()}, after all auxiliary arrays (added in later steps).
+   * in {@code grow()}, after all auxiliary arrays ({@code slotCleanables},
+   * {@code slotReleased}, and {@code slotOwners} when added in step 1.4).
    * This ensures readers that see the new {@code slots} array also see the
    * new auxiliary arrays via JMM transitivity.
    *
@@ -352,10 +413,35 @@ public final class EpochTable {
       for (int i = current.length; i < newSize; i += SLOT_STRIDE) {
         newSlots[i] = INACTIVE;
       }
-      // Auxiliary arrays (slotOwners, slotReleased, slotCleanables) will be
-      // grown in lockstep here once they are added in steps 1.3/1.4.
 
-      // IMPORTANT: `slots` must be published LAST, after all auxiliary arrays.
+      // Grow slotCleanables in lockstep.
+      Cleaner.Cleanable[] currentCleanables = slotCleanables;
+      Cleaner.Cleanable[] newCleanables = new Cleaner.Cleanable[newSlotCount];
+      if (currentCleanables != null) {
+        System.arraycopy(currentCleanables, 0, newCleanables, 0,
+            Math.min(currentCleanables.length, newSlotCount));
+      }
+      slotCleanables = newCleanables; // volatile write
+
+      // AtomicIntegerArray cannot be resized in place — replace it.
+      // Copy existing released flags; new slots default to 0 (not released).
+      AtomicIntegerArray currentReleased = slotReleased;
+      AtomicIntegerArray newReleased = new AtomicIntegerArray(newSlotCount);
+      if (currentReleased != null) {
+        for (int j = 0; j < currentReleased.length(); j++) {
+          newReleased.set(j, currentReleased.get(j));
+        }
+      }
+      slotReleased = newReleased; // volatile write
+
+      // IMPORTANT: `slots` must be published LAST, after all auxiliary arrays
+      // (slotCleanables, slotReleased, and slotOwners when added in step 1.4).
+      // This guarantees that a reader (computeSafeEpoch) that sees the new
+      // `slots` array also sees the new auxiliary arrays via JMM transitivity:
+      // auxiliary volatile writes hb→ slots volatile write (program order within
+      // grow()), and if the reader's slots volatile read sees the new array, it
+      // forms a hb chain through to the auxiliary array reads.
+      //
       // Volatile write publishes the new array. Readers (computeSafeEpoch)
       // read the volatile `slots` reference once and scan that snapshot.
       // A reader that sees the old array may miss newly added slots — those
@@ -376,6 +462,41 @@ public final class EpochTable {
   }
 
   /**
+   * Releases a slot back to the free list. Called by the Cleaner when the
+   * owning thread's {@link SlotHandle} becomes unreachable (thread died or
+   * the ThreadLocal was cleared).
+   *
+   * <p>Acquires {@code growLock} to ensure the {@code slotReleased} CAS targets
+   * the current {@link AtomicIntegerArray} (not a stale copy being replaced by
+   * {@link #grow()}). Lock ordering: {@code releaseSlot()} acquires
+   * {@code growLock} only (called from the Cleaner thread, no other lock held).
+   *
+   * <p>Uses {@code setRelease} for the INACTIVE write — same access mode as
+   * {@link #exit()} for consistency: both perform the same logical operation
+   * (mark slot inactive). See the implementation plan for the full rationale.
+   *
+   * @param slotIndex the logical slot index to release
+   */
+  void releaseSlot(int slotIndex) {
+    growLock.lock();
+    try {
+      // CAS guards against double-free: if scan-based reclamation (added in
+      // step 1.4) already reclaimed this slot, the CAS fails and we skip.
+      // Only the first path to set released = 1 performs the actual release.
+      if (!slotReleased.compareAndSet(slotIndex, 0, 1)) {
+        return; // already reclaimed by scan-based reclamation
+      }
+      // Read the current volatile slots reference — never a stale array
+      // captured at registration time. If grow() replaced the array since
+      // the slot was allocated, this still writes to the live array.
+      SLOTS_HANDLE.setRelease(slots, slotIndex * SLOT_STRIDE, INACTIVE);
+      freeList.offer(slotIndex);
+    } finally {
+      growLock.unlock();
+    }
+  }
+
+  /**
    * Per-thread handle caching the assigned slot index and reentrancy guard.
    * The {@code active} flag is thread-local (no synchronization needed) and
    * is checked unconditionally (including production) to catch reentrancy bugs
@@ -387,6 +508,33 @@ public final class EpochTable {
 
     SlotHandle(int slotIndex) {
       this.slotIndex = slotIndex;
+    }
+  }
+
+  /**
+   * Cleaner action that releases a slot when the owning thread's
+   * {@link SlotHandle} becomes unreachable. Implemented as a separate class
+   * (not a lambda closing over {@code this}) to avoid preventing GC of the
+   * {@code SlotHandle} — the Cleaner must hold a strong reference to the
+   * action, so the action must not reference the tracked object.
+   *
+   * <p>The action holds a reference to the {@code EpochTable} rather than to
+   * the {@code slots} array directly, so that {@code releaseSlot()} reads the
+   * current volatile {@code slots} field (never a stale array from before a
+   * {@code grow()}).
+   */
+  private static final class ReleaseSlotAction implements Runnable {
+    private final EpochTable epochTable;
+    private final int slotIndex;
+
+    ReleaseSlotAction(EpochTable epochTable, int slotIndex) {
+      this.epochTable = epochTable;
+      this.slotIndex = slotIndex;
+    }
+
+    @Override
+    public void run() {
+      epochTable.releaseSlot(slotIndex);
     }
   }
 }
