@@ -16,13 +16,16 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache.ebr;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -141,11 +144,42 @@ public final class EpochTable {
   // ThreadLocal holding each thread's SlotHandle (assigned on first enter()).
   private final ThreadLocal<SlotHandle> threadLocal = new ThreadLocal<>();
 
+  // Maximum time (in milliseconds) to wait in waitForSafeEpoch() before
+  // throwing IllegalStateException. A thread stuck in a critical section
+  // this long indicates a bug, not a legitimate workload.
+  private final long safeEpochTimeoutMs;
+
+  // Progressive backoff thresholds for waitForSafeEpoch():
+  //   iterations 0..SPIN_LIMIT-1:          Thread.onSpinWait()
+  //   iterations SPIN_LIMIT..YIELD_LIMIT-1: Thread.yield()
+  //   iterations >= YIELD_LIMIT:            LockSupport.parkNanos(1ms)
+  private static final int SPIN_LIMIT = 64;
+  private static final int YIELD_LIMIT = 128;
+  private static final long PARK_NANOS = 1_000_000L; // 1 ms
+
   /**
    * Creates an EpochTable with initial capacity for
-   * {@code availableProcessors() * 4} logical slots.
+   * {@code availableProcessors() * 4} logical slots and the default
+   * safe-epoch timeout from {@link GlobalConfiguration}.
    */
   public EpochTable() {
+    this(GlobalConfiguration.DISK_CACHE_EBR_SAFE_EPOCH_TIMEOUT_MS.getValueAsLong());
+  }
+
+  /**
+   * Creates an EpochTable with initial capacity for
+   * {@code availableProcessors() * 4} logical slots and the specified
+   * safe-epoch timeout.
+   *
+   * @param safeEpochTimeoutMs maximum time (in milliseconds) to wait in
+   *                           {@link #waitForSafeEpoch(long)} before throwing
+   */
+  public EpochTable(long safeEpochTimeoutMs) {
+    if (safeEpochTimeoutMs <= 0) {
+      throw new IllegalArgumentException(
+          "safeEpochTimeoutMs must be positive, got " + safeEpochTimeoutMs);
+    }
+    this.safeEpochTimeoutMs = safeEpochTimeoutMs;
     int initialSlotCount = Runtime.getRuntime().availableProcessors() * 4;
     int arraySize = initialSlotCount * SLOT_STRIDE;
     long[] s = new long[arraySize];
@@ -292,6 +326,80 @@ public final class EpochTable {
     // are safe to reclaim. If all slots are INACTIVE, min == currentEpoch,
     // so safeEpoch == currentEpoch - 1.
     return min - 1;
+  }
+
+  /**
+   * Waits until {@code computeSafeEpoch() >= retireEpoch}, meaning all threads
+   * that were in a critical section at or before {@code retireEpoch} have exited.
+   * After this method returns, it is safe to physically reclaim any entries
+   * retired at epoch {@code <= retireEpoch}.
+   *
+   * <p>Uses progressive backoff: {@link Thread#onSpinWait()} for the first
+   * {@value #SPIN_LIMIT} iterations, {@link Thread#yield()} for the next
+   * {@value #YIELD_LIMIT} - {@value #SPIN_LIMIT} iterations, then
+   * {@link LockSupport#parkNanos(long)} with 1ms sleeps.
+   *
+   * <p><b>Self-deadlock detection:</b> If the calling thread is currently
+   * inside a critical section (its {@code SlotHandle.active} flag is
+   * {@code true}), the condition can never be satisfied — the thread would
+   * block waiting for itself to exit. This method detects this and throws
+   * {@code IllegalStateException} immediately rather than spinning to timeout.
+   * A {@code null SlotHandle} (thread never entered) is safe — no self-block.
+   *
+   * <p><b>Must not be called inside an EBR critical section.</b> All intended
+   * callers ({@code clearFile()}, {@code close()}, {@code clear()}) run after
+   * draining in-flight operations, so no epoch is active on the calling thread.
+   *
+   * @param retireEpoch the epoch to wait for; once {@code computeSafeEpoch()
+   *                    >= retireEpoch}, all pre-existing critical sections have
+   *                    exited
+   * @throws IllegalStateException if the calling thread is inside a critical
+   *                                section (self-deadlock) or if the timeout
+   *                                expires before the safe epoch is reached
+   */
+  public void waitForSafeEpoch(long retireEpoch) {
+    // Self-deadlock detection: if this thread is inside a critical section,
+    // its slot holds epoch <= retireEpoch and computeSafeEpoch() can never
+    // return >= retireEpoch. Fail fast rather than spinning to timeout.
+    SlotHandle handle = threadLocal.get();
+    if (handle != null && handle.active) {
+      throw new IllegalStateException(
+          "waitForSafeEpoch called inside EBR critical section (thread="
+              + Thread.currentThread().getName()
+              + ", slot=" + handle.slotIndex
+              + "). This would deadlock — the calling thread's slot"
+              + " prevents the safe epoch from advancing.");
+    }
+
+    // Overflow-safe deadline: uses subtraction-based comparison so that
+    // nanoTime wrap-around (which can be negative on some JVMs) is handled
+    // correctly. This is the same pattern used by AbstractQueuedSynchronizer
+    // and other JDK internals.
+    long deadlineNanos = System.nanoTime()
+        + TimeUnit.MILLISECONDS.toNanos(safeEpochTimeoutMs);
+    long safeEpoch;
+    int iteration = 0;
+    while ((safeEpoch = computeSafeEpoch()) < retireEpoch) {
+      if (System.nanoTime() - deadlineNanos >= 0) {
+        throw new IllegalStateException(
+            "waitForSafeEpoch timed out after " + safeEpochTimeoutMs
+                + "ms waiting for safeEpoch >= " + retireEpoch
+                + " (current safeEpoch=" + safeEpoch
+                + "). A thread is stuck in an EBR critical section.");
+      }
+      if (iteration < SPIN_LIMIT) {
+        Thread.onSpinWait();
+      } else if (iteration < YIELD_LIMIT) {
+        Thread.yield();
+      } else {
+        LockSupport.parkNanos(PARK_NANOS);
+      }
+      // Cap at YIELD_LIMIT to prevent int overflow on extremely long waits.
+      // Once in the park phase, the backoff strategy doesn't change.
+      if (iteration < YIELD_LIMIT) {
+        iteration++;
+      }
+    }
   }
 
   /**

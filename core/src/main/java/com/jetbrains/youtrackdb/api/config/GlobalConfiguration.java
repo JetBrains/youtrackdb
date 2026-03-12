@@ -378,6 +378,15 @@ public enum GlobalConfiguration {
       Long.class,
       8 * WAL_MAX_SEGMENT_SIZE.getValueAsLong()),
 
+  DISK_CACHE_EBR_SAFE_EPOCH_TIMEOUT_MS(
+      "youtrackdb.storage.diskCache.ebr.safeEpochTimeoutMs",
+      "Maximum time (in milliseconds) to wait for all threads to exit EBR critical"
+          + " sections during cache eviction or file clearing. A timeout indicates a"
+          + " stuck thread, which is a bug. Increase for environments with unusually"
+          + " long GC pauses or when running with debugging agents.",
+      Long.class,
+      30_000L),
+
   STORAGE_LOCK_TIMEOUT(
       "youtrackdb.storage.lockTimeout",
       "Maximum amount of time (in ms) to lock the storage",
@@ -721,8 +730,7 @@ public enum GlobalConfiguration {
       "Granularity (in nanoseconds) of the profiler ticker. Controls the precision of metrics"
           + " collection and long-running queries detection.",
       Long.class,
-      10_000_000L
-  ),
+      10_000_000L),
 
   PROFILER_TICKER_ADJUSTMENT_RATE(
       "youtrackdb.profiler.tickerAdjustmentRate",
@@ -730,8 +738,7 @@ public enum GlobalConfiguration {
           + "approximates absolute time based on system time and nanotime difference. This parameter "
           + "controls how often the ticker adjusts this difference. Default value is 10 seconds.",
       Long.class,
-      10_000_000_000L
-  ),
+      10_000_000_000L),
 
   // SEQUENCES
 
@@ -847,8 +854,7 @@ public enum GlobalConfiguration {
       "Controls the default behavior of hasLabel step in Gremlin queries. True means that"
           + " queries are polymorphic, unless configured otherwise using GraphTraversalSource#with. True by default.",
       Boolean.class,
-      true
-  ),
+      true),
 
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
@@ -946,7 +952,6 @@ public enum GlobalConfiguration {
       "youtrackdb.client.krb5.ccname", "Location of the Kerberos client ticketcache", String.class,
       null),
 
-
   CLIENT_KRB5_KTNAME(
       "youtrackdb.client.krb5.ktname", "Location of the Kerberos client keytab", String.class,
       null),
@@ -996,17 +1001,15 @@ public enum GlobalConfiguration {
       false,
       true),
 
-
   CREATE_DEFAULT_USERS(
       "youtrackdb.security.createDefaultUsers",
       "Indicates whether default database users should be created",
       Boolean.class,
-      false),
-  WARNING_DEFAULT_USERS(
-      "youtrackdb.security.warningDefaultUsers",
-      "Indicates whether access with default users should show a warning",
-      Boolean.class,
-      true),
+      false), WARNING_DEFAULT_USERS(
+          "youtrackdb.security.warningDefaultUsers",
+          "Indicates whether access with default users should show a warning",
+          Boolean.class,
+          true),
 
   SERVER_SECURITY_FILE(
       "youtrackdb.server.security.file",
@@ -1051,23 +1054,20 @@ public enum GlobalConfiguration {
       "youtrackdb.executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
       Boolean.class,
-      false),
-  EXECUTOR_POOL_MAX_SIZE(
-      "youtrackdb.executor.pool.maxSize",
-      "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-      Integer.class,
-      -1),
-  EXECUTOR_POOL_IO_MAX_SIZE(
-      "youtrackdb.executor.pool.io.maxSize",
-      "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-      Integer.class,
-      -1),
-  EXECUTOR_POOL_IO_ENABLED(
-      "youtrackdb.executor.pool.io.enabled",
-      "Flag to use the executor pool for IO, default enabled",
-      Boolean.class,
-      true),
-  ;
+      false), EXECUTOR_POOL_MAX_SIZE(
+          "youtrackdb.executor.pool.maxSize",
+          "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
+          Integer.class,
+          -1), EXECUTOR_POOL_IO_MAX_SIZE(
+              "youtrackdb.executor.pool.io.maxSize",
+              "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
+              Integer.class,
+              -1), EXECUTOR_POOL_IO_ENABLED(
+                  "youtrackdb.executor.pool.io.enabled",
+                  "Flag to use the executor pool for IO, default enabled",
+                  Boolean.class,
+                  true),
+                  ;
 
   static {
     readConfiguration();
@@ -1163,8 +1163,7 @@ public enum GlobalConfiguration {
    * @param iKey Key to find. It's case insensitive.
    * @return GlobalConfiguration instance if found, otherwise null
    */
-  @Nullable
-  public static GlobalConfiguration findByKey(final String iKey) {
+  @Nullable public static GlobalConfiguration findByKey(final String iKey) {
     for (var v : values()) {
       if (v.key.equalsIgnoreCase(iKey)) {
         return v;
@@ -1215,8 +1214,7 @@ public enum GlobalConfiguration {
     }
   }
 
-  @Nullable
-  public static String getEnvKey(GlobalConfiguration config) {
+  @Nullable public static String getEnvKey(GlobalConfiguration config) {
 
     if (!config.env) {
       return null;
@@ -1294,8 +1292,7 @@ public enum GlobalConfiguration {
     return v instanceof Boolean b ? b : Boolean.parseBoolean(v.toString());
   }
 
-  @Nullable
-  public String getValueAsString() {
+  @Nullable public String getValueAsString() {
     return value != null && value != nullValue
         ? value.toString()
         : defValue != null ? defValue.toString() : null;
@@ -1303,8 +1300,7 @@ public enum GlobalConfiguration {
 
   public int getValueAsInteger() {
     final var v = value != null && value != nullValue ? value : defValue;
-    return (int)
-        (v instanceof Number n ? n.intValue() : FileUtils.getSizeAsNumber(v.toString()));
+    return (int) (v instanceof Number n ? n.intValue() : FileUtils.getSizeAsNumber(v.toString()));
   }
 
   public long getValueAsLong() {
