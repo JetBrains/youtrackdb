@@ -5,9 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.GremlinResultMapper;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -21,7 +18,7 @@ import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 /// TinkerPop service for executing GQL (Graph Query Language) queries.
 ///
 /// Executes GQL queries using the unified MATCH planner/engine. Results are converted
-/// via [GremlinResultMapper]: each {@link Result} row becomes a Map whose values are
+/// via [GremlinResultMapper]: each Result row becomes a Map whose values are
 /// Gremlin vertices, edges, or plain values.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining.
@@ -135,74 +132,6 @@ public class GqlService implements Service<Object, Object> {
         e.addSuppressed(closeEx);
       }
       throw e;
-    }
-  }
-
-  /// Streaming iterator that wraps GqlExecutionStream for lazy result consumption.
-  /// Converts internal Result rows to Gremlin types (vertex, edge, Map) via
-  /// the shared [GremlinResultMapper] used by both GQL and YQL services.
-  @SuppressWarnings("DuplicatedCode")
-  private static final class GqlResultIterator implements CloseableIterator<Object> {
-
-    private final GqlExecutionStream stream;
-    private final GqlExecutionPlan plan;
-    private final YTDBGraphInternal graph;
-    private final ImmutableSchema schema;
-    private boolean closed;
-
-    GqlResultIterator(GqlExecutionStream stream, GqlExecutionPlan plan,
-        YTDBGraphInternal graph, ImmutableSchema schema) {
-      this.stream = stream;
-      this.plan = plan;
-      this.graph = graph;
-      this.schema = schema;
-    }
-
-    @Override
-    public boolean hasNext() {
-      if (closed) {
-        return false;
-      }
-      try {
-        final var hasNext = Objects.requireNonNull(stream).hasNext();
-        if (!hasNext) {
-          close();
-        }
-        return hasNext;
-      } catch (Exception e) {
-        close();
-        throw e;
-      }
-    }
-
-    @Override
-    public @Nullable Object next() {
-      if (closed) {
-        throw new java.util.NoSuchElementException();
-      }
-      try {
-        var raw = Objects.requireNonNull(stream).next();
-        if (raw instanceof Result result) {
-          return GremlinResultMapper.toGremlinValue(graph, schema, result);
-        }
-        return raw;
-      } catch (Exception e) {
-        close();
-        throw e;
-      }
-    }
-
-    @Override
-    public void close() {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      try {
-        Objects.requireNonNull(stream).close();
-      } finally {
-        Objects.requireNonNull(plan).close();
-      }
     }
   }
 
