@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -571,5 +573,119 @@ public class RidSetTest extends DbTestBase {
     Assert.assertTrue(collected.contains(new RecordId(1, 10)));
     Assert.assertTrue(collected.contains(new RecordId(1, 20)));
     Assert.assertTrue(collected.contains(new RecordId(2, 30)));
+  }
+
+  // --- Mutation-killing tests ---
+
+  @Test
+  public void testRemoveNonExistentPositionFromExistingCollection() {
+    // Kills mutant: RidSet.java:157 (return existed → return true).
+    // The collection exists but the specific position does not.
+    var set = new RidSet();
+    set.add(new RecordId(5, 10));
+    set.add(new RecordId(5, 20));
+    Assert.assertFalse(set.remove(new RecordId(5, 99)));
+    Assert.assertEquals(2, set.size());
+    Assert.assertTrue(set.contains(new RecordId(5, 10)));
+    Assert.assertTrue(set.contains(new RecordId(5, 20)));
+  }
+
+  @Test
+  public void testContainsWithIdentifiableWrapper() {
+    // Kills mutant: RidSet.java:62 (instanceof Identifiable → false).
+    // Uses a non-RID Identifiable whose getIdentity() points to a RID in the set.
+    var set = new RidSet();
+    set.add(new RecordId(5, 10));
+
+    Identifiable wrapper = new Identifiable() {
+      @Nonnull
+      @Override
+      public RID getIdentity() {
+        return new RecordId(5, 10);
+      }
+
+      @Override
+      public int compareTo(@Nonnull Identifiable o) {
+        return getIdentity().compareTo(o);
+      }
+    };
+
+    Assert.assertTrue(set.contains(wrapper));
+  }
+
+  @Test
+  public void testContainsWithIdentifiableWrapperNotInSet() {
+    // Verifies that a non-RID Identifiable pointing to a missing RID returns false.
+    var set = new RidSet();
+    set.add(new RecordId(5, 10));
+
+    Identifiable wrapper = new Identifiable() {
+      @Nonnull
+      @Override
+      public RID getIdentity() {
+        return new RecordId(5, 99);
+      }
+
+      @Override
+      public int compareTo(@Nonnull Identifiable o) {
+        return getIdentity().compareTo(o);
+      }
+    };
+
+    Assert.assertFalse(set.contains(wrapper));
+  }
+
+  @Test
+  public void testToArrayTypedExactSize() {
+    // Kills mutant: RidSet.java:97 (a.length < sz → a.length <= sz).
+    // When the input array is exactly the right size, the same array should be returned.
+    var set = new RidSet();
+    set.add(new RecordId(0, 5));
+    set.add(new RecordId(0, 10));
+    RID[] input = new RID[2];
+    RID[] result = set.toArray(input);
+    Assert.assertSame(input, result);
+    Assert.assertNotNull(result[0]);
+    Assert.assertNotNull(result[1]);
+  }
+
+  @Test
+  public void testToArrayTypedOversized() {
+    // Kills mutant: RidSet.java:104 (a.length > sz → false).
+    // When the input array is larger than the set, the element after the last must be null.
+    var set = new RidSet();
+    set.add(new RecordId(0, 5));
+    RID[] input = new RID[3];
+    input[1] = new RecordId(99, 99); // sentinel
+    input[2] = new RecordId(99, 99); // sentinel
+    RID[] result = set.toArray(input);
+    Assert.assertSame(input, result);
+    Assert.assertNotNull(result[0]);
+    Assert.assertNull(result[1]); // null terminator per Set.toArray(T[]) contract
+  }
+
+  @Test
+  public void testIteratorHasNextReturnsFalseOnPositiveOnlySet() {
+    // Tests that hasNext() correctly returns false when only positive RIDs are exhausted.
+    var set = new RidSet();
+    set.add(new RecordId(0, 0));
+    var iterator = set.iterator();
+    Assert.assertTrue(iterator.hasNext());
+    iterator.next();
+    Assert.assertFalse(iterator.hasNext());
+  }
+
+  @Test
+  public void testIteratorMultipleHasNextCallsIdempotent() {
+    // Calling hasNext() multiple times without next() should always return the same result.
+    var set = new RidSet();
+    set.add(new RecordId(0, 0));
+    var iterator = set.iterator();
+    Assert.assertTrue(iterator.hasNext());
+    Assert.assertTrue(iterator.hasNext());
+    Assert.assertTrue(iterator.hasNext());
+    iterator.next();
+    Assert.assertFalse(iterator.hasNext());
+    Assert.assertFalse(iterator.hasNext());
   }
 }
