@@ -635,7 +635,7 @@ public class EmbeddedTestSuite {
 | 12 | SQL commands part 1 | 8 | COMPLETED | 491c8693fc | 2026-03-12 | SQLCommandsTest, SQLCreateClassTest, SQLDropClassTest, SQLInsertTest, SQLSelectTest, SQLMetadataTest, SQLSelectProjectionsTest, SQLSelectGroupByTest + AbstractSelectJUnit5Test |
 | 13 | SQL commands part 2 | 7 | COMPLETED | 42279ccbdb | 2026-03-12 | SQLFunctionsTest, SQLUpdateTest, SQLDeleteTest, SQLCreateVertexTest, SQLDeleteEdgeTest, SQLBatchTest, SQLCombinationFunctionTests |
 | 14 | Misc group | 13 | COMPLETED | 8fa333b9bf | 2026-03-12 | TruncateClassTest, DateTest, SQLCreateLinkTest, MultipleDBTest, ConcurrentUpdatesTest, ConcurrentQueriesTest, ConcurrentCommandAndOpenTest, CollateTest, EmbeddedLinkBagTest, BTreeBasedLinkBagTest, StringsTest, DBSequenceTest, SQLDBSequenceTest + LinkBagJUnit5Test (abstract) |
-| 15 | End + Import/Export | 5 | NOT STARTED | — | — | BinaryTest, DbImport*Tests, DbClosedTest |
+| 15 | End + Import/Export | 5 | COMPLETED | 57c5fdba9e | 2026-03-12 | BinaryTest, DbImportExportTest (@Disabled), DbImportStreamExportTest (@Disabled), DbImportExportLinkBagTest (@Disabled), DbClosedTest; import/export tests were not active in TestNG suite |
 | 16 | Remove TestNG | ~120 deleted | NOT STARTED | — | — | Delete auto/ package, remove TestNG deps |
 | 17 | Post-migration cleanup | — | NOT STARTED | — | — | Simplify @Order, review @Disabled, update CLAUDE.md |
 

@@ -122,7 +122,15 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     BTreeBasedLinkBagTest.class,
     StringsTest.class,
     DBSequenceTest.class,
-    SQLDBSequenceTest.class
+    SQLDBSequenceTest.class,
+    // Binary
+    BinaryTest.class,
+    // Import/Export (@Disabled — were not active in TestNG suite)
+    DbImportExportTest.class,
+    DbImportStreamExportTest.class,
+    DbImportExportLinkBagTest.class,
+    // End — must be last
+    DbClosedTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

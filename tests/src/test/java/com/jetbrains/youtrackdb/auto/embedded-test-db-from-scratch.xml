@@ -114,7 +114,7 @@
   </test>
   <test name="Binary">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.BinaryTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.BinaryTest -->
     </classes>
   </test>
   <test name="sql-commands">
@@ -159,12 +159,14 @@
   </test>
   <test name="DbTools">
     <classes>
-      <!--      <class name="com.jetbrains.youtrackdb.auto.DbImportExportTest"/>-->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbImportExportTest (@Disabled) -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbImportStreamExportTest (@Disabled) -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbImportExportLinkBagTest (@Disabled) -->
     </classes>
   </test>
   <test name="End">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.DbClosedTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbClosedTest -->
     </classes>
   </test>
 </suite>
