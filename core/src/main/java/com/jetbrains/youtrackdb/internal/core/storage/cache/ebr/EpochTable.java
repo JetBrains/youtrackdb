@@ -21,6 +21,8 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -175,12 +177,28 @@ public final class EpochTable {
    *                           {@link #waitForSafeEpoch(long)} before throwing
    */
   public EpochTable(long safeEpochTimeoutMs) {
+    this(safeEpochTimeoutMs, Runtime.getRuntime().availableProcessors() * 4);
+  }
+
+  /**
+   * Creates an EpochTable with the specified safe-epoch timeout and initial
+   * slot capacity. Package-private — used by stress tests that need to force
+   * array growth with a small initial capacity.
+   *
+   * @param safeEpochTimeoutMs maximum time (in milliseconds) to wait in
+   *                           {@link #waitForSafeEpoch(long)} before throwing
+   * @param initialSlotCount   the initial number of logical slots
+   */
+  EpochTable(long safeEpochTimeoutMs, int initialSlotCount) {
     if (safeEpochTimeoutMs <= 0) {
       throw new IllegalArgumentException(
           "safeEpochTimeoutMs must be positive, got " + safeEpochTimeoutMs);
     }
+    if (initialSlotCount <= 0) {
+      throw new IllegalArgumentException(
+          "initialSlotCount must be positive, got " + initialSlotCount);
+    }
     this.safeEpochTimeoutMs = safeEpochTimeoutMs;
-    int initialSlotCount = Runtime.getRuntime().availableProcessors() * 4;
     int arraySize = initialSlotCount * SLOT_STRIDE;
     long[] s = new long[arraySize];
     // Fill all padded slot positions with INACTIVE.
@@ -442,6 +460,23 @@ public final class EpochTable {
    */
   int getFreeListSize() {
     return freeList.size();
+  }
+
+  /**
+   * Returns a snapshot of the free list contents. Package-private, for testing.
+   * The returned list is a copy — mutations do not affect the real free list.
+   */
+  List<Integer> getFreeListSnapshot() {
+    return new ArrayList<>(freeList);
+  }
+
+  /**
+   * Returns the next slot index that will be allocated (i.e., the total number
+   * of slots ever allocated, including those returned to the free list).
+   * Package-private, for testing.
+   */
+  int getNextSlotIndex() {
+    return nextSlotIndex.get();
   }
 
   /**
