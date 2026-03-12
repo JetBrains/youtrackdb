@@ -625,7 +625,7 @@ public class EmbeddedTestSuite {
 | 2 | Schema group | 3 | COMPLETED | 807838cd9e | 2026-03-12 | SchemaTest, AbstractClassTest, DefaultValuesTrivialTest |
 | 3 | Security + Hook groups | 3 | COMPLETED | 9d43402916 | 2026-03-12 | SecurityTest, HookTxTest, HookOnIndexedMapTest; HookOnIndexedMapTest @Disabled (original never ran — JUnit4 @Test in TestNG suite) |
 | 4 | Population part 1 | 4 | COMPLETED | 2b27886d68 | 2026-03-12 | EntityTreeTest, CRUDTest, CRUDInheritanceTest, CRUDDocumentPhysicalTest; originals kept in TestNG XML (classloader isolation prevents DB sharing between providers) |
-| 5 | Population part 2 | 4 | NOT STARTED | — | — | ComplexTypesTest, CRUDDocumentValidationTest, DocumentTrackingTest, DBRecordCreateTest |
+| 5 | Population part 2 | 4 | COMPLETED | d37f7e6ec1 | 2026-03-12 | ComplexTypesTest, CRUDDocumentValidationTest, DocumentTrackingTest, DBRecordCreateTest |
 | 6 | Transaction group | 3 | NOT STARTED | — | — | TransactionAtomicTest, FrontendTransactionImplTest, TransactionConsistencyTest |
 | 7 | Index part 1 | 10 | NOT STARTED | — | — | DateIndexTest → SQLDropSchemaPropertyIndexTest + AbstractIndexReuseTest |
 | 8 | Index part 2 | 10 | NOT STARTED | — | — | SchemaIndexTest → IndexTxAwareOneValueGetEntriesTest + IndexTxAwareBaseTest |

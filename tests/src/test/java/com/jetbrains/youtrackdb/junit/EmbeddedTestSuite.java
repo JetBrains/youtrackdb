@@ -36,7 +36,12 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     EntityTreeTest.class,
     CRUDTest.class,
     CRUDInheritanceTest.class,
-    CRUDDocumentPhysicalTest.class
+    CRUDDocumentPhysicalTest.class,
+    // Population (part 2)
+    ComplexTypesTest.class,
+    CRUDDocumentValidationTest.class,
+    DocumentTrackingTest.class,
+    DBRecordCreateTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

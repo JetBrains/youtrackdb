@@ -36,10 +36,10 @@
       <class name="com.jetbrains.youtrackdb.auto.CRUDTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CRUDInheritanceTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ComplexTypesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DocumentTrackingTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DBRecordCreateTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ComplexTypesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.CRUDDocumentValidationTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DocumentTrackingTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DBRecordCreateTest -->
     </classes>
   </test>
   <test name="Tx">
