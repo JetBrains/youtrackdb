@@ -623,7 +623,7 @@ public class EmbeddedTestSuite {
 | 0 | Infrastructure setup | 0 (5 new) | COMPLETED | ada669584b | 2026-03-12 | JUnit 5 deps, dual runner, base classes, extensions |
 | 1 | DbCreation group | 5 | COMPLETED | cb1b5bc662 | 2026-03-12 | DbCreationTest, DbListenerTest, DBMethodsTest, AlterDatabaseTest, DbCopyTest |
 | 2 | Schema group | 3 | COMPLETED | 807838cd9e | 2026-03-12 | SchemaTest, AbstractClassTest, DefaultValuesTrivialTest |
-| 3 | Security + Hook groups | 3 | NOT STARTED | — | — | SecurityTest, HookTxTest, HookOnIndexedMapTest |
+| 3 | Security + Hook groups | 3 | COMPLETED | 9d43402916 | 2026-03-12 | SecurityTest, HookTxTest, HookOnIndexedMapTest; HookOnIndexedMapTest @Disabled (original never ran — JUnit4 @Test in TestNG suite) |
 | 4 | Population part 1 | 4 | NOT STARTED | — | — | EntityTreeTest, CRUDTest, CRUDInheritanceTest, CRUDDocumentPhysicalTest |
 | 5 | Population part 2 | 4 | NOT STARTED | — | — | ComplexTypesTest, CRUDDocumentValidationTest, DocumentTrackingTest, DBRecordCreateTest |
 | 6 | Transaction group | 3 | NOT STARTED | — | — | TransactionAtomicTest, FrontendTransactionImplTest, TransactionConsistencyTest |

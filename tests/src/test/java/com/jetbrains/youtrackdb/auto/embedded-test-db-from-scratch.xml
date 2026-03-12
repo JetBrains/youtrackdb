@@ -19,13 +19,13 @@
   </test>
   <test name="Security">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.SecurityTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SecurityTest -->
     </classes>
   </test>
   <test name="Hook">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.HookTxTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.HookTxTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.hooks.HookOnIndexedMapTest -->
     </classes>
   </test>
   <test name="Population">

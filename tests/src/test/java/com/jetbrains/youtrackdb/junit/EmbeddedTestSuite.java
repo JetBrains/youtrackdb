@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.junit;
 
+import com.jetbrains.youtrackdb.junit.hooks.HookOnIndexedMapTest;
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
 import org.junit.platform.suite.api.SuiteDisplayName;
@@ -25,7 +26,12 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     // Schema
     SchemaTest.class,
     AbstractClassTest.class,
-    DefaultValuesTrivialTest.class
+    DefaultValuesTrivialTest.class,
+    // Security
+    SecurityTest.class,
+    // Hook
+    HookTxTest.class,
+    HookOnIndexedMapTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {
