@@ -6520,4 +6520,337 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  // ── CASE + MIN/MAX aggregate tests ──
+
+  /**
+   * min() inside CASE THEN branch: returns the minimum value when condition
+   * is true.
+   */
+  @Test
+  public void testMinInsideCaseThenBranch() {
+    var className = "testMinCaseThen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {10, 20, 30, 40, 50}) {
+      session.newInstance(className).setProperty("val", v);
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN 1 = 1 THEN min(val) ELSE 999 END as m FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals(10, ((Number) result.next().getProperty("m")).intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * max() inside CASE THEN branch: returns the maximum value when condition
+   * is true.
+   */
+  @Test
+  public void testMaxInsideCaseThenBranch() {
+    var className = "testMaxCaseThen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {10, 20, 30, 40, 50}) {
+      session.newInstance(className).setProperty("val", v);
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN 1 = 1 THEN max(val) ELSE 0 END as m FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals(50, ((Number) result.next().getProperty("m")).intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * min() in WHEN condition: branch selected based on aggregate threshold.
+   */
+  @Test
+  public void testMinInCaseWhenCondition() {
+    var className = "testMinCaseWhen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {5, 15, 25}) {
+      session.newInstance(className).setProperty("val", v);
+    }
+    session.commit();
+
+    // min(val) = 5 < 10 → 'low'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN min(val) < 10 THEN 'low' ELSE 'high' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals("low", result.next().getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * max() in WHEN condition: branch selected based on aggregate threshold.
+   */
+  @Test
+  public void testMaxInCaseWhenCondition() {
+    var className = "testMaxCaseWhen";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {5, 15, 25}) {
+      session.newInstance(className).setProperty("val", v);
+    }
+    session.commit();
+
+    // max(val) = 25 > 20 → 'high'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN max(val) > 20 THEN 'high' ELSE 'low' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals("high", result.next().getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * CASE inside min(): computes the minimum over CASE-transformed values.
+   */
+  @Test
+  public void testCaseInsideMinAggregate() {
+    var className = "testCaseInsideMin";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {10, 20, 30}) {
+      var doc = session.newInstance(className);
+      doc.setProperty("val", v);
+      doc.setProperty("category", v > 15 ? "big" : "small");
+    }
+    session.commit();
+
+    // min(CASE WHEN category = 'big' THEN val ELSE 999 END) → min(999, 20, 30) = 20
+    session.begin();
+    var result = session.query(
+        "SELECT min(CASE WHEN category = 'big' THEN val ELSE 999 END) as m"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals(20, ((Number) result.next().getProperty("m")).intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * CASE inside max(): computes the maximum over CASE-transformed values.
+   */
+  @Test
+  public void testCaseInsideMaxAggregate() {
+    var className = "testCaseInsideMax";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {10, 20, 30}) {
+      var doc = session.newInstance(className);
+      doc.setProperty("val", v);
+      doc.setProperty("category", v > 15 ? "big" : "small");
+    }
+    session.commit();
+
+    // max(CASE WHEN category = 'small' THEN val ELSE 0 END) → max(10, 0, 0) = 10
+    session.begin();
+    var result = session.query(
+        "SELECT max(CASE WHEN category = 'small' THEN val ELSE 0 END) as m"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals(10, ((Number) result.next().getProperty("m")).intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  // ── COUNT(field) vs COUNT(*) inside CASE ──
+
+  /**
+   * count(nullable_field) inside CASE: counts only non-null values, unlike
+   * count(*) which counts all rows.
+   */
+  @Test
+  public void testCountFieldInsideCaseVsCountStar() {
+    var className = "testCountFieldCase";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    session.newInstance(className).setProperty("name", "Alice");
+    session.newInstance(className).setProperty("name", "Bob");
+    session.newInstance(className); // name is null
+    session.commit();
+
+    // count(*) = 3, count(name) = 2 (skips null)
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(name) < count(*) THEN 'has nulls' ELSE 'no nulls' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals("has nulls", result.next().getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  // ── Nested CASE inside CASE ──
+
+  /**
+   * Nested CASE: outer CASE with aggregate in WHEN, inner CASE with aggregate
+   * in THEN branch. Tests that splitForAggregation recursively handles nested
+   * CASE expressions.
+   */
+  @Test
+  public void testNestedCaseWithAggregates() {
+    var className = "testNestedCase";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 6; i++) {
+      session.newInstance(className).setProperty("val", i * 10);
+    }
+    session.commit();
+
+    // count(*) = 6 > 3 → enters outer THEN
+    // sum(val) = 150 > 100 → inner CASE returns 'big'
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 3 THEN"
+            + " CASE WHEN sum(val) > 100 THEN 'big' ELSE 'small' END"
+            + " ELSE 'few' END as label"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    Assert.assertEquals("big", result.next().getProperty("label"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  // ── CASE aggregate in GROUP BY with multiple groups ──
+
+  /**
+   * CASE with aggregate in a GROUP BY query with multiple groups. Verifies
+   * that per-group aggregates inside CASE are correctly evaluated: groups
+   * with count > 3 get 'large', others get 'small'.
+   */
+  @Test
+  public void testCaseAggregateWithGroupByMultipleGroups() {
+    var className = "testCaseGroupMulti";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    // category A: 4 items, category B: 2 items
+    for (var i = 0; i < 4; i++) {
+      session.newInstance(className).setProperty("category", "A");
+    }
+    for (var i = 0; i < 2; i++) {
+      session.newInstance(className).setProperty("category", "B");
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT category,"
+            + " CASE WHEN count(*) > 3 THEN 'large' ELSE 'small' END as size"
+            + " FROM " + className
+            + " GROUP BY category"
+            + " ORDER BY category");
+    var items = result.stream().toList();
+    Assert.assertEquals(2, items.size());
+    Assert.assertEquals("A", items.get(0).getProperty("category"));
+    Assert.assertEquals("large", items.get(0).getProperty("size"));
+    Assert.assertEquals("B", items.get(1).getProperty("category"));
+    Assert.assertEquals("small", items.get(1).getProperty("size"));
+    result.close();
+    session.commit();
+  }
+
+  // ── CASE aggregate in ORDER BY via alias ──
+
+  /**
+   * ORDER BY a CASE-aggregate expression using an alias. The CASE classifies
+   * groups by their aggregate value, and the alias is used in ORDER BY.
+   */
+  @Test
+  public void testCaseAggregateInOrderByViaAlias() {
+    var className = "testCaseAggOrderAlias";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    // X: 3 items (val sum = 30), Y: 2 items (val sum = 200)
+    for (var i = 0; i < 3; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("grp", "X");
+      doc.setProperty("val", 10);
+    }
+    for (var i = 0; i < 2; i++) {
+      var doc = session.newInstance(className);
+      doc.setProperty("grp", "Y");
+      doc.setProperty("val", 100);
+    }
+    session.commit();
+
+    // Use alias in ORDER BY: priority 0 for sum>50, 1 otherwise
+    // Y (sum=200>50 → priority=0) sorts before X (sum=30 → priority=1)
+    session.begin();
+    var result = session.query(
+        "SELECT grp, sum(val) as s,"
+            + " CASE WHEN sum(val) > 50 THEN 0 ELSE 1 END as priority"
+            + " FROM " + className
+            + " GROUP BY grp"
+            + " ORDER BY priority, grp");
+    var items = result.stream().toList();
+    Assert.assertEquals(2, items.size());
+    Assert.assertEquals("Y", items.get(0).getProperty("grp"));
+    Assert.assertEquals("X", items.get(1).getProperty("grp"));
+    result.close();
+    session.commit();
+  }
+
+  // ── avg() inside CASE ──
+
+  /**
+   * avg() inside CASE THEN branch and in ELSE branch, verifying that
+   * different aggregate functions can appear in different branches.
+   */
+  @Test
+  public void testAvgInsideCaseBranches() {
+    var className = "testAvgCaseBranch";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var v : new int[] {10, 20, 30}) {
+      session.newInstance(className).setProperty("val", v);
+    }
+    session.commit();
+
+    // avg(val) = 20.0, count(*) = 3 > 1 → THEN branch → returns avg = 20
+    session.begin();
+    var result = session.query(
+        "SELECT CASE WHEN count(*) > 1 THEN avg(val) ELSE min(val) END as m"
+            + " FROM " + className);
+    Assert.assertTrue(result.hasNext());
+    var val = ((Number) result.next().getProperty("m")).doubleValue();
+    Assert.assertEquals(20.0, val, 0.01);
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
 }
