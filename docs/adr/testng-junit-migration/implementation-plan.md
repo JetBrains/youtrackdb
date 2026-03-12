@@ -629,7 +629,7 @@ public class EmbeddedTestSuite {
 | 6 | Transaction group | 3 | COMPLETED | 7f1e75bb95 | 2026-03-12 | TransactionAtomicTest, FrontendTransactionImplTest, TransactionConsistencyTest |
 | 7 | Index part 1 | 10 | COMPLETED | b356b1542d | 2026-03-12 | DateIndexTest, IndexTest, ByteArrayKeyTest, ClassIndexManagerTest, IndexConcurrentCommitTest, SQLSelectIndexReuseTest (@Disabled), SQLCreateIndexTest, SQLDropIndexTest, SQLDropClassIndexTest, SQLDropSchemaPropertyIndexTest + AbstractIndexReuseTest |
 | 8 | Index part 2 | 10 | COMPLETED | 6fe126e65a | 2026-03-12 | SchemaIndexTest, ClassIndexTest, SchemaPropertyIndexTest, CollectionIndexTest, 6 IndexTxAware* tests + IndexTxAwareBaseJUnit5Test; fixed testIsIndexedNonIndexedField ordering |
-| 9 | Index part 3 | 7 | NOT STARTED | — | — | MapIndexTest → OrderByIndexReuseTest |
+| 9 | Index part 3 | 7 | COMPLETED | 04e4bfb001 | 2026-03-12 | MapIndexTest, SQLSelectByLinkedSchemaPropertyIndexReuseTest (@Disabled), LinkListIndexTest, LinkBagIndexTest, LinkMapIndexTest, IndexTxTest, OrderByIndexReuseTest |
 | 10 | Index part 4 + IndexManager | 3 | NOT STARTED | — | — | LinkSetIndexTest, CompositeIndexWithNullTest, IndexManagerTest |
 | 11 | Query + Parsing + Graph + GEO + Binary | 8 | NOT STARTED | — | — | WrongQueryTest → GEOTest |
 | 12 | SQL commands part 1 | 8 | NOT STARTED | — | — | SQLCommandsTest → SQLSelectGroupByTest + AbstractSelectTest |

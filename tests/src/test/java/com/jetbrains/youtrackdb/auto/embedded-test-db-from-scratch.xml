@@ -72,14 +72,13 @@
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareOneValueGetTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareMultiValueGetEntriesTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareOneValueGetEntriesTest -->
-      <class name="com.jetbrains.youtrackdb.auto.MapIndexTest"/>
-      <class
-        name="com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.LinkListIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.LinkBagIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.LinkMapIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.MapIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectByLinkedSchemaPropertyIndexReuseTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.LinkListIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.LinkBagIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.LinkMapIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.OrderByIndexReuseTest -->
       <class name="com.jetbrains.youtrackdb.auto.LinkSetIndexTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest"/>
     </classes>

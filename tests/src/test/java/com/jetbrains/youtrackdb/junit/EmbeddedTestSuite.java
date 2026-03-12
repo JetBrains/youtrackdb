@@ -67,7 +67,15 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     IndexTxAwareMultiValueGetTest.class,
     IndexTxAwareOneValueGetTest.class,
     IndexTxAwareMultiValueGetEntriesTest.class,
-    IndexTxAwareOneValueGetEntriesTest.class
+    IndexTxAwareOneValueGetEntriesTest.class,
+    // Index (part 3)
+    MapIndexTest.class,
+    SQLSelectByLinkedSchemaPropertyIndexReuseTest.class,
+    LinkListIndexTest.class,
+    LinkBagIndexTest.class,
+    LinkMapIndexTest.class,
+    IndexTxTest.class,
+    OrderByIndexReuseTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {
