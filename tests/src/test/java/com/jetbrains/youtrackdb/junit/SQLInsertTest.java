@@ -373,7 +373,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Note: original had no explicit @Test annotation (relied on class-level @Test); added @Test here
   @Test
   @Order(8)
   void updateMultipleFields() {
@@ -442,7 +441,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Note: original used @Test(expectedExceptions = ValidationException.class); migrated to assertThrows
   @Test
   @Order(10)
   void insertSelectFromProjection() {
@@ -456,10 +454,9 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Note: original used @Ignore; migrated to @Disabled
   @Test
   @Order(11)
-  @Disabled
+  @Disabled("INSERT ... RETURN not yet implemented")
   void insertWithReturn() {
     if (!session.getMetadata().getSchema().existsClass("actor2")) {
       session.execute("CREATE CLASS Actor2").close();
@@ -688,10 +685,9 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Note: original used @Test(enabled = false); migrated to @Disabled
   @Test
   @Order(17)
-  @Disabled
+  @Disabled("Auto-conversion of embedded map with linked class not yet supported")
   void testAutoConversionOfEmbeddededMapWithLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
     c.createProperty(
@@ -720,10 +716,9 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Note: original used @Test(enabled = false); migrated to @Disabled
   @Test
   @Order(18)
-  @Disabled
+  @Disabled("Auto-conversion of embedded map without linked class not yet supported")
   void testAutoConversionOfEmbeddededNoLinkedClass() {
     var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
     c.createProperty("embeddedNoLinkedClass", PropertyType.EMBEDDED);

@@ -8,7 +8,7 @@ import org.junit.platform.suite.api.SuiteDisplayName;
 /**
  * JUnit 5 test suite for the embedded database tests.
  * Classes are listed in a specific order to preserve execution order
- * and cross-class data dependencies (matching the original TestNG suite XML ordering).
+ * and cross-class data dependencies.
  */
 @Suite
 @SelectClasses({
@@ -121,7 +121,7 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SQLDBSequenceTest.class,
     // Binary
     BinaryTest.class,
-    // Import/Export (@Disabled — were not active in TestNG suite)
+    // Import/Export (@Disabled — not currently active)
     DbImportExportTest.class,
     DbImportStreamExportTest.class,
     DbImportExportLinkBagTest.class,

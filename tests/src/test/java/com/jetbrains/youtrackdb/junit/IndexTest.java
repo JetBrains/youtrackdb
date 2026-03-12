@@ -867,7 +867,7 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(22)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("Test was historically disabled — needs investigation")
   void testValuesContainerIsRemovedIfIndexIsRemoved() {
     final var schema = session.getMetadata().getSchema();
     var clazz =
@@ -1953,7 +1953,7 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(6)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("Test was historically disabled — needs investigation")
   void testIndexBetweenSelect() {
     var query = "select * from Profile where nick between '001' and '004'";
     try (var resultSet = session.query(query)) {
@@ -1973,7 +1973,7 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(6)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("Test was historically disabled — needs investigation")
   void testIndexInComplexSelectOne() {
     try (var resultSet =
         session.query(
@@ -1999,7 +1999,7 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(6)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("Test was historically disabled — needs investigation")
   void testIndexInComplexSelectTwo() {
     try (var resultSet =
         session.query(

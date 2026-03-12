@@ -4,8 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 
 /**
- * Utility that checks for direct memory leaks after all tests complete,
- * replacing the TestNG {@code TestNGTestListener} (ISuiteListener).
+ * Utility that checks for direct memory leaks after all tests complete.
  *
  * <p>Called by {@link SuiteLifecycleExtension.YouTrackDBResource#close()} after
  * the database instance is closed, to ensure correct shutdown ordering.
@@ -17,7 +16,7 @@ final class MemoryLeakDetectionExtension {
 
   /**
    * Shuts down the engine and checks for direct memory leaks.
-   * Mirrors the behavior of {@code TestNGTestListener.onFinish()}.
+   * Shuts down the engine manager and verifies no direct memory buffers are leaked.
    */
   static void checkForLeaks() {
     System.out.println(

@@ -8,15 +8,14 @@ import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.TestWatcher;
 
 /**
- * JUnit 5 extension that manages the shared {@link YouTrackDBImpl} instance lifecycle,
- * replacing TestNG's {@code @BeforeSuite} / {@code @AfterSuite} pattern.
+ * JUnit 5 extension that manages the shared {@link YouTrackDBImpl} instance lifecycle.
  *
  * <p>The instance is created once (before the first test class) and closed after all
  * tests complete, using {@link ExtensionContext.Store.CloseableResource} registered
  * on the root extension context.
  *
  * <p>Also tracks test failures. If any test fails, the memory leak check is skipped
- * on shutdown, matching the original {@code TestNGTestListener} behavior.
+ * on shutdown.
  */
 public class SuiteLifecycleExtension implements BeforeAllCallback, TestWatcher {
 
@@ -80,8 +79,7 @@ public class SuiteLifecycleExtension implements BeforeAllCallback, TestWatcher {
         instance = null;
       }
 
-      // Then check for memory leaks (only if no tests failed),
-      // matching TestNGTestListener.onFinish() behavior
+      // Then check for memory leaks (only if no tests failed)
       if (!anyTestFailed) {
         MemoryLeakDetectionExtension.checkForLeaks();
       }

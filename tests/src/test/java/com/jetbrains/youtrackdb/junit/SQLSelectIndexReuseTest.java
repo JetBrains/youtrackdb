@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
-@Disabled("Disabled in original TestNG suite via @Ignore")
+@Disabled("Rewrite needed for the new SQL engine")
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @BeforeAll

@@ -28,7 +28,7 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(1)
-  @Disabled
+  @Disabled("GROUP BY without aggregate function produces incorrect results")
   void queryGroupByBasic() {
     var result = executeQuery("select location from Account group by location");
 
@@ -60,7 +60,7 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(4)
-  @Disabled
+  @Disabled("GROUP BY with ORDER BY produces incorrect results")
   void queryGroupByAndOrderBy() {
     var result =
         executeQuery("select location from Account group by location order by location");

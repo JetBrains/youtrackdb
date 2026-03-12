@@ -51,7 +51,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
-@Disabled("Import/export tests currently disabled — were commented out in TestNG suite XML")
+@Disabled("Import/export tests currently disabled — not included in active test suite")
 public class DbImportExportTest extends BaseDBJUnit5Test
     implements CommandOutputListener {
 

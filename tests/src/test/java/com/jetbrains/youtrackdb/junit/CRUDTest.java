@@ -2881,7 +2881,7 @@ public class CRUDTest extends BaseDBJUnit5Test {
   }
 
   @Test
-  @Disabled
+  @Disabled("Embedded binary field storage not yet implemented")
   @Order(48)
   void testEmbeddedBinary() {
     var a = session.newEntity("Account");

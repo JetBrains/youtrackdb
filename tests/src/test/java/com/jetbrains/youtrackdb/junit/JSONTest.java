@@ -820,7 +820,7 @@ public class JSONTest extends BaseDBJUnit5Test {
     assertThrows(SerializationException.class,
         () -> session.executeInTx(tx -> session.createOrLoadEntityFromJson("{\"foo\":{}")));
 
-    // Note: original test did not call Assert.fail() for this case
+    // This case intentionally does not assert failure — it only verifies no crash
     try {
       session.executeInTx(tx -> session.createOrLoadEntityFromJson("{{}"));
     } catch (SerializationException ignored) {

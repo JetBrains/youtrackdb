@@ -26,8 +26,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.junit.jupiter.api.BeforeAll;
 
 /**
- * JUnit 5 base test class mirroring the TestNG {@code BaseDBTest}, providing
- * common schema setup and utility methods for database tests.
+ * Base test class providing common schema setup and utility methods for database tests.
  */
 public abstract class BaseDBJUnit5Test extends BaseJUnit5Test {
 

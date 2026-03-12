@@ -515,7 +515,7 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(16)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("SQL escaping test was historically disabled — needs investigation")
   void testEscaping() {
     final Schema schema = session.getMetadata().getSchema();
     schema.createClass("FormatEscapingTest");

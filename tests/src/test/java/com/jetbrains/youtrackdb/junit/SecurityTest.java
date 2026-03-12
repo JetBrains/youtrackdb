@@ -277,7 +277,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
   }
 
   @Test
-  @Disabled
+  @Disabled("System collection visibility restriction not yet enforced")
   void testOnlyAdminCanSeeSystemCollections() {
     session = createSessionInstance("reader", "reader");
 

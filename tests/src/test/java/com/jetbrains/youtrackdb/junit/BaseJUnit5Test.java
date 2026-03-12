@@ -15,11 +15,10 @@ import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * JUnit 5 base test class mirroring the TestNG {@code BaseTest} lifecycle.
+ * Base test class for the ordered test suite.
  *
  * <p>Uses {@link TestInstance.Lifecycle#PER_CLASS} so that {@code @BeforeAll} /
- * {@code @AfterAll} can be non-static and access instance fields, matching
- * TestNG's default behavior.
+ * {@code @AfterAll} can be non-static and access instance fields.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

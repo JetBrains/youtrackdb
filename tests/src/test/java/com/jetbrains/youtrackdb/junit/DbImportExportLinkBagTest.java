@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-@Disabled("Import/export link bag tests not included in main TestNG suite")
+@Disabled("Import/export link bag tests not included in active test suite")
 @Tag("db")
 @Tag("import-export")
 public class DbImportExportLinkBagTest extends BaseDBJUnit5Test

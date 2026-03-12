@@ -196,7 +196,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(10)
   void queryProjectionRid() {
@@ -212,7 +211,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(11)
   void queryProjectionOrigin() {
@@ -225,7 +223,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(12)
   void queryProjectionEval() {
@@ -237,7 +234,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(13)
   void queryProjectionContextArray() {
@@ -262,7 +258,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(14)
   void ifNullFunction() {
@@ -279,7 +274,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     assertEquals("b", result.getFirst().getProperty("ifnull"));
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(15)
   void setAggregation() {
@@ -291,7 +285,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(16)
   void projectionWithNoTarget() {

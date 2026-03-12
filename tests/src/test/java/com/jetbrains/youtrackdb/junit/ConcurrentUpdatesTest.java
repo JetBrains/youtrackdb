@@ -205,7 +205,7 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
     database.close();
   }
 
-  @Disabled
+  @Disabled("Pessimistic locking for SQL updates not yet implemented")
   @Test
   void concurrentPessimisticSQLUpdates() throws Exception {
     sqlUpdate(true);

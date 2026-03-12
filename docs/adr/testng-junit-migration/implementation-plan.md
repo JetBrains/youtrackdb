@@ -637,7 +637,7 @@ public class EmbeddedTestSuite {
 | 14 | Misc group | 13 | COMPLETED | 8fa333b9bf | 2026-03-12 | TruncateClassTest, DateTest, SQLCreateLinkTest, MultipleDBTest, ConcurrentUpdatesTest, ConcurrentQueriesTest, ConcurrentCommandAndOpenTest, CollateTest, EmbeddedLinkBagTest, BTreeBasedLinkBagTest, StringsTest, DBSequenceTest, SQLDBSequenceTest + LinkBagJUnit5Test (abstract) |
 | 15 | End + Import/Export | 5 | COMPLETED | 57c5fdba9e | 2026-03-12 | BinaryTest, DbImportExportTest (@Disabled), DbImportStreamExportTest (@Disabled), DbImportExportLinkBagTest (@Disabled), DbClosedTest; import/export tests were not active in TestNG suite |
 | 16 | Remove TestNG | ~120 deleted | COMPLETED | 5187279e69 | 2026-03-12 | Deleted auto/ package, TestNGTestListener, XML suites; removed TestNG dep + surefire-testng; removed traceability comments; moved ProfilerStub; fixed SQLUpdateTest data-ordering bug |
-| 17 | Post-migration cleanup | — | NOT STARTED | — | — | Simplify @Order, review @Disabled, update CLAUDE.md |
+| 17 | Post-migration cleanup | — | COMPLETED | 9aefc39ada | 2026-03-12 | Updated CLAUDE.md; added reason strings to all bare @Disabled; removed TestNG references from Javadoc/comments; @Order kept as-is (tests share single DB instance, simplification too risky) |
 
 **Total test classes to migrate**: ~95 concrete + ~5 abstract base classes
 **Total steps**: 18 (Step 0 through Step 17)

@@ -31,7 +31,7 @@ class SQLBatchTest extends BaseDBJUnit5Test {
 
   @Test
   @Order(1)
-  @Disabled("Disabled in original TestNG test")
+  @Disabled("Edge creation validation without source/target vertices — test was historically disabled")
   void createEdgeFailIfNoSourceOrTargetVertices() {
     try {
       session.computeScript("sql",

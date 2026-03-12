@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 // FIXME: let exporter version exports be 13 and check whether new stream processing is used.
-@Disabled("Import/export stream tests not included in main TestNG suite")
+@Disabled("Import/export stream tests not included in active test suite")
 @Tag("db")
 @Tag("import-export")
 public class DbImportStreamExportTest extends BaseDBJUnit5Test

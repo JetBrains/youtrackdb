@@ -845,7 +845,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
 
   @Test
   @Order(33)
-  @Disabled
+  @Disabled("Query with conditions and ORDER BY produces incorrect results")
   void queryConditionsAndOrderBy() {
     var result =
         executeQuery("select from Profile where name is not null order by name desc, id asc");

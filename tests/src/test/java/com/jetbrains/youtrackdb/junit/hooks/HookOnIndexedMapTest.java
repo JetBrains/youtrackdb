@@ -11,8 +11,7 @@ import org.junit.jupiter.api.Test;
 
 public class HookOnIndexedMapTest {
 
-  // Original test used JUnit 4 @org.junit.Test inside a TestNG suite XML,
-  // so it was never actually executed. BrokenMapHook.onBeforeRecordUpdate
+  // This test was never executed in the original suite. BrokenMapHook.onBeforeRecordUpdate
   // modifies an embedded map during callback processing, which is now disallowed.
   @Test
   @Disabled("Original test was never executed — BrokenMapHook sets dirty in beforeCallback")
