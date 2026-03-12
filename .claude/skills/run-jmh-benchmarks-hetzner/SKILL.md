@@ -32,8 +32,7 @@ Defaults (good for comparison runs):
 - `-f 1 -wi 3 -w 5s -i 5 -r 10s`
 
 For **jmh-ldbc** specifically:
-- Exclude IC5: `-e ic5_newGroups` (pathological: ~80 min per fork in ST mode)
-- Expected runtime: ~60 minutes for 38 benchmarks (19 queries x 2 suites, IC5 excluded)
+- Expected runtime: ~90 minutes for 40 benchmarks (20 queries x 2 suites) with `-f 1 -wi 3 -w 5s -i 5 -r 10s`
 
 ### Step 1: Provision the server
 
@@ -88,7 +87,30 @@ Replace `<module>` with the target benchmark module (e.g. `jmh-ldbc`).
 
 Wait for BUILD SUCCESS (typically ~60-90 seconds on CCX33).
 
+### Step 4b: Pre-load LDBC dataset (jmh-ldbc only)
+
+**Critical for jmh-ldbc**: The LDBC dataset is downloaded and loaded into the database inside JMH's `@Setup(Level.Trial)` method. This means the first fork's warmup iteration includes dataset download + DB creation time. For multi-threaded benchmarks, threads start executing queries on a partially-loaded database, producing wildly inaccurate results (e.g., 300+ ops/s when the real throughput is ~3 ops/s).
+
+**Always pre-load the dataset** before running actual benchmarks:
+
+```bash
+ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl <module> -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+  -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20'
+```
+
+This runs a single in-process iteration (`-f 0`) that triggers dataset download and DB creation. Subsequent forked runs will find the existing DB at `./target/ldbc-bench-db` and skip loading.
+
+**When comparing two code versions (A/B testing)**: After running version A, delete the benchmark database before running version B to avoid stale cached data:
+
+```bash
+ssh root@<IP> 'rm -rf /root/ytdb/jmh-ldbc/target/ldbc-bench-db'
+```
+
+The dataset files (`target/ldbc-dataset/`) can be kept — only the DB needs to be recreated.
+
 ### Step 5: Run benchmarks
+
+**IMPORTANT**: Never run multiple benchmarks concurrently on the same server. Always wait for one benchmark run to complete before starting the next.
 
 Start the benchmark in a tmux session so it survives SSH disconnects.
 
@@ -177,10 +199,14 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 | JMH hangs or needs restart | `ssh root@<IP> 'rm -f /tmp/jmh.lock'` then re-run in tmux |
 | Core test compilation fails | Add `-Dmaven.test.skip=true` to the compile command |
 | Need real-time output | Use tmux + tee (already in the command above) |
+| Wild/inconsistent ops/s in MT benchmarks | Dataset not pre-loaded. Run Step 4b first. The first fork loads the DB during warmup; MT threads see partially loaded data. |
+| `apt-get` lock on fresh server | Wait 30s for `unattended-upgrades` to finish, then retry. |
 
 ## Notes
 
 - **Server type**: CCX33 provides 8 dedicated AMD EPYC vCPUs — dedicated (not shared) cores ensure consistent benchmark results. For heavier benchmarks, consider CCX43 (16 vCPUs) or CCX53 (32 vCPUs).
-- **jmh-ldbc IC5**: The `ic5_newGroups` benchmark is pathological (~80 min per fork in single-thread mode). Always exclude unless specifically testing IC5.
 - **jmh-ldbc Threads.MAX**: The multi-threaded LDBC benchmark uses `@Threads(Threads.MAX)` — one thread per available processor. On CCX33 this means 8 threads.
+- **jmh-ldbc dataset loading**: The LDBC dataset download and DB creation happens inside `LdbcBenchmarkState.@Setup(Level.Trial)`. This runs once per JMH fork. The first fork downloads and loads (several minutes); subsequent forks detect the existing DB and skip. Always pre-load with `-f 0` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`; the dataset cache is `./target/ldbc-dataset/`.
+- **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
+- **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
