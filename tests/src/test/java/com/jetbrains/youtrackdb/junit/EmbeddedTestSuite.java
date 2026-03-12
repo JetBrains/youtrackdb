@@ -21,7 +21,11 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     DbListenerTest.class,
     DBMethodsTest.class,
     AlterDatabaseTest.class,
-    DbCopyTest.class
+    DbCopyTest.class,
+    // Schema
+    SchemaTest.class,
+    AbstractClassTest.class,
+    DefaultValuesTrivialTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

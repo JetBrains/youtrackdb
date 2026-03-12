@@ -12,9 +12,9 @@
   </test>
   <test name="Schema">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.SchemaTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.AbstractClassTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SchemaTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.AbstractClassTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DefaultValuesTrivialTest -->
     </classes>
   </test>
   <test name="Security">
