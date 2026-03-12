@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,7 +70,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMap
   @Test
   void testIndexMap() {
 
@@ -113,7 +111,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapInTx
   @Test
   void testIndexMapInTx() {
 
@@ -166,7 +163,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateOne
   @Test
   void testIndexMapUpdateOne() {
 
@@ -228,7 +224,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateOneTx
   @Test
   void testIndexMapUpdateOneTx() {
 
@@ -293,7 +288,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateOneTxRollback
   @Test
   void testIndexMapUpdateOneTxRollback() {
 
@@ -352,7 +346,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapAddItem
   @Test
   void testIndexMapAddItem() {
 
@@ -405,7 +398,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapAddItemTx
   @Test
   void testIndexMapAddItemTx() {
 
@@ -464,7 +456,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapAddItemTxRollback
   @Test
   void testIndexMapAddItemTxRollback() {
 
@@ -518,7 +509,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateItem
   @Test
   void testIndexMapUpdateItem() {
 
@@ -572,7 +562,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateItemInTx
   @Test
   void testIndexMapUpdateItemInTx() {
 
@@ -631,7 +620,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapUpdateItemInTxRollback
   @Test
   void testIndexMapUpdateItemInTxRollback() {
 
@@ -685,7 +673,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemoveItem
   @Test
   void testIndexMapRemoveItem() {
 
@@ -740,7 +727,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemoveItemInTx
   @Test
   void testIndexMapRemoveItemInTx() {
 
@@ -799,7 +785,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemoveItemInTxRollback
   @Test
   void testIndexMapRemoveItemInTxRollback() {
 
@@ -854,7 +839,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemove
   @Test
   void testIndexMapRemove() {
 
@@ -883,7 +867,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemoveInTx
   @Test
   void testIndexMapRemoveInTx() {
 
@@ -917,7 +900,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapRemoveInTxRollback
   @Test
   void testIndexMapRemoveInTxRollback() {
 
@@ -971,7 +953,6 @@ public class MapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MapIndexTest#testIndexMapSQL
   @Test
   void testIndexMapSQL() {
     session.begin();

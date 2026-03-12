@@ -36,7 +36,6 @@ import org.junit.jupiter.api.Test;
 
 public class TruncateClassTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TruncateClassTest#testTruncateClass
   @SuppressWarnings("unchecked")
   @Test
   void testTruncateClass() {
@@ -92,7 +91,6 @@ public class TruncateClassTest extends BaseDBJUnit5Test {
     schema.dropClass("test_class");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TruncateClassTest#testTruncateVertexClass
   @Test
   void testTruncateVertexClass() {
     session.execute("create class TestTruncateVertexClass extends V").close();
@@ -116,7 +114,6 @@ public class TruncateClassTest extends BaseDBJUnit5Test {
     assertEquals(0, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TruncateClassTest#testTruncateVertexClassSubclasses
   @Test
   void testTruncateVertexClassSubclasses() {
 
@@ -151,7 +148,6 @@ public class TruncateClassTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TruncateClassTest#testTruncateVertexClassSubclassesWithIndex
   @Test
   void testTruncateVertexClassSubclassesWithIndex() {
 
@@ -220,7 +216,6 @@ public class TruncateClassTest extends BaseDBJUnit5Test {
     return testClass;
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TruncateClassTest#testTruncateClassWithCommandCache
   @SuppressWarnings("unchecked")
   @Test
   void testTruncateClassWithCommandCache() {

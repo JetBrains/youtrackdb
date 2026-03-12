@@ -21,14 +21,10 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
 /**
- * JUnit 5 migration of {@code com.jetbrains.youtrackdb.auto.SchemaPropertyIndexTest}.
- *
- * <p>Migrated from TestNG to JUnit 5 with {@code @Order} annotations replacing
- * {@code dependsOnMethods} for test execution ordering.
+ * Tests for schema property indexes: creation, querying, composite RID indexing, and drop.
  */
 public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
 
-  // Migrated from: @BeforeClass in TestNG → @BeforeAll in JUnit 5
   @Override
   @BeforeAll
   void beforeAll() throws Exception {
@@ -43,7 +39,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     oClass.createProperty("prop5", PropertyType.STRING);
   }
 
-  // Migrated from: @AfterClass in TestNG → @AfterAll in JUnit 5
   @Override
   @AfterAll
   void afterAll() throws Exception {
@@ -57,7 +52,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     super.afterAll();
   }
 
-  // Migrated from: @Test (no deps) → @Order(1)
   @Test
   @Order(1)
   public void testCreateUniqueIndex() {
@@ -76,7 +70,7 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
       }
     }
     assertNotNull(indexDefinition);
-    // TestNG assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals(1, indexDefinition.getParamCount());
     assertEquals(1, indexDefinition.getProperties().size());
     assertTrue(indexDefinition.getProperties().contains("prop1"));
@@ -84,7 +78,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertEquals(PropertyTypeInternal.STRING, indexDefinition.getTypes()[0]);
   }
 
-  // Migrated from: @Test (no deps) → @Order(2)
   // Must run before createAdditionalSchemas which adds indexes involving prop3
   @Test
   @Order(2)
@@ -95,7 +88,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertTrue(propThree.getAllIndexes().isEmpty());
   }
 
-  // Migrated from: @Test(dependsOnMethods = {"testCreateUniqueIndex"}) → @Order(3)
   @Test
   @Order(3)
   public void createAdditionalSchemas() {
@@ -123,7 +115,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
         new String[] {"prop2", "prop1"});
   }
 
-  // Migrated from: @Test(dependsOnMethods = "createAdditionalSchemas") → @Order(4)
   @Test
   @Order(4)
   public void testGetIndexes() {
@@ -131,12 +122,11 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     oClass.getProperty("prop1");
     var indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
-    // TestNG assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals(1, indexes.size());
     assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
   }
 
-  // Migrated from: @Test(dependsOnMethods = "createAdditionalSchemas") → @Order(5)
   @Test
   @Order(5)
   public void testGetAllIndexes() {
@@ -144,7 +134,7 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     var propOne = oClass.getPropertyInternal("prop1");
     final var indexes = propOne.getAllIndexesInternal();
-    // TestNG assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals(5, indexes.size());
     assertNotNull(containsIndex(indexes, "PropertyIndexTestClass.prop1"));
     assertNotNull(containsIndex(indexes, "propOne0"));
@@ -153,7 +143,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertNotNull(containsIndex(indexes, "propOne4"));
   }
 
-  // Migrated from: @Test(dependsOnMethods = {"testCreateUniqueIndex"}) → @Order(6)
   @Test
   @Order(6)
   public void testIsIndexedIndexedField() {
@@ -163,7 +152,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertFalse(propOne.getAllIndexes().isEmpty());
   }
 
-  // Migrated from: @Test(dependsOnMethods = {"testIsIndexedIndexedField"}) → @Order(7)
   @Test
   @Order(7)
   public void testIndexingCompositeRIDAndOthers() throws Exception {
@@ -184,7 +172,7 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     session.commit();
 
     session.begin();
-    // TestNG assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals(prev0 + 1,
         session.getSharedContext().getIndexManager()
             .getIndex("propOne0").size(session));
@@ -194,7 +182,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: @Test(dependsOnMethods = {"testIndexingCompositeRIDAndOthers"})
   //   → @Order(8)
   @Test
   @Order(8)
@@ -213,7 +200,7 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     session.commit();
 
     session.begin();
-    // TestNG assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals(prev0 + 1,
         session.getSharedContext().getIndexManager()
             .getIndex("propOne0").size(session));
@@ -223,7 +210,6 @@ public class SchemaPropertyIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: @Test (no deps) → @Order(9)
   @Test
   @Order(9)
   public void testDropIndexes() throws Exception {

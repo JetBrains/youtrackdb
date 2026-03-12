@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Test;
 
 public class DbClosedTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbClosedTest#testDoubleDb
   @Test
   @Order(1)
   void testDoubleDb() {
@@ -34,7 +33,6 @@ public class DbClosedTest extends BaseDBJUnit5Test {
     db.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbClosedTest#testDoubleDbWindowsPath
   @Test
   @Order(2)
   void testDoubleDbWindowsPath() {
@@ -47,7 +45,6 @@ public class DbClosedTest extends BaseDBJUnit5Test {
     db.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbClosedTest#testRemoteConns
   @Test
   @Order(3)
   void testRemoteConns() {

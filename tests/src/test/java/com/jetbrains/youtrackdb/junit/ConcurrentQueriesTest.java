@@ -63,7 +63,6 @@ public class ConcurrentQueriesTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentQueriesTest#init
   @BeforeAll
   void init() {
     if (session.getMetadata().getSchema().existsClass("Concurrent")) {
@@ -81,7 +80,6 @@ public class ConcurrentQueriesTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentQueriesTest#concurrentCommands
   @Test
   void concurrentCommands() {
     ConcurrentTestHelper.test(THREADS, CommandExecutor::new);

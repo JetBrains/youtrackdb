@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,7 +52,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncluded
   @Test
   void testBetweenRightLeftIncluded() {
     session.executeInTx(transaction -> {
@@ -71,7 +69,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedReverseOrder
   @Test
   void testBetweenRightLeftIncludedReverseOrder() {
     session.executeInTx(transaction -> {
@@ -89,7 +86,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightIncluded
   @Test
   void testBetweenRightIncluded() {
     session.executeInTx(transaction -> {
@@ -107,7 +103,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightIncludedReverse
   @Test
   void testBetweenRightIncludedReverse() {
     session.executeInTx(transaction -> {
@@ -125,7 +120,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenLeftIncluded
   @Test
   void testBetweenLeftIncluded() {
     session.executeInTx(transaction -> {
@@ -143,7 +137,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenLeftIncludedReverseOrder
   @Test
   void testBetweenLeftIncludedReverseOrder() {
     session.executeInTx(transaction -> {
@@ -161,7 +154,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetween
   @Test
   void testBetween() {
     session.executeInTx(transaction -> {
@@ -179,7 +171,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedIndex
   @Test
   void testBetweenRightLeftIncludedIndex() {
     session.executeInTx(transaction -> {
@@ -197,7 +188,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedReverseOrderIndex
   @Test
   void testBetweenRightLeftIncludedReverseOrderIndex() {
     session.executeInTx(transaction -> {
@@ -215,7 +205,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightIncludedIndex
   @Test
   void testBetweenRightIncludedIndex() {
     session.executeInTx(transaction -> {
@@ -233,7 +222,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightIncludedReverseOrderIndex
   @Test
   void testBetweenRightIncludedReverseOrderIndex() {
     session.executeInTx(transaction -> {
@@ -251,7 +239,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenLeftIncludedIndex
   @Test
   void testBetweenLeftIncludedIndex() {
     session.executeInTx(transaction -> {
@@ -269,7 +256,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenLeftIncludedReverseOrderIndex
   @Test
   void testBetweenLeftIncludedReverseOrderIndex() {
     session.executeInTx(transaction -> {
@@ -287,7 +273,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenIndex
   @Test
   void testBetweenIndex() {
     session.executeInTx(transaction -> {
@@ -305,7 +290,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedDeepQuery
   @Test
   void testBetweenRightLeftIncludedDeepQuery() {
     session.executeInTx(transaction -> {
@@ -325,7 +309,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedDeepQueryIndex
   @Test
   void testBetweenRightLeftIncludedDeepQueryIndex() {
     session.executeInTx(transaction -> {
@@ -345,7 +328,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedDifferentFields
   @Test
   void testBetweenRightLeftIncludedDifferentFields() {
     session.executeInTx(transaction -> {
@@ -363,7 +345,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenNotRangeQueryRight
   @Test
   void testBetweenNotRangeQueryRight() {
     session.executeInTx(transaction -> {
@@ -381,7 +362,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenNotRangeQueryLeft
   @Test
   void testBetweenNotRangeQueryLeft() {
     session.executeInTx(transaction -> {
@@ -399,7 +379,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedBothFieldsLeft
   @Test
   void testBetweenRightLeftIncludedBothFieldsLeft() {
     session.executeInTx(transaction -> {
@@ -417,7 +396,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedBothFieldsRight
   @Test
   void testBetweenRightLeftIncludedBothFieldsRight() {
     session.executeInTx(transaction -> {
@@ -435,7 +413,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedFieldChainLeft
   @Test
   void testBetweenRightLeftIncludedFieldChainLeft() {
     session.executeInTx(transaction -> {
@@ -453,7 +430,6 @@ public class BetweenConversionTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BetweenConversionTest#testBetweenRightLeftIncludedFieldChainRight
   @Test
   void testBetweenRightLeftIncludedFieldChainRight() {
     session.executeInTx(transaction -> {

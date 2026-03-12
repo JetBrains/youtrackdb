@@ -37,7 +37,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
   private EntityImpl record;
   private EntityImpl account;
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#openDb
   @Test
   @Order(1)
   void openDb() {
@@ -48,8 +47,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMandatory
-  // Original used: @Test(expectedExceptions = ValidationException.class)
   @Test
   @Order(2)
   void validationMandatory() {
@@ -61,8 +58,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMinString
-  // Original used: @Test(expectedExceptions = ValidationException.class)
   @Test
   @Order(3)
   void validationMinString() {
@@ -79,8 +74,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMaxString
-  // Original used: @Test(expectedExceptions = ValidationException.class, expectedExceptionsMessageRegExp = "(?s).*more.*than.*")
   @Test
   @Order(4)
   void validationMaxString() {
@@ -101,8 +94,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     assertThat(ex.getMessage()).matches("(?s).*more.*than.*");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMinDate
-  // Original used: @Test(expectedExceptions = ValidationException.class, expectedExceptionsMessageRegExp = "(?s).*precedes.*")
   @Test
   @Order(5)
   void validationMinDate() {
@@ -120,8 +111,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     assertThat(ex.getMessage()).matches("(?s).*precedes.*");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationEmbeddedType
-  // Original used: @Test(expectedExceptions = IllegalArgumentException.class)
   @Test
   @Order(6)
   void validationEmbeddedType() {
@@ -134,8 +123,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationStrictClass
-  // Original used: @Test(expectedExceptions = ValidationException.class)
   @Test
   @Order(7)
   void validationStrictClass() {
@@ -149,14 +136,12 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#closeDb
   @Test
   @Order(8)
   void closeDb() {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#createSchemaForMandatoryNullableTest
   @Test
   @Order(9)
   void createSchemaForMandatoryNullableTest() {
@@ -198,7 +183,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#testUpdateDocDefined
   @Test
   @Order(10)
   void testUpdateDocDefined() {
@@ -212,7 +196,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMandatoryNullableCloseDb
   @Test
   @Order(11)
   void validationMandatoryNullableCloseDb() {
@@ -237,7 +220,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationMandatoryNullableNoCloseDb
   @Test
   @Order(12)
   void validationMandatoryNullableNoCloseDb() {
@@ -259,7 +241,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#validationDisabledAdDatabaseLevel
   @Test
   @Order(13)
   void validationDisabledAdDatabaseLevel() {
@@ -294,7 +275,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#dropSchemaForMandatoryNullableTest
   @Test
   @Order(14)
   void dropSchemaForMandatoryNullableTest() {
@@ -302,7 +282,6 @@ public class CRUDDocumentValidationTest extends BaseDBJUnit5Test {
     session.getMetadata().reload();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest#testNullComparison
   @Test
   @Order(15)
   void testNullComparison() {

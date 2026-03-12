@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,7 +19,6 @@ import org.junit.jupiter.api.Test;
  */
 public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testPointQuery
   @Test
   void testPointQuery() {
     final Schema schema = session.getMetadata().getSchema();
@@ -75,7 +73,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testPointQueryInTx
   @Test
   void testPointQueryInTx() {
     final Schema schema = session.getMetadata().getSchema();
@@ -131,7 +128,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testPointQueryInMiddleTx
   @Test
   void testPointQueryInMiddleTx() {
     final Schema schema = session.getMetadata().getSchema();
@@ -186,7 +182,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testRangeQuery
   @Test
   void testRangeQuery() {
     final Schema schema = session.getMetadata().getSchema();
@@ -239,7 +234,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testRangeQueryInMiddleTx
   @Test
   void testRangeQueryInMiddleTx() {
     final Schema schema = session.getMetadata().getSchema();
@@ -293,7 +287,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testPointQueryNullInTheMiddle
   @Test
   void testPointQueryNullInTheMiddle() {
     final Schema schema = session.getMetadata().getSchema();
@@ -358,7 +351,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testPointQueryNullInTheMiddleInMiddleTx
   @Test
   void testPointQueryNullInTheMiddleInMiddleTx() {
     final Schema schema = session.getMetadata().getSchema();
@@ -422,7 +414,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testRangeQueryNullInTheMiddle
   @Test
   void testRangeQueryNullInTheMiddle() {
     final Schema schema = session.getMetadata().getSchema();
@@ -466,7 +457,6 @@ public class CompositeIndexWithNullTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest#testRangeQueryNullInTheMiddleInMiddleTx
   @Test
   void testRangeQueryNullInTheMiddleInMiddleTx() {
     final Schema schema = session.getMetadata().getSchema();

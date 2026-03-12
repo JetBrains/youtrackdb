@@ -41,7 +41,6 @@ import org.junit.jupiter.api.TestMethodOrder;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionOptimisticRollback
   @Test
   @Order(1)
   void testTransactionOptimisticRollback() {
@@ -63,7 +62,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionOptimisticCommitInternal
   @Test
   @Order(2)
   void testTransactionOptimisticCommitInternal() {
@@ -82,7 +80,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionOptimisticConcurrentException
   @Test
   @Order(3)
   void testTransactionOptimisticConcurrentException() {
@@ -126,7 +123,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionOptimisticCacheMgmt1Db
   @Test
   @Order(4)
   void testTransactionOptimisticCacheMgmt1Db() throws IOException {
@@ -159,7 +155,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionOptimisticCacheMgmt2Db
   @Test
   @Order(5)
   void testTransactionOptimisticCacheMgmt2Db() throws IOException {
@@ -199,7 +194,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testTransactionMultipleRecords
   @Test
   @Order(6)
   void testTransactionMultipleRecords() throws IOException {
@@ -232,7 +226,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#createGraphInTx
   @SuppressWarnings("unchecked")
   @Test
   @Order(7)
@@ -293,7 +286,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testNestedTx
   @Test
   @Order(8)
   void testNestedTx() throws Exception {
@@ -353,7 +345,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testNestedTxRollbackOne
   @Test
   @Order(9)
   void testNestedTxRollbackOne() throws Exception {
@@ -443,7 +434,6 @@ public class FrontendTransactionImplTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest#testNestedTxRollbackTwo
   @Test
   @Order(10)
   void testNestedTxRollbackTwo() {

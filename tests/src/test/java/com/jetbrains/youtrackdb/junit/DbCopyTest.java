@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Test;
 
 public class DbCopyTest extends BaseDBJUnit5Test implements CommandOutputListener {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCopyTest#checkCopy
   @Test
   @Order(1)
   void checkCopy() throws IOException {
@@ -65,8 +64,6 @@ public class DbCopyTest extends BaseDBJUnit5Test implements CommandOutputListene
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCopyTest#onMessage
-  // Original used: @Test(enabled = false) — this is a callback method, not a test
   @Override
   public void onMessage(final String iText) {
     // System.out.print(iText);

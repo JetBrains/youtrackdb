@@ -60,7 +60,6 @@ public class DbCreationTest {
         buildDirectory + "/test-db-junit5-creation");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testDbCreationDefault
   @Test
   @Order(1)
   void testDbCreationDefault() {
@@ -71,14 +70,12 @@ public class DbCreationTest {
     youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testDbExists
   @Test
   @Order(2)
   void testDbExists() {
     assertTrue(youTrackDB.exists(DB_NAME), "Database " + DB_NAME + " not found");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testDbOpen
   @Test
   @Order(3)
   void testDbOpen() {
@@ -87,7 +84,6 @@ public class DbCreationTest {
     database.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testDbOpenWithLastAsSlash
   @Test
   @Order(4)
   void testDbOpenWithLastAsSlash() {
@@ -108,7 +104,6 @@ public class DbCreationTest {
     return buildDirectory + "/test-db-junit5-creation";
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testChangeLocale
   @Test
   @Order(5)
   void testChangeLocale() {
@@ -137,7 +132,6 @@ public class DbCreationTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testRoles
   @Test
   @Order(6)
   void testRoles() {
@@ -148,7 +142,6 @@ public class DbCreationTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testSubFolderDbCreate
   @Test
   @Order(7)
   void testSubFolderDbCreate() {
@@ -166,7 +159,6 @@ public class DbCreationTest {
     ytdb.drop("sub");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testSubFolderDbCreateConnPool
   @Test
   @Order(8)
   void testSubFolderDbCreateConnPool() {
@@ -184,7 +176,6 @@ public class DbCreationTest {
     ytdb.drop("sub");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testOpenCloseConnectionPool
   @Test
   @Order(9)
   void testOpenCloseConnectionPool() {
@@ -193,7 +184,6 @@ public class DbCreationTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testSubFolderMultipleDbCreateSameName
   @Test
   @Order(10)
   void testSubFolderMultipleDbCreateSameName() {
@@ -217,7 +207,6 @@ public class DbCreationTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbCreationTest#testDbIsNotRemovedOnSecondTry
   @Test
   @Order(11)
   void testDbIsNotRemovedOnSecondTry() {

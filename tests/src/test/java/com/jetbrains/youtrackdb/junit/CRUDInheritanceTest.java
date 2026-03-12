@@ -38,7 +38,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     createCompanyClass();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#create
   @Test
   @Order(1)
   void create() {
@@ -49,7 +48,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     generateCompanyData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#testCreate
   @Test
   @Order(2)
   void testCreate() {
@@ -58,7 +56,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#queryByBaseType
   @Test
   @Order(3)
   void queryByBaseType() {
@@ -84,7 +81,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#queryPerSuperType
   @Test
   @Order(4)
   void queryPerSuperType() {
@@ -101,7 +97,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#deleteFirst
   @Test
   @Order(5)
   void deleteFirst() {
@@ -122,7 +117,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#testSuperclassInheritanceCreation
   @Test
   @Order(6)
   void testSuperclassInheritanceCreation() {
@@ -140,7 +134,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     assertTrue(testClass.getSuperClasses().contains(baseClass));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#testIdFieldInheritanceFirstSubClass
   @Test
   @Order(7)
   void testIdFieldInheritanceFirstSubClass() {
@@ -155,7 +148,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     assertEquals(2, resultSet.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#testKeywordClass
   @Test
   @Order(8)
   void testKeywordClass() {
@@ -166,7 +158,6 @@ public class CRUDInheritanceTest extends BaseDBJUnit5Test {
     assertEquals("Not", klass1.getSuperClasses().getFirst().getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDInheritanceTest#testSchemaGeneration
   @Test
   @Order(9)
   void testSchemaGeneration() {

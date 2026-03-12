@@ -52,7 +52,6 @@ public class MultipleDBTest extends BaseDBJUnit5Test {
     super.afterAll();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MultipleDBTest#testObjectMultipleDBsThreaded
   @Test
   void testObjectMultipleDBsThreaded() throws Exception {
     final var operations_write = 1000;
@@ -129,7 +128,6 @@ public class MultipleDBTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.MultipleDBTest#testDocumentMultipleDBsThreaded
   @Test
   void testDocumentMultipleDBsThreaded() throws Exception {
     final var operations_write = 1000;

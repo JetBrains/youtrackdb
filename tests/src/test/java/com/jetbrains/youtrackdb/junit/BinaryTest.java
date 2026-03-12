@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 public class BinaryTest extends BaseDBJUnit5Test {
   private RID rid;
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BinaryTest#testMixedCreateEmbedded
   @Test
   @Order(1)
   void testMixedCreateEmbedded() {
@@ -44,7 +43,6 @@ public class BinaryTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BinaryTest#testBasicCreateExternal
   @Test
   @Order(2)
   void testBasicCreateExternal() {
@@ -55,7 +53,6 @@ public class BinaryTest extends BaseDBJUnit5Test {
     rid = record.getIdentity();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BinaryTest#testBasicReadExternal
   @Test
   @Order(3)
   void testBasicReadExternal() {
@@ -66,7 +63,6 @@ public class BinaryTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BinaryTest#testMixedCreateExternal
   @Test
   @Order(4)
   void testMixedCreateExternal() {
@@ -80,7 +76,6 @@ public class BinaryTest extends BaseDBJUnit5Test {
     rid = doc.getIdentity();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BinaryTest#testMixedReadExternal
   @Test
   @Order(5)
   void testMixedReadExternal() {

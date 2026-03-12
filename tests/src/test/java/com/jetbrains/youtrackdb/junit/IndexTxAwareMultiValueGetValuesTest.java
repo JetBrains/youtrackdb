@@ -22,7 +22,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testPut
   void testPut() {
     session.begin();
 
@@ -63,7 +62,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testRemove
   void testRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -114,7 +112,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testRemoveOne
   void testRemoveOne() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -161,7 +158,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testMultiPut
   void testMultiPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -194,7 +190,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testPutAfterTransaction
   void testPutAfterTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -226,7 +221,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testRemoveOneWithinTransaction
   void testRemoveOneWithinTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -254,7 +248,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testRemoveAllWithinTransaction
   void testRemoveAllWithinTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -282,7 +275,6 @@ public class IndexTxAwareMultiValueGetValuesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest#testPutAfterRemove
   void testPutAfterRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");

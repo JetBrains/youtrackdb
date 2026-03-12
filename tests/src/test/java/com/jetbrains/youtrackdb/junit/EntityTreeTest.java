@@ -46,7 +46,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     createRefClasses();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testPersonSaving
   @Test
   @Order(1)
   void testPersonSaving() {
@@ -60,7 +59,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testCityEquality
   @Test
   @Order(2)
   void testCityEquality() {
@@ -79,7 +77,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testSaveCircularLink
   @Test
   @Order(3)
   void testSaveCircularLink() {
@@ -117,14 +114,12 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testSaveMultiCircular
   @Test
   @Order(4)
   void testSaveMultiCircular() {
     addBarackObamaAndFollowers();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testQueryMultiCircular
   @SuppressWarnings("unchecked")
   @Test
   @Order(5)
@@ -150,7 +145,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testCollectionsRemove
   @Test
   @Order(6)
   void testCollectionsRemove() {
@@ -217,7 +211,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#childNLevelUpdateTest
   @Test
   @Order(7)
   void childNLevelUpdateTest() {
@@ -264,7 +257,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#childMapUpdateTest
   @Test
   @Order(8)
   void childMapUpdateTest() {
@@ -311,7 +303,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#childMapNLevelUpdateTest
   @Test
   @Order(9)
   void childMapNLevelUpdateTest() {
@@ -396,7 +387,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testSetFieldSize
   @Test
   @Order(10)
   void testSetFieldSize() {
@@ -435,7 +425,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#iteratorShouldTerminate
   @Test
   @Order(11)
   void iteratorShouldTerminate() {
@@ -467,7 +456,6 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.EntityTreeTest#testSave
   @Test
   @Order(12)
   void testSave() {

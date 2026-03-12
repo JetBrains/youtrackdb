@@ -22,7 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 
 /**
  * JUnit 5 abstract base class for IndexTxAware tests.
- * Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareBaseTest
  */
 public abstract class IndexTxAwareBaseJUnit5Test extends BaseDBJUnit5Test {
 

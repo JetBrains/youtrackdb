@@ -35,7 +35,6 @@ public class AbstractClassTest extends BaseDBJUnit5Test {
     createSchema();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.AbstractClassTest#createSchema
   // (Originally @BeforeClass)
   private void createSchema() {
     var abstractPerson =
@@ -46,7 +45,6 @@ public class AbstractClassTest extends BaseDBJUnit5Test {
     assertEquals(1, abstractPerson.getCollectionIds().length);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.AbstractClassTest#testCannotCreateInstances
   @Test
   @Order(1)
   void testCannotCreateInstances() {

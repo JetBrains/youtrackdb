@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -65,7 +64,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollection
   @Test
   void testIndexCollection() {
 
@@ -102,7 +100,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionInTx
   @Test
   void testIndexCollectionInTx() {
 
@@ -146,7 +143,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdate
   @Test
   void testIndexCollectionUpdate() {
 
@@ -187,7 +183,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateInTx
   @Test
   void testIndexCollectionUpdateInTx() {
 
@@ -238,7 +233,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateInTxRollback
   @Test
   void testIndexCollectionUpdateInTxRollback() {
 
@@ -283,7 +277,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateAddItem
   @Test
   void testIndexCollectionUpdateAddItem() {
 
@@ -331,7 +324,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateAddItemInTx
   @Test
   void testIndexCollectionUpdateAddItemInTx() {
 
@@ -382,7 +374,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateAddItemInTxRollback
   @Test
   void testIndexCollectionUpdateAddItemInTxRollback() {
 
@@ -427,7 +418,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateRemoveItemInTx
   @Test
   void testIndexCollectionUpdateRemoveItemInTx() {
 
@@ -473,7 +463,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateRemoveItemInTxRollback
   @Test
   void testIndexCollectionUpdateRemoveItemInTxRollback() {
 
@@ -515,7 +504,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionUpdateRemoveItem
   @Test
   void testIndexCollectionUpdateRemoveItem() {
 
@@ -557,7 +545,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionRemove
   @Test
   void testIndexCollectionRemove() {
 
@@ -585,7 +572,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionRemoveInTx
   @Test
   void testIndexCollectionRemoveInTx() {
 
@@ -617,7 +603,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionRemoveInTxRollback
   @Test
   void testIndexCollectionRemoveInTxRollback() {
 
@@ -658,7 +643,6 @@ public class LinkListIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkListIndexTest#testIndexCollectionSQL
   @Test
   void testIndexCollectionSQL() {
     session.begin();

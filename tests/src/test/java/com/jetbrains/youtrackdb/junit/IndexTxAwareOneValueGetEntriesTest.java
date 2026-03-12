@@ -22,7 +22,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testPut
   void testPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -69,7 +68,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testRemove
   void testRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -117,7 +115,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testRemoveAndPut
   void testRemoveAndPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -161,7 +158,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testMultiPut
   void testMultiPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -196,7 +192,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testPutAfterTransaction
   void testPutAfterTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -231,7 +226,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testRemoveOneWithinTransaction
   void testRemoveOneWithinTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -266,7 +260,6 @@ public class IndexTxAwareOneValueGetEntriesTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest#testPutAfterRemove
   void testPutAfterRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");

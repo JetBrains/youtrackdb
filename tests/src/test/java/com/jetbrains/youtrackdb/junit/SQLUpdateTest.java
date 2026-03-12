@@ -57,7 +57,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     generateCompanyData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWhereOperator
   @Test
   @Order(1)
   void updateWithWhereOperator() {
@@ -75,7 +74,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWhereRid
   @Test
   @Order(2)
   void updateWithWhereRid() {
@@ -98,7 +96,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateUpsertOperator
   @Test
   @Order(3)
   void updateUpsertOperator() {
@@ -123,7 +120,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsAddWithWhereOperator
   @Test
   @Order(4)
   void updateCollectionsAddWithWhereOperator() {
@@ -137,7 +133,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsRemoveWithWhereOperator
   @Test
   @Order(5)
   void updateCollectionsRemoveWithWhereOperator() {
@@ -153,7 +148,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsWithSetOperator
   @Test
   @Order(6)
   void updateCollectionsWithSetOperator() {
@@ -196,7 +190,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateMapsWithSetOperator
   @Test
   @Order(7)
   void updateMapsWithSetOperator() {
@@ -242,7 +235,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateAllOperator
   @Test
   @Order(8)
   void updateAllOperator() {
@@ -258,7 +250,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     assertEquals((int) total, records.intValue());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWildcards
   @Test
   @Order(9)
   void updateWithWildcards() {
@@ -274,7 +265,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     assertEquals(1, updated);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWildcardsOnSetAndWhere
   @Test
   @Order(10)
   void updateWithWildcardsOnSetAndWhere() {
@@ -323,7 +313,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     checkUpdatedDoc(session, "TORINO", "f");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithReturn
   @Test
   @Order(11)
   void updateWithReturn() {
@@ -373,7 +362,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithNamedParameters
   @Test
   @Order(12)
   void updateWithNamedParameters() {
@@ -399,7 +387,7 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.execute(updatecommand, params);
     session.commit();
 
-    var result = session.query("select * from Data");
+    var result = session.query("select * from Data where name = 'Raf'");
     var oDoc = result.next();
     assertEquals("Raf", oDoc.getProperty("name"));
     assertEquals("TOR", oDoc.getProperty("city"));
@@ -407,7 +395,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     result.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateIncrement
   @Test
   @Order(13)
   void updateIncrement() {
@@ -465,7 +452,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateSetMultipleFields
   @Test
   @Order(14)
   void updateSetMultipleFields() {
@@ -502,7 +488,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateAddMultipleFields
   @Test
   @Order(15)
   void updateAddMultipleFields() {
@@ -528,8 +513,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testEscaping
-  // Original used: @Test(enabled = false)
   @Test
   @Order(16)
   @Disabled("Disabled in original TestNG test")
@@ -629,7 +612,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     assertEquals("aaa \f bbb", document.getProperty("test"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testUpdateVertexContent
   @Test
   @Order(17)
   void testUpdateVertexContent() {
@@ -693,7 +675,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testUpdateEdgeContent
   @Test
   @Order(18)
   void testUpdateEdgeContent() {
@@ -755,7 +736,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testMultiplePut
   @Test
   @Order(19)
   void testMultiplePut() {
@@ -785,7 +765,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testAutoConversionOfEmbeddededListWithLinkedClass
   @Test
   @Order(20)
   void testAutoConversionOfEmbeddededListWithLinkedClass() {
@@ -846,7 +825,6 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testPutListOfMaps
   @Test
   @Order(21)
   void testPutListOfMaps() {

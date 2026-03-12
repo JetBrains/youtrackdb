@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test;
 
 public class AlterDatabaseTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.AlterDatabaseTest#alterDateFormatOk
   @Test
   @Order(1)
   void alterDateFormatOk() throws IOException {

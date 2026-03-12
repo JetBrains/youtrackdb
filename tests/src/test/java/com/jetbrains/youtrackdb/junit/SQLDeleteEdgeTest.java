@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDeleteFromTo
   @Test
   @Order(1)
   void testDeleteFromTo() {
@@ -77,7 +76,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDeleteFrom
   @Test
   @Order(2)
   void testDeleteFrom() {
@@ -145,7 +143,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDeleteTo
   @Test
   @Order(3)
   void testDeleteTo() {
@@ -206,7 +203,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDropClassVandEwithUnsafe
   @Test
   @Order(4)
   void testDropClassVandEwithUnsafe() {
@@ -234,7 +230,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     session.execute("DROP CLASS SuperE UNSAFE").close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDropClassVandEwithDeleteElements
   @Test
   @Order(5)
   void testDropClassVandEwithDeleteElements() {
@@ -266,7 +261,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     session.execute("DROP CLASS SuperE").close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testFromInString
   @Test
   @Order(6)
   void testFromInString() {
@@ -308,7 +302,6 @@ class SQLDeleteEdgeTest extends BaseDBJUnit5Test {
     assertEquals(1, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest#testDeleteVertexWithReturn
   @Test
   @Order(7)
   void testDeleteVertexWithReturn() {

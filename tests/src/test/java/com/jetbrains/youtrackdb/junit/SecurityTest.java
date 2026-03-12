@@ -45,7 +45,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testWrongPassword
   @Test
   void testWrongPassword() throws IOException {
     try {
@@ -60,7 +59,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testSecurityAccessWriter
   @Test
   void testSecurityAccessWriter() throws IOException {
     session = createSessionInstance("writer", "writer");
@@ -78,7 +76,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testSecurityAccessReader
   @Test
   void testSecurityAccessReader() throws IOException {
     session = createSessionInstance("reader", "reader");
@@ -106,7 +103,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testEncryptPassword
   @Test
   void testEncryptPassword() throws IOException {
     session = createSessionInstance("admin", "admin");
@@ -144,7 +140,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testParentRole
   @Test
   void testParentRole() {
     session = createSessionInstance("admin", "admin");
@@ -209,7 +204,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testQuotedUserName
   @Test
   void testQuotedUserName() {
     session = createSessionInstance();
@@ -239,7 +233,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNoRole
   @Test
   void testUserNoRole() {
     session = createSessionInstance();
@@ -264,7 +257,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testAdminCanSeeSystemCollections
   @Test
   void testAdminCanSeeSystemCollections() {
     session = createSessionInstance();
@@ -284,7 +276,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testOnlyAdminCanSeeSystemCollections
   @Test
   @Disabled
   void testOnlyAdminCanSeeSystemCollections() {
@@ -308,7 +299,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testCannotExtendClassWithNoUpdateProvileges
   @Test
   void testCannotExtendClassWithNoUpdateProvileges() {
     session = createSessionInstance();
@@ -329,7 +319,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testSuperUserCanExtendClassWithNoUpdateProvileges
   @Test
   void testSuperUserCanExtendClassWithNoUpdateProvileges() {
     session = createSessionInstance();
@@ -342,7 +331,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testEmptyUserName
   @Test
   void testEmptyUserName() {
     session = createSessionInstance();
@@ -364,7 +352,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNameWithAllSpaces
   @Test
   void testUserNameWithAllSpaces() {
     session = createSessionInstance();
@@ -389,7 +376,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNameWithSurroundingSpacesOne
   @Test
   void testUserNameWithSurroundingSpacesOne() {
     session = createSessionInstance();
@@ -414,7 +400,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNameWithSurroundingSpacesTwo
   @Test
   void testUserNameWithSurroundingSpacesTwo() {
     session = createSessionInstance();
@@ -437,7 +422,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNameWithSurroundingSpacesThree
   @Test
   void testUserNameWithSurroundingSpacesThree() {
     session = createSessionInstance();
@@ -462,7 +446,6 @@ public class SecurityTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SecurityTest#testUserNameWithSpacesInTheMiddle
   @Test
   void testUserNameWithSpacesInTheMiddle() {
     session = createSessionInstance();

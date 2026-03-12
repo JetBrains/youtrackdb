@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLCreateClassTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateClassTest#testSimpleCreate
   @Test
   @Order(1)
   void testSimpleCreate() {
@@ -18,7 +17,6 @@ class SQLCreateClassTest extends BaseDBJUnit5Test {
     assertTrue(session.getMetadata().getSchema().existsClass("testSimpleCreate"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateClassTest#testIfNotExists
   @Test
   @Order(2)
   void testIfNotExists() {

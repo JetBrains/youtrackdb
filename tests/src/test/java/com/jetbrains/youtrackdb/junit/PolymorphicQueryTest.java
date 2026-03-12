@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.PolymorphicQueryTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -79,7 +78,6 @@ public class PolymorphicQueryTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PolymorphicQueryTest#testSubclassesIndexes
   @Test
   @Order(2)
   void testSubclassesIndexes() {
@@ -134,7 +132,6 @@ public class PolymorphicQueryTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PolymorphicQueryTest#testBaseWithoutIndexAndSubclassesIndexes
   @Test
   @Order(1)
   void testBaseWithoutIndexAndSubclassesIndexes() {
@@ -191,7 +188,6 @@ public class PolymorphicQueryTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PolymorphicQueryTest#testSubclassesIndexesFailed
   @Test
   @Order(3)
   void testSubclassesIndexesFailed() {
@@ -219,7 +215,6 @@ public class PolymorphicQueryTest extends BaseDBJUnit5Test {
     assertEquals(6, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PolymorphicQueryTest#testIteratorOnSubclassWithoutValues
   @Test
   @Order(4)
   void testIteratorOnSubclassWithoutValues() {

@@ -205,7 +205,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeysCreate
   @Test
   @Order(1)
   void testPropertiesCheckUniqueIndexDubKeysCreate() {
@@ -230,7 +229,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(exceptionThrown);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeyIsNullCreate
   @Test
   @Order(2)
   void testPropertiesCheckUniqueIndexDubKeyIsNullCreate() {
@@ -247,7 +245,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeyIsNullCreateInTx
   @Test
   @Order(3)
   void testPropertiesCheckUniqueIndexDubKeyIsNullCreateInTx() {
@@ -261,7 +258,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexInParentDubKeysCreate
   @Test
   @Order(4)
   void testPropertiesCheckUniqueIndexInParentDubKeysCreate() {
@@ -286,7 +282,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(exceptionThrown);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeysUpdate
   @Test
   @Order(5)
   void testPropertiesCheckUniqueIndexDubKeysUpdate() {
@@ -318,7 +313,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(exceptionThrown);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeyIsNullUpdate
   @Test
   @Order(6)
   void testPropertiesCheckUniqueIndexDubKeyIsNullUpdate() {
@@ -343,7 +337,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueIndexDubKeyIsNullUpdateInTX
   @Test
   @Order(7)
   void testPropertiesCheckUniqueIndexDubKeyIsNullUpdateInTX() {
@@ -358,7 +351,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckNonUniqueIndexDubKeys
   @Test
   @Order(8)
   void testPropertiesCheckNonUniqueIndexDubKeys() {
@@ -373,7 +365,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testPropertiesCheckUniqueNullKeys
   @Test
   @Order(9)
   void testPropertiesCheckUniqueNullKeys() {
@@ -386,7 +377,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCreateDocumentWithoutClass
   @Test
   @Order(10)
   void testCreateDocumentWithoutClass() {
@@ -420,7 +410,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testUpdateDocumentWithoutClass
   @Test
   @Order(11)
   void testUpdateDocumentWithoutClass() {
@@ -456,7 +445,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteDocumentWithoutClass
   @Test
   @Order(12)
   void testDeleteDocumentWithoutClass() {
@@ -472,7 +460,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteModifiedDocumentWithoutClass
   @Test
   @Order(13)
   void testDeleteModifiedDocumentWithoutClass() {
@@ -490,7 +477,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDocumentUpdateWithoutDirtyFields
   @Test
   @Order(14)
   void testDocumentUpdateWithoutDirtyFields() {
@@ -508,7 +494,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCreateDocumentIndexRecordAdded
   @Test
   @Order(15)
   void testCreateDocumentIndexRecordAdded() {
@@ -552,7 +537,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testUpdateDocumentIndexRecordRemoved
   @Test
   @Order(16)
   void testUpdateDocumentIndexRecordRemoved() {
@@ -597,7 +581,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testUpdateDocumentNullKeyIndexRecordRemoved
   @Test
   @Order(17)
   void testUpdateDocumentNullKeyIndexRecordRemoved() {
@@ -643,7 +626,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testUpdateDocumentIndexRecordUpdated
   @Test
   @Order(18)
   void testUpdateDocumentIndexRecordUpdated() {
@@ -700,7 +682,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testUpdateDocumentIndexRecordUpdatedFromNullField
   @Test
   @Order(19)
   void testUpdateDocumentIndexRecordUpdatedFromNullField() {
@@ -747,7 +728,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testListUpdate
   @Test
   @Order(20)
   void testListUpdate() {
@@ -808,7 +788,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testMapUpdate
   @Test
   @Order(21)
   void testMapUpdate() {
@@ -893,7 +872,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testSetUpdate
   @Test
   @Order(22)
   void testSetUpdate() {
@@ -950,7 +928,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testListDelete
   @Test
   @Order(23)
   void testListDelete() {
@@ -1023,7 +1000,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testMapDelete
   @Test
   @Order(24)
   void testMapDelete() {
@@ -1128,7 +1104,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testSetDelete
   @Test
   @Order(25)
   void testSetDelete() {
@@ -1197,7 +1172,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteDocumentIndexRecordDeleted
   @Test
   @Order(26)
   void testDeleteDocumentIndexRecordDeleted() {
@@ -1235,7 +1209,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteUpdatedDocumentIndexRecordDeleted
   @Test
   @Order(27)
   void testDeleteUpdatedDocumentIndexRecordDeleted() {
@@ -1277,7 +1250,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteUpdatedDocumentNullFieldIndexRecordDeleted
   @Test
   @Order(28)
   void testDeleteUpdatedDocumentNullFieldIndexRecordDeleted() {
@@ -1310,7 +1282,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testDeleteUpdatedDocumentOrigNullFieldIndexRecordDeleted
   @Test
   @Order(29)
   void testDeleteUpdatedDocumentOrigNullFieldIndexRecordDeleted() {
@@ -1346,7 +1317,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testNoClassIndexesUpdate
   @Test
   @Order(30)
   void testNoClassIndexesUpdate() {
@@ -1375,7 +1345,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testNoClassIndexesDelete
   @Test
   @Order(31)
   void testNoClassIndexesDelete() {
@@ -1391,7 +1360,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeCreation
   @Test
   @Order(32)
   void testCollectionCompositeCreation() {
@@ -1433,7 +1401,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeNullSimpleFieldCreation
   @Test
   @Order(33)
   void testCollectionCompositeNullSimpleFieldCreation() {
@@ -1462,7 +1429,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeNullCollectionFieldCreation
   @Test
   @Order(34)
   void testCollectionCompositeNullCollectionFieldCreation() {
@@ -1491,7 +1457,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateSimpleField
   @Test
   @Order(35)
   void testCollectionCompositeUpdateSimpleField() {
@@ -1542,7 +1507,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasAssigned
   @Test
   @Order(36)
   void testCollectionCompositeUpdateCollectionWasAssigned() {
@@ -1593,7 +1557,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasChanged
   @Test
   @Order(37)
   void testCollectionCompositeUpdateCollectionWasChanged() {
@@ -1657,7 +1620,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssigned
   @Test
   @Order(38)
   void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssigned() {
@@ -1723,7 +1685,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateSimpleFieldNull
   @Test
   @Order(39)
   void testCollectionCompositeUpdateSimpleFieldNull() {
@@ -1765,7 +1726,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasAssignedNull
   @Test
   @Order(40)
   void testCollectionCompositeUpdateCollectionWasAssignedNull() {
@@ -1807,7 +1767,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateBothAssignedNull
   @Test
   @Order(41)
   void testCollectionCompositeUpdateBothAssignedNull() {
@@ -1850,7 +1809,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssignedNull
   @Test
   @Order(42)
   void testCollectionCompositeUpdateCollectionWasChangedSimpleFieldWasAssignedNull() {
@@ -1899,7 +1857,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteSimpleFieldAssigend
   @Test
   @Order(43)
   void testCollectionCompositeDeleteSimpleFieldAssigend() {
@@ -1933,7 +1890,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteCollectionFieldAssigend
   @Test
   @Order(44)
   void testCollectionCompositeDeleteCollectionFieldAssigend() {
@@ -1967,7 +1923,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteCollectionFieldChanged
   @Test
   @Order(45)
   void testCollectionCompositeDeleteCollectionFieldChanged() {
@@ -2005,7 +1960,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteBothCollectionSimpleFieldChanged
   @Test
   @Order(46)
   void testCollectionCompositeDeleteBothCollectionSimpleFieldChanged() {
@@ -2045,7 +1999,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteBothCollectionSimpleFieldAssigend
   @Test
   @Order(47)
   void testCollectionCompositeDeleteBothCollectionSimpleFieldAssigend() {
@@ -2080,7 +2033,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteSimpleFieldNull
   @Test
   @Order(48)
   void testCollectionCompositeDeleteSimpleFieldNull() {
@@ -2114,7 +2066,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteCollectionFieldNull
   @Test
   @Order(49)
   void testCollectionCompositeDeleteCollectionFieldNull() {
@@ -2148,7 +2099,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteBothSimpleCollectionFieldNull
   @Test
   @Order(50)
   void testCollectionCompositeDeleteBothSimpleCollectionFieldNull() {
@@ -2183,7 +2133,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeDeleteCollectionFieldChangedSimpleFieldNull
   @Test
   @Order(51)
   void testCollectionCompositeDeleteCollectionFieldChangedSimpleFieldNull() {
@@ -2223,7 +2172,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeCreation
   @Test
   @Order(52)
   void testTwoCollectionsCompositeCreation() {
@@ -2273,7 +2221,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateFirstField
   @Test
   @Order(53)
   void testCollectionCompositeUpdateFirstField() {
@@ -2340,7 +2287,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateTwoCollectionsSecondWasAssigned
   @Test
   @Order(54)
   void testCollectionCompositeUpdateTwoCollectionsSecondWasAssigned() {
@@ -2399,7 +2345,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionCompositeUpdateCollectionWasChanged
   @Test
   @Order(55)
   void testTwoCollectionCompositeUpdateCollectionWasChanged() {
@@ -2479,7 +2424,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssigned
   @Test
   @Order(56)
   void testCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssigned() {
@@ -2561,7 +2505,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeUpdateFirstPropertyNull
   @Test
   @Order(57)
   void testTwoCollectionsCompositeUpdateFirstPropertyNull() {
@@ -2601,7 +2544,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testCollectionCompositeUpdateTwoCollectionWasAssignedNull
   @Test
   @Order(58)
   void testCollectionCompositeUpdateTwoCollectionWasAssignedNull() {
@@ -2641,7 +2583,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeUpdateBothAssignedNull
   @Test
   @Order(59)
   void testTwoCollectionsCompositeUpdateBothAssignedNull() {
@@ -2682,7 +2623,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssignedNull
   @Test
   @Order(60)
   void testTwoCollectionCompositeUpdateCollectionWasChangedFirstPropertyWasAssignedNull() {
@@ -2729,7 +2669,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionCompositeDeleteFirstPropertyAssigned
   @Test
   @Order(61)
   void testTwoCollectionCompositeDeleteFirstPropertyAssigned() {
@@ -2760,7 +2699,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionCompositeDeleteSecondPropertyAssigned
   @Test
   @Order(62)
   void testTwoCollectionCompositeDeleteSecondPropertyAssigned() {
@@ -2792,7 +2730,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteSecondPropertyChanged
   @Test
   @Order(63)
   void testTwoCollectionsCompositeDeleteSecondPropertyChanged() {
@@ -2828,7 +2765,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteBothCollectionFieldChanged
   @Test
   @Order(64)
   void testTwoCollectionsCompositeDeleteBothCollectionFieldChanged() {
@@ -2866,7 +2802,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionCompositeDeleteBothCollectionFirstFieldAssigend
   @Test
   @Order(65)
   void testTwoCollectionCompositeDeleteBothCollectionFirstFieldAssigend() {
@@ -2899,7 +2834,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteFirstFieldNull
   @Test
   @Order(66)
   void testTwoCollectionsCompositeDeleteFirstFieldNull() {
@@ -2931,7 +2865,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteSecondFieldNull
   @Test
   @Order(67)
   void testTwoCollectionsCompositeDeleteSecondFieldNull() {
@@ -2963,7 +2896,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteBothSimpleCollectionFieldNull
   @Test
   @Order(68)
   void testTwoCollectionsCompositeDeleteBothSimpleCollectionFieldNull() {
@@ -2996,7 +2928,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testTwoCollectionsCompositeDeleteSecondCollectionFieldChangedFirstFieldNull
   @Test
   @Order(69)
   void testTwoCollectionsCompositeDeleteSecondCollectionFieldChangedFirstFieldNull() {
@@ -3034,7 +2965,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testThreePropertiesTwoCollectionRandomUpdate
   @Test
   @Order(70)
   void testThreePropertiesTwoCollectionRandomUpdate() {
@@ -3098,7 +3028,6 @@ public class ClassIndexManagerTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexManagerTest#testIndexOnPropertiesFromClassAndSuperclass
   @Test
   @Order(71)
   void testIndexOnPropertiesFromClassAndSuperclass() {

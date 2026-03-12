@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Test;
 
 public class SQLCreateLinkTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateLinkTest#createLinktest
   @Test
   void createLinktest() {
     session.execute("CREATE CLASS POST").close();
@@ -71,7 +70,6 @@ public class SQLCreateLinkTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateLinkTest#createRIDLinktest
   @Test
   void createRIDLinktest() {
 

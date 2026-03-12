@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,7 +25,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testUnnamedParamTarget
   @Test
   void testUnnamedParamTarget() {
     session.begin();
@@ -45,7 +43,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testNamedParamTarget
   @Test
   void testNamedParamTarget() {
     session.begin();
@@ -66,7 +63,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testNamedParamTargetRid
   @Test
   void testNamedParamTargetRid() {
     session.begin();
@@ -90,7 +86,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testUnnamedParamTargetRid
   @Test
   void testUnnamedParamTargetRid() {
     session.begin();
@@ -113,7 +108,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testUnnamedParamFlat
   @Test
   void testUnnamedParamFlat() {
     var result = session.query("select from PreparedStatementTest1 where name = ?",
@@ -128,7 +122,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testNamedParamFlat
   @Test
   void testNamedParamFlat() {
     Map<String, Object> params = new HashMap<String, Object>();
@@ -145,7 +138,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testUnnamedParamInArray
   @Test
   void testUnnamedParamInArray() {
     session.begin();
@@ -164,7 +156,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testNamedParamInArray
   @Test
   void testNamedParamInArray() {
     session.begin();
@@ -184,7 +175,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testUnnamedParamInArray2
   @Test
   void testUnnamedParamInArray2() {
     session.begin();
@@ -203,7 +193,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testNamedParamInArray2
   @Test
   void testNamedParamInArray2() {
     session.begin();
@@ -224,7 +213,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testSubqueryUnnamedParamFlat
   @Test
   void testSubqueryUnnamedParamFlat() {
     var result =
@@ -242,7 +230,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testSubqueryNamedParamFlat
   @Test
   void testSubqueryNamedParamFlat() {
     Map<String, Object> params = new HashMap<String, Object>();
@@ -262,7 +249,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testFunction
   @Test
   void testFunction() {
     Map<String, Object> params = new HashMap<String, Object>();
@@ -279,7 +265,6 @@ public class PreparedStatementTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.PreparedStatementTest#testSqlInjectionOnTarget
   @Test
   void testSqlInjectionOnTarget() {
     assertThrows(Exception.class, () -> session

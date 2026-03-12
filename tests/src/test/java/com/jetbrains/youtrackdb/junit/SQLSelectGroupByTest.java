@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
  * Tests for SQL SELECT with GROUP BY clause: basic grouping, limit, count,
  * ordering, and null handling.
  *
- * <p>Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest
  */
 class SQLSelectGroupByTest extends BaseDBJUnit5Test {
 
@@ -27,7 +26,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     generateCompanyData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByBasic
   @Test
   @Order(1)
   @Disabled
@@ -42,7 +40,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     assertEquals(set.size(), result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByLimit
   @Test
   @Order(2)
   void queryGroupByLimit() {
@@ -52,7 +49,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     assertEquals(2, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByCount
   @Test
   @Order(3)
   void queryGroupByCount() {
@@ -62,7 +58,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     assertTrue(result.size() > 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByAndOrderBy
   @Test
   @Order(4)
   @Disabled
@@ -95,7 +90,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByAndWithNulls
   @Test
   @Order(5)
   void queryGroupByAndWithNulls() {
@@ -136,7 +130,6 @@ class SQLSelectGroupByTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest#queryGroupByNoNulls
   @Test
   @Order(6)
   void queryGroupByNoNulls() {

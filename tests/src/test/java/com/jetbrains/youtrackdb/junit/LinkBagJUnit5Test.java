@@ -31,7 +31,6 @@ import org.junit.jupiter.api.Test;
 
 public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAdd
   @Test
   public void testAdd() {
     session.begin();
@@ -51,7 +50,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAdd2
   @Test
   public void testAdd2() {
     session.begin();
@@ -68,7 +66,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddRemoveInTheMiddleOfIteration
   @Test
   public void testAddRemoveInTheMiddleOfIteration() {
 
@@ -175,7 +172,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddRemove
   @Test
   public void testAddRemove() {
     session.begin();
@@ -265,7 +261,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddRemoveSBTreeContainsValues
   @Test
   public void testAddRemoveSBTreeContainsValues() {
 
@@ -360,7 +355,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddRemoveDuringIterationSBTreeContainsValues
   @Test
   public void testAddRemoveDuringIterationSBTreeContainsValues() {
     session.begin();
@@ -473,7 +467,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testEmptyIterator
   @Test
   public void testEmptyIterator() {
     session.begin();
@@ -488,7 +481,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddRemoveNotExisting
   @Test
   public void testAddRemoveNotExisting() {
 
@@ -608,7 +600,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testContentChange
   @Test
   public void testContentChange() {
     session.begin();
@@ -644,7 +635,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddAllAndIterator
   @Test
   public void testAddAllAndIterator() {
     session.begin();
@@ -672,7 +662,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddSBTreeAddInMemoryIterate
   @Test
   public void testAddSBTreeAddInMemoryIterate() {
 
@@ -784,7 +773,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testCycle
   @Test
   public void testCycle() {
     session.begin();
@@ -825,7 +813,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddSBTreeAddInMemoryIterateAndRemove
   @Test
   public void testAddSBTreeAddInMemoryIterateAndRemove() {
 
@@ -1006,7 +993,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRemove
   @Test
   public void testRemove() {
     session.begin();
@@ -1047,7 +1033,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testSaveLoad
   @Test
   public void testSaveLoad() {
     session.begin();
@@ -1111,7 +1096,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testSaveInBackOrder
   @Test
   public void testSaveInBackOrder() {
     session.begin();
@@ -1148,7 +1132,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testMassiveChanges
   @Test
   public void testMassiveChanges() {
     session.begin();
@@ -1187,7 +1170,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testSimultaneousIterationAndRemove
   @Test
   public void testSimultaneousIterationAndRemove() {
     session.begin();
@@ -1269,7 +1251,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddMixedValues
   @Test
   public void testAddMixedValues() {
     session.begin();
@@ -1365,7 +1346,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testFromEmbeddedToSBTreeAndBack
   @Test
   public void testFromEmbeddedToSBTreeAndBack() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
@@ -1484,7 +1464,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testFromEmbeddedToSBTreeAndBackTx
   @Test
   public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
@@ -1598,7 +1577,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRemoveSavedInCommit
   @Test
   public void testRemoveSavedInCommit() {
     session.begin();
@@ -1677,7 +1655,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testSizeNotChangeAfterRemoveNotExistentElement
   @Test
   public void testSizeNotChangeAfterRemoveNotExistentElement() {
     session.begin();
@@ -1704,7 +1681,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRemoveNotExistentElementAndAddIt
   @Test
   public void testRemoveNotExistentElementAndAddIt() {
     session.begin();
@@ -1724,7 +1700,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     assertEquals(bob.getIdentity(), teamMates.iterator().next().primaryRid());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddNewItemsAndRemoveThem
   @Test
   public void testAddNewItemsAndRemoveThem() {
     session.begin();
@@ -1824,7 +1799,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testJsonSerialization
   @Test
   public void testJsonSerialization() {
     session.begin();
@@ -1865,7 +1839,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRollBackChangesOne
   @Test
   public void testRollBackChangesOne() {
     session.begin();
@@ -1933,7 +1906,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRollBackChangesTwo
   @Test
   public void testRollBackChangesTwo() {
     session.begin();
@@ -2045,7 +2017,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddTrackingWithSecondaryRid
   @Test
   public void testAddTrackingWithSecondaryRid() {
     session.begin();
@@ -2076,7 +2047,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddTrackingSingleSidedRid
   @Test
   public void testAddTrackingSingleSidedRid() {
     session.begin();
@@ -2106,7 +2076,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddMultipleTrackingWithSecondaryRids
   @Test
   public void testAddMultipleTrackingWithSecondaryRids() {
     session.begin();
@@ -2140,7 +2109,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRemoveTrackingPreservesSecondaryRid
   @Test
   public void testRemoveTrackingPreservesSecondaryRid() {
     session.begin();
@@ -2174,7 +2142,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testAddAndRemoveTrackingWithSecondaryRids
   @Test
   public void testAddAndRemoveTrackingWithSecondaryRids() {
     session.begin();
@@ -2214,7 +2181,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testTransactionTimeLineTrackingWithSecondaryRid
   @Test
   public void testTransactionTimeLineTrackingWithSecondaryRid() {
     session.begin();
@@ -2245,7 +2211,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRollBackChangesWithSecondaryRids
   @Test
   public void testRollBackChangesWithSecondaryRids() {
     session.begin();
@@ -2300,7 +2265,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRollBackAddOnlyWithSecondaryRids
   @Test
   public void testRollBackAddOnlyWithSecondaryRids() {
     session.begin();
@@ -2339,7 +2303,6 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagTest#testRollBackRemoveRestoresSecondaryRid
   @Test
   public void testRollBackRemoveRestoresSecondaryRid() {
     session.begin();

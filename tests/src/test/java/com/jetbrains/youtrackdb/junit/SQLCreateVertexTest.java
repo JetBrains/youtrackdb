@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
  */
 class SQLCreateVertexTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateVertexTest#testCreateVertexByContent
   @Test
   @Order(1)
   void testCreateVertexByContent() {
@@ -80,7 +79,6 @@ class SQLCreateVertexTest extends BaseDBJUnit5Test {
     return result.toString();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateVertexTest#testCreateVertexBooleanProp
   @Test
   @Order(2)
   void testCreateVertexBooleanProp() {
@@ -94,7 +92,6 @@ class SQLCreateVertexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateVertexTest#testIsClassName
   @Test
   @Order(3)
   void testIsClassName() {

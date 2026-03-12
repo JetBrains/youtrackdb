@@ -53,7 +53,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     addBarackObamaAndFollowers();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#create
   @Test
   @Order(1)
   void create() {
@@ -70,7 +69,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     generateCompanyData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testCreate
   @Test
   @Order(2)
   void testCreate() {
@@ -79,7 +77,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#readAndBrowseDescendingAndCheckHoleUtilization
   @Test
   @Order(3)
   void readAndBrowseDescendingAndCheckHoleUtilization() {
@@ -126,7 +123,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertThat(idsBackward).isEqualTo(idsForward.reversed());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#update
   @Test
   @Order(4)
   void update() {
@@ -147,7 +143,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testUpdate
   @Test
   @Order(5)
   void testUpdate() {
@@ -167,7 +162,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testDoubleChanges
   @Test
   @Order(6)
   void testDoubleChanges() {
@@ -214,7 +208,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testMultiValues
   @Test
   @Order(7)
   void testMultiValues() {
@@ -258,7 +251,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testUnderscoreField
   @Test
   @Order(8)
   void testUnderscoreField() {
@@ -280,7 +272,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testUpdateLazyDirtyPropagation
   @Test
   @Order(9)
   void testUpdateLazyDirtyPropagation() {
@@ -297,7 +288,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#polymorphicQuery
   @Test
   @Order(10)
   void polymorphicQuery() {
@@ -340,7 +330,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#queryWithPositionalParameters
   @Test
   @Order(11)
   void queryWithPositionalParameters() {
@@ -354,7 +343,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testBrowseClassHasNextTwice
   @Test
   @Order(12)
   void testBrowseClassHasNextTwice() {
@@ -380,7 +368,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#nonPolymorphicQuery
   @Test
   @Order(13)
   void nonPolymorphicQuery() {
@@ -424,7 +411,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testLazyLoadingByLink
   @Test
   @Order(14)
   void testLazyLoadingByLink() {
@@ -447,7 +433,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testDbCacheUpdated
   @Test
   @Order(15)
   void testDbCacheUpdated() {
@@ -486,7 +471,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testNestedEmbeddedMap
   @SuppressWarnings("unchecked")
   @Test
   @Order(16)
@@ -529,7 +513,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#commandWithPositionalParameters
   @Test
   @Order(17)
   void commandWithPositionalParameters() {
@@ -540,7 +523,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#commandWithNamedParameters
   @Test
   @Order(18)
   void commandWithNamedParameters() {
@@ -556,7 +538,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#commandWrongParameterNames
   @Test
   @Order(19)
   void commandWrongParameterNames() {
@@ -583,7 +564,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
         });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#queryWithNamedParameters
   @Test
   @Order(20)
   void queryWithNamedParameters() {
@@ -600,7 +580,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testJSONMap
   @Test
   @Order(21)
   void testJSONMap() {
@@ -625,7 +604,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testJSONLinkd
   @Test
   @Order(22)
   void testJSONLinkd() {
@@ -677,7 +655,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testDirtyChild
   @Test
   @Order(23)
   void testDirtyChild() {
@@ -705,7 +682,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testEncoding
   @Test
   @Order(24)
   void testEncoding() {
@@ -724,7 +700,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testCreateEmbddedClassDocument
   @Test
   @Order(25)
   void testCreateEmbddedClassDocument() {
@@ -755,7 +730,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testRemoveAllLinkList
   @Test
   @Order(26)
   void testRemoveAllLinkList() {
@@ -810,7 +784,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest#testRemoveAndReload
   @Test
   @Order(27)
   void testRemoveAndReload() {

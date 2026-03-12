@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.junit;
 
-import com.jetbrains.youtrackdb.auto.ProfilerStub;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;

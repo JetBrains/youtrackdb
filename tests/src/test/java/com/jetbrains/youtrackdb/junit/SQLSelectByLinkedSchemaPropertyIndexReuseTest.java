@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,7 +53,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     super.afterAll();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueNotUniqueEqualsUsing
   @Test
   void testNotUniqueUniqueNotUniqueEqualsUsing() throws Exception {
 
@@ -69,7 +67,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueUniqueEqualsUsing
   @Test
   void testNotUniqueUniqueUniqueEqualsUsing() throws Exception {
 
@@ -87,7 +84,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueNotUniqueEqualsLimitUsing
   @Test
   void testNotUniqueUniqueNotUniqueEqualsLimitUsing() throws Exception {
 
@@ -104,7 +100,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueUniqueMinorUsing
   @Test
   void testNotUniqueUniqueUniqueMinorUsing() throws Exception {
 
@@ -123,7 +118,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 5, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueUniqueMinorLimitUsing
   @Test
   void testNotUniqueUniqueUniqueMinorLimitUsing() throws Exception {
 
@@ -144,7 +138,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 5, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueNotUniqueMinorEqualsUsing
   @Test
   void testUniqueNotUniqueMinorEqualsUsing() throws Exception {
 
@@ -160,7 +153,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueNotUniqueMinorEqualsLimitUsing
   @Test
   void testUniqueNotUniqueMinorEqualsLimitUsing() throws Exception {
 
@@ -177,7 +169,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 2, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueUniqueMajorUsing
   @Test
   void testNotUniqueUniqueUniqueMajorUsing() throws Exception {
 
@@ -192,7 +183,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testNotUniqueUniqueUniqueMajorLimitUsing
   @Test
   void testNotUniqueUniqueUniqueMajorLimitUsing() throws Exception {
 
@@ -211,7 +201,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueUniqueBetweenUsing
   @Test
   void testUniqueUniqueBetweenUsing() throws Exception {
 
@@ -227,7 +216,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueUniqueBetweenLimitUsing
   @Test
   void testUniqueUniqueBetweenLimitUsing() throws Exception {
 
@@ -246,7 +234,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 2, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueUniqueInUsing
   @Test
   void testUniqueUniqueInUsing() throws Exception {
 
@@ -262,7 +249,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 3, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniqueUniqueInLimitUsing
   @Test
   void testUniqueUniqueInLimitUsing() throws Exception {
 
@@ -285,7 +271,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
    * When some unique composite index in the chain is queried by partial result, the final result
    * become not unique.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testUniquePartialSearch
   @Test
   void testUniquePartialSearch() {
     var oldIndexUsage = indexUsages();
@@ -303,7 +288,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 2, indexUsages());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testHashIndexIsUsedAsBaseIndex
   @Test
   void testHashIndexIsUsedAsBaseIndex() {
     var oldIndexUsage = indexUsages();
@@ -317,7 +301,6 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     assertEquals(oldIndexUsage + 2, indexUsages());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest#testCompositeIndex
   @Test
   void testCompositeIndex() {
     var oldIndexUsage = indexUsages();

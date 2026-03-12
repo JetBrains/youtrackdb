@@ -37,7 +37,6 @@ public class ByteArrayKeyTest extends BaseDBJUnit5Test {
         "compositeByteArrayKey", SchemaClass.INDEX_TYPE.UNIQUE, "byteArrayKey", "intKey");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ByteArrayKeyTest#testAutomaticUsage
   @Test
   @Order(1)
   void testAutomaticUsage() {
@@ -85,7 +84,6 @@ public class ByteArrayKeyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ByteArrayKeyTest#testAutomaticCompositeUsage
   @Test
   @Order(2)
   void testAutomaticCompositeUsage() {
@@ -130,7 +128,6 @@ public class ByteArrayKeyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ByteArrayKeyTest#testAutomaticCompositeUsageInTX
   @Test
   @Order(3)
   void testAutomaticCompositeUsageInTX() {
@@ -175,7 +172,6 @@ public class ByteArrayKeyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ByteArrayKeyTest#testContains
   @Test
   @Order(4)
   void testContains() {

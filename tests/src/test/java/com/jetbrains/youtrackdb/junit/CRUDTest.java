@@ -79,7 +79,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     createParentChildClasses();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#create
   @Test
   @Order(1)
   void create() {
@@ -114,7 +113,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testCreate
   @Test
   @Order(2)
   void testCreate() {
@@ -123,7 +121,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testCreateClass
   @Test
   @Order(3)
   void testCreateClass() {
@@ -138,7 +135,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     assertNotNull(schema.getClass("Dummy"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testSimpleTypes
   @Test
   @Order(4)
   void testSimpleTypes() {
@@ -175,7 +171,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testSimpleArrayTypes
   @Test
   @Order(5)
   void testSimpleArrayTypes() {
@@ -367,7 +362,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testBinaryDataType
   @Test
   @Order(6)
   void testBinaryDataType() {
@@ -423,7 +417,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testDateInTransaction
   @Test
   @Order(7)
   void testDateInTransaction() {
@@ -440,7 +433,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#collectionsDocumentTypeTestPhaseOne
   @Test
   @Order(8)
   void collectionsDocumentTypeTestPhaseOne() {
@@ -482,7 +474,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#collectionsDocumentTypeTestPhaseTwo
   @Test
   @Order(9)
   void collectionsDocumentTypeTestPhaseTwo() {
@@ -523,7 +514,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#collectionsDocumentTypeTestPhaseThree
   @Test
   @Order(10)
   void collectionsDocumentTypeTestPhaseThree() {
@@ -592,7 +582,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#readAndBrowseDescendingAndCheckHoleUtilization
   @Test
   @Order(11)
   void readAndBrowseDescendingAndCheckHoleUtilization() {
@@ -643,7 +632,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapEnumAndInternalObjects
   @Test
   @Order(12)
   void mapEnumAndInternalObjects() {
@@ -654,7 +642,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
 
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsLinkTest
   @Test
   @Order(13)
   void mapObjectsLinkTest() {
@@ -733,7 +720,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#listObjectsLinkTest
   @Test
   @Order(14)
   void listObjectsLinkTest() {
@@ -783,7 +769,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     // ============================== end 2
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#listObjectsIterationTest
   @Test
   @Order(15)
   void listObjectsIterationTest() {
@@ -831,7 +816,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsListEmbeddedTest
   @Test
   @Order(16)
   void mapObjectsListEmbeddedTest() {
@@ -933,7 +917,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsSetEmbeddedTest
   @Test
   @Order(17)
   void mapObjectsSetEmbeddedTest() {
@@ -998,7 +981,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsMapEmbeddedTest
   @Test
   @Order(18)
   void mapObjectsMapEmbeddedTest() {
@@ -1064,7 +1046,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsNonExistingKeyTest
   @Test
   @Order(19)
   void mapObjectsNonExistingKeyTest() {
@@ -1157,7 +1138,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsLinkTwoSaveTest
   @Test
   @Order(20)
   void mapObjectsLinkTwoSaveTest() {
@@ -1244,7 +1224,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsLinkUpdateDatabaseNewInstanceTest
   @Test
   @Order(21)
   void mapObjectsLinkUpdateDatabaseNewInstanceTest() {
@@ -1399,7 +1378,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapObjectsLinkUpdateJavaNewInstanceTest
   @Test
   @Order(22)
   void mapObjectsLinkUpdateJavaNewInstanceTest() {
@@ -1546,7 +1524,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapStringTest
   @Test
   @Order(23)
   void mapStringTest() {
@@ -1722,7 +1699,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#setStringTest
   @Test
   @Order(24)
   void setStringTest() {
@@ -1797,7 +1773,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#mapStringListTest
   @Test
   @Order(25)
   void mapStringListTest() {
@@ -1968,7 +1943,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#update
   @Test
   @Order(26)
   void update() {
@@ -2003,7 +1977,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
         });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testUpdate
   @Test
   @Order(27)
   void testUpdate() {
@@ -2054,7 +2027,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#checkLazyLoadingOff
   @Test
   @Order(28)
   void checkLazyLoadingOff() {
@@ -2122,7 +2094,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryPerFloat
   @Test
   @Order(29)
   void queryPerFloat() {
@@ -2139,7 +2110,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryCross3Levels
   @Test
   @Order(30)
   void queryCross3Levels() {
@@ -2171,7 +2141,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#deleteFirst
   @Test
   @Order(31)
   void deleteFirst() {
@@ -2191,7 +2160,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testSaveMultiCircular
   @Test
   @Order(32)
   void testSaveMultiCircular() {
@@ -2244,7 +2212,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#embeddedMapObjectTest
   @Test
   @Order(33)
   void embeddedMapObjectTest() {
@@ -2430,7 +2397,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testNoGenericCollections
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Test
   @Order(34)
@@ -2513,7 +2479,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#oidentifableFieldsTest
   @Test
   @Order(35)
   void oidentifableFieldsTest() {
@@ -2707,7 +2672,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testEmbeddedDeletion
   @Test
   @Order(36)
   void testEmbeddedDeletion() {
@@ -2750,7 +2714,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testObjectDelete
   @Test
   @Order(37)
   void testObjectDelete() {
@@ -2773,7 +2736,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#commandWithPositionalParameters
   @Test
   @Order(38)
   void commandWithPositionalParameters() {
@@ -2785,7 +2747,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryWithPositionalParameters
   @Test
   @Order(39)
   void queryWithPositionalParameters() {
@@ -2797,7 +2758,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryWithRidAsParameters
   @Test
   @Order(40)
   void queryWithRidAsParameters() {
@@ -2811,7 +2771,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryWithRidStringAsParameters
   @Test
   @Order(41)
   void queryWithRidStringAsParameters() {
@@ -2825,7 +2784,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#commandWithNamedParameters
   @Test
   @Order(42)
   void commandWithNamedParameters() {
@@ -2842,7 +2800,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#commandWithWrongNamedParameters
   @Test
   @Order(43)
   void commandWithWrongNamedParameters() {
@@ -2858,7 +2815,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryConcatAttrib
   @Test
   @Order(44)
   void queryConcatAttrib() {
@@ -2869,7 +2825,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryPreparedTwice
   @Test
   @Order(45)
   void queryPreparedTwice() {
@@ -2895,7 +2850,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryById
   @Test
   @Order(46)
   void queryById() {
@@ -2908,7 +2862,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#queryByIdNewApi
   @Test
   @Order(47)
   void queryByIdNewApi() {
@@ -2927,7 +2880,6 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CRUDTest#testEmbeddedBinary
   @Test
   @Disabled
   @Order(48)

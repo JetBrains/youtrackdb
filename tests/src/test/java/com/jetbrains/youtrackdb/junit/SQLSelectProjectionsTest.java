@@ -25,7 +25,6 @@ import org.junit.jupiter.api.Test;
  * field operators, static values, JSON, RID, eval, context arrays, ifnull,
  * set aggregation, exclude, and expand-exclude.
  *
- * <p>Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest
  */
 class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
 
@@ -37,7 +36,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     generateProfiles();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionOk
   @Test
   @Order(1)
   void queryProjectionOk() {
@@ -60,7 +58,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionObjectLevel
   @Test
   @Order(2)
   void queryProjectionObjectLevel() {
@@ -75,7 +72,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionLinkedAndFunction
   @Test
   @Order(3)
   void queryProjectionLinkedAndFunction() {
@@ -97,7 +93,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionSameFieldTwice
   @Test
   @Order(4)
   void queryProjectionSameFieldTwice() {
@@ -117,7 +112,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionStaticValues
   @Test
   @Order(5)
   void queryProjectionStaticValues() {
@@ -136,7 +130,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionPrefixAndAppend
   @Test
   @Order(6)
   void queryProjectionPrefixAndAppend() {
@@ -154,7 +147,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionFunctionsAndFieldOperators
   @Test
   @Order(7)
   void queryProjectionFunctionsAndFieldOperators() {
@@ -171,7 +163,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionSimpleValues
   @Test
   @Order(8)
   void queryProjectionSimpleValues() {
@@ -188,7 +179,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionJSON
   @Test
   @Order(9)
   void queryProjectionJSON() throws JsonProcessingException {
@@ -206,7 +196,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionRid
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(10)
@@ -223,7 +212,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionOrigin
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(11)
@@ -237,7 +225,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionEval
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(12)
@@ -250,7 +237,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#queryProjectionContextArray
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(13)
@@ -276,7 +262,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#ifNullFunction
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(14)
@@ -294,7 +279,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     assertEquals("b", result.getFirst().getProperty("ifnull"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#setAggregation
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(15)
@@ -307,7 +291,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#projectionWithNoTarget
   // Note: originally had no explicit @Test (relied on class-level @Test); added for JUnit 5
   @Test
   @Order(16)
@@ -341,7 +324,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#testSelectExcludeFunction
   @Test
   @Order(17)
   void testSelectExcludeFunction() {
@@ -384,7 +366,6 @@ class SQLSelectProjectionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest#testSimpleExpandExclude
   @Test
   @Order(18)
   void testSimpleExpandExclude() {

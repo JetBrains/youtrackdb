@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.QueryLocalCacheIntegrationTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -84,7 +83,6 @@ public class QueryLocalCacheIntegrationTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.QueryLocalCacheIntegrationTest#queryTest
   @Test
   void queryTest() {
     session.begin();

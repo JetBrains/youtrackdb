@@ -38,7 +38,6 @@ import org.junit.jupiter.api.Test;
 @SuppressWarnings("unchecked")
 public class ComplexTypesTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testBigDecimal
   @Test
   void testBigDecimal() {
     final var clazz = session.createClass("BigDecimalTest");
@@ -87,7 +86,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkList2
   @Test
   void testLinkList2() {
     session.begin();
@@ -121,7 +119,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkList
   @Test
   void testLinkList() {
     session.begin();
@@ -164,7 +161,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkSet2
   @Test
   void testLinkSet2() {
     session.begin();
@@ -206,7 +202,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkSet
   @Test
   void testLinkSet() {
     session.begin();
@@ -253,7 +248,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkMap2
   @Test
   void testLinkMap2() {
     session.begin();
@@ -296,7 +290,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testEmptyEmbeddedMap
   @Test
   void testEmptyEmbeddedMap() {
     session.begin();
@@ -320,7 +313,6 @@ public class ComplexTypesTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ComplexTypesTest#testLinkMap
   @Test
   void testLinkMap() {
     session.begin();

@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.WrongQueryTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -8,7 +7,6 @@ import org.junit.jupiter.api.Test;
 
 public class WrongQueryTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.WrongQueryTest#queryFieldOperatorNotSupported
   @Test
   void queryFieldOperatorNotSupported() {
     assertThrows(CommandSQLParsingException.class, () -> {

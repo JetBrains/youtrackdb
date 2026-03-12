@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,7 +60,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMap
   @Test
   void testIndexMap() {
 
@@ -117,7 +115,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapInTx
   @Test
   void testIndexMapInTx() {
 
@@ -180,7 +177,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateOne
   @Test
   void testIndexMapUpdateOne() {
 
@@ -244,7 +240,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateOneTx
   @Test
   void testIndexMapUpdateOneTx() {
 
@@ -304,7 +299,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateOneTxRollback
   @Test
   void testIndexMapUpdateOneTxRollback() {
 
@@ -373,7 +367,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapAddItem
   @Test
   void testIndexMapAddItem() {
 
@@ -437,7 +430,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapAddItemTx
   @Test
   void testIndexMapAddItemTx() {
 
@@ -508,7 +500,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapAddItemTxRollback
   @Test
   void testIndexMapAddItemTxRollback() {
 
@@ -572,7 +563,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateItem
   @Test
   void testIndexMapUpdateItem() {
 
@@ -637,7 +627,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateItemInTx
   @Test
   void testIndexMapUpdateItemInTx() {
 
@@ -707,7 +696,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapUpdateItemInTxRollback
   @Test
   void testIndexMapUpdateItemInTxRollback() {
 
@@ -771,7 +759,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemoveItem
   @Test
   void testIndexMapRemoveItem() {
 
@@ -833,7 +820,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemoveItemInTx
   @Test
   void testIndexMapRemoveItemInTx() {
 
@@ -902,7 +888,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemoveItemInTxRollback
   @Test
   void testIndexMapRemoveItemInTxRollback() {
 
@@ -967,7 +952,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemove
   @Test
   void testIndexMapRemove() {
 
@@ -1000,7 +984,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemoveInTx
   @Test
   void testIndexMapRemoveInTx() {
 
@@ -1038,7 +1021,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapRemoveInTxRollback
   @Test
   void testIndexMapRemoveInTxRollback() {
 
@@ -1098,7 +1080,6 @@ public class LinkMapIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkMapIndexTest#testIndexMapSQL
   @Test
   void testIndexMapSQL() {
 

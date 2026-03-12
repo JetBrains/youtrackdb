@@ -17,7 +17,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testPut
   void testPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -67,7 +66,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testRemove
   void testRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -119,7 +117,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testRemoveAndPut
   void testRemoveAndPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -165,7 +162,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testMultiPut
   void testMultiPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -191,7 +187,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testPutAfterTransaction
   void testPutAfterTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -217,7 +212,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testRemoveOneWithinTransaction
   void testRemoveOneWithinTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -243,7 +237,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testPutAfterRemove
   void testPutAfterRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -270,7 +263,6 @@ public class IndexTxAwareOneValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest#testInsertionDeletionInsideTx
   void testInsertionDeletionInsideTx() {
     final var className = "_" + IndexTxAwareOneValueGetTest.class.getSimpleName();
     session.execute("create class " + className + " extends V").close();

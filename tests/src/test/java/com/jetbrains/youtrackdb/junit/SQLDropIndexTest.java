@@ -41,7 +41,6 @@ public class SQLDropIndexTest extends BaseDBJUnit5Test {
     super.afterAll();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropIndexTest#testOldSyntax
   @Test
   @Order(1)
   void testOldSyntax() throws Exception {
@@ -66,7 +65,6 @@ public class SQLDropIndexTest extends BaseDBJUnit5Test {
     assertNull(index);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropIndexTest#testDropCompositeIndex
   @Test
   @Order(2)
   void testDropCompositeIndex() throws Exception {
@@ -95,7 +93,6 @@ public class SQLDropIndexTest extends BaseDBJUnit5Test {
     assertNull(index);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropIndexTest#testDropIndexWorkedCorrectly
   @Test
   @Order(3)
   void testDropIndexWorkedCorrectly() {

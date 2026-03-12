@@ -54,7 +54,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     generateGraphData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryMax
   @Test
   @Order(1)
   void queryMax() {
@@ -67,7 +66,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryMaxInline
   @Test
   @Order(2)
   void queryMaxInline() {
@@ -82,7 +80,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryMin
   @Test
   @Order(3)
   void queryMin() {
@@ -98,7 +95,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryMinInline
   @Test
   @Order(4)
   void queryMinInline() {
@@ -113,7 +109,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySum
   @Test
   @Order(5)
   void querySum() {
@@ -126,7 +121,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryCount
   @Test
   @Order(6)
   void queryCount() {
@@ -138,7 +132,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     result.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryCountWithConditions
   @Test
   @Order(7)
   void queryCountWithConditions() {
@@ -161,7 +154,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryDistinct
   @Test
   @Order(8)
   void queryDistinct() {
@@ -177,7 +169,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryFunctionRenamed
   @Test
   @Order(9)
   void queryFunctionRenamed() {
@@ -190,7 +181,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryUnionAllAsAggregationNotRemoveDuplicates
   @Test
   @Order(10)
   void queryUnionAllAsAggregationNotRemoveDuplicates() {
@@ -203,7 +193,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     assertEquals(count, citiesFound.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySetNotDuplicates
   @Test
   @Order(11)
   void querySetNotDuplicates() {
@@ -222,7 +211,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryList
   @Test
   @Order(12)
   void queryList() {
@@ -237,7 +225,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#testSelectMap
   @Test
   @Order(13)
   void testSelectMap() {
@@ -270,7 +257,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     assertEquals(1, map.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySet
   @Test
   @Order(14)
   void querySet() {
@@ -285,7 +271,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryMap
   @Test
   @Order(15)
   void queryMap() {
@@ -300,7 +285,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryUnionAllAsInline
   @Test
   @Order(16)
   void queryUnionAllAsInline() {
@@ -314,7 +298,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryComposedAggregates
   @Test
   @Order(17)
   void queryComposedAggregates() {
@@ -345,7 +328,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryFormat
   @Test
   @Order(18)
   void queryFormat() {
@@ -362,7 +344,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySysdateNoFormat
   @Test
   @Order(19)
   void querySysdateNoFormat() {
@@ -377,7 +358,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySysdateWithFormat
   @Test
   @Order(20)
   void querySysdateWithFormat() {
@@ -391,7 +371,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryDate
   @Test
   @Order(21)
   void queryDate() {
@@ -432,8 +411,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryUndefinedFunction
-  // Original used: @Test(expectedExceptions = CommandSQLParsingException.class)
   @Test
   @Order(22)
   void queryUndefinedFunction() {
@@ -442,7 +419,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
             .toList());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryCustomFunction
   @Test
   @Order(23)
   void queryCustomFunction() {
@@ -495,7 +471,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     SQLEngine.unregisterFunction("bigger");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#queryAsLong
   @Test
   @Order(24)
   void queryAsLong() {
@@ -514,7 +489,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#testHashMethod
   @Test
   @Order(25)
   void testHashMethod() throws UnsupportedEncodingException, NoSuchAlgorithmException {
@@ -532,7 +506,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#testFirstFunction
   @Test
   @Order(26)
   void testFirstFunction() {
@@ -560,7 +533,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     assertEquals(1L, result.get(1).<Object>getProperty("first"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#testLastFunction
   @Test
   @Order(27)
   void testLastFunction() {
@@ -589,7 +561,6 @@ class SQLFunctionsTest extends BaseDBJUnit5Test {
     assertEquals(98L, result.get(1).<Object>getProperty("last"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLFunctionsTest#querySplit
   @Test
   @Order(28)
   void querySplit() {

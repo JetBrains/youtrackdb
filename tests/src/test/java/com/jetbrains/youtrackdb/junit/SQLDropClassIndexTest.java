@@ -25,7 +25,6 @@ public class SQLDropClassIndexTest extends BaseDBJUnit5Test {
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropClassIndexTest#testIndexDeletion
   @Test
   @Order(1)
   void testIndexDeletion() throws Exception {

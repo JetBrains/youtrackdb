@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest#test
 public class HookOnIndexedMapTest {
 
   // Original test used JUnit 4 @org.junit.Test inside a TestNG suite XML,

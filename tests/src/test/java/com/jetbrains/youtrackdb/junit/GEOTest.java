@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.GEOTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -13,7 +12,6 @@ import org.junit.jupiter.api.Test;
 
 public class GEOTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GEOTest#geoSchema
   @Test
   @Order(1)
   void geoSchema() {
@@ -34,7 +32,6 @@ public class GEOTest extends BaseDBJUnit5Test {
     assertEquals(1, yIndexes.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GEOTest#checkGeoIndexes
   @Test
   @Order(2)
   void checkGeoIndexes() {
@@ -49,7 +46,6 @@ public class GEOTest extends BaseDBJUnit5Test {
     assertEquals(1, yIndexDefinitions.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GEOTest#queryCreatePoints
   @Test
   @Order(3)
   void queryCreatePoints() {
@@ -66,7 +62,6 @@ public class GEOTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GEOTest#queryDistance
   @Test
   @Order(4)
   void queryDistance() {
@@ -87,7 +82,6 @@ public class GEOTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GEOTest#queryDistanceOrdered
   @Test
   @Order(5)
   void queryDistanceOrdered() {

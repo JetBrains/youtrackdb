@@ -140,7 +140,6 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest#concurrentOptimisticUpdates
   @Test
   void concurrentOptimisticUpdates() throws Exception {
     counter.set(0);
@@ -206,15 +205,12 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
     database.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest#concurrentPessimisticSQLUpdates
-  // Original used: @Test(enabled = false)
   @Disabled
   @Test
   void concurrentPessimisticSQLUpdates() throws Exception {
     sqlUpdate(true);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest#concurrentOptimisticSQLUpdates
   @Test
   void concurrentOptimisticSQLUpdates() throws Exception {
     sqlUpdate(false);
@@ -260,7 +256,6 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
     database.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest#concurrentUpdateDelete
   @Test
   void concurrentUpdateDelete() {
 
@@ -293,7 +288,6 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest#concurrentDeleteDelete
   @Test
   void concurrentDeleteDelete() {
 

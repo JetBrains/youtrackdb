@@ -65,7 +65,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     generateCompanyData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testDuplicatedIndexOnUnique
   @Test
   @Order(1)
   void testDuplicatedIndexOnUnique() {
@@ -94,7 +93,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#populateIndexDocuments
   @Test
   @Order(5)
   void populateIndexDocuments() {
@@ -117,7 +115,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#linkedIndexedProperty
   @Test
   @Order(14)
   void linkedIndexedProperty() {
@@ -161,7 +158,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#createInheritanceIndex
   @Test
   @Order(16)
   void createInheritanceIndex() {
@@ -204,7 +200,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testTransactionUniqueIndexTestOne
   @Test
   @Order(18)
   void testTransactionUniqueIndexTestOne() {
@@ -250,7 +245,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     db.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testTransactionUniqueIndexTestWithDotNameOne
   @Test
   @Order(20)
   void testTransactionUniqueIndexTestWithDotNameOne() {
@@ -299,7 +293,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     db.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexRebuildDuringNonProxiedObjectDelete
   @Test
   @Order(2)
   void testIndexRebuildDuringNonProxiedObjectDelete() {
@@ -334,7 +327,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#indexLinks
   @Test
   @Order(22)
   void indexLinks() {
@@ -391,7 +383,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testConcurrentRemoveDelete
   @Test
   @Order(22)
   void testConcurrentRemoveDelete() {
@@ -470,7 +461,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexParamsAutoConversion
   @Test
   @Order(22)
   void testIndexParamsAutoConversion() {
@@ -510,7 +500,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     assertEquals(doc.getIdentity(), result.getIdentity());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNotUniqueIndexKeySize
   @Test
   @Order(22)
   void testNotUniqueIndexKeySize() {
@@ -544,7 +533,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNotUniqueIndexSize
   @Test
   @Order(22)
   void testNotUniqueIndexSize() {
@@ -572,7 +560,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInCompositeQuery
   @Test
   @Order(22)
   void testIndexInCompositeQuery() {
@@ -604,7 +591,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     assertEquals(docTwo.getIdentity(), result.getFirst().getIdentity());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexWithLimitAndOffset
   @Test
   @Order(22)
   void testIndexWithLimitAndOffset() {
@@ -641,7 +627,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     tx.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullIndexKeysSupport
   @Test
   @Order(22)
   void testNullIndexKeysSupport() {
@@ -686,7 +671,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullHashIndexKeysSupport
   @Test
   @Order(22)
   void testNullHashIndexKeysSupport() {
@@ -735,7 +719,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullIndexKeysSupportInTx
   @Test
   @Order(22)
   void testNullIndexKeysSupportInTx() {
@@ -786,7 +769,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullIndexKeysSupportInMiddleTx
   @Test
   @Order(22)
   void testNullIndexKeysSupportInMiddleTx() {
@@ -837,7 +819,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testCreateIndexAbstractClass
   @Test
   @Order(22)
   void testCreateIndexAbstractClass() {
@@ -884,7 +865,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testValuesContainerIsRemovedIfIndexIsRemoved
   @Test
   @Order(22)
   @Disabled("Disabled in original TestNG test")
@@ -919,7 +899,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     assertFalse(writeCache.exists("ValuesContainerIsRemovedIfIndexIsRemovedIndex.irs"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testPreservingIdentityInIndexTx
   @Test
   @Order(22)
   void testPreservingIdentityInIndexTx() {
@@ -993,7 +972,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testEmptyNotUniqueIndex
   @Test
   @Order(22)
   void testEmptyNotUniqueIndex() {
@@ -1035,7 +1013,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullIteration
   @Test
   @Order(22)
   void testNullIteration() {
@@ -1073,7 +1050,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     assertEquals(3, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testMultikeyWithoutFieldAndNullSupport
   @Test
   @Order(22)
   void testMultikeyWithoutFieldAndNullSupport() {
@@ -1321,7 +1297,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testMultikeyWithoutFieldAndNoNullSupport
   @Test
   @Order(22)
   void testMultikeyWithoutFieldAndNoNullSupport() {
@@ -1553,7 +1528,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountSBTreeUnique
   @Test
   @Order(22)
   void testNullValuesCountSBTreeUnique() {
@@ -1589,7 +1563,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountSBTreeNotUniqueOne
   @Test
   @Order(22)
   void testNullValuesCountSBTreeNotUniqueOne() {
@@ -1626,7 +1599,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountSBTreeNotUniqueTwo
   @Test
   @Order(22)
   void testNullValuesCountSBTreeNotUniqueTwo() {
@@ -1664,7 +1636,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountHashUnique
   @Test
   @Order(22)
   void testNullValuesCountHashUnique() {
@@ -1699,7 +1670,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountHashNotUniqueOne
   @Test
   @Order(22)
   void testNullValuesCountHashNotUniqueOne() {
@@ -1736,7 +1706,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testNullValuesCountHashNotUniqueTwo
   @Test
   @Order(22)
   void testNullValuesCountHashNotUniqueTwo() {
@@ -1774,7 +1743,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testParamsOrder
   @Test
   @Order(22)
   void testParamsOrder() {
@@ -1800,7 +1768,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 3: depends on testDuplicatedIndexOnUnique (order 1) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testUseOfIndex
   @Test
   @Order(6)
   void testUseOfIndex() {
@@ -1817,7 +1784,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexEntries
   @Test
   @Order(6)
   void testIndexEntries() {
@@ -1832,7 +1798,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexSize
   @Test
   @Order(6)
   void testIndexSize() {
@@ -1877,7 +1842,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 3: depends on populateIndexDocuments (order 2) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInUniqueIndex
   @Test
   @Order(6)
   void testIndexInUniqueIndex() {
@@ -1906,7 +1870,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInMajorSelect
   @Test
   @Order(6)
   void testIndexInMajorSelect() {
@@ -1928,7 +1891,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInMajorEqualsSelect
   @Test
   @Order(6)
   void testIndexInMajorEqualsSelect() {
@@ -1952,7 +1914,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInMinorSelect
   @Test
   @Order(6)
   void testIndexInMinorSelect() {
@@ -1972,7 +1933,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInMinorEqualsSelect
   @Test
   @Order(6)
   void testIndexInMinorEqualsSelect() {
@@ -1991,7 +1951,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexBetweenSelect
   @Test
   @Order(6)
   @Disabled("Disabled in original TestNG test")
@@ -2012,7 +1971,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInComplexSelectOne
   @Test
   @Order(6)
   @Disabled("Disabled in original TestNG test")
@@ -2039,7 +1997,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInComplexSelectTwo
   @Test
   @Order(6)
   @Disabled("Disabled in original TestNG test")
@@ -2067,7 +2024,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 12: depends on linkedIndexedProperty (order 11) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testLinkedIndexedPropertyInTx
   @Test
   @Order(15)
   void testLinkedIndexedPropertyInTx() {
@@ -2099,7 +2055,6 @@ public class IndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexRemoval
   @Test
   @Order(15)
   void testIndexRemoval() {
@@ -2133,7 +2088,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 14: depends on createInheritanceIndex (order 13) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexReturnOnlySpecifiedClass
   @Test
   @Order(17)
   void testIndexReturnOnlySpecifiedClass() {
@@ -2156,7 +2110,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 16: depends on testTransactionUniqueIndexTestOne (order 15) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testTransactionUniqueIndexTestTwo
   @Test
   @Order(19)
   void testTransactionUniqueIndexTestTwo() {
@@ -2203,7 +2156,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 18: depends on testTransactionUniqueIndexTestWithDotNameOne (order 17) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testTransactionUniqueIndexTestWithDotNameTwo
   @Test
   @Order(21)
   void testTransactionUniqueIndexTestWithDotNameTwo() {
@@ -2247,7 +2199,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 20: depends on testIndexRebuildDuringNonProxiedObjectDelete (order 19) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexRebuildDuringDetachAllNonProxiedObjectDelete
   @Test
   @Order(3)
   void testIndexRebuildDuringDetachAllNonProxiedObjectDelete() {
@@ -2285,7 +2236,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 4: depends on testUseOfIndex (order 3) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testChangeOfIndexToNotUnique
   @Test
   @Order(7)
   void testChangeOfIndexToNotUnique() {
@@ -2301,7 +2251,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 21: depends on testIndexRebuildDuringDetachAllNonProxiedObjectDelete (order 20) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testRestoreUniqueIndex
   @Test
   @Order(4)
   void testRestoreUniqueIndex() {
@@ -2315,7 +2264,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 5: depends on testChangeOfIndexToNotUnique (order 4) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testDuplicatedIndexOnNotUnique
   @Test
   @Order(8)
   void testDuplicatedIndexOnNotUnique() {
@@ -2330,7 +2278,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 6: depends on testDuplicatedIndexOnNotUnique (order 5) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testChangeOfIndexToUnique
   @Test
   @Order(9)
   void testChangeOfIndexToUnique() {
@@ -2350,7 +2297,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 7: depends on testChangeOfIndexToUnique (order 6) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#removeNotUniqueIndexOnNick
   @Test
   @Order(10)
   void removeNotUniqueIndexOnNick() {
@@ -2359,7 +2305,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 8: depends on removeNotUniqueIndexOnNick (order 7) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testQueryingWithoutNickIndex
   @Test
   @Order(11)
   void testQueryingWithoutNickIndex() {
@@ -2394,7 +2339,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 9: depends on testQueryingWithoutNickIndex (order 8) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#createNotUniqueIndexOnNick
   @Test
   @Order(12)
   void createNotUniqueIndexOnNick() {
@@ -2408,7 +2352,6 @@ public class IndexTest extends BaseDBJUnit5Test {
 
   // ---- Order 10: depends on createNotUniqueIndexOnNick (order 9) + populateIndexDocuments (order 2) ----
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTest#testIndexInNotUniqueIndex
   @Test
   @Order(13)
   void testIndexInNotUniqueIndex() {

@@ -22,7 +22,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLDeleteTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteTest#deleteWithWhereOperator
   @Test
   @Order(1)
   void deleteWithWhereOperator() {
@@ -54,7 +53,6 @@ class SQLDeleteTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDeleteTest#deleteInPool
   @Test
   @Order(2)
   void deleteInPool() {

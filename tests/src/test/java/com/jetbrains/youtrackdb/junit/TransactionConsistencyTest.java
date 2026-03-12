@@ -45,7 +45,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
 
   public static final String NAME = "name";
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#test1RollbackOnConcurrentException
   @Test
   void test1RollbackOnConcurrentException() {
     database1 = acquireSession();
@@ -135,7 +134,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     database2.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#test4RollbackWithPin
   @Test
   void test4RollbackWithPin() {
     database1 = acquireSession();
@@ -201,7 +199,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     database2.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#test3RollbackWithCopyCacheStrategy
   @Test
   void test3RollbackWithCopyCacheStrategy() {
     database1 = acquireSession();
@@ -267,7 +264,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     database2.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#test5CacheUpdatedMultipleDbs
   @Test
   void test5CacheUpdatedMultipleDbs() {
     database1 = acquireSession();
@@ -301,7 +297,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     database2.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#checkVersionsInConnectedDocuments
   @SuppressWarnings("unchecked")
   @Test
   void checkVersionsInConnectedDocuments() {
@@ -355,7 +350,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#createLinkInTx
   @SuppressWarnings("unchecked")
   @Test
   void createLinkInTx() {
@@ -402,7 +396,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#loadRecordTest
   @SuppressWarnings("unchecked")
   @Test
   void loadRecordTest() {
@@ -446,7 +439,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#testTransactionPopulateDelete
   @Test
   void testTransactionPopulateDelete() {
     if (!session.getMetadata().getSchema().existsClass("MyFruit")) {
@@ -531,7 +523,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     System.out.println("[testTransactionPopulateDelete] End of the test");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#testConsistencyOnDelete
   @Test
   void testConsistencyOnDelete() {
     if (session.getMetadata().getSchema().getClass("Foo") == null) {
@@ -587,7 +578,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#deletesWithinTransactionArentWorking
   @Test
   void deletesWithinTransactionArentWorking() {
     if (session.getClass("Foo") == null) {
@@ -634,7 +624,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#transactionRollbackConstistencyTest
   @Test
   void transactionRollbackConstistencyTest() {
     var vertexClass = session.getMetadata().getSchema().createClass("TRVertex");
@@ -741,7 +730,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#testQueryIsolation
   @Test
   void testQueryIsolation() {
     session.begin();
@@ -766,7 +754,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#testRollbackWithRemove
   /**
    * When calling .remove(o) on a collection, the row corresponding to o is deleted and not restored
    * when the transaction is rolled back.
@@ -840,7 +827,6 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionConsistencyTest#testTransactionsCache
   @Test
   void testTransactionsCache() {
     assertFalse(session.getTransactionInternal().isActive());

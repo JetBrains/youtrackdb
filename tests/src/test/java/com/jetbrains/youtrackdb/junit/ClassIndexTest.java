@@ -37,7 +37,6 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
 /**
- * Migrated from: com.jetbrains.youtrackdb.auto.ClassIndexTest (TestNG)
  *
  * <p>Tests class-level index creation, querying, and involved-index lookups.
  * Uses {@code @Order} to replicate the original {@code dependsOnMethods}
@@ -102,7 +101,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     oSuperClass = session.getClassInternal("ClassIndexTestSuperClass");
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyIndexTest
   @Test
   @Order(1)
   void testCreateOnePropertyIndexTest() {
@@ -120,7 +118,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyIndexInvalidName
   @Test
   @Order(2)
   void testCreateOnePropertyIndexInvalidName() {
@@ -144,7 +141,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: ClassIndexTest#createCompositeIndexTestWithoutListener
   @Test
   @Order(3)
   void createCompositeIndexTestWithoutListener() {
@@ -163,7 +159,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: ClassIndexTest#createCompositeIndexTestWithListener
   @Test
   @Order(4)
   void createCompositeIndexTestWithListener() {
@@ -205,7 +200,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, atomicInteger.get());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyEmbeddedMapIndex
   @Test
   @Order(5)
   void testCreateOnePropertyEmbeddedMapIndex() {
@@ -238,7 +232,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeEmbeddedMapIndex
   @Test
   @Order(6)
   void testCreateCompositeEmbeddedMapIndex() {
@@ -273,7 +266,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeEmbeddedMapByKeyIndex
   @Test
   @Order(7)
   void testCreateCompositeEmbeddedMapByKeyIndex() {
@@ -313,7 +305,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeEmbeddedMapByValueIndex
   @Test
   @Order(8)
   void testCreateCompositeEmbeddedMapByValueIndex() {
@@ -353,7 +344,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeLinkMapByValueIndex
   @Test
   @Order(9)
   void testCreateCompositeLinkMapByValueIndex() {
@@ -393,7 +383,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeEmbeddedSetIndex
   @Test
   @Order(10)
   void testCreateCompositeEmbeddedSetIndex() {
@@ -431,7 +420,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeEmbeddedListIndex
   @Test
   @Order(11)
   void testCreateCompositeEmbeddedListIndex() {
@@ -468,7 +456,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeLinkListIndex
   @Test
   @Order(12)
   void testCreateCompositeLinkListIndex() {
@@ -505,7 +492,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateCompositeRidBagIndex
   @Test
   @Order(13)
   void testCreateCompositeRidBagIndex() {
@@ -542,7 +528,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyLinkedMapIndex
   @Test
   @Order(14)
   void testCreateOnePropertyLinkedMapIndex() {
@@ -574,7 +559,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyLinkMapByKeyIndex
   @Test
   @Order(15)
   void testCreateOnePropertyLinkMapByKeyIndex() {
@@ -606,7 +590,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyLinkMapByValueIndex
   @Test
   @Order(16)
   void testCreateOnePropertyLinkMapByValueIndex() {
@@ -639,7 +622,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyByKeyEmbeddedMapIndex
   @Test
   @Order(17)
   void testCreateOnePropertyByKeyEmbeddedMapIndex() {
@@ -673,7 +655,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyByValueEmbeddedMapIndex
   @Test
   @Order(18)
   void testCreateOnePropertyByValueEmbeddedMapIndex() {
@@ -707,7 +688,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyWrongSpecifierEmbeddedMapIndexOne
   @Test
   @Order(19)
   void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexOne() {
@@ -734,7 +714,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             session, "ClassIndexTestPropertyWrongSpecifierEmbeddedMap"));
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyWrongSpecifierEmbeddedMapIndexTwo
   @Test
   @Order(20)
   void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexTwo() {
@@ -756,7 +735,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             session, "ClassIndexTestPropertyWrongSpecifierEmbeddedMap"));
   }
 
-  // Migrated from: ClassIndexTest#testCreateOnePropertyWrongSpecifierEmbeddedMapIndexThree
   @Test
   @Order(21)
   void testCreateOnePropertyWrongSpecifierEmbeddedMapIndexThree() {
@@ -778,7 +756,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             session, "ClassIndexTestPropertyWrongSpecifierEmbeddedMap"));
   }
 
-  // Migrated from: ClassIndexTest#createParentPropertyIndex
   @Test
   @Order(22)
   void createParentPropertyIndex() {
@@ -794,7 +771,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetIndexesWithoutParent
   @Test
   @Order(23)
   void testGetIndexesWithoutParent() {
@@ -824,8 +800,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         propertyIndexDefinition, indexes.iterator().next().getDefinition());
   }
 
-  // Migrated from: ClassIndexTest#testCreateIndexEmptyFields
-  // Original used: @Test(expectedExceptions = IndexException.class)
   @Test
   @Order(24)
   void testCreateIndexEmptyFields() {
@@ -833,8 +807,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         SchemaClass.INDEX_TYPE.UNIQUE));
   }
 
-  // Migrated from: ClassIndexTest#testCreateIndexAbsentFields
-  // Original used: @Test(expectedExceptions = IndexException.class)
   @Test
   @Order(25)
   void testCreateIndexAbsentFields() {
@@ -845,7 +817,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         Map.of("ignoreNullValues", true), new String[] {"fFive"}));
   }
 
-  // Migrated from: ClassIndexTest#testCreateMapWithoutLinkedType
   @Test
   @Order(26)
   void testCreateMapWithoutLinkedType() {
@@ -865,7 +836,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: ClassIndexTest#testDropProperty
   @Test
   @Order(27)
   void testDropProperty() throws Exception {
@@ -878,8 +848,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
 
   // --- Phase 2: Tests depending on creation (Order 30-70) ---
 
-  // Migrated from: ClassIndexTest#testAreIndexedOneProperty
-  // Original used: dependsOnMethods on creation tests
   @Test
   @Order(30)
   void testAreIndexedOneProperty() {
@@ -888,7 +856,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedEightProperty
   @Test
   @Order(31)
   void testAreIndexedEightProperty() {
@@ -896,7 +863,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedEightPropertyEmbeddedMap
   @Test
   @Order(32)
   void testAreIndexedEightPropertyEmbeddedMap() {
@@ -905,7 +871,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedDoesNotContainProperty
   @Test
   @Order(33)
   void testAreIndexedDoesNotContainProperty() {
@@ -914,7 +879,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedTwoProperties
   @Test
   @Order(34)
   void testAreIndexedTwoProperties() {
@@ -924,7 +888,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedThreeProperties
   @Test
   @Order(35)
   void testAreIndexedThreeProperties() {
@@ -934,7 +897,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedPropertiesNotFirst
   @Test
   @Order(36)
   void testAreIndexedPropertiesNotFirst() {
@@ -944,7 +906,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedPropertiesMoreThanNeeded
   @Test
   @Order(37)
   void testAreIndexedPropertiesMoreThanNeeded() {
@@ -954,7 +915,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedParentProperty
   @Test
   @Order(38)
   void testAreIndexedParentProperty() {
@@ -963,7 +923,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedParentChildProperty
   @Test
   @Order(39)
   void testAreIndexedParentChildProperty() {
@@ -972,7 +931,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedOnePropertyArrayParams
   @Test
   @Order(40)
   void testAreIndexedOnePropertyArrayParams() {
@@ -981,7 +939,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedDoesNotContainPropertyArrayParams
   @Test
   @Order(41)
   void testAreIndexedDoesNotContainPropertyArrayParams() {
@@ -990,7 +947,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedTwoPropertiesArrayParams
   @Test
   @Order(42)
   void testAreIndexedTwoPropertiesArrayParams() {
@@ -999,7 +955,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedThreePropertiesArrayParams
   @Test
   @Order(43)
   void testAreIndexedThreePropertiesArrayParams() {
@@ -1008,7 +963,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedPropertiesNotFirstArrayParams
   @Test
   @Order(44)
   void testAreIndexedPropertiesNotFirstArrayParams() {
@@ -1017,7 +971,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedPropertiesMoreThanNeededArrayParams
   @Test
   @Order(45)
   void testAreIndexedPropertiesMoreThanNeededArrayParams() {
@@ -1027,7 +980,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedParentPropertyArrayParams
   @Test
   @Order(46)
   void testAreIndexedParentPropertyArrayParams() {
@@ -1036,7 +988,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: ClassIndexTest#testAreIndexedParentChildPropertyArrayParams
   @Test
   @Order(47)
   void testAreIndexedParentChildPropertyArrayParams() {
@@ -1045,7 +996,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesOnePropertyArrayParams
   @Test
   @Order(48)
   void testGetClassInvolvedIndexesOnePropertyArrayParams() {
@@ -1056,7 +1006,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestPropertyOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesTwoPropertiesArrayParams
   @Test
   @Order(49)
   void testGetClassInvolvedIndexesTwoPropertiesArrayParams() {
@@ -1067,7 +1016,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesThreePropertiesArrayParams
   @Test
   @Order(50)
   void testGetClassInvolvedIndexesThreePropertiesArrayParams() {
@@ -1080,7 +1028,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams
   @Test
   @Order(51)
   void testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams() {
@@ -1090,7 +1037,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams
   @Test
   @Order(52)
   void testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams() {
@@ -1100,7 +1046,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesPropertiesMorThanNeeded
   @Test
   @Order(53)
   void testGetInvolvedIndexesPropertiesMorThanNeeded() {
@@ -1111,7 +1056,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesOneProperty
   @Test
   @Order(54)
   void testGetClassInvolvedIndexesOneProperty() {
@@ -1123,7 +1067,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestPropertyOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesTwoProperties
   @Test
   @Order(55)
   void testGetClassInvolvedIndexesTwoProperties() {
@@ -1134,7 +1077,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesThreeProperties
   @Test
   @Order(56)
   void testGetClassInvolvedIndexesThreeProperties() {
@@ -1148,7 +1090,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesNotInvolvedProperties
   @Test
   @Order(57)
   void testGetClassInvolvedIndexesNotInvolvedProperties() {
@@ -1158,7 +1099,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetClassInvolvedIndexesPropertiesMorThanNeeded
   @Test
   @Order(58)
   void testGetClassInvolvedIndexesPropertiesMorThanNeeded() {
@@ -1169,7 +1109,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesOnePropertyArrayParams
   @Test
   @Order(59)
   void testGetInvolvedIndexesOnePropertyArrayParams() {
@@ -1180,7 +1119,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestPropertyOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesTwoPropertiesArrayParams
   @Test
   @Order(60)
   void testGetInvolvedIndexesTwoPropertiesArrayParams() {
@@ -1191,7 +1129,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesThreePropertiesArrayParams
   @Test
   @Order(61)
   void testGetInvolvedIndexesThreePropertiesArrayParams() {
@@ -1204,7 +1141,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesNotInvolvedPropertiesArrayParams
   @Test
   @Order(62)
   void testGetInvolvedIndexesNotInvolvedPropertiesArrayParams() {
@@ -1214,7 +1150,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetParentInvolvedIndexesArrayParams
   @Test
   @Order(63)
   void testGetParentInvolvedIndexesArrayParams() {
@@ -1226,7 +1161,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetParentChildInvolvedIndexesArrayParams
   @Test
   @Order(64)
   void testGetParentChildInvolvedIndexesArrayParams() {
@@ -1236,7 +1170,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesOneProperty
   @Test
   @Order(65)
   void testGetInvolvedIndexesOneProperty() {
@@ -1248,7 +1181,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestPropertyOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesTwoProperties
   @Test
   @Order(66)
   void testGetInvolvedIndexesTwoProperties() {
@@ -1259,7 +1191,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "ClassIndexTestCompositeOne"));
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesThreeProperties
   @Test
   @Order(67)
   void testGetInvolvedIndexesThreeProperties() {
@@ -1272,7 +1203,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetInvolvedIndexesNotInvolvedProperties
   @Test
   @Order(68)
   void testGetInvolvedIndexesNotInvolvedProperties() {
@@ -1282,7 +1212,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: ClassIndexTest#testGetParentInvolvedIndexes
   @Test
   @Order(69)
   void testGetParentInvolvedIndexes() {
@@ -1295,7 +1224,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
         result.iterator().next().getName());
   }
 
-  // Migrated from: ClassIndexTest#testGetParentChildInvolvedIndexes
   @Test
   @Order(70)
   void testGetParentChildInvolvedIndexes() {
@@ -1307,8 +1235,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
 
   // --- Phase 3: Depends on creation + linkList/ridBag ---
 
-  // Migrated from: ClassIndexTest#testGetClassIndexes
-  // Original used: dependsOnMethods including testCreateCompositeLinkListIndex,
   //   testCreateCompositeRidBagIndex
   @Test
   @Order(71)
@@ -1496,8 +1422,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: ClassIndexTest#testGetIndexes
-  // Original used: dependsOnMethods including createParentPropertyIndex,
   //   testCreateCompositeLinkListIndex, testCreateCompositeRidBagIndex
   @Test
   @Order(72)
@@ -1695,8 +1619,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
 
   // --- Phase 4: Depends on testGetIndexes / testGetInvolvedIndexesOnePropertyArrayParams ---
 
-  // Migrated from: ClassIndexTest#testCreateCompositeLinkSetIndex
-  // Original used: dependsOnMethods = "testGetIndexes"
   @Test
   @Order(73)
   void testCreateCompositeLinkSetIndex() {
@@ -1736,8 +1658,6 @@ public class ClassIndexTest extends BaseDBJUnit5Test {
     assertEquals(2, indexDefinition.getParamCount());
   }
 
-  // Migrated from: ClassIndexTest#testCreateNotUniqueIndex
-  // Original used: dependsOnMethods = "testGetInvolvedIndexesOnePropertyArrayParams"
   @Test
   @Order(74)
   void testCreateNotUniqueIndex() {

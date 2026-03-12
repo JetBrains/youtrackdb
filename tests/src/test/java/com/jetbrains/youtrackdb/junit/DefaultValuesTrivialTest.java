@@ -28,7 +28,6 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
 
   private static final int DOCUMENT_COUNT = 50;
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest#test
   @Test
   @Order(1)
   void test() {
@@ -86,7 +85,6 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest#testDefaultValueConversion
   @Test
   @Order(2)
   void testDefaultValueConversion() {
@@ -113,7 +111,6 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest#testPrepopulation
   @Test
   @Order(3)
   void testPrepopulation() {
@@ -154,7 +151,6 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest#testPrepopulationIndex
   @Test
   @Order(4)
   void testPrepopulationIndex() {
@@ -179,7 +175,6 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest#testPrepopulationMultivalueIndex
   @Test
   @Order(5)
   void testPrepopulationMultivalueIndex() {

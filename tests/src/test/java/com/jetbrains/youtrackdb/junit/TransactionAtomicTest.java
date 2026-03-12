@@ -33,7 +33,6 @@ import org.junit.jupiter.api.Test;
 
 public class TransactionAtomicTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionAtomicTest#testTransactionAtomic
   @Test
   void testTransactionAtomic() {
     var db1 = acquireSession();
@@ -76,7 +75,6 @@ public class TransactionAtomicTest extends BaseDBJUnit5Test {
     db1.activateOnCurrentThread();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionAtomicTest#testMVCC
   @Test
   void testMVCC() throws IOException {
 
@@ -102,7 +100,6 @@ public class TransactionAtomicTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionAtomicTest#testTransactionPreListenerRollback
   @Test
   void testTransactionPreListenerRollback() throws IOException {
     session.begin();
@@ -134,7 +131,6 @@ public class TransactionAtomicTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.TransactionAtomicTest#testTransactionWithDuplicateUniqueIndexValues
   @Test
   void testTransactionWithDuplicateUniqueIndexValues() {
     var fruitClass = session.getMetadata().getSchema().getClass("Fruit");

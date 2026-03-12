@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Test;
 
 public class StringsTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.StringsTest#splitArray
   @Test
   void splitArray() {
     var pieces =
@@ -45,7 +44,6 @@ public class StringsTest extends BaseDBJUnit5Test {
     assertTrue(pieces.get(1).contains("this is mine"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.StringsTest#replaceAll
   @Test
   void replaceAll() {
     var test1 = "test string number 1";
@@ -81,7 +79,6 @@ public class StringsTest extends BaseDBJUnit5Test {
         subsequentReplaceTest);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.StringsTest#testNoEmptyFields
   @Test
   void testNoEmptyFields() {
     var pieces =
@@ -92,7 +89,6 @@ public class StringsTest extends BaseDBJUnit5Test {
     assertEquals(14, pieces.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.StringsTest#testEmptyFields
   @Test
   void testEmptyFields() {
     var pieces =
@@ -103,7 +99,6 @@ public class StringsTest extends BaseDBJUnit5Test {
     assertEquals(14, pieces.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.StringsTest#testDocumentSelfReference
   @Test
   void testDocumentSelfReference() {
     session.begin();

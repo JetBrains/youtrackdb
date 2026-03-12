@@ -16,7 +16,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testPut
   void testPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -64,7 +63,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testRemove
   void testRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -120,7 +118,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testRemoveOne
   void testRemoveOne() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -169,7 +166,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testMultiPut
   void testMultiPut() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -201,7 +197,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testPutAfterTransaction
   void testPutAfterTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -228,7 +223,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testRemoveOneWithinTransaction
   void testRemoveOneWithinTransaction() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");
@@ -253,7 +247,6 @@ public class IndexTxAwareMultiValueGetTest
   }
 
   @Test
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest#testPutAfterRemove
   void testPutAfterRemove() {
     assumeFalse(session.getStorage().isRemote(),
         "Test is enabled only for embedded database");

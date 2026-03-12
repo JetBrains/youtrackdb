@@ -32,8 +32,6 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportLinkBagTest
-// Original used: @Test(groups = {"db", "import-export"}), @Parameters(value = {"testPath"})
 @Disabled("Import/export link bag tests not included in main TestNG suite")
 @Tag("db")
 @Tag("import-export")
@@ -53,7 +51,6 @@ public class DbImportExportLinkBagTest extends BaseDBJUnit5Test
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportLinkBagTest#testDbExport
   @Test
   @Order(1)
   void testDbExport() throws IOException {
@@ -82,7 +79,6 @@ public class DbImportExportLinkBagTest extends BaseDBJUnit5Test
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportLinkBagTest#testDbImport
   @Test
   @Order(2)
   void testDbImport() throws IOException {
@@ -116,7 +112,6 @@ public class DbImportExportLinkBagTest extends BaseDBJUnit5Test
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportLinkBagTest#testCompareDatabases
   @Test
   @Order(3)
   void testCompareDatabases() throws IOException {
@@ -138,7 +133,6 @@ public class DbImportExportLinkBagTest extends BaseDBJUnit5Test
     }
   }
 
-  // Original used: @Test(enabled = false) — this is a CommandOutputListener callback, not a test
   @Override
   public void onMessage(final String iText) {
     if (iText != null && iText.contains("ERR"))

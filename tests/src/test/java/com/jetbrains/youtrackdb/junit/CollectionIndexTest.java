@@ -13,7 +13,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.CollectionIndexTest
 public class CollectionIndexTest extends BaseDBJUnit5Test {
 
   @Override
@@ -40,7 +39,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollection
   @Test
   void testIndexCollection() {
     session.begin();
@@ -68,7 +66,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionInTx
   @Test
   void testIndexCollectionInTx() {
     try {
@@ -101,7 +98,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdate
   @Test
   void testIndexCollectionUpdate() {
     session.begin();
@@ -131,8 +127,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateInTx
   @Test
   void testIndexCollectionUpdateInTx() {
     session.begin();
@@ -171,8 +165,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateInTxRollback
   @Test
   void testIndexCollectionUpdateInTxRollback() {
     session.begin();
@@ -207,8 +199,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateAddItem
   @Test
   void testIndexCollectionUpdateAddItem() {
     session.begin();
@@ -242,8 +232,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateAddItemInTx
   @Test
   void testIndexCollectionUpdateAddItemInTx() {
     session.begin();
@@ -282,8 +270,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateAddItemInTxRollback
   @Test
   void testIndexCollectionUpdateAddItemInTxRollback() {
     session.begin();
@@ -317,8 +303,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateRemoveItemInTx
   @Test
   void testIndexCollectionUpdateRemoveItemInTx() {
     session.begin();
@@ -356,8 +340,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateRemoveItemInTxRollback
   @Test
   void testIndexCollectionUpdateRemoveItemInTxRollback() {
     session.begin();
@@ -391,8 +373,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionUpdateRemoveItem
   @Test
   void testIndexCollectionUpdateRemoveItem() {
     session.begin();
@@ -421,8 +401,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionRemove
   @Test
   void testIndexCollectionRemove() {
     session.begin();
@@ -438,8 +416,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionRemoveInTx
   @Test
   void testIndexCollectionRemoveInTx() {
     session.begin();
@@ -463,8 +439,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionRemoveInTxRollback
   @Test
   void testIndexCollectionRemoveInTxRollback() {
     session.begin();
@@ -497,8 +471,6 @@ public class CollectionIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from:
-  //   com.jetbrains.youtrackdb.auto.CollectionIndexTest#testIndexCollectionSQL
   @Test
   void testIndexCollectionSQL() {
     session.begin();

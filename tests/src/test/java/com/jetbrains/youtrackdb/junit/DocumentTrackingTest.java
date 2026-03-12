@@ -44,7 +44,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedListTrackingAfterSave
   @Test
   void testDocumentEmbeddedListTrackingAfterSave() {
     session.begin();
@@ -84,7 +83,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedMapTrackingAfterSave
   @Test
   void testDocumentEmbeddedMapTrackingAfterSave() {
     session.begin();
@@ -124,7 +122,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedSetTrackingAfterSave
   @Test
   void testDocumentEmbeddedSetTrackingAfterSave() {
     session.begin();
@@ -164,7 +161,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkSetTrackingAfterSave
   @Test
   void testDocumentLinkSetTrackingAfterSave() {
     session.begin();
@@ -200,7 +196,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkListTrackingAfterSave
   @Test
   void testDocumentLinkListTrackingAfterSave() {
     session.begin();
@@ -237,7 +232,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkMapTrackingAfterSave
   @Test
   void testDocumentLinkMapTrackingAfterSave() {
     session.begin();
@@ -272,7 +266,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedListTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentEmbeddedListTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -312,7 +305,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedMapTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentEmbeddedMapTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -352,7 +344,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedSetTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentEmbeddedSetTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -392,7 +383,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkSetTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentLinkSetTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -428,7 +418,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkListTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentLinkListTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -464,7 +453,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkMapTrackingAfterSaveCacheDisabled
   @Test
   void testDocumentLinkMapTrackingAfterSaveCacheDisabled() {
     session.begin();
@@ -498,7 +486,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedListTrackingAfterSaveWitClass
   @Test
   void testDocumentEmbeddedListTrackingAfterSaveWitClass() {
     session.begin();
@@ -539,7 +526,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedMapTrackingAfterSaveWithClass
   @Test
   void testDocumentEmbeddedMapTrackingAfterSaveWithClass() {
     session.begin();
@@ -579,7 +565,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedSetTrackingAfterSaveWithClass
   @Test
   void testDocumentEmbeddedSetTrackingAfterSaveWithClass() {
     session.begin();
@@ -619,7 +604,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkSetTrackingAfterSaveWithClass
   @Test
   void testDocumentLinkSetTrackingAfterSaveWithClass() {
     session.begin();
@@ -653,7 +637,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkListTrackingAfterSaveWithClass
   @Test
   void testDocumentLinkListTrackingAfterSaveWithClass() {
     session.begin();
@@ -689,7 +672,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentLinkMapTrackingAfterSaveWithClass
   @Test
   void testDocumentLinkMapTrackingAfterSaveWithClass() {
     session.begin();
@@ -723,7 +705,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedListTrackingAfterConversion
   @Test
   void testDocumentEmbeddedListTrackingAfterConversion() {
     session.begin();
@@ -752,7 +733,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedSetTrackingFailAfterConversion
   @Test
   void testDocumentEmbeddedSetTrackingFailAfterConversion() {
     session.begin();
@@ -781,7 +761,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedListTrackingFailAfterReplace
   @Test
   void testDocumentEmbeddedListTrackingFailAfterReplace() {
     session.begin();
@@ -817,7 +796,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedMapTrackingAfterReplace
   @Test
   void testDocumentEmbeddedMapTrackingAfterReplace() {
     session.begin();
@@ -853,7 +831,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testDocumentEmbeddedSetTrackingAfterReplace
   @Test
   void testDocumentEmbeddedSetTrackingAfterReplace() {
     session.begin();
@@ -889,7 +866,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testRemoveField
   @Test
   void testRemoveField() {
     session.begin();
@@ -920,7 +896,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testReset
   @Test
   void testReset() {
     session.begin();
@@ -951,7 +926,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testUnload
   @Test
   void testUnload() {
     session.begin();
@@ -983,7 +957,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testUnsetDirty
   @Test
   void testUnsetDirty() {
     session.begin();
@@ -1014,7 +987,6 @@ public class DocumentTrackingTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DocumentTrackingTest#testRemoveFieldUsingIterator
   @Test
   void testRemoveFieldUsingIterator() {
     session.begin();

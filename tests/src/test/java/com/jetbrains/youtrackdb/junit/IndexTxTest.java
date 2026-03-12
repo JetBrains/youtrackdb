@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.IndexTxTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,7 +38,6 @@ public class IndexTxTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexTxTest#testIndexCrossReferencedDocuments
   @Test
   void testIndexCrossReferencedDocuments() {
     session.begin();

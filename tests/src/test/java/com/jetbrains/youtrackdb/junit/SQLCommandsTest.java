@@ -16,11 +16,9 @@ import org.junit.jupiter.api.Test;
  * Tests for SQL commands: property creation, linked class/type properties,
  * property removal, and SQL script execution.
  *
- * <p>Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest
  */
 class SQLCommandsTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest#createProperty
   @Test
   @Order(1)
   void createProperty() {
@@ -38,7 +36,6 @@ class SQLCommandsTest extends BaseDBJUnit5Test {
             .getProperty("timesheet").getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest#createLinkedClassProperty
   @Test
   @Order(2)
   void createLinkedClassProperty() {
@@ -62,7 +59,6 @@ class SQLCommandsTest extends BaseDBJUnit5Test {
             .getLinkedClass());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest#createLinkedTypeProperty
   @Test
   @Order(3)
   void createLinkedTypeProperty() {
@@ -81,7 +77,6 @@ class SQLCommandsTest extends BaseDBJUnit5Test {
             .getLinkedType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest#removeProperty
   @Test
   @Order(4)
   void removeProperty() {
@@ -96,7 +91,6 @@ class SQLCommandsTest extends BaseDBJUnit5Test {
             .existsProperty("tags"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCommandsTest#testSQLScript
   @Test
   @Order(5)
   void testSQLScript() {

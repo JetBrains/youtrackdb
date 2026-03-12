@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,7 +67,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSet
   @Test
   void testIndexLinkSet() {
     session.begin();
@@ -106,7 +104,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetInTx
   @Test
   void testIndexLinkSetInTx() {
     session.begin();
@@ -153,7 +150,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdate
   @Test
   void testIndexLinkSetUpdate() {
     session.begin();
@@ -198,7 +194,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateInTx
   @Test
   void testIndexLinkSetUpdateInTx() {
     session.begin();
@@ -256,7 +251,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateInTxRollback
   @Test
   void testIndexLinkSetUpdateInTxRollback() {
     session.begin();
@@ -309,7 +303,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateAddItem
   @Test
   void testIndexLinkSetUpdateAddItem() {
     session.begin();
@@ -358,7 +351,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateAddItemInTx
   @Test
   void testIndexLinkSetUpdateAddItemInTx() {
     session.begin();
@@ -412,7 +404,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateAddItemInTxRollback
   @Test
   void testIndexLinkSetUpdateAddItemInTxRollback() {
     session.begin();
@@ -460,7 +451,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateRemoveItemInTx
   @Test
   void testIndexLinkSetUpdateRemoveItemInTx() {
     session.begin();
@@ -507,7 +497,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateRemoveItemInTxRollback
   @Test
   void testIndexLinkSetUpdateRemoveItemInTxRollback() {
     session.begin();
@@ -550,7 +539,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetUpdateRemoveItem
   @Test
   void testIndexLinkSetUpdateRemoveItem() {
     session.begin();
@@ -593,7 +581,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetRemove
   @Test
   void testIndexLinkSetRemove() {
     session.begin();
@@ -622,7 +609,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetRemoveInTx
   @Test
   void testIndexLinkSetRemoveInTx() {
     session.begin();
@@ -656,7 +642,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetRemoveInTxRollback
   @Test
   void testIndexLinkSetRemoveInTxRollback() {
     session.begin();
@@ -699,7 +684,6 @@ public class LinkSetIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkSetIndexTest#testIndexLinkSetSQL
   @Test
   void testIndexLinkSetSQL() {
     session.begin();

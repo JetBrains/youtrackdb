@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,7 +50,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     oClass.createProperty("fSeven", PropertyType.STRING);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testCreateOnePropertyIndexTest
   @Test
   @Order(1)
   void testCreateOnePropertyIndexTest() {
@@ -79,7 +77,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#createCompositeIndexTestWithoutListener
   @Test
   @Order(2)
   void createCompositeIndexTestWithoutListener() {
@@ -110,7 +107,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#createCompositeIndexTestWithListener
   @Test
   @Order(3)
   void createCompositeIndexTestWithListener() {
@@ -169,7 +165,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
             .getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedOneProperty
   @Test
   @Order(4)
   void testAreIndexedOneProperty() {
@@ -180,7 +175,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedDoesNotContainProperty
   @Test
   @Order(5)
   void testAreIndexedDoesNotContainProperty() {
@@ -191,7 +185,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedTwoProperties
   @Test
   @Order(6)
   void testAreIndexedTwoProperties() {
@@ -203,7 +196,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedThreeProperties
   @Test
   @Order(7)
   void testAreIndexedThreeProperties() {
@@ -216,7 +208,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedThreePropertiesBrokenFiledNameCase
   @Test
   @Order(8)
   void testAreIndexedThreePropertiesBrokenFiledNameCase() {
@@ -229,7 +220,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedThreePropertiesBrokenClassNameCase
   @Test
   @Order(9)
   void testAreIndexedThreePropertiesBrokenClassNameCase() {
@@ -243,7 +233,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedPropertiesNotFirst
   @Test
   @Order(10)
   void testAreIndexedPropertiesNotFirst() {
@@ -255,7 +244,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedPropertiesMoreThanNeeded
   @Test
   @Order(11)
   void testAreIndexedPropertiesMoreThanNeeded() {
@@ -268,7 +256,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedOnePropertyArrayParams
   @Test
   @Order(12)
   void testAreIndexedOnePropertyArrayParams() {
@@ -279,7 +266,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedDoesNotContainPropertyArrayParams
   @Test
   @Order(13)
   void testAreIndexedDoesNotContainPropertyArrayParams() {
@@ -290,7 +276,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedTwoPropertiesArrayParams
   @Test
   @Order(14)
   void testAreIndexedTwoPropertiesArrayParams() {
@@ -301,7 +286,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedThreePropertiesArrayParams
   @Test
   @Order(15)
   void testAreIndexedThreePropertiesArrayParams() {
@@ -312,7 +296,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedPropertiesNotFirstArrayParams
   @Test
   @Order(16)
   void testAreIndexedPropertiesNotFirstArrayParams() {
@@ -323,7 +306,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testAreIndexedPropertiesMoreThanNeededArrayParams
   @Test
   @Order(17)
   void testAreIndexedPropertiesMoreThanNeededArrayParams() {
@@ -335,7 +317,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertFalse(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesOnePropertyArrayParams
   @Test
   @Order(18)
   void testGetClassInvolvedIndexesOnePropertyArrayParams() {
@@ -350,7 +331,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "compositetwo"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesTwoPropertiesArrayParams
   @Test
   @Order(19)
   void testGetClassInvolvedIndexesTwoPropertiesArrayParams() {
@@ -364,7 +344,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "compositetwo"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesThreePropertiesArrayParams
   @Test
   @Order(20)
   void testGetClassInvolvedIndexesThreePropertiesArrayParams() {
@@ -377,7 +356,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals("compositetwo", result.iterator().next().getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams
   @Test
   @Order(21)
   void testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams() {
@@ -389,7 +367,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams
   @Test
   @Order(22)
   void testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams() {
@@ -402,7 +379,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetInvolvedIndexesPropertiesMorThanNeeded
   @Test
   @Order(23)
   void testGetInvolvedIndexesPropertiesMorThanNeeded() {
@@ -415,7 +391,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesNotExistingClass
   @Test
   @Order(24)
   void testGetClassInvolvedIndexesNotExistingClass() {
@@ -427,7 +402,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesOneProperty
   @Test
   @Order(25)
   void testGetClassInvolvedIndexesOneProperty() {
@@ -443,7 +417,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "compositetwo"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesOnePropertyBrokenClassNameCase
   @Test
   @Order(26)
   void testGetClassInvolvedIndexesOnePropertyBrokenClassNameCase() {
@@ -460,7 +433,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "compositetwo"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesTwoProperties
   @Test
   @Order(27)
   void testGetClassInvolvedIndexesTwoProperties() {
@@ -475,7 +447,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(containsIndex(result, "compositetwo"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesThreeProperties
   @Test
   @Order(28)
   void testGetClassInvolvedIndexesThreeProperties() {
@@ -489,7 +460,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals("compositetwo", result.iterator().next().getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesThreePropertiesBrokenFiledNameTest
   @Test
   @Order(29)
   void testGetClassInvolvedIndexesThreePropertiesBrokenFiledNameTest() {
@@ -503,7 +473,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals("compositetwo", result.iterator().next().getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesNotInvolvedProperties
   @Test
   @Order(30)
   void testGetClassInvolvedIndexesNotInvolvedProperties() {
@@ -516,7 +485,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesPropertiesMorThanNeeded
   @Test
   @Order(31)
   void testGetClassInvolvedIndexesPropertiesMorThanNeeded() {
@@ -529,7 +497,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassInvolvedIndexesWithNullValues
   @Test
   @Order(32)
   void testGetClassInvolvedIndexesWithNullValues() {
@@ -599,7 +566,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndexes
   @Test
   @Order(33)
   void testGetClassIndexes() {
@@ -640,7 +606,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndexesBrokenClassNameCase
   @Test
   @Order(34)
   void testGetClassIndexesBrokenClassNameCase() {
@@ -681,7 +646,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testDropIndex
   @Test
   @Order(35)
   void testDropIndex() throws Exception {
@@ -705,7 +669,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testDropAllClassIndexes
   @Test
   @Order(36)
   void testDropAllClassIndexes() {
@@ -732,7 +695,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertTrue(indexManager.getClassIndexes(session, "indexManagerTestClassTwo").isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testDropNonExistingClassIndex
   @Test
   @Order(37)
   void testDropNonExistingClassIndex() {
@@ -741,7 +703,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     indexManager.dropIndex(session, "twoclassproperty");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndex
   @Test
   @Order(38)
   void testGetClassIndex() {
@@ -752,7 +713,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals("propertyone", result.getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndexBrokenClassNameCase
   @Test
   @Order(39)
   void testGetClassIndexBrokenClassNameCase() {
@@ -764,7 +724,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertEquals("propertyone", result.getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndexWrongIndexName
   @Test
   @Order(40)
   void testGetClassIndexWrongIndexName() {
@@ -774,7 +733,6 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
     assertNull(result);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexManagerTest#testGetClassIndexWrongClassName
   @Test
   @Order(41)
   void testGetClassIndexWrongClassName() {

@@ -13,7 +13,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.SchemaIndexTest
 public class SchemaIndexTest extends BaseDBJUnit5Test {
 
   @Override
@@ -39,7 +38,6 @@ public class SchemaIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaIndexTest#testDropClass
   @Test
   void testDropClass() throws Exception {
     session.execute(
@@ -61,7 +59,6 @@ public class SchemaIndexTest extends BaseDBJUnit5Test {
             .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaIndexTest#testDropSuperClass
   @Test
   void testDropSuperClass() throws Exception {
     session.execute(
@@ -87,7 +84,6 @@ public class SchemaIndexTest extends BaseDBJUnit5Test {
             .getIndex("SchemaSharedIndexCompositeIndex"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaIndexTest#testIndexWithNumberProperties
   @Test
   void testIndexWithNumberProperties() {
     var oclass = session.getMetadata().getSchema()

@@ -42,7 +42,6 @@ import org.junit.jupiter.api.Test;
 
 public class SchemaTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkSchema
   @Test
   @Order(1)
   void checkSchema() {
@@ -86,7 +85,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
         .equalsIgnoreCase("Account");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkInvalidNamesBefore30
   @Test
   @Order(2)
   void checkInvalidNamesBefore30() {
@@ -102,7 +100,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     assertNotNull(schema.getClass("TestInvalid_Name"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkSchemaApi
   @Test
   @Order(3)
   void checkSchemaApi() {
@@ -114,7 +111,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkCollections
   @Test
   @Order(4)
   void checkCollections() {
@@ -124,7 +120,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkTotalRecords
   @Test
   @Order(5)
   void checkTotalRecords() {
@@ -133,8 +128,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#checkErrorOnUserNoPasswd
-  // Original used: @Test(expectedExceptions = ValidationException.class)
   @Test
   @Order(6)
   void checkErrorOnUserNoPasswd() {
@@ -145,7 +138,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testMultiThreadSchemaCreation
   @Test
   @Order(7)
   void testMultiThreadSchemaCreation() throws InterruptedException {
@@ -174,7 +166,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     thread.join();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#createAndDropClassTestApi
   @Test
   @Order(8)
   void createAndDropClassTestApi() {
@@ -207,7 +198,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     assertNull(session.getCollectionNameById(collectionId));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#createAndDropClassTestCommand
   @Test
   @Order(9)
   void createAndDropClassTestCommand() {
@@ -241,7 +231,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     assertNull(session.getCollectionNameById(collectionId));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#customAttributes
   @Test
   @Order(10)
   void customAttributes() {
@@ -345,7 +334,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
             .getCustom("equal"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#alterAttributes
   @Test
   @Order(11)
   void alterAttributes() {
@@ -391,7 +379,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#invalidCollectionWrongKeywords
   @Test
   @Order(12)
   void invalidCollectionWrongKeywords() {
@@ -403,7 +390,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testRenameClass
   @Test
   @Order(13)
   void testRenameClass() {
@@ -430,14 +416,12 @@ public class SchemaTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testRenameWithSameNameIsNop
   @Test
   @Order(14)
   void testRenameWithSameNameIsNop() {
     session.getMetadata().getSchema().getClass("V").setName("V");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testRenameWithExistentName
   @Test
   @Order(15)
   void testRenameWithExistentName() {
@@ -449,7 +433,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testDeletionOfDependentClass
   @Test
   @Order(16)
   void testDeletionOfDependentClass() {
@@ -460,7 +443,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
     schema.dropClass(classB.getName());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SchemaTest#testCaseSensitivePropNames
   @Test
   @Order(17)
   void testCaseSensitivePropNames() {

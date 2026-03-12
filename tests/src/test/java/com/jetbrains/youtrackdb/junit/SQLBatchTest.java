@@ -29,8 +29,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLBatchTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLBatchTest#createEdgeFailIfNoSourceOrTargetVertices
-  // Original used: @Test(enabled = false)
   @Test
   @Order(1)
   @Disabled("Disabled in original TestNG test")
@@ -57,7 +55,6 @@ class SQLBatchTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLBatchTest#testInlineArray
   @Test
   @Order(2)
   void testInlineArray() {
@@ -98,7 +95,6 @@ class SQLBatchTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLBatchTest#testInlineArray2
   @Test
   @Order(3)
   void testInlineArray2() {

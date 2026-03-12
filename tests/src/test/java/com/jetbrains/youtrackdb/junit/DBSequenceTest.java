@@ -19,7 +19,6 @@ public class DBSequenceTest extends BaseDBJUnit5Test {
   private static final long FIRST_START = DBSequence.DEFAULT_START;
   private static final long SECOND_START = 31;
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBSequenceTest#trivialTest
   @Test
   void trivialTest() throws ExecutionException, InterruptedException {
     testSequence("seq1", SEQUENCE_TYPE.ORDERED);
@@ -60,7 +59,6 @@ public class DBSequenceTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBSequenceTest#testOrdered
   @Test
   void testOrdered() throws ExecutionException, InterruptedException {
     var sequenceManager = session.getMetadata().getSequenceLibrary();

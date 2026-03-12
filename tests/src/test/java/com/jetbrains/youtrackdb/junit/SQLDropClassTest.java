@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLDropClassTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropClassTest#testSimpleDrop
   @Test
   @Order(1)
   void testSimpleDrop() {
@@ -19,7 +18,6 @@ class SQLDropClassTest extends BaseDBJUnit5Test {
     assertFalse(session.getMetadata().getSchema().existsClass("testSimpleDrop"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropClassTest#testIfExists
   @Test
   @Order(2)
   void testIfExists() {

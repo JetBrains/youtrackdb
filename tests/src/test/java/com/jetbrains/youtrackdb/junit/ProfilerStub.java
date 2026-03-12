@@ -17,16 +17,19 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.auto;
+package com.jetbrains.youtrackdb.junit;
 
-import java.io.IOException;
-import org.testng.annotations.Test;
+/**
+ * This is a leftover from the old profiler implementation, still used in some tests. Not removing
+ * it for now, so that the original logic in the tests is clear. Should be removed, when the tests
+ * are refactored.
+ */
+@Deprecated
+public class ProfilerStub {
 
-@Test
-public class AlterDatabaseTest extends BaseDBTest {
+  public static ProfilerStub INSTANCE = new ProfilerStub();
 
-  public void alterDateFormatOk() throws IOException {
-    session.execute("alter database dateformat 'yyyy-MM-dd';").close();
-    session.execute("alter database dateformat 'yyyy-MM-dd'").close();
+  public long getCounter(String iStatName) {
+    return 0;
   }
 }

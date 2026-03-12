@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,7 +48,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByAscFirstProperty
   @Test
   void testGreaterThanOrderByAscFirstProperty() {
     session.begin();
@@ -65,7 +63,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByAscSecondAscThirdProperty
   @Test
   void testGreaterThanOrderByAscSecondAscThirdProperty() {
     session.begin();
@@ -84,7 +81,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByDescSecondDescThirdProperty
   @Test
   void testGreaterThanOrderByDescSecondDescThirdProperty() {
     session.begin();
@@ -103,7 +99,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByAscSecondDescThirdProperty
   @Test
   void testGreaterThanOrderByAscSecondDescThirdProperty() {
     session.begin();
@@ -129,7 +124,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByDescFirstProperty
   @Test
   void testGreaterThanOrderByDescFirstProperty() {
     session.begin();
@@ -146,7 +140,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByAscFirstProperty
   @Test
   void testGTEOrderByAscFirstProperty() {
     session.begin();
@@ -163,7 +156,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByAscSecondPropertyAscThirdProperty
   @Test
   void testGTEOrderByAscSecondPropertyAscThirdProperty() {
     session.begin();
@@ -189,7 +181,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByDescSecondPropertyDescThirdProperty
   @Test
   void testGTEOrderByDescSecondPropertyDescThirdProperty() {
     session.begin();
@@ -215,7 +206,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByAscSecondPropertyDescThirdProperty
   @Test
   void testGTEOrderByAscSecondPropertyDescThirdProperty() {
     session.begin();
@@ -241,7 +231,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByDescFirstProperty
   @Test
   void testGTEOrderByDescFirstProperty() {
     session.begin();
@@ -258,7 +247,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByAscFirstProperty
   @Test
   void testLTOrderByAscFirstProperty() {
     session.begin();
@@ -275,7 +263,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByAscSecondAscThirdProperty
   @Test
   void testLTOrderByAscSecondAscThirdProperty() {
     session.begin();
@@ -302,7 +289,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByDescSecondDescThirdProperty
   @Test
   void testLTOrderByDescSecondDescThirdProperty() {
     session.begin();
@@ -329,7 +315,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByAscSecondDescThirdProperty
   @Test
   void testLTOrderByAscSecondDescThirdProperty() {
     session.begin();
@@ -356,7 +341,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByDescFirstProperty
   @Test
   void testLTOrderByDescFirstProperty() {
     session.begin();
@@ -373,7 +357,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByAscFirstProperty
   @Test
   void testLTEOrderByAscFirstProperty() {
     session.begin();
@@ -390,7 +373,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByAscSecondAscThirdProperty
   @Test
   void testLTEOrderByAscSecondAscThirdProperty() {
     session.begin();
@@ -417,7 +399,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByDescSecondDescThirdProperty
   @Test
   void testLTEOrderByDescSecondDescThirdProperty() {
     session.begin();
@@ -444,7 +425,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByAscSecondDescThirdProperty
   @Test
   void testLTEOrderByAscSecondDescThirdProperty() {
     session.begin();
@@ -471,7 +451,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByDescFirstProperty
   @Test
   void testLTEOrderByDescFirstProperty() {
     session.begin();
@@ -488,7 +467,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByAscFirstProperty
   @Test
   void testBetweenOrderByAscFirstProperty() {
     session.begin();
@@ -505,7 +483,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByAscSecondAscThirdProperty
   @Test
   void testBetweenOrderByAscSecondAscThirdProperty() {
     session.begin();
@@ -532,7 +509,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByDescSecondDescThirdProperty
   @Test
   void testBetweenOrderByDescSecondDescThirdProperty() {
     session.begin();
@@ -559,7 +535,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByAscSecondDescThirdProperty
   @Test
   void testBetweenOrderByAscSecondDescThirdProperty() {
     session.begin();
@@ -586,7 +561,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByDescFirstProperty
   @Test
   void testBetweenOrderByDescFirstProperty() {
     session.begin();
@@ -604,7 +578,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testInOrderByAscFirstProperty
   @Test
   void testInOrderByAscFirstProperty() {
     session.begin();
@@ -627,7 +600,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testInOrderByDescFirstProperty
   @Test
   void testInOrderByDescFirstProperty() {
     session.begin();
@@ -650,7 +622,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByAscFirstAscFourthProperty
   @Test
   void testGreaterThanOrderByAscFirstAscFourthProperty() {
     session.begin();
@@ -669,7 +640,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGreaterThanOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testGreaterThanOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -695,7 +665,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByAscFirstPropertyAscFourthProperty
   @Test
   void testGTEOrderByAscFirstPropertyAscFourthProperty() {
     session.begin();
@@ -722,7 +691,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testGTEOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testGTEOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -749,7 +717,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByAscFirstPropertyAscFourthProperty
   @Test
   void testLTOrderByAscFirstPropertyAscFourthProperty() {
     session.begin();
@@ -776,7 +743,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testLTOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -803,7 +769,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByAscFirstPropertyAscFourthProperty
   @Test
   void testLTEOrderByAscFirstPropertyAscFourthProperty() {
     session.begin();
@@ -830,7 +795,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testLTEOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testLTEOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -857,7 +821,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByAscFirstPropertyAscFourthProperty
   @Test
   void testBetweenOrderByAscFirstPropertyAscFourthProperty() {
     session.begin();
@@ -883,7 +846,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testBetweenOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testBetweenOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -909,7 +871,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testInOrderByAscFirstPropertyAscFourthProperty
   @Test
   void testInOrderByAscFirstPropertyAscFourthProperty() {
     session.begin();
@@ -934,7 +895,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testInOrderByDescFirstPropertyAscFourthProperty
   @Test
   void testInOrderByDescFirstPropertyAscFourthProperty() {
     session.begin();
@@ -959,7 +919,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderByFirstPropWithLimitAsc
   @Test
   void testOrderByFirstPropWithLimitAsc() {
     session.begin();
@@ -977,7 +936,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderByFirstPropWithLimitDesc
   @Test
   void testOrderByFirstPropWithLimitDesc() {
     session.begin();
@@ -995,7 +953,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderBySecondThirdPropWithLimitAsc
   @Test
   void testOrderBySecondThirdPropWithLimitAsc() {
     session.begin();
@@ -1023,7 +980,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderBySecondThirdPropWithLimitDesc
   @Test
   void testOrderBySecondThirdPropWithLimitDesc() {
     session.begin();
@@ -1051,7 +1007,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderBySecondThirdPropWithLimitAscDesc
   @Test
   void testOrderBySecondThirdPropWithLimitAscDesc() {
     session.begin();
@@ -1079,7 +1034,6 @@ public class OrderByIndexReuseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest#testOrderBySecondThirdPropWithLimitDescAsc
   @Test
   void testOrderBySecondThirdPropWithLimitDescAsc() {
     session.begin();

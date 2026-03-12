@@ -177,7 +177,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     super.afterAll();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEquals
   @Test
   @Order(1)
   void testCompositeSearchEquals() {
@@ -205,7 +204,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchHasChainOperatorsEquals
   @Test
   @Order(2)
   void testCompositeSearchHasChainOperatorsEquals() {
@@ -223,7 +221,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneField
   @Test
   @Order(3)
   void testCompositeSearchEqualsOneField() {
@@ -272,7 +269,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneFieldWithLimit
   @Test
   @Order(4)
   void testCompositeSearchEqualsOneFieldWithLimit() {
@@ -321,7 +317,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneFieldMapIndexByKey
   @Test
   @Order(5)
   void testCompositeSearchEqualsOneFieldMapIndexByKey() {
@@ -379,7 +374,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsMapIndexByKey
   @Test
   @Order(6)
   void testCompositeSearchEqualsMapIndexByKey() {
@@ -435,7 +429,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneFieldMapIndexByValue
   @Test
   @Order(7)
   void testCompositeSearchEqualsOneFieldMapIndexByValue() {
@@ -494,7 +487,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsMapIndexByValue
   @Test
   @Order(8)
   void testCompositeSearchEqualsMapIndexByValue() {
@@ -549,7 +541,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2.2"), oldcompositeIndexUsed22 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsEmbeddedSetIndex
   @Test
   @Order(9)
   void testCompositeSearchEqualsEmbeddedSetIndex() {
@@ -604,7 +595,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2.2"), oldcompositeIndexUsed22 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsEmbeddedSetInMiddleIndex
   @Test
   @Order(10)
   void testCompositeSearchEqualsEmbeddedSetInMiddleIndex() {
@@ -670,7 +660,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3"), oldcompositeIndexUsed33 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneFieldEmbeddedListIndex
   @Test
   @Order(11)
   void testCompositeSearchEqualsOneFieldEmbeddedListIndex() {
@@ -727,7 +716,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsEmbeddedListIndex
   @Test
   @Order(12)
   void testCompositeSearchEqualsEmbeddedListIndex() {
@@ -782,7 +770,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2.2"), oldcompositeIndexUsed22 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testNoCompositeSearchEquals
   @Test
   @Order(13)
   void testNoCompositeSearchEquals() {
@@ -807,7 +794,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsWithArgs
   @Test
   @Order(14)
   void testCompositeSearchEqualsWithArgs() {
@@ -848,7 +834,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchEqualsOneFieldWithArgs
   @Test
   @Order(15)
   void testCompositeSearchEqualsOneFieldWithArgs() {
@@ -891,7 +876,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testNoCompositeSearchEqualsWithArgs
   @Test
   @Order(16)
   void testNoCompositeSearchEqualsWithArgs() {
@@ -914,7 +898,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGT
   @Test
   @Order(17)
   void testCompositeSearchGT() {
@@ -956,7 +939,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTOneField
   @Test
   @Order(18)
   void testCompositeSearchGTOneField() {
@@ -1003,7 +985,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTOneFieldNoSearch
   @Test
   @Order(19)
   void testCompositeSearchGTOneFieldNoSearch() {
@@ -1028,7 +1009,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTWithArgs
   @Test
   @Order(20)
   void testCompositeSearchGTWithArgs() {
@@ -1071,7 +1051,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTOneFieldWithArgs
   @Test
   @Order(21)
   void testCompositeSearchGTOneFieldWithArgs() {
@@ -1117,7 +1096,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTOneFieldNoSearchWithArgs
   @Test
   @Order(22)
   void testCompositeSearchGTOneFieldNoSearchWithArgs() {
@@ -1146,7 +1124,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //    assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQ
   @Test
   @Order(23)
   void testCompositeSearchGTQ() {
@@ -1189,7 +1166,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     //        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQOneField
   @Test
   @Order(24)
   void testCompositeSearchGTQOneField() {
@@ -1229,7 +1205,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQOneFieldNoSearch
   @Test
   @Order(25)
   void testCompositeSearchGTQOneFieldNoSearch() {
@@ -1253,7 +1228,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQWithArgs
   @Test
   @Order(26)
   void testCompositeSearchGTQWithArgs() {
@@ -1293,7 +1267,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQOneFieldWithArgs
   @Test
   @Order(27)
   void testCompositeSearchGTQOneFieldWithArgs() {
@@ -1333,7 +1306,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchGTQOneFieldNoSearchWithArgs
   @Test
   @Order(28)
   void testCompositeSearchGTQOneFieldNoSearchWithArgs() {
@@ -1357,7 +1329,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQ
   @Test
   @Order(29)
   void testCompositeSearchLTQ() {
@@ -1396,7 +1367,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQOneField
   @Test
   @Order(30)
   void testCompositeSearchLTQOneField() {
@@ -1436,7 +1406,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQOneFieldNoSearch
   @Test
   @Order(31)
   void testCompositeSearchLTQOneFieldNoSearch() {
@@ -1460,7 +1429,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQWithArgs
   @Test
   @Order(32)
   void testCompositeSearchLTQWithArgs() {
@@ -1501,7 +1469,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQOneFieldWithArgs
   @Test
   @Order(33)
   void testCompositeSearchLTQOneFieldWithArgs() {
@@ -1541,7 +1508,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTQOneFieldNoSearchWithArgs
   @Test
   @Order(34)
   void testCompositeSearchLTQOneFieldNoSearchWithArgs() {
@@ -1566,7 +1532,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLT
   @Test
   @Order(35)
   void testCompositeSearchLT() {
@@ -1606,7 +1571,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTOneField
   @Test
   @Order(36)
   void testCompositeSearchLTOneField() {
@@ -1646,7 +1610,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTOneFieldNoSearch
   @Test
   @Order(37)
   void testCompositeSearchLTOneFieldNoSearch() {
@@ -1670,7 +1633,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTWithArgs
   @Test
   @Order(38)
   void testCompositeSearchLTWithArgs() {
@@ -1710,7 +1672,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTOneFieldWithArgs
   @Test
   @Order(39)
   void testCompositeSearchLTOneFieldWithArgs() {
@@ -1750,7 +1711,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchLTOneFieldNoSearchWithArgs
   @Test
   @Order(40)
   void testCompositeSearchLTOneFieldNoSearchWithArgs() {
@@ -1774,7 +1734,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetween
   @Test
   @Order(41)
   void testCompositeSearchBetween() {
@@ -1815,7 +1774,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetweenOneField
   @Test
   @Order(42)
   void testCompositeSearchBetweenOneField() {
@@ -1856,7 +1814,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetweenOneFieldNoSearch
   @Test
   @Order(43)
   void testCompositeSearchBetweenOneFieldNoSearch() {
@@ -1881,7 +1838,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetweenWithArgs
   @Test
   @Order(44)
   void testCompositeSearchBetweenWithArgs() {
@@ -1924,7 +1880,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetweenOneFieldWithArgs
   @Test
   @Order(45)
   void testCompositeSearchBetweenOneFieldWithArgs() {
@@ -1965,7 +1920,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchBetweenOneFieldNoSearchWithArgs
   @Test
   @Order(46)
   void testCompositeSearchBetweenOneFieldNoSearchWithArgs() {
@@ -1990,7 +1944,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchEquals
   @Test
   @Order(47)
   void testSingleSearchEquals() {
@@ -2012,7 +1965,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchEqualsWithArgs
   @Test
   @Order(48)
   void testSingleSearchEqualsWithArgs() {
@@ -2034,7 +1986,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchGT
   @Test
   @Order(49)
   void testSingleSearchGT() {
@@ -2060,7 +2011,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchGTWithArgs
   @Test
   @Order(50)
   void testSingleSearchGTWithArgs() {
@@ -2086,7 +2036,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchGTQ
   @Test
   @Order(51)
   void testSingleSearchGTQ() {
@@ -2112,7 +2061,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchGTQWithArgs
   @Test
   @Order(52)
   void testSingleSearchGTQWithArgs() {
@@ -2138,7 +2086,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchLTQ
   @Test
   @Order(53)
   void testSingleSearchLTQ() {
@@ -2164,7 +2111,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchLTQWithArgs
   @Test
   @Order(54)
   void testSingleSearchLTQWithArgs() {
@@ -2190,7 +2136,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchLT
   @Test
   @Order(55)
   void testSingleSearchLT() {
@@ -2216,7 +2161,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchLTWithArgs
   @Test
   @Order(56)
   void testSingleSearchLTWithArgs() {
@@ -2242,7 +2186,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchBetween
   @Test
   @Order(57)
   void testSingleSearchBetween() {
@@ -2269,7 +2212,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchBetweenWithArgs
   @Test
   @Order(58)
   void testSingleSearchBetweenWithArgs() {
@@ -2298,7 +2240,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchIN
   @Test
   @Order(59)
   void testSingleSearchIN() {
@@ -2325,7 +2266,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testSingleSearchINWithArgs
   @Test
   @Order(60)
   void testSingleSearchINWithArgs() {
@@ -2354,7 +2294,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed, profiler.getCounter("db.demo.query.compositeIndexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testMostSpecificOnesProcessedFirst
   @Test
   @Order(61)
   void testMostSpecificOnesProcessedFirst() {
@@ -2393,7 +2332,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testTripleSearch
   @Test
   @Order(62)
   void testTripleSearch() {
@@ -2431,7 +2369,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.3"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testTripleSearchLastFieldNotInIndexFirstCase
   @Test
   @Order(63)
   void testTripleSearchLastFieldNotInIndexFirstCase() {
@@ -2470,7 +2407,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testTripleSearchLastFieldNotInIndexSecondCase
   @Test
   @Order(64)
   void testTripleSearchLastFieldNotInIndexSecondCase() {
@@ -2511,7 +2447,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testTripleSearchLastFieldInIndex
   @Test
   @Order(65)
   void testTripleSearchLastFieldInIndex() {
@@ -2552,7 +2487,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.3"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testTripleSearchLastFieldsCanNotBeMerged
   @Test
   @Order(66)
   void testTripleSearchLastFieldsCanNotBeMerged() {
@@ -2592,7 +2526,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.3"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testLastFieldNotCompatibleOperator
   @Test
   @Order(67)
   void testLastFieldNotCompatibleOperator() {
@@ -2627,7 +2560,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testEmbeddedMapByKeyIndexReuse
   @Test
   @Order(68)
   void testEmbeddedMapByKeyIndexReuse() {
@@ -2666,7 +2598,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed2, profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testEmbeddedMapBySpecificKeyIndexReuse
   @Test
   @Order(69)
   void testEmbeddedMapBySpecificKeyIndexReuse() {
@@ -2704,7 +2635,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed2, profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testEmbeddedMapByValueIndexReuse
   @Test
   @Order(70)
   void testEmbeddedMapByValueIndexReuse() {
@@ -2742,7 +2672,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed2, profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testEmbeddedListIndexReuse
   @Test
   @Order(71)
   void testEmbeddedListIndexReuse() {
@@ -2774,7 +2703,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldcompositeIndexUsed2, profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testNotIndexOperatorFirstCase
   @Test
   @Order(72)
   void testNotIndexOperatorFirstCase() {
@@ -2812,7 +2740,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testIndexUsedOnOrClause
   @Test
   @Order(73)
   void testIndexUsedOnOrClause() {
@@ -2839,7 +2766,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     assertEquals(oldIndexUsage + 2, profiler.getCounter("db.demo.query.indexUsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeIndexEmptyResult
   @Test
   @Order(74)
   void testCompositeIndexEmptyResult() {
@@ -2873,7 +2799,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testReuseOfIndexOnSeveralClassesFields
   @Test
   @Order(75)
   void testReuseOfIndexOnSeveralClassesFields() {
@@ -2922,7 +2847,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCountFunctionWithNotUniqueIndex
   @Test
   @Order(76)
   void testCountFunctionWithNotUniqueIndex() {
@@ -2963,7 +2887,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCountFunctionWithUniqueIndex
   @Test
   @Order(77)
   void testCountFunctionWithUniqueIndex() {
@@ -3030,7 +2953,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     return count;
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchIn1
   @Test
   @Order(78)
   void testCompositeSearchIn1() {
@@ -3075,7 +2997,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         profiler.getCounter("db.demo.query.compositeIndexUsed.3.3"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchIn2
   @Test
   @Order(79)
   void testCompositeSearchIn2() {
@@ -3121,7 +3042,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
             < oldcompositeIndexUsed33 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchIn3
   @Test
   @Order(80)
   void testCompositeSearchIn3() {
@@ -3170,7 +3090,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
             < oldcompositeIndexUsed33 + 1);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest#testCompositeSearchIn4
   @Test
   @Order(81)
   void testCompositeSearchIn4() {

@@ -15,8 +15,6 @@
  */
 package com.jetbrains.youtrackdb.junit;
 
-// Migrated from com.jetbrains.youtrackdb.auto.SQLInsertTest (TestNG → JUnit 5)
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -53,7 +51,6 @@ import org.junit.jupiter.api.Test;
  */
 class SQLInsertTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertOperator
   @Test
   @Order(1)
   void insertOperator() {
@@ -92,7 +89,7 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     var activeTx1 = session.getActiveTransaction();
     doc = activeTx1.load(doc);
     assertNotNull(doc);
-    // Reversed: TestNG Assert.assertEquals(actual, expected) → JUnit 5 assertEquals(expected, actual)
+
     assertEquals("Luca", doc.getProperty("name"));
     assertEquals("Smith", doc.getProperty("surname"));
     assertEquals(109.9f, ((Number) doc.getProperty("salary")).floatValue());
@@ -125,7 +122,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertWithWildcards
   @Test
   @Order(2)
   void insertWithWildcards() {
@@ -190,7 +186,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertMap
   @Test
   @Order(3)
   @SuppressWarnings("unchecked")
@@ -253,7 +248,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertList
   @Test
   @Order(4)
   @SuppressWarnings("unchecked")
@@ -320,7 +314,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertWithNoSpaces
   @Test
   @Order(5)
   void insertWithNoSpaces() {
@@ -332,7 +325,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     assertTrue(res.hasNext());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertAvoidingSubQuery
   @Test
   @Order(6)
   void insertAvoidingSubQuery() {
@@ -349,7 +341,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertSubQuery
   @Test
   @Order(7)
   void insertSubQuery() {
@@ -382,7 +373,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#updateMultipleFields
   // Note: original had no explicit @Test annotation (relied on class-level @Test); added @Test here
   @Test
   @Order(8)
@@ -423,7 +413,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertSelect
   @Test
   @Order(9)
   void insertSelect() {
@@ -447,13 +436,12 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     for (var r : result) {
       assertEquals("UserCopy", r.asEntityOrNull().getSchemaClassName());
       EntityImpl entity = ((EntityImpl) r.asEntityOrNull());
-      // Reversed: TestNG Assert.assertNotEquals(actual, expected) → JUnit 5 assertNotEquals(expected, actual)
+
       assertNotEquals("admin", entity.getProperty("name"));
     }
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertSelectFromProjection
   // Note: original used @Test(expectedExceptions = ValidationException.class); migrated to assertThrows
   @Test
   @Order(10)
@@ -468,7 +456,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#insertWithReturn
   // Note: original used @Ignore; migrated to @Disabled
   @Test
   @Order(11)
@@ -547,7 +534,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededSetNoLinkedClass
   @Test
   @Order(12)
   void testAutoConversionOfEmbeddededSetNoLinkedClass() {
@@ -576,7 +562,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededSetWithLinkedClass
   @Test
   @Order(13)
   void testAutoConversionOfEmbeddededSetWithLinkedClass() {
@@ -611,7 +596,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededListNoLinkedClass
   @Test
   @Order(14)
   void testAutoConversionOfEmbeddededListNoLinkedClass() {
@@ -640,7 +624,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededListWithLinkedClass
   @Test
   @Order(15)
   void testAutoConversionOfEmbeddededListWithLinkedClass() {
@@ -677,7 +660,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededMapNoLinkedClass
   @Test
   @Order(16)
   void testAutoConversionOfEmbeddededMapNoLinkedClass() {
@@ -706,7 +688,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededMapWithLinkedClass
   // Note: original used @Test(enabled = false); migrated to @Disabled
   @Test
   @Order(17)
@@ -739,7 +720,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededNoLinkedClass
   // Note: original used @Test(enabled = false); migrated to @Disabled
   @Test
   @Order(18)
@@ -763,7 +743,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     assertTrue(doc.getProperty("embeddedNoLinkedClass") instanceof EntityImpl);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testEmbeddedDates
   @Test
   @Order(19)
   void testEmbeddedDates() {
@@ -803,7 +782,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     assertTrue(found);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testAutoConversionOfEmbeddededWithLinkedClass
   @Test
   @Order(20)
   void testAutoConversionOfEmbeddededWithLinkedClass() {
@@ -833,7 +811,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testInsertEmbeddedWithRecordAttributes
   @Test
   @Order(21)
   void testInsertEmbeddedWithRecordAttributes() {
@@ -870,7 +847,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testInsertEmbeddedWithRecordAttributes2
   @Test
   @Order(22)
   void testInsertEmbeddedWithRecordAttributes2() {
@@ -908,7 +884,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testInsertWithCollectionAsFieldName
   @Test
   @Order(23)
   void testInsertWithCollectionAsFieldName() {
@@ -931,7 +906,6 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLInsertTest#testInsertEmbeddedBigDecimal
   @Test
   @Order(24)
   void testInsertEmbeddedBigDecimal() {

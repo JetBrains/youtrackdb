@@ -99,7 +99,6 @@ public class DbListenerTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbListenerTest#testEmbeddedDbListeners
   @Test
   @Order(1)
   void testEmbeddedDbListeners() throws IOException {
@@ -130,7 +129,6 @@ public class DbListenerTest extends BaseDBJUnit5Test {
     assertEquals(1, onAfterTxRollback);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbListenerTest#testEmbeddedDbListenersTxRecords
   @Test
   @Order(2)
   void testEmbeddedDbListenersTxRecords() throws IOException {
@@ -156,7 +154,6 @@ public class DbListenerTest extends BaseDBJUnit5Test {
     assertEquals(1, cl.getChanges().size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbListenerTest#testEmbeddedDbListenersGraph
   @Test
   @Order(3)
   void testEmbeddedDbListenersGraph() throws IOException {

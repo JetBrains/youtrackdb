@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Test;
 
 public class CollateTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testQuery
   @Test
   void testQuery() {
     final Schema schema = session.getMetadata().getSchema();
@@ -65,7 +64,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testQueryNotNullCi
   @Test
   void testQueryNotNullCi() {
     final Schema schema = session.getMetadata().getSchema();
@@ -91,7 +89,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testIndexQuery
   @Test
   void testIndexQuery() {
     final Schema schema = session.getMetadata().getSchema();
@@ -144,7 +141,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testIndexQueryCollateWasChanged
   @Test
   void testIndexQueryCollateWasChanged() {
     final Schema schema = session.getMetadata().getSchema();
@@ -192,7 +188,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testCompositeIndexQueryCS
   @Test
   void testCompositeIndexQueryCS() {
     final Schema schema = session.getMetadata().getSchema();
@@ -267,7 +262,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#testCompositeIndexQueryCollateWasChanged
   @Test
   void testCompositeIndexQueryCollateWasChanged() {
     final Schema schema = session.getMetadata().getSchema();
@@ -322,7 +316,6 @@ public class CollateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.CollateTest#collateThroughSQL
   @Test
   void collateThroughSQL() {
     final Schema schema = session.getMetadata().getSchema();

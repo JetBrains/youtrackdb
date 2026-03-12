@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,14 +21,12 @@ import org.junit.jupiter.api.Test;
 
 public class GraphDatabaseTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#populate
   @Test
   @Order(1)
   void populate() {
     generateGraphData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testSQLAgainstGraph
   @Test
   @Order(2)
   void testSQLAgainstGraph() {
@@ -73,7 +70,6 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testNotDuplicatedIndexTxChanges
   @Test
   @Order(3)
   void testNotDuplicatedIndexTxChanges() {
@@ -107,7 +103,6 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testNewVertexAndEdgesWithFieldsInOneShoot
   @Test
   @Order(4)
   void testNewVertexAndEdgesWithFieldsInOneShoot() {
@@ -140,7 +135,6 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#sqlNestedQueries
   @Test
   @Order(5)
   void sqlNestedQueries() {
@@ -184,7 +178,6 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#nestedQuery
   @SuppressWarnings("unchecked")
   @Test
   @Order(6)
@@ -243,7 +236,6 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testDeleteOfVerticesWithDeleteCommandMustFail
   @Test
   @Order(7)
   void testDeleteOfVerticesWithDeleteCommandMustFail() {
@@ -257,14 +249,12 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testInsertOfEdgeWithInsertCommand
   @Test
   @Order(8)
   void testInsertOfEdgeWithInsertCommand() {
     assertThrows(DatabaseException.class, () -> session.command("insert into E set a = 33"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.GraphDatabaseTest#testEmbeddedDoc
   @Test
   @Order(9)
   void testEmbeddedDoc() {

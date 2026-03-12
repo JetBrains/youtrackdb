@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.JSONTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,7 +49,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     session.createClass("InnerDocCreationFieldTypes");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testAlmostLink
   @Test
   void testAlmostLink() {
     session.executeInTx(tx -> {
@@ -59,7 +57,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNullList
   @Test
   void testNullList() {
     session.executeInTx(tx -> {
@@ -77,7 +74,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testBooleanList
   @Test
   void testBooleanList() {
     session.executeInTx(tx -> {
@@ -95,7 +91,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNumericIntegerList
   @Test
   void testNumericIntegerList() {
     session.executeInTx(tx -> {
@@ -113,7 +108,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNumericLongList
   @Test
   void testNumericLongList() {
     session.executeInTx(tx -> {
@@ -131,7 +125,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNumericDoubleList
   @Test
   void testNumericDoubleList() {
     session.executeInTx(tx -> {
@@ -149,7 +142,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNullity
   @Test
   void testNullity() {
     final var record = session.computeInTx(tx -> {
@@ -184,7 +176,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNanNoTypes
   @Test
   void testNanNoTypes() {
     final var rid1 = session.computeInTx(tx -> {
@@ -229,7 +220,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedList
   @Test
   void testEmbeddedList() {
     final var rid = session.computeInTx(tx -> {
@@ -249,7 +239,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedMap
   @Test
   void testEmbeddedMap() {
     final var rid = session.computeInTx(tx -> {
@@ -274,7 +263,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testListToJSON
   @Test
   void testListToJSON() {
     final var rid = session.computeInTx(tx -> {
@@ -294,7 +282,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmptyEmbeddedMap
   @Test
   void testEmptyEmbeddedMap() {
     final var rid = session.computeInTx(tx -> {
@@ -305,7 +292,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testMultiLevelTypes
   @Test
   void testMultiLevelTypes() {
     final var rid = session.computeInTx(tx -> {
@@ -339,7 +325,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedEmbeddedMap
   @Test
   void testNestedEmbeddedMap() {
     final var rid = session.computeInTx(tx -> {
@@ -360,7 +345,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testFetchedJson
   @Test
   void testFetchedJson() {
     session.begin();
@@ -376,7 +360,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSpecialChar
   @Test
   void testSpecialChar() {
     final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
@@ -395,7 +378,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testArrayOfArray
   @Test
   void testArrayOfArray() {
     final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
@@ -419,7 +401,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testLongTypes
   @Test
   void testLongTypes() {
     final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
@@ -444,7 +425,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSpecialChars
   @Test
   void testSpecialChars() {
     final var record = session.computeInTx(tx -> session.createOrLoadEntityFromJson(
@@ -464,7 +444,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), expectedMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSameNameCollectionsAndMap
   @Test
   void testSameNameCollectionsAndMap() {
     final var rid1 = session.computeInTx(tx -> {
@@ -516,7 +495,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid2);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSameNameCollectionsAndMap2
   @Test
   void testSameNameCollectionsAndMap2() {
     final var rid = session.computeInTx(tx -> {
@@ -542,7 +520,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSameNameCollectionsAndMap3
   @Test
   void testSameNameCollectionsAndMap3() {
     final var rid = session.computeInTx(tx -> {
@@ -565,7 +542,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(rid);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedJsonCollection
   @Test
   void testNestedJsonCollection() {
     session.executeInTx(tx -> session
@@ -585,7 +561,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedEmbeddedJson
   @Test
   void testNestedEmbeddedJson() {
     session.executeInTx(tx -> session.command(
@@ -597,7 +572,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedMultiLevelEmbeddedJson
   @Test
   void testNestedMultiLevelEmbeddedJson() {
     session.executeInTx(tx -> session
@@ -613,7 +587,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testSpaces
   @Test
   void testSpaces() {
     final var rid = session.computeInTx(tx -> {
@@ -636,7 +609,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEscaping
   @Test
   void testEscaping() {
     final var rid = session.computeInTx(tx -> {
@@ -657,7 +629,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEscapingDoubleQuotes
   @Test
   void testEscapingDoubleQuotes() {
     final var rid = session.computeInTx(tx -> {
@@ -689,7 +660,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEscapingDoubleQuotes2
   @Test
   void testEscapingDoubleQuotes2() {
     final var rid = session.computeInTx(tx -> {
@@ -722,7 +692,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEscapingDoubleQuotes3
   @Test
   void testEscapingDoubleQuotes3() {
     final var rid = session.computeInTx(tx -> {
@@ -751,7 +720,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes
   @Test
   void testEmbeddedQuotes() {
     session.executeInTx(tx -> {
@@ -765,7 +733,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes2
   @Test
   void testEmbeddedQuotes2() {
     session.executeInTx(tx -> {
@@ -777,7 +744,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes2a
   @Test
   void testEmbeddedQuotes2a() {
     session.executeInTx(tx -> {
@@ -786,7 +752,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes3
   @Test
   void testEmbeddedQuotes3() {
     session.executeInTx(tx -> {
@@ -800,7 +765,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes4
   @Test
   void testEmbeddedQuotes4() {
     session.executeInTx(tx -> {
@@ -809,7 +773,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes5
   @Test
   void testEmbeddedQuotes5() {
     session.executeInTx(tx -> {
@@ -822,7 +785,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes6
   @Test
   void testEmbeddedQuotes6() {
     session.executeInTx(tx -> {
@@ -834,7 +796,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedQuotes7
   @Test
   void testEmbeddedQuotes7() {
     session.executeInTx(tx -> {
@@ -843,7 +804,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmpty
   @Test
   void testEmpty() {
     session.executeInTx(tx -> {
@@ -852,7 +812,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testInvalidJson
   @Test
   void testInvalidJson() {
     assertThrows(SerializationException.class,
@@ -874,7 +833,6 @@ public class JSONTest extends BaseDBJUnit5Test {
         () -> session.executeInTx(tx -> session.createOrLoadEntityFromJson("}")));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testDates
   @Test
   void testDates() {
     final var now = new Date(1350518475000L);
@@ -894,7 +852,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#shouldDeserializeFieldWithCurlyBraces
   @Test
   void shouldDeserializeFieldWithCurlyBraces() {
     final var json = """
@@ -907,7 +864,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testList
   @Test
   void testList() {
     session.executeInTx(tx -> {
@@ -919,7 +875,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testEmbeddedRIDBagDeserialisationWhenFieldTypeIsProvided
   @Test
   void testEmbeddedRIDBagDeserialisationWhenFieldTypeIsProvided() {
     final var eid = session.computeInTx(tx -> session.newEntity().getIdentity());
@@ -940,7 +895,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedLinkCreation
   @Test
   void testNestedLinkCreation() {
     final var jaimeRid = session.computeInTx(tx -> {
@@ -977,7 +931,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(cerseiRecord.getIdentity(), cerseiMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedLinkCreationFieldTypes
   @Test
   void testNestedLinkCreationFieldTypes() {
     final var jaimeRecord = session.computeInTx(tx -> {
@@ -1015,7 +968,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(cerseiRecord.getIdentity(), cerseiMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testNestedLinkCreationEmbeddedProhibited
   @Test
   void testNestedLinkCreationEmbeddedProhibited() {
 
@@ -1042,7 +994,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testInnerDocCreation
   @Test
   void testInnerDocCreation() {
     final var adamRecord = session.computeInTx(tx -> {
@@ -1079,7 +1030,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(eveRecord.getIdentity(), eveMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testInnerDocCreationFieldTypes
   @Test
   void testInnerDocCreationFieldTypes() {
     final var p = session.computeInTx(tx -> {
@@ -1116,7 +1066,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(eveEntity.getIdentity(), expectedEveMap);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testInvalidLink
   @Test
   void testInvalidLink() {
     assertThrows(RecordNotFoundException.class, () -> session.executeInTx(tx -> {
@@ -1125,7 +1074,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     }));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testOtherJson
   @Test
   void testOtherJson() {
     final var record = session.computeInTx(tx -> {
@@ -1169,7 +1117,6 @@ public class JSONTest extends BaseDBJUnit5Test {
     checkJsonSerialization(record.getIdentity(), map);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.JSONTest#testScientificNotation
   @Test
   void testScientificNotation() {
     final var record = session.computeInTx(tx -> {

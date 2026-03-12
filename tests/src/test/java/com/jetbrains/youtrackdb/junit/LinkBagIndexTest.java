@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -88,7 +87,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBag
   @Test
   void testIndexRidBag() {
 
@@ -127,7 +125,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagInTx
   @Test
   void testIndexRidBagInTx() {
 
@@ -171,7 +168,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdate
   @Test
   void testIndexRidBagUpdate() {
 
@@ -226,7 +222,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateInTx
   @Test
   void testIndexRidBagUpdateInTx() {
 
@@ -284,7 +279,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateInTxRollback
   @Test
   void testIndexRidBagUpdateInTxRollback() {
 
@@ -340,7 +334,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that adding a lightweight entry to a persisted LinkBag via direct API
    * correctly adds the new key to the index while preserving existing entries.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateAddItem
   @Test
   void testIndexRidBagUpdateAddItem() {
 
@@ -389,7 +382,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateAddItemInTx
   @Test
   void testIndexRidBagUpdateAddItemInTx() {
 
@@ -444,7 +436,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateAddItemInTxRollback
   @Test
   void testIndexRidBagUpdateAddItemInTxRollback() {
 
@@ -493,7 +484,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateRemoveItemInTx
   @Test
   void testIndexRidBagUpdateRemoveItemInTx() {
 
@@ -541,7 +531,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateRemoveItemInTxRollback
   @Test
   void testIndexRidBagUpdateRemoveItemInTxRollback() {
 
@@ -589,7 +578,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that removing a lightweight entry from a persisted LinkBag via direct API
    * correctly removes the key from the index while preserving remaining entries.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateRemoveItem
   @Test
   void testIndexRidBagUpdateRemoveItem() {
 
@@ -635,7 +623,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagRemove
   @Test
   void testIndexRidBagRemove() {
 
@@ -661,7 +648,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagRemoveInTx
   @Test
   void testIndexRidBagRemoveInTx() {
 
@@ -696,7 +682,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagRemoveInTxRollback
   @Test
   void testIndexRidBagRemoveInTxRollback() {
 
@@ -741,7 +726,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagSQL
   @Test
   void testIndexRidBagSQL() {
     session.begin();
@@ -789,7 +773,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that committing a vertex LinkBag with double-sided RidPair entries
    * (edge RID + target vertex RID) indexes only the primary RIDs (edge RIDs).
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagWithPairsOnVertex
   @Test
   void testIndexRidBagWithPairsOnVertex() {
     // 1. Create a vertex with two heavyweight edges and populate ridBag
@@ -830,7 +813,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that a vertex LinkBag containing both a lightweight entry (single RID)
    * and a double-sided RidPair entry indexes only the primary RIDs.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagWithMixedSingleAndPairOnVertex
   @Test
   void testIndexRidBagWithMixedSingleAndPairOnVertex() {
     // 1. Create a vertex ridBag with one lightweight entry and one double-sided pair.
@@ -870,7 +852,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that incrementally adding a double-sided RidPair entry to a persisted
    * vertex LinkBag indexes only the primary RID via change tracking.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateAddPairItemOnVertex
   @Test
   void testIndexRidBagUpdateAddPairItemOnVertex() {
     // 1. Create a vertex with a lightweight-only ridBag and commit.
@@ -915,7 +896,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Same as {@link #testIndexRidBagUpdateAddPairItemOnVertex()} but the add
    * operation is wrapped in a try/catch transaction block to verify commit safety.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateAddPairItemOnVertexInTx
   @Test
   void testIndexRidBagUpdateAddPairItemOnVertexInTx() {
     // 1. Create a vertex with a lightweight-only ridBag and commit.
@@ -965,7 +945,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that removing a double-sided RidPair entry from a persisted vertex
    * LinkBag removes the primary RID from the index.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagUpdateRemovePairItemOnVertex
   @Test
   void testIndexRidBagUpdateRemovePairItemOnVertex() {
     // 1. Create a vertex ridBag with one lightweight and one pair entry, commit.
@@ -1008,7 +987,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that replacing a vertex LinkBag containing a double-sided RidPair entry
    * with an empty LinkBag removes the primary RID index entry.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagReplaceWithEmptyOnVertex
   @Test
   void testIndexRidBagReplaceWithEmptyOnVertex() {
     // 1. Create a vertex with a pair-only ridBag and commit.
@@ -1046,7 +1024,6 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    * Verify that deleting a vertex whose LinkBag contains a double-sided RidPair
    * entry removes the primary RID index entry.
    */
-  // Migrated from: com.jetbrains.youtrackdb.auto.LinkBagIndexTest#testIndexRidBagRemoveVertexWithPairs
   @Test
   void testIndexRidBagRemoveVertexWithPairs() {
     // 1. Create a vertex with a pair-only ridBag and commit.

@@ -124,7 +124,6 @@ public class HookTxTest extends BaseDBJUnit5Test {
     session.registerHook(recordHook);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.HookTxTest#testHookCallsCreate
   @Test
   @Order(1)
   void testHookCallsCreate() {
@@ -144,7 +143,6 @@ public class HookTxTest extends BaseDBJUnit5Test {
     assertEquals(2, recordHook.callbackCount);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.HookTxTest#testHookCallsRead
   // Original had no dependsOnMethods, but depends on profile created in testHookCallsCreate
   @Test
   @Order(2)
@@ -159,8 +157,6 @@ public class HookTxTest extends BaseDBJUnit5Test {
     assertEquals(1, recordHook.callbackCount);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.HookTxTest#testHookCallsUpdate
-  // Original used: @Test(dependsOnMethods = "testHookCallsCreate")
   @Test
   @Order(3)
   void testHookCallsUpdate() {
@@ -176,8 +172,6 @@ public class HookTxTest extends BaseDBJUnit5Test {
     assertEquals(3, recordHook.callbackCount);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.HookTxTest#testHookCallsDelete
-  // Original used: @Test(dependsOnMethods = "testHookCallsUpdate")
   @Test
   @Order(4)
   void testHookCallsDelete() {

@@ -51,8 +51,6 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest
-// Original used: @Parameters(value = {"testPath"}) — replaced with System.getProperty
 @Disabled("Import/export tests currently disabled — were commented out in TestNG suite XML")
 public class DbImportExportTest extends BaseDBJUnit5Test
     implements CommandOutputListener {
@@ -70,7 +68,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testDbExport
   @Test
   @Order(1)
   void testDbExport() throws IOException {
@@ -83,7 +80,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     export.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testDbImport
   @Test
   @Order(2)
   void testDbImport() throws IOException {
@@ -118,7 +114,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testCompareDatabases
   @Test
   @Order(3)
   void testCompareDatabases() throws IOException {
@@ -135,7 +130,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testLinksMigration
   @Test
   @Order(4)
   void testLinksMigration() throws Exception {
@@ -303,7 +297,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     return localTesPath;
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testGraphImportExport
   @Test
   @Order(5)
   void testGraphImportExport() throws IOException {
@@ -390,7 +383,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportExportTest#testBlobs
   @Test
   @Order(6)
   void testBlobs() throws IOException {
@@ -454,7 +446,6 @@ public class DbImportExportTest extends BaseDBJUnit5Test
     return youTrackDB.open(dbName, "admin", "admin");
   }
 
-  // Original used: @Test(enabled = false) — this is a CommandOutputListener callback, not a test
   @Override
   public void onMessage(final String iText) {
     if (iText != null && iText.contains("ERR")) {

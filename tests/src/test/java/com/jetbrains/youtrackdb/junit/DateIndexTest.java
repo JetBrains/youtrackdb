@@ -77,7 +77,6 @@ public class DateIndexTest extends BaseDBJUnit5Test {
         "value", "dateTimeList");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DateIndexTest#testDateIndexes
   @Test
   @Order(1)
   void testDateIndexes() {

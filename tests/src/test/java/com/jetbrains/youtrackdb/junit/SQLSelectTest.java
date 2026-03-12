@@ -15,8 +15,6 @@
  */
 package com.jetbrains.youtrackdb.junit;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -72,7 +70,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     return executeQuery(sql + " LIMIT " + limit);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryNoDirtyResultset
   @Test
   @Order(1)
   void queryNoDirtyResultset() {
@@ -80,7 +77,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryNoWhere
   @Test
   @Order(2)
   void queryNoWhere() {
@@ -89,7 +85,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryParentesisAsRight
   @Test
   @Order(3)
   void queryParentesisAsRight() {
@@ -102,7 +97,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#querySingleAndDoubleQuotes
   @Test
   @Order(4)
   void querySingleAndDoubleQuotes() {
@@ -117,7 +111,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(count, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryTwoParentesisConditions
   @Test
   @Order(5)
   void queryTwoParentesisConditions() {
@@ -130,7 +123,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testQueryCount
   @Test
   @Order(6)
   void testQueryCount() {
@@ -142,7 +134,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#querySchemaAndLike
   @Test
   @Order(7)
   void querySchemaAndLike() {
@@ -181,7 +172,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInEmbeddedSet
   @Test
   @Order(8)
   void queryContainsInEmbeddedSet() {
@@ -209,7 +199,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInEmbeddedList
   @Test
   @Order(9)
   void queryContainsInEmbeddedList() {
@@ -243,7 +232,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInDocumentSet
   @Test
   @Order(10)
   void queryContainsInDocumentSet() {
@@ -282,7 +270,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInDocumentList
   @Test
   @Order(11)
   void queryContainsInDocumentList() {
@@ -321,7 +308,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInEmbeddedMapClassic
   @Test
   @Order(12)
   void queryContainsInEmbeddedMapClassic() {
@@ -364,7 +350,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryContainsInEmbeddedMapNew
   @Test
   @Order(13)
   void queryContainsInEmbeddedMapNew() {
@@ -408,7 +393,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryCollectionContainsLowerCaseSubStringIgnoreCase
   @Test
   @Order(14)
   void queryCollectionContainsLowerCaseSubStringIgnoreCase() {
@@ -436,7 +420,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryCollectionContainsInRecords
   @Test
   @Order(15)
   void queryCollectionContainsInRecords() {
@@ -553,7 +536,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryCollectionInNumbers
   @Test
   @Order(16)
   void queryCollectionInNumbers() {
@@ -626,7 +608,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryWhereRidDirectMatching
   @Test
   @Order(17)
   void queryWhereRidDirectMatching() {
@@ -644,7 +625,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryWhereInpreparred
   @Test
   @Order(18)
   void queryWhereInpreparred() {
@@ -657,7 +637,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryInAsParameter
   @Test
   @Order(19)
   void queryInAsParameter() {
@@ -669,7 +648,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryAnyOperator
   @Test
   @Order(20)
   void queryAnyOperator() {
@@ -694,7 +672,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryAllOperator
   @Test
   @Order(21)
   void queryAllOperator() {
@@ -703,7 +680,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(0, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOrderBy
   @Test
   @Order(22)
   void queryOrderBy() {
@@ -730,7 +706,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOrderByWrongSyntax
   @Test
   @Order(23)
   void queryOrderByWrongSyntax() {
@@ -741,7 +716,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryLimitOnly
   @Test
   @Order(24)
   void queryLimitOnly() {
@@ -750,7 +724,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#querySkipOnly
   @Test
   @Order(25)
   void querySkipOnly() {
@@ -761,7 +734,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(total - 1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryPaginationWithSkipAndLimit
   @Test
   @Order(26)
   void queryPaginationWithSkipAndLimit() {
@@ -777,7 +749,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOffsetOnly
   @Test
   @Order(27)
   void queryOffsetOnly() {
@@ -788,7 +759,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(total - 1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryPaginationWithOffsetAndLimit
   @Test
   @Order(28)
   void queryPaginationWithOffsetAndLimit() {
@@ -804,7 +774,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryPaginationWithOrderBySkipAndLimit
   @Test
   @Order(29)
   void queryPaginationWithOrderBySkipAndLimit() {
@@ -821,7 +790,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryPaginationWithOrderByDescSkipAndLimit
   @Test
   @Order(30)
   void queryPaginationWithOrderByDescSkipAndLimit() {
@@ -838,7 +806,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOrderByAndLimit
   @Test
   @Order(31)
   void queryOrderByAndLimit() {
@@ -857,7 +824,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryConditionAndOrderBy
   @Test
   @Order(32)
   void queryConditionAndOrderBy() {
@@ -877,8 +843,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryConditionsAndOrderBy
-  // Original used: @Test(enabled = false)
   @Test
   @Order(33)
   @Disabled
@@ -897,7 +861,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordTargetRid
   @Test
   @Order(34)
   void queryRecordTargetRid() {
@@ -918,7 +881,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordTargetRids
   @Test
   @Order(35)
   void queryRecordTargetRids() {
@@ -951,7 +913,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordAttribRid
   @Test
   @Order(36)
   void queryRecordAttribRid() {
@@ -975,7 +936,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordAttribClass
   @Test
   @Order(37)
   void queryRecordAttribClass() {
@@ -988,7 +948,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordAttribVersion
   @Test
   @Order(38)
   void queryRecordAttribVersion() {
@@ -1001,7 +960,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryRecordAttribType
   @Test
   @Order(39)
   void queryRecordAttribType() {
@@ -1012,7 +970,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryWrongOperator
   @Test
   @Order(40)
   void queryWrongOperator() {
@@ -1025,21 +982,18 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryEscaping
   @Test
   @Order(41)
   void queryEscaping() {
     executeQuery("select from Profile where name like '%\\'Jay%'", session);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryWithLimit
   @Test
   @Order(42)
   void queryWithLimit() {
     assertEquals(3, executeQuery("select from Profile limit 3", session).size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testRecordNumbers
   @SuppressWarnings("unused")
   @Test
   @Order(43)
@@ -1060,7 +1014,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#includeFields
   @Test
   @Order(44)
   void includeFields() {
@@ -1076,7 +1029,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#excludeFields
   @Test
   @Order(45)
   void excludeFields() {
@@ -1090,7 +1042,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryBetween
   @Test
   @Order(46)
   void queryBetween() {
@@ -1105,7 +1056,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryParenthesisInStrings
   @Test
   @Order(47)
   void queryParenthesisInStrings() {
@@ -1125,7 +1075,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryMathOperators
   @Test
   @Order(48)
   void queryMathOperators() {
@@ -1178,7 +1127,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testBetweenWithParameters
   @Test
   @Order(49)
   void testBetweenWithParameters() {
@@ -1205,7 +1153,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testInWithParameters
   @Test
   @Order(50)
   void testInWithParameters() {
@@ -1229,7 +1176,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testEqualsNamedParameter
   @Test
   @Order(51)
   void testEqualsNamedParameter() {
@@ -1242,7 +1188,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testQueryAsClass
   @Test
   @Order(52)
   void testQueryAsClass() {
@@ -1267,7 +1212,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testQueryNotOperator
   @Test
   @Order(53)
   void testQueryNotOperator() {
@@ -1288,7 +1232,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testParams
   // Original had no explicit @Test; relied on class-level @Test annotation
   @Test
   @Order(54)
@@ -1313,7 +1256,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryInstanceOfOperator
   @Test
   @Order(55)
   void queryInstanceOfOperator() {
@@ -1332,7 +1274,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(result.size(), result3.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#subQuery
   @Test
   @Order(56)
   void subQuery() {
@@ -1345,7 +1286,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#subQueryNoFrom
   @Test
   @Order(57)
   void subQueryNoFrom() {
@@ -1359,7 +1299,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(((Collection<?>) result2.getFirst().getProperty("$names")).isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#subQueryLetAndIndexedWhere
   @Test
   @Order(58)
   void subQueryLetAndIndexedWhere() {
@@ -1370,7 +1309,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertNotNull(result.getFirst().getProperty("$now"), result.getFirst().toString());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOrderByWithLimit
   @Test
   @Order(59)
   void queryOrderByWithLimit() {
@@ -1423,7 +1361,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryWithTwoRidInWhere
   @Test
   @Order(60)
   void queryWithTwoRidInWhere() {
@@ -1464,7 +1401,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testSelectFromListParameter
   @Test
   @Order(61)
   void testSelectFromListParameter() {
@@ -1502,7 +1438,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.getMetadata().getSchema().dropClass("Place");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testSelectRidFromListParameter
   @Test
   @Order(62)
   void testSelectRidFromListParameter() {
@@ -1540,7 +1475,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.getMetadata().getSchema().dropClass("Place");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testSelectRidInList
   @Test
   @Order(63)
   void testSelectRidInList() {
@@ -1578,7 +1512,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.getMetadata().getSchema().dropClass("Place");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testMapKeys
   @Test
   @Order(64)
   void testMapKeys() {
@@ -1592,7 +1525,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#queryOrderByRidDesc
   // Original had no explicit @Test; relied on class-level @Test annotation
   @Test
   @Order(65)
@@ -1614,7 +1546,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertNull(res.getProperty("orderByElapsed"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testQueryParameterNotPersistent
   // Original had no explicit @Test; relied on class-level @Test annotation
   @Test
   @Order(66)
@@ -1627,7 +1558,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testQueryLetExecutedOnce
   // Original had no explicit @Test; relied on class-level @Test annotation
   @Test
   @Order(67)
@@ -1645,7 +1575,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testMultipleCollectionsWithPagination
   @Test
   @Order(68)
   void testMultipleCollectionsWithPagination() {
@@ -1685,7 +1614,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testOutFilterInclude
   @Test
   @Order(69)
   void testOutFilterInclude() {
@@ -1716,7 +1644,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testExpandSkip
   @Test
   @Order(70)
   void testExpandSkip() {
@@ -1766,7 +1693,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testPolymorphicEdges
   @Test
   @Order(71)
   void testPolymorphicEdges() {
@@ -1807,7 +1733,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testSizeOfLink
   @Test
   @Order(72)
   void testSizeOfLink() {
@@ -1833,7 +1758,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testEmbeddedMapAndDotNotation
   @Test
   @Order(73)
   void testEmbeddedMapAndDotNotation() {
@@ -1871,7 +1795,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals("baz", ((Map) first).get("bar"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testLetWithQuotedValue
   @Test
   @Order(74)
   void testLetWithQuotedValue() {
@@ -1889,7 +1812,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, result.stream().count());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#testNamedParams
   @Test
   @Order(75)
   void testNamedParams() {
@@ -1923,7 +1845,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(1, results.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#selectLikeFromSet
   @Test
   @Order(76)
   void selectLikeFromSet() {
@@ -1948,7 +1869,6 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertEquals(2, results.size());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLSelectTest#selectLikeFromList
   @Test
   @Order(77)
   void selectLikeFromList() {

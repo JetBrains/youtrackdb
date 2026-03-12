@@ -41,7 +41,6 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBJUnit5Test {
     super.afterEach();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest#testForcePropertyEnabled
   @Test
   @Order(1)
   void testForcePropertyEnabled() throws Exception {
@@ -71,7 +70,6 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertNull(index);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest#testForcePropertyEnabledBrokenCase
   @Test
   @Order(2)
   void testForcePropertyEnabledBrokenCase() throws Exception {
@@ -101,7 +99,6 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertNull(index);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest#testForcePropertyDisabled
   @Test
   @Order(3)
   void testForcePropertyDisabled() throws Exception {
@@ -149,7 +146,6 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBJUnit5Test {
     assertEquals("UNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest#testForcePropertyDisabledBrokenCase
   @Test
   @Order(4)
   void testForcePropertyDisabledBrokenCase() throws Exception {

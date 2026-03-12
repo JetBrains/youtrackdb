@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 public class IndexConcurrentCommitTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.IndexConcurrentCommitTest#testConcurrentUpdate
   @Test
   @Order(1)
   void testConcurrentUpdate() {

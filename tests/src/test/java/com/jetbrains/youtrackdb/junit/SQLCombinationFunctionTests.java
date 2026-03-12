@@ -40,7 +40,6 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
     generateGeoData();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllAsAggregationNotRemoveDuplicates
   @Test
   @Order(1)
   void unionAllAsAggregationNotRemoveDuplicates() {
@@ -59,7 +58,6 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
     assertListsEqualsIgnoreOrder(continentsCombined, continents);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceAsAggregationThrowsError
   @Test
   @Order(2)
   void differenceAsAggregationThrowsError() {
@@ -71,21 +69,18 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllLanguagesByCountry
   @Test
   @Order(3)
   void unionAllLanguagesByCountry() {
     findLanguagesForCountry(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectLanguagesByCountry
   @Test
   @Order(4)
   void intersectLanguagesByCountry() {
     findLanguagesForCountry(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceLanguagesByCountry
   @Test
   @Order(5)
   void differenceLanguagesByCountry() {
@@ -172,21 +167,18 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllCountriesByLanguage
   @Test
   @Order(6)
   void unionAllCountriesByLanguage() {
     findCountriesForLanguage(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectCountriesByLanguage
   @Test
   @Order(7)
   void intersectCountriesByLanguage() {
     findCountriesForLanguage(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceCountriesByLanguage
   @Test
   @Order(8)
   void differenceCountriesByLanguage() {
@@ -244,84 +236,72 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllInlineEdges
   @Test
   @Order(9)
   void unionAllInlineEdges() {
     runEdgeInlineTest(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectInlineEdges
   @Test
   @Order(10)
   void intersectInlineEdges() {
     runEdgeInlineTest(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceInlineEdges
   @Test
   @Order(11)
   void differenceInlineEdges() {
     runEdgeInlineTest(FunctionDefinition.DIFFERENCE);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllOrderTest
   @Test
   @Order(12)
   void unionAllOrderTest() {
     runOrderTest(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectOrderTest
   @Test
   @Order(13)
   void intersectOrderTest() {
     runOrderTest(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceOrderTest
   @Test
   @Order(14)
   void differenceOrderTest() {
     runOrderTest(FunctionDefinition.DIFFERENCE);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllOneArgumentTest
   @Test
   @Order(15)
   void unionAllOneArgumentTest() {
     runOneArgumentTest(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectOneArgumentTest
   @Test
   @Order(16)
   void intersectOneArgumentTest() {
     runOneArgumentTest(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceOneArgumentTest
   @Test
   @Order(17)
   void differenceOneArgumentTest() {
     runOneArgumentTest(FunctionDefinition.DIFFERENCE);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#unionAllExpandTest
   @Test
   @Order(18)
   void unionAllExpandTest() {
     runExpandTest(FunctionDefinition.UNION_ALL);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#intersectExpandTest
   @Test
   @Order(19)
   void intersectExpandTest() {
     runExpandTest(FunctionDefinition.INTERSECT);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests#differenceExpandTest
   @Test
   @Order(20)
   void differenceExpandTest() {

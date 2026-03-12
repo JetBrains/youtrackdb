@@ -31,7 +31,6 @@ import org.junit.jupiter.api.Test;
 
 public class DateTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DateTest#testDateConversion
   @Test
   @Order(1)
   void testDateConversion() {
@@ -57,7 +56,6 @@ public class DateTest extends BaseDBJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DateTest#testDatePrecision
   @Test
   @Order(2)
   void testDatePrecision() {
@@ -87,7 +85,6 @@ public class DateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DateTest#testDateTypes
   @Test
   @Order(3)
   void testDateTypes() {
@@ -101,7 +98,6 @@ public class DateTest extends BaseDBJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DateTest#testDateGregorianCalendar
   @Test
   @Order(4)
   void testDateGregorianCalendar() throws ParseException {

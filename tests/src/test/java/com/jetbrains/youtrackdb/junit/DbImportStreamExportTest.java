@@ -33,8 +33,6 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-// Migrated from: com.jetbrains.youtrackdb.auto.DbImportStreamExportTest
-// Original used: @Test(groups = {"db", "import-export"}), @Parameters(value = {"url", "testPath"})
 // FIXME: let exporter version exports be 13 and check whether new stream processing is used.
 @Disabled("Import/export stream tests not included in main TestNG suite")
 @Tag("db")
@@ -55,7 +53,6 @@ public class DbImportStreamExportTest extends BaseDBJUnit5Test
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportStreamExportTest#testDbExport
   @Test
   @Order(1)
   void testDbExport() throws IOException {
@@ -70,7 +67,6 @@ public class DbImportStreamExportTest extends BaseDBJUnit5Test
     database.close();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportStreamExportTest#testDbImport
   @Test
   @Order(2)
   void testDbImport() throws IOException {
@@ -101,7 +97,6 @@ public class DbImportStreamExportTest extends BaseDBJUnit5Test
     }
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DbImportStreamExportTest#testCompareDatabases
   @Test
   @Order(3)
   void testCompareDatabases() throws IOException {
@@ -121,7 +116,6 @@ public class DbImportStreamExportTest extends BaseDBJUnit5Test
     }
   }
 
-  // Original used: @Test(enabled = false) — this is a CommandOutputListener callback, not a test
   @Override
   public void onMessage(final String iText) {
     if (iText != null && iText.contains("ERR")) {

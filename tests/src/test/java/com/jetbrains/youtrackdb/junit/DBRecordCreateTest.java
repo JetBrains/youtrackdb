@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 
 public class DBRecordCreateTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBRecordCreateTest#testNewRecord
   @Test
   void testNewRecord() {
     final var entityId = session.computeInTx(tx -> {
@@ -21,7 +20,6 @@ public class DBRecordCreateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBRecordCreateTest#testNewRecordRollbackTx
   @Test
   void testNewRecordRollbackTx() {
     final var entityId = session.computeInTx(tx -> {
@@ -36,7 +34,6 @@ public class DBRecordCreateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBRecordCreateTest#testDeleteRecord
   @Test
   void testDeleteRecord() {
     session.executeInTx(tx -> {
@@ -47,7 +44,6 @@ public class DBRecordCreateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBRecordCreateTest#testLoadDeleteSameTx
   @Test
   void testLoadDeleteSameTx() {
     session.executeInTx(tx -> {
@@ -59,7 +55,6 @@ public class DBRecordCreateTest extends BaseDBJUnit5Test {
     });
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBRecordCreateTest#testLoadDeleteDifferentTx
   @Test
   void testLoadDeleteDifferentTx() {
     final var entityId =

@@ -1,4 +1,3 @@
-// Migrated from: com.jetbrains.youtrackdb.auto.SQLMetadataTest
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -9,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 class SQLMetadataTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLMetadataTest#querySchemaClasses
   @Test
   @Order(1)
   void querySchemaClasses() {
@@ -20,7 +18,6 @@ class SQLMetadataTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLMetadataTest#querySchemaProperties
   @Test
   @Order(2)
   void querySchemaProperties() {
@@ -34,7 +31,6 @@ class SQLMetadataTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLMetadataTest#queryIndexes
   @Test
   @Order(3)
   void queryIndexes() {
@@ -45,7 +41,6 @@ class SQLMetadataTest extends BaseDBJUnit5Test {
     assertFalse(result.isEmpty());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLMetadataTest#queryMetadataNotSupported
   @Test
   @Order(4)
   void queryMetadataNotSupported() {

@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
  */
 public class DBMethodsTest extends BaseDBJUnit5Test {
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.DBMethodsTest#testAddCollection
   @Test
   @Order(1)
   void testAddCollection() {

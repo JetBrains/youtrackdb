@@ -64,7 +64,6 @@ public class BTreeBasedLinkBagTest extends LinkBagJUnit5Test {
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest#testRidBagCollectionDistribution
   @Test
   void testRidBagCollectionDistribution() {
     if (session.getStorage().getType().equals(EngineMemory.NAME)) {
@@ -95,7 +94,6 @@ public class BTreeBasedLinkBagTest extends LinkBagJUnit5Test {
     assertTrue(ridBagOneFile.exists());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest#testIteratorOverAfterRemove
   @Test
   void testIteratorOverAfterRemove() {
     session.begin();
@@ -152,7 +150,6 @@ public class BTreeBasedLinkBagTest extends LinkBagJUnit5Test {
     session.commit();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest#testRidBagConversion
   @Test
   void testRidBagConversion() {
     final var oldThreshold =
@@ -218,7 +215,6 @@ public class BTreeBasedLinkBagTest extends LinkBagJUnit5Test {
     session.rollback();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest#testRidBagDelete
   @Test
   void testRidBagDelete() {
     if (session.getStorage().getType().equals(EngineMemory.NAME)) {

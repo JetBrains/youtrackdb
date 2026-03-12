@@ -61,7 +61,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     super.afterAll();
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testOldSyntax
   @Test
   @Order(1)
   void testOldSyntax() throws Exception {
@@ -83,7 +82,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("UNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateCompositeIndex
   @Test
   @Order(2)
   void testCreateCompositeIndex() throws Exception {
@@ -112,7 +110,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("UNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapIndex
   @Test
   @Order(3)
   void testCreateEmbeddedMapIndex() throws Exception {
@@ -142,7 +139,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testOldStileCreateEmbeddedMapIndex
   @Test
   @Order(4)
   void testOldStileCreateEmbeddedMapIndex() throws Exception {
@@ -169,7 +165,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapWrongSpecifierIndexOne
   @Test
   @Order(5)
   void testCreateEmbeddedMapWrongSpecifierIndexOne() throws Exception {
@@ -192,7 +187,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapWrongSpecifierIndexTwo
   @Test
   @Order(6)
   void testCreateEmbeddedMapWrongSpecifierIndexTwo() throws Exception {
@@ -215,7 +209,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapWrongSpecifierIndexThree
   @Test
   @Order(7)
   void testCreateEmbeddedMapWrongSpecifierIndexThree() throws Exception {
@@ -238,7 +231,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapByKeyIndex
   @Test
   @Order(8)
   void testCreateEmbeddedMapByKeyIndex() throws Exception {
@@ -269,7 +261,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapByValueIndex
   @Test
   @Order(9)
   void testCreateEmbeddedMapByValueIndex() throws Exception {
@@ -300,7 +291,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedListIndex
   @Test
   @Order(10)
   void testCreateEmbeddedListIndex() throws Exception {
@@ -328,7 +318,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("NOTUNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateRidBagIndex
   @Test
   @Order(11)
   void testCreateRidBagIndex() throws Exception {
@@ -355,7 +344,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("NOTUNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateOldStileEmbeddedListIndex
   @Test
   @Order(12)
   void testCreateOldStileEmbeddedListIndex() throws Exception {
@@ -379,7 +367,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("NOTUNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateOldStileRidBagIndex
   @Test
   @Order(13)
   void testCreateOldStileRidBagIndex() throws Exception {
@@ -403,7 +390,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("NOTUNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedListWithoutLinkedTypeIndex
   @Test
   @Order(14)
   void testCreateEmbeddedListWithoutLinkedTypeIndex() throws Exception {
@@ -431,7 +417,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateEmbeddedMapWithoutLinkedTypeIndex
   @Test
   @Order(15)
   void testCreateEmbeddedMapWithoutLinkedTypeIndex() throws Exception {
@@ -459,7 +444,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateCompositeIndexWithTypes
   @Test
   @Order(16)
   void testCreateCompositeIndexWithTypes() throws Exception {
@@ -491,7 +475,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("UNIQUE", index.getType());
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateCompositeIndexWithWrongTypes
   @Test
   @Order(17)
   void testCreateCompositeIndexWithWrongTypes() throws Exception {
@@ -523,7 +506,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertNull(index, "Index created while wrong query was executed");
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCompositeIndexWithMetadata
   @Test
   @Order(18)
   void testCompositeIndexWithMetadata() {
@@ -557,7 +539,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("val2", metadata.get("v2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testOldIndexWithMetadata
   @Test
   @Order(19)
   void testOldIndexWithMetadata() {
@@ -589,7 +570,6 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     assertEquals("val2", metadata.get("v2"));
   }
 
-  // Migrated from: com.jetbrains.youtrackdb.auto.SQLCreateIndexTest#testCreateCompositeIndexWithTypesAndMetadata
   @Test
   @Order(20)
   void testCreateCompositeIndexWithTypesAndMetadata() throws Exception {
