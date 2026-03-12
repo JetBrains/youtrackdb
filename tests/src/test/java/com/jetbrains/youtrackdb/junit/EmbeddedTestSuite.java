@@ -91,7 +91,16 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     // Graph
     GraphDatabaseTest.class,
     // GEO
-    GEOTest.class
+    GEOTest.class,
+    // SQL commands (part 1)
+    SQLCommandsTest.class,
+    SQLCreateClassTest.class,
+    SQLDropClassTest.class,
+    SQLInsertTest.class,
+    SQLSelectTest.class,
+    SQLMetadataTest.class,
+    SQLSelectProjectionsTest.class,
+    SQLSelectGroupByTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

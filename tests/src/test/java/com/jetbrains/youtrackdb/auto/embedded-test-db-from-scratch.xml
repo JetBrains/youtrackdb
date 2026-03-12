@@ -119,14 +119,14 @@
   </test>
   <test name="sql-commands">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCommandsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCreateClassTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDropClassTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLInsertTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLSelectTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLMetadataTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCommandsTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCreateClassTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropClassTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLInsertTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLMetadataTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectProjectionsTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectGroupByTest -->
       <class name="com.jetbrains.youtrackdb.auto.SQLFunctionsTest"/>
       <class name="com.jetbrains.youtrackdb.auto.SQLUpdateTest"/>
       <class name="com.jetbrains.youtrackdb.auto.SQLDeleteTest"/>
