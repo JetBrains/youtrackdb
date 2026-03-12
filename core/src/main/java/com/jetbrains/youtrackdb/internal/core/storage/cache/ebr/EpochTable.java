@@ -20,6 +20,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A cache-line-padded epoch table for epoch-based memory reclamation (EBR).
@@ -86,6 +87,13 @@ public final class EpochTable {
   // Accessed via SLOTS_HANDLE for per-element access.
   // The array reference is volatile to support dynamic growth (see step 1.2).
   private volatile long[] slots;
+
+  // Lock for dynamic array growth. Serializes grow() to prevent concurrent
+  // resizes. Also used by releaseSlot() and reclaimSlot() (added in later
+  // steps) to ensure their CAS targets the current arrays.
+  // Lock ordering: evictionLock → growLock (from reclaimSlot);
+  // growLock only (from grow, releaseSlot). No cycles.
+  private final ReentrantLock growLock = new ReentrantLock();
 
   // Free list of reusable slot indices. Threads that die return their slot
   // index here (via Cleaner or scan-based reclamation in later steps).
@@ -290,8 +298,8 @@ public final class EpochTable {
 
   /**
    * Allocates a slot index from the free list, or assigns the next
-   * sequential index. If the index exceeds current capacity, throws
-   * (dynamic growth is added in step 1.2).
+   * sequential index. If the index exceeds current capacity, triggers
+   * {@link #grow(int)} to resize the slots array.
    */
   private int allocateSlotIndex() {
     Integer recycled = freeList.poll();
@@ -302,17 +310,69 @@ public final class EpochTable {
     long[] currentSlots = slots;
     int paddedIndex = index * SLOT_STRIDE;
     if (paddedIndex >= currentSlots.length) {
-      // Return the burned index so future allocations don't skip past it.
-      nextSlotIndex.getAndDecrement();
-      // Dynamic growth not yet implemented (step 1.2).
-      // For now, this should not happen with the default initial capacity
-      // of availableProcessors() * 4.
-      throw new IllegalStateException(
-          "EpochTable capacity exceeded (slot " + index
-              + ", capacity " + (currentSlots.length / SLOT_STRIDE)
-              + "). Dynamic growth will be added in a future step.");
+      grow(index);
     }
     return index;
+  }
+
+  /**
+   * Grows the slots array to accommodate at least {@code requiredIndex}.
+   * Uses the LongAdder / Striped64 pattern: double the logical slot count,
+   * copy existing values, fill new slots with {@link #INACTIVE}, and publish
+   * the new array via a volatile write (the {@code slots} field is volatile).
+   *
+   * <p>Called under {@code growLock} to prevent concurrent resizes. If another
+   * thread already grew the array to sufficient capacity, this method returns
+   * immediately (double-checked locking).
+   *
+   * <p>The volatile write of {@code slots} must be the <b>last</b> publish
+   * in {@code grow()}, after all auxiliary arrays (added in later steps).
+   * This ensures readers that see the new {@code slots} array also see the
+   * new auxiliary arrays via JMM transitivity.
+   *
+   * @param requiredIndex the logical slot index that triggered growth
+   */
+  private void grow(int requiredIndex) {
+    growLock.lock();
+    try {
+      long[] current = slots;
+      int requiredPaddedIndex = requiredIndex * SLOT_STRIDE;
+      if (requiredPaddedIndex < current.length) {
+        return; // another thread already grew
+      }
+      // Grow in terms of logical slots, then multiply by stride for the array.
+      int currentSlotCount = current.length / SLOT_STRIDE;
+      int newSlotCount = Math.max(currentSlotCount * 2, requiredIndex + 1);
+      int newSize = newSlotCount * SLOT_STRIDE;
+      long[] newSlots = new long[newSize];
+      // Copy existing slots (preserves active epoch values and INACTIVE markers).
+      System.arraycopy(current, 0, newSlots, 0, current.length);
+      // Fill only the padded slot positions for new slots with INACTIVE;
+      // padding longs remain 0 (never read).
+      for (int i = current.length; i < newSize; i += SLOT_STRIDE) {
+        newSlots[i] = INACTIVE;
+      }
+      // Auxiliary arrays (slotOwners, slotReleased, slotCleanables) will be
+      // grown in lockstep here once they are added in steps 1.3/1.4.
+
+      // IMPORTANT: `slots` must be published LAST, after all auxiliary arrays.
+      // Volatile write publishes the new array. Readers (computeSafeEpoch)
+      // read the volatile `slots` reference once and scan that snapshot.
+      // A reader that sees the old array may miss newly added slots — those
+      // slots hold INACTIVE (never entered), so missing them does not change
+      // the computed minimum. This is neutral, not a safety violation.
+      //
+      // Safety w.r.t. concurrent enter()/exit():
+      // - enter() uses a retry loop that re-reads `slots` after the fence.
+      //   If grow() replaced the array, enter() detects the change and
+      //   retries on the new array.
+      // - exit() may write INACTIVE to the old array if it races with
+      //   grow(). This is a liveness issue only (delays reclamation),
+      //   not a safety violation.
+      slots = newSlots; // volatile write — must be last
+    } finally {
+      growLock.unlock();
+    }
   }
 
   /**
