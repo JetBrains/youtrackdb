@@ -658,6 +658,8 @@ jobs:
 
       - name: Save to Git Notes
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin refs/notes/test-counts:refs/notes/test-counts 2>/dev/null || true
           git notes --ref=test-counts add -f \
             -F /tmp/test-counts/test-counts.json HEAD
