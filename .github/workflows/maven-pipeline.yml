@@ -357,6 +357,17 @@ jobs:
           path: '.coverage/reports/'
           retention-days: 1
           if-no-files-found: error
+      - name: Collect Test Counts
+        if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        run: python3 .github/scripts/collect-test-counts.py --output /tmp/test-counts.json
+      - name: Upload Test Counts
+        uses: actions/upload-artifact@v7
+        if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
+        with:
+          name: test-counts
+          path: /tmp/test-counts.json
+          retention-days: 1
+          if-no-files-found: error
       - name: Upload Ekstazi Exclude Files
         uses: actions/upload-artifact@v7
         if: "!cancelled() && matrix.arch == 'x86' && matrix.java == '21' && matrix.distribution == 'temurin'"
@@ -501,7 +512,162 @@ jobs:
           exit 1
 
   # ------------------------------------------------------------------
-  # JOB 5: MUTATION TESTING
+  # JOB 4: TEST COUNT GATE
+  # Detects unintentional test removal or disabling by comparing
+  # current test counts against the develop baseline (stored in git
+  # notes). Allows a configurable tolerance (default 5% per module).
+  # Bypassed when PR title contains [no-test-number-check].
+  # ------------------------------------------------------------------
+  test-count-gate:
+    name: Test Count Gate
+    needs: [ test-linux ]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check PR Title for Bypass
+        id: bypass
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ "$PR_TITLE" == *"[no-test-number-check]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR title contains [no-test-number-check] — gate will be bypassed"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Test Counts
+        uses: actions/download-artifact@v8
+        with:
+          name: test-counts
+          path: /tmp/test-counts
+
+      - name: Fetch Baseline from Git Notes
+        if: steps.bypass.outputs.skip != 'true'
+        id: baseline
+        run: |
+          if git fetch origin refs/notes/test-counts:refs/notes/test-counts 2>/dev/null; then
+            DEVELOP_SHA=$(git rev-parse origin/develop)
+            if git notes --ref=test-counts show "$DEVELOP_SHA" > /tmp/test-counts-baseline.json 2>/dev/null; then
+              echo "Loaded baseline from git notes for develop ($DEVELOP_SHA)"
+              echo "found=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "No git note found for develop HEAD ($DEVELOP_SHA)"
+              echo "found=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No test-counts notes ref found"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Run Test Count Gate
+        id: gate
+        continue-on-error: true
+        run: |
+          ARGS=(
+            --baseline /tmp/test-counts-baseline.json
+            --current /tmp/test-counts/test-counts.json
+            --tolerance 5
+            --output-md /tmp/test-count-gate.md
+          )
+          if [[ "${{ steps.bypass.outputs.skip }}" == "true" ]]; then
+            ARGS+=(--skip)
+          fi
+
+          python3 .github/scripts/test-count-gate.py "${ARGS[@]}"
+
+      - name: Post Test Count Gate Comment
+        if: always() && steps.gate.outcome != 'cancelled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f /tmp/test-count-gate.md ]; then
+            echo "No markdown report generated. Skipping comment."
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          REPO=${{ github.repository }}
+          MARKER="<!-- test-count-gate-comment -->"
+
+          COMMENT_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --paginate --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" \
+            | head -n1)
+
+          BODY=$(jq -Rs '.' < /tmp/test-count-gate.md)
+
+          if [ -n "$COMMENT_ID" ]; then
+            echo "Updating existing comment ${COMMENT_ID}"
+            gh api "repos/${REPO}/issues/comments/${COMMENT_ID}" \
+              -X PATCH \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          else
+            echo "Creating new comment"
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -X POST \
+              --input <(jq -n --argjson body "$BODY" '{"body": $body}')
+          fi
+
+      - name: Enforce Test Count Gate
+        if: always() && steps.gate.outcome == 'failure'
+        run: |
+          echo "Test count gate failed. See the PR comment for details."
+          exit 1
+
+  # ------------------------------------------------------------------
+  # JOB 5b: SAVE TEST COUNT BASELINE
+  # On develop pushes, saves current test counts to git notes so that
+  # future PRs can compare against the latest develop baseline.
+  # ------------------------------------------------------------------
+  save-test-counts:
+    name: Save Test Count Baseline
+    needs: [ detect-changes, test-linux, test-windows ]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop' &&
+      needs.detect-changes.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download Test Counts
+        uses: actions/download-artifact@v8
+        with:
+          name: test-counts
+          path: /tmp/test-counts
+
+      - name: Save to Git Notes
+        run: |
+          git fetch origin refs/notes/test-counts:refs/notes/test-counts 2>/dev/null || true
+          git notes --ref=test-counts add -f \
+            -F /tmp/test-counts/test-counts.json HEAD
+          git push origin refs/notes/test-counts
+
+          echo "Saved test counts to git notes for $(git rev-parse --short HEAD):"
+          cat /tmp/test-counts/test-counts.json
+
+  # ------------------------------------------------------------------
+  # JOB 6: MUTATION TESTING
   # PIT mutation testing with Arcmutate extensions for new/changed code.
   # Uses GIT_MIXED mode to mutate only changed lines plus code exercised
   # by modified tests. Posts inline PR annotations via pitest-github.
@@ -682,7 +848,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always() && github.event.pull_request.draft != true
-    needs: [ detect-changes, test-linux, test-windows, coverage-gate, mutation-testing ]
+    needs: [ detect-changes, test-linux, test-windows, coverage-gate, test-count-gate, mutation-testing ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
@@ -698,6 +864,7 @@ jobs:
           LINUX_RESULT: ${{ needs.test-linux.result }}
           WINDOWS_RESULT: ${{ needs.test-windows.result }}
           COVERAGE_RESULT: ${{ needs.coverage-gate.result }}
+          TEST_COUNT_RESULT: ${{ needs.test-count-gate.result }}
           MUTATION_RESULT: ${{ needs.mutation-testing.result }}
         run: |
           if [[ "$DETECT_RESULT" != "success" ]]; then
@@ -718,6 +885,10 @@ jobs:
           # on push events their result is "skipped", which is acceptable.
           if [[ "$COVERAGE_RESULT" != "success" && "$COVERAGE_RESULT" != "skipped" ]]; then
             echo "Coverage gate did not succeed (result: $COVERAGE_RESULT)"
+            exit 1
+          fi
+          if [[ "$TEST_COUNT_RESULT" != "success" && "$TEST_COUNT_RESULT" != "skipped" ]]; then
+            echo "Test count gate did not succeed (result: $TEST_COUNT_RESULT)"
             exit 1
           fi
           if [[ "$MUTATION_RESULT" != "success" && "$MUTATION_RESULT" != "skipped" ]]; then

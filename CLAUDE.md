@@ -195,6 +195,7 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - PR title auto-prefixed with YTDB issue number from branch name
 - Target branch: `develop`
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
+- **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 
 ## CI/CD
 
@@ -206,9 +207,11 @@ Runs on `develop` pushes and PRs:
 - **Integration tests**: Run on Linux with Ekstazi test selection caching
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Ekstazi exclude files**: Uploaded as the `ekstazi-excludes` artifact (retained 7 days). Contains `/tmp/ekstazi-*.excludes` files listing which integration tests Ekstazi skipped. Use these to diagnose coverage gate failures caused by Ekstazi test selection (see "Investigating Coverage Gate Failures" below).
+- **Test count gate**: Detects unintentional test removal or disabling by comparing per-module test counts against the develop baseline stored in git notes (`refs/notes/test-counts`). Fails if any module's test count drops by more than 5%. Posts a PR comment with a per-module comparison table. Baseline is automatically updated on every successful develop build. Bypassed when the PR title contains `[no-test-number-check]` (useful for intentional test refactorings). Scripts: `collect-test-counts.py` (collection) and `test-count-gate.py` (comparison).
 - **Mutation testing**: PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions. Uses `GIT` mode to scope mutations to changed source lines only. Uses `STRONGER` + `EXTENDED` mutator groups. Logging calls are excluded via `avoidCallsTo` (LogManager, SLF4J, JUL, Log4j). Posts inline PR annotations via `pitest-github-maven-plugin`. Fails below 85% mutation score. Requires `ARCMUTATE_LICENCE` GitHub secret.
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
-- **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, mutation-testing) into a single required status for branch protection
+- **Test count baseline save**: On successful develop builds, saves current test counts as a git note on the develop HEAD commit. Future PRs compare against this baseline.
+- **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, test-count-gate, mutation-testing) into a single required status for branch protection
 - **Notifications**: Sends Zulip messages on build failure/recovery
 
 ### Nightly Integration Tests (`maven-integration-tests-pipeline.yml`)
