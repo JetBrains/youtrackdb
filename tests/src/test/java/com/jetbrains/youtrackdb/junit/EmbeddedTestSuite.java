@@ -56,7 +56,18 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SQLCreateIndexTest.class,
     SQLDropIndexTest.class,
     SQLDropClassIndexTest.class,
-    SQLDropSchemaPropertyIndexTest.class
+    SQLDropSchemaPropertyIndexTest.class,
+    // Index (part 2)
+    SchemaIndexTest.class,
+    ClassIndexTest.class,
+    SchemaPropertyIndexTest.class,
+    CollectionIndexTest.class,
+    IndexTxAwareOneValueGetValuesTest.class,
+    IndexTxAwareMultiValueGetValuesTest.class,
+    IndexTxAwareMultiValueGetTest.class,
+    IndexTxAwareOneValueGetTest.class,
+    IndexTxAwareMultiValueGetEntriesTest.class,
+    IndexTxAwareOneValueGetEntriesTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

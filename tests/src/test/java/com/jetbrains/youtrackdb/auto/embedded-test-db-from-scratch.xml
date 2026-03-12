@@ -62,17 +62,16 @@
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropClassIndexTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropSchemaPropertyIndexTest -->
 
-      <class name="com.jetbrains.youtrackdb.auto.SchemaIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ClassIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SchemaPropertyIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.CollectionIndexTest"/>
-
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetValuesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetEntriesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SchemaIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ClassIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SchemaPropertyIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.CollectionIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareOneValueGetValuesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareMultiValueGetValuesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareMultiValueGetTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareOneValueGetTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareMultiValueGetEntriesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxAwareOneValueGetEntriesTest -->
       <class name="com.jetbrains.youtrackdb.auto.MapIndexTest"/>
       <class
         name="com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest"/>
