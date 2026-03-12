@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -417,5 +418,202 @@ public class OrderByStepTest extends DbTestBase {
     for (var i = 0; i < 5; i++) {
       Assert.assertEquals(i + 1, (int) results.get(i).getProperty("val"));
     }
+  }
+
+  // ── Stream close() verification ──
+
+  private record TrackingUpstreamResult(
+      AbstractExecutionStep step, AtomicBoolean streamClosed) {
+  }
+
+  private TrackingUpstreamResult trackingUpstream(CommandContext ctx, List<Result> rows) {
+    var closed = new AtomicBoolean(false);
+    var step = new AbstractExecutionStep(ctx, false) {
+      boolean done = false;
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        if (done) {
+          return ExecutionStream.empty();
+        }
+        done = true;
+        var inner = ExecutionStream.resultIterator(new ArrayList<>(rows).iterator());
+        return new ExecutionStream() {
+          @Override
+          public boolean hasNext(CommandContext c) {
+            return inner.hasNext(c);
+          }
+
+          @Override
+          public Result next(CommandContext c) {
+            return inner.next(c);
+          }
+
+          @Override
+          public void close(CommandContext c) {
+            closed.set(true);
+            inner.close(c);
+          }
+        };
+      }
+    };
+    return new TrackingUpstreamResult(step, closed);
+  }
+
+  @Test
+  public void boundedHeap_maxResultsZero_closesUpstream() {
+    var ctx = ctx();
+    var tracking = trackingUpstream(ctx, makeRows(ctx, 5, 3, 1));
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 0, ctx, -1, false);
+    step.setPrevious(tracking.step());
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertTrue(results.isEmpty());
+    Assert.assertTrue("Upstream stream should be closed when maxResults=0",
+        tracking.streamClosed().get());
+  }
+
+  @Test
+  public void boundedHeap_closesUpstreamOnCompletion() {
+    var ctx = ctx();
+    var tracking = trackingUpstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2));
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 3, ctx, -1, false);
+    step.setPrevious(tracking.step());
+
+    collect(step.start(ctx), ctx);
+    Assert.assertTrue("Upstream stream should be closed after bounded heap completes",
+        tracking.streamClosed().get());
+  }
+
+  @Test
+  public void unbounded_closesUpstreamOnCompletion() {
+    var ctx = ctx();
+    var tracking = trackingUpstream(ctx, makeRows(ctx, 3, 1, 2));
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, -1, false);
+    step.setPrevious(tracking.step());
+
+    collect(step.start(ctx), ctx);
+    Assert.assertTrue("Upstream stream should be closed after unbounded sort completes",
+        tracking.streamClosed().get());
+  }
+
+  // ── Timeout tests ──
+
+  private AbstractExecutionStep timeoutAwareUpstream(
+      CommandContext ctx, List<Result> rows, long delayPerNextMs) {
+    return new AbstractExecutionStep(ctx, false) {
+      boolean done = false;
+
+      @Override
+      public ExecutionStep copy(CommandContext ctx) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void sendTimeout() {
+        throw new TimeoutException("test timeout");
+      }
+
+      @SuppressWarnings("BusyWait")
+      @Override
+      public ExecutionStream internalStart(CommandContext ctx) {
+        try {
+          Thread.sleep(2);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        if (done) {
+          return ExecutionStream.empty();
+        }
+        done = true;
+        var iter = new ArrayList<>(rows).iterator();
+        return new ExecutionStream() {
+          @Override
+          public boolean hasNext(CommandContext c) {
+            return iter.hasNext();
+          }
+
+          @SuppressWarnings("BusyWait")
+          @Override
+          public Result next(CommandContext c) {
+            if (delayPerNextMs > 0) {
+              try {
+                Thread.sleep(delayPerNextMs);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+            }
+            return iter.next();
+          }
+
+          @Override
+          public void close(CommandContext c) {
+          }
+        };
+      }
+    };
+  }
+
+  @Test
+  public void boundedHeap_timeoutZero_noTimeout() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 3, ctx, 0, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2), 0));
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(3, results.size());
+  }
+
+  @Test
+  public void boundedHeap_largeTimeout_completesNormally() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 3, ctx, 60_000, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2), 0));
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(3, results.size());
+  }
+
+  @Test(expected = TimeoutException.class)
+  public void boundedHeap_shortTimeout_triggersTimeout() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), 5, ctx, 1, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 5, 3, 1, 4, 2), 100));
+
+    collect(step.start(ctx), ctx);
+  }
+
+  @Test
+  public void unbounded_timeoutZero_noTimeout() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, 0, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 3, 1, 2), 0));
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(3, results.size());
+  }
+
+  @Test
+  public void unbounded_largeTimeout_completesNormally() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, 60_000, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 3, 1, 2), 0));
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(3, results.size());
+  }
+
+  @Test(expected = TimeoutException.class)
+  public void unbounded_shortTimeout_triggersTimeout() {
+    var ctx = ctx();
+    var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), null, ctx, 1, false);
+    step.setPrevious(timeoutAwareUpstream(ctx, makeRows(ctx, 3, 1, 2), 100));
+
+    collect(step.start(ctx), ctx);
   }
 }

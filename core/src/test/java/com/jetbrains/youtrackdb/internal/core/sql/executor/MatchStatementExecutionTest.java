@@ -3421,4 +3421,25 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Verifies that LIMIT 0 causes the planner to pass maxResults=0 to OrderByStep
+   * (visible as "buffer size: 0" in EXPLAIN), which triggers an immediate empty
+   * return without creating a heap or sorting. Without this, LIMIT 0 would fall
+   * back to unbounded sorting of all rows before LimitStep discards them.
+   */
+  @Test
+  public void testExplainReturnElementsOrderByLimitZeroUsesMaxResults() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 0")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should pass maxResults=0 to OrderByStep (buffer size: 0)",
+        plan.contains("buffer size: 0"));
+    session.commit();
+  }
+
 }
