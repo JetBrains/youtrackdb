@@ -6853,4 +6853,111 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  // ── IC3-style: conditional aggregation with graph traversal inside if() ──
+
+  /**
+   * IC3-style pattern: conditional aggregation using if() with graph traversal
+   * inside the condition. This is the key pattern that YTDB-586 unblocks:
+   * instead of two separate subqueries scanning the same record set (one per
+   * country), a single scan uses sum(if(traversal condition, 1, 0)) to count
+   * matches for both countries simultaneously.
+   *
+   * Schema: Person -[IS_LOCATED_IN]-> City -[IS_PART_OF]-> Country
+   *         Person <-[HAS_CREATOR]- Message
+   *
+   * The query counts how many messages were created by people located in
+   * each of two countries, using a single scan with two conditional sums.
+   */
+  @Test
+  public void testConditionalAggregationWithGraphTraversal() {
+    session.execute("CREATE CLASS IC3Country IF NOT EXISTS EXTENDS V").close();
+    session.execute("CREATE CLASS IC3City IF NOT EXISTS EXTENDS V").close();
+    session.execute("CREATE CLASS IC3Person IF NOT EXISTS EXTENDS V").close();
+    session.execute("CREATE CLASS IC3Message IF NOT EXISTS EXTENDS V").close();
+    session.execute("CREATE CLASS IC3IsPartOf IF NOT EXISTS EXTENDS E").close();
+    session.execute("CREATE CLASS IC3IsLocatedIn IF NOT EXISTS EXTENDS E").close();
+    session.execute("CREATE CLASS IC3HasCreator IF NOT EXISTS EXTENDS E").close();
+
+    // Build graph: 2 countries, 2 cities, 3 people, 9 messages
+    session.begin();
+    session.execute("CREATE VERTEX IC3Country SET name = 'USA'").close();
+    session.execute("CREATE VERTEX IC3Country SET name = 'UK'").close();
+    session.execute("CREATE VERTEX IC3City SET name = 'NYC'").close();
+    session.execute("CREATE VERTEX IC3City SET name = 'London'").close();
+
+    // Cities → Countries
+    session.execute(
+        "CREATE EDGE IC3IsPartOf FROM (SELECT FROM IC3City WHERE name = 'NYC')"
+            + " TO (SELECT FROM IC3Country WHERE name = 'USA')")
+        .close();
+    session.execute(
+        "CREATE EDGE IC3IsPartOf FROM (SELECT FROM IC3City WHERE name = 'London')"
+            + " TO (SELECT FROM IC3Country WHERE name = 'UK')")
+        .close();
+
+    // People → Cities
+    session.execute("CREATE VERTEX IC3Person SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX IC3Person SET name = 'Bob'").close();
+    session.execute("CREATE VERTEX IC3Person SET name = 'Charlie'").close();
+    session.execute(
+        "CREATE EDGE IC3IsLocatedIn FROM (SELECT FROM IC3Person WHERE name = 'Alice')"
+            + " TO (SELECT FROM IC3City WHERE name = 'NYC')")
+        .close();
+    session.execute(
+        "CREATE EDGE IC3IsLocatedIn FROM (SELECT FROM IC3Person WHERE name = 'Bob')"
+            + " TO (SELECT FROM IC3City WHERE name = 'NYC')")
+        .close();
+    session.execute(
+        "CREATE EDGE IC3IsLocatedIn FROM (SELECT FROM IC3Person WHERE name = 'Charlie')"
+            + " TO (SELECT FROM IC3City WHERE name = 'London')")
+        .close();
+
+    // Messages → People (Alice: 3, Bob: 2, Charlie: 4)
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX IC3Message SET text = 'alice-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC3HasCreator FROM (SELECT FROM IC3Message WHERE text = 'alice-" + i
+              + "') TO (SELECT FROM IC3Person WHERE name = 'Alice')")
+          .close();
+    }
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX IC3Message SET text = 'bob-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC3HasCreator FROM (SELECT FROM IC3Message WHERE text = 'bob-" + i
+              + "') TO (SELECT FROM IC3Person WHERE name = 'Bob')")
+          .close();
+    }
+    for (var i = 0; i < 4; i++) {
+      session.execute("CREATE VERTEX IC3Message SET text = 'charlie-" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC3HasCreator FROM (SELECT FROM IC3Message WHERE text = 'charlie-" + i
+              + "') TO (SELECT FROM IC3Person WHERE name = 'Charlie')")
+          .close();
+    }
+    session.commit();
+
+    // IC3-style query: single scan with conditional aggregation.
+    // For each message, traverse to creator's country via graph edges,
+    // and count conditionally with sum(if(traversal CONTAINS country, 1, 0)).
+    // This replaces two separate subqueries that each scan the same set.
+    session.begin();
+    var result = session.query(
+        "SELECT"
+            + " sum(if(out('IC3HasCreator').out('IC3IsLocatedIn')"
+            + "   .out('IC3IsPartOf').name CONTAINS 'USA', 1, 0)) as usaCount,"
+            + " sum(if(out('IC3HasCreator').out('IC3IsLocatedIn')"
+            + "   .out('IC3IsPartOf').name CONTAINS 'UK', 1, 0)) as ukCount"
+            + " FROM IC3Message");
+    printExecutionPlan(result);
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    // Alice(3) + Bob(2) = 5 messages from USA people
+    Assert.assertEquals(5, ((Number) item.getProperty("usaCount")).intValue());
+    // Charlie = 4 messages from UK person
+    Assert.assertEquals(4, ((Number) item.getProperty("ukCount")).intValue());
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
 }
