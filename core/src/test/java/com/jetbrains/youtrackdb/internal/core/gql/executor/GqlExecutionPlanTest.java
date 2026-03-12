@@ -1,12 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -295,6 +301,43 @@ public class GqlExecutionPlanTest extends GraphBaseTest {
     } finally {
       tx.commit();
     }
+  }
+
+  // ── SqlStreamAdapter: close delegates to underlying SQL stream ──
+
+  @Test
+  public void sqlStreamAdapter_close_delegatesToSqlStream() {
+    var sqlStream = mock(ExecutionStream.class);
+    var ctx = mock(CommandContext.class);
+
+    var adapter = new GqlExecutionPlan.SqlStreamAdapter(sqlStream, ctx);
+    adapter.close();
+
+    verify(sqlStream).close(ctx);
+  }
+
+  @Test
+  public void sqlStreamAdapter_hasNext_whenExhausted_closesSqlStream() {
+    var sqlStream = mock(ExecutionStream.class);
+    var ctx = mock(CommandContext.class);
+    when(sqlStream.hasNext(ctx)).thenReturn(false);
+
+    var adapter = new GqlExecutionPlan.SqlStreamAdapter(sqlStream, ctx);
+    Assert.assertFalse(adapter.hasNext());
+
+    verify(sqlStream).close(ctx);
+  }
+
+  @Test
+  public void sqlStreamAdapter_close_idempotent_closesOnlyOnce() {
+    var sqlStream = mock(ExecutionStream.class);
+    var ctx = mock(CommandContext.class);
+
+    var adapter = new GqlExecutionPlan.SqlStreamAdapter(sqlStream, ctx);
+    adapter.close();
+    adapter.close();
+
+    verify(sqlStream, org.mockito.Mockito.times(1)).close(ctx);
   }
 
   // ── Helper ──
