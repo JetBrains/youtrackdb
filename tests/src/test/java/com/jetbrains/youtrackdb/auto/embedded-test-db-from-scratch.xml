@@ -85,26 +85,26 @@
   </test>
   <test name="Query">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.WrongQueryTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.BetweenConversionTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.PreparedStatementTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.QueryLocalCacheIntegrationTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.PolymorphicQueryTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.WrongQueryTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.BetweenConversionTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.PreparedStatementTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.QueryLocalCacheIntegrationTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.PolymorphicQueryTest -->
     </classes>
   </test>
   <test name="Parsing">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.JSONTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.JSONTest -->
     </classes>
   </test>
   <test name="Graph">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.GraphDatabaseTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.GraphDatabaseTest -->
     </classes>
   </test>
   <test name="GEO">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.GEOTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.GEOTest -->
     </classes>
   </test>
   <test name="Index Manager">

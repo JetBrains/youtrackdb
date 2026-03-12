@@ -79,7 +79,19 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     // Index (part 4) + Index Manager
     LinkSetIndexTest.class,
     CompositeIndexWithNullTest.class,
-    IndexManagerTest.class
+    IndexManagerTest.class,
+    // Query
+    WrongQueryTest.class,
+    BetweenConversionTest.class,
+    PreparedStatementTest.class,
+    QueryLocalCacheIntegrationTest.class,
+    PolymorphicQueryTest.class,
+    // Parsing
+    JSONTest.class,
+    // Graph
+    GraphDatabaseTest.class,
+    // GEO
+    GEOTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

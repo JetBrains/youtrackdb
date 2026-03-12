@@ -631,7 +631,7 @@ public class EmbeddedTestSuite {
 | 8 | Index part 2 | 10 | COMPLETED | 6fe126e65a | 2026-03-12 | SchemaIndexTest, ClassIndexTest, SchemaPropertyIndexTest, CollectionIndexTest, 6 IndexTxAware* tests + IndexTxAwareBaseJUnit5Test; fixed testIsIndexedNonIndexedField ordering |
 | 9 | Index part 3 | 7 | COMPLETED | 04e4bfb001 | 2026-03-12 | MapIndexTest, SQLSelectByLinkedSchemaPropertyIndexReuseTest (@Disabled), LinkListIndexTest, LinkBagIndexTest, LinkMapIndexTest, IndexTxTest, OrderByIndexReuseTest |
 | 10 | Index part 4 + IndexManager | 3 | COMPLETED | 57ed3be25e | 2026-03-12 | LinkSetIndexTest, CompositeIndexWithNullTest, IndexManagerTest |
-| 11 | Query + Parsing + Graph + GEO + Binary | 8 | NOT STARTED | — | — | WrongQueryTest → GEOTest |
+| 11 | Query + Parsing + Graph + GEO | 8 | COMPLETED | f2a77c0d07 | 2026-03-12 | WrongQueryTest, BetweenConversionTest, PreparedStatementTest, QueryLocalCacheIntegrationTest, PolymorphicQueryTest, JSONTest, GraphDatabaseTest, GEOTest; PolymorphicQueryTest needs @Order to avoid query optimizer bug; GraphDatabaseTest creates 'owns' edge class early for @Order compatibility |
 | 12 | SQL commands part 1 | 8 | NOT STARTED | — | — | SQLCommandsTest → SQLSelectGroupByTest + AbstractSelectTest |
 | 13 | SQL commands part 2 | 7 | NOT STARTED | — | — | SQLFunctionsTest → SQLCombinationFunctionTests |
 | 14 | Misc group | 13 | NOT STARTED | — | — | TruncateClassTest → SQLDBSequenceTest + LinkBagTest (abstract) |
