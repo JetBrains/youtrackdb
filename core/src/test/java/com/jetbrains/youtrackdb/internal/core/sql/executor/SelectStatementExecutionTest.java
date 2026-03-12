@@ -6159,6 +6159,42 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that count(*) WHERE field = value only uses CountFromIndexWithKeyStep
+   * when the index field matches the WHERE field. Here the only index is on 'age'
+   * but the WHERE clause filters by 'name', so the planner must NOT use the index
+   * and should fall back to the standard count path.
+   */
+  @Test
+  public void testCountStarWithWhereDoesNotUseMismatchedIndex() {
+    var className = "testCountStarMismatchedIdx";
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("age", PropertyType.INTEGER);
+    clazz.createIndex(className + ".age", INDEX_TYPE.NOTUNIQUE, "age");
+
+    session.begin();
+    for (var i = 0; i < 3; i++) {
+      var e = session.newEntity(className);
+      e.setProperty("name", "alice");
+      e.setProperty("age", 20 + i);
+    }
+    var e2 = session.newEntity(className);
+    e2.setProperty("name", "bob");
+    e2.setProperty("age", 40);
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "select count(*) from " + className + " where name = 'alice'");
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals(3L, (Object) row.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
    *  isCountStar() returns false for
    * a single-aggregate query that is NOT count(*), like max(name).
    */
@@ -6187,26 +6223,63 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Covers SelectExecutionPlanner lines 657-658: isCountOnly() filters out
-   * synthetic ORDER BY aliases so that count(*) with ORDER BY still triggers
-   * GuaranteeEmptyCountStep.
+   * Verifies that a simple SELECT count(*) FROM Class uses CountFromClassStep.
+   * If isCountStar() is broken (e.g. always returns false), the planner would
+   * use the slower aggregate scan path instead.
    */
   @Test
-  public void testCountStarWithOrderByUsesGuaranteeEmptyCount() {
-    var className = "testCountStarWithOrderByGuarantee";
-    var clazz = session.getMetadata().getSchema().createClass(className);
-    clazz.createProperty("name", PropertyType.STRING);
+  public void testCountStarUsesCountFromClassStep() {
+    var className = "testCountStarUsesCountFromClass";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var i = 0; i < 5; i++) {
+      session.newEntity(className).setProperty("val", i);
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query("select count(*) from " + className);
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals(5L, (Object) row.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertThat(plan.getSteps())
+        .anyMatch(step -> step instanceof CountFromClassStep);
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that SELECT count(*) FROM Class WHERE field = 'nonexistent'
+   * returns 1 row with count=0 (not an empty result set) and uses
+   * GuaranteeEmptyCountStep. The WHERE clause prevents hardwired
+   * CountFromClassStep (which already handles empty correctly), forcing the
+   * planner through the standard aggregate path where isCountOnly() must
+   * return true to add GuaranteeEmptyCountStep.
+   */
+  @Test
+  public void testCountStarWhereNoMatchReturnsZeroRow() {
+    var className = "testCountStarWhereNoMatch";
+    session.getMetadata().getSchema().createClass(className);
 
     session.begin();
     session.newEntity(className).setProperty("name", "alice");
-    session.newEntity(className).setProperty("name", "bob");
     session.commit();
 
     session.begin();
     var result = session.query(
-        "select count(*) from " + className + " group by name order by name");
-    var results = result.stream().toList();
-    Assert.assertEquals(2, results.size());
+        "select count(*) from " + className + " where name = 'nonexistent'");
+    Assert.assertTrue("count(*) with no matches should return 1 row", result.hasNext());
+    var row = result.next();
+    Assert.assertEquals(0L, (Object) row.getProperty("count(*)"));
+    Assert.assertFalse(result.hasNext());
+
+    var plan = (SelectExecutionPlan) result.getExecutionPlan();
+    assertThat(plan.getSteps())
+        .anyMatch(step -> step instanceof GuaranteeEmptyCountStep);
     result.close();
     session.commit();
   }
