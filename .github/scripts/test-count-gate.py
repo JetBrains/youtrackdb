@@ -138,6 +138,18 @@ def generate_markdown(results, baseline_total, current_total,
     return md, all_passed
 
 
+def write_markdown_report(path, content):
+    """Write report content to a file, creating parent dirs if needed."""
+    if not path:
+        return
+    out_dir = os.path.dirname(path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    with open(path, "w") as f:
+        f.write(content)
+    print(f"Markdown report written to {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Test count gate: detect unintentional test removal"
@@ -174,16 +186,10 @@ def main():
     if args.skip:
         print("Test count gate bypassed — PR title contains "
               "[no-test-number-check].")
-        if args.output_md:
-            md, _ = generate_markdown(
-                [], 0, 0, args.tolerance, skipped=True
-            )
-            out_dir = os.path.dirname(args.output_md)
-            if out_dir:
-                os.makedirs(out_dir, exist_ok=True)
-            with open(args.output_md, "w") as f:
-                f.write(md)
-            print(f"Markdown report written to {args.output_md}")
+        md, _ = generate_markdown(
+            [], 0, 0, args.tolerance, skipped=True
+        )
+        write_markdown_report(args.output_md, md)
         return
 
     baseline = load_counts(args.baseline)
@@ -198,18 +204,13 @@ def main():
             "No baseline found (first run or empty git note). "
             "Skipping test count gate."
         )
-        if args.output_md:
-            out_dir = os.path.dirname(args.output_md)
-            if out_dir:
-                os.makedirs(out_dir, exist_ok=True)
-            with open(args.output_md, "w") as f:
-                f.write(
-                    "<!-- test-count-gate-comment -->\n"
-                    "# Test Count Gate Results\n\n"
-                    ":white_check_mark: No baseline available yet — "
-                    "gate skipped (first run).\n"
-                )
-            print(f"Markdown report written to {args.output_md}")
+        write_markdown_report(
+            args.output_md,
+            "<!-- test-count-gate-comment -->\n"
+            "# Test Count Gate Results\n\n"
+            ":white_check_mark: No baseline available yet — "
+            "gate skipped (first run).\n",
+        )
         return
 
     results = check_counts(baseline, current, args.tolerance)
@@ -218,13 +219,7 @@ def main():
         args.tolerance, skipped=False,
     )
 
-    if args.output_md:
-        out_dir = os.path.dirname(args.output_md)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-        with open(args.output_md, "w") as f:
-            f.write(md)
-        print(f"Markdown report written to {args.output_md}")
+    write_markdown_report(args.output_md, md)
 
     # Console summary
     print(f"Test counts: {current_total} (baseline: {baseline_total})")
