@@ -127,13 +127,13 @@
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLMetadataTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectProjectionsTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectGroupByTest -->
-      <class name="com.jetbrains.youtrackdb.auto.SQLFunctionsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLUpdateTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDeleteTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCreateVertexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLBatchTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLFunctionsTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLUpdateTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDeleteTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCreateVertexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDeleteEdgeTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLBatchTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCombinationFunctionTests -->
     </classes>
   </test>
   <test name="other-commands">

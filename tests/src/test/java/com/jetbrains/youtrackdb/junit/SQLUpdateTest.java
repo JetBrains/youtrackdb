@@ -1,0 +1,901 @@
+/*
+ *
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.jetbrains.youtrackdb.junit;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+
+/**
+ * If some of the tests start to fail then check collection number in queries, e.g #7:1. It can be
+ * because the order of collections could be affected due to adding or removing collection from
+ * storage.
+ */
+class SQLUpdateTest extends BaseDBJUnit5Test {
+
+  private long updatedRecords;
+
+  @BeforeAll
+  void setUpData() {
+    generateProfiles();
+    generateCompanyData();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWhereOperator
+  @Test
+  @Order(1)
+  void updateWithWhereOperator() {
+
+    session.begin();
+    var positions = getAddressValidPositions();
+
+    var records =
+        session.execute(
+            "update Profile set salary = 120.30, location = "
+                + positions.get(2)
+                + ", salary_cloned = salary where surname = 'Obama'");
+
+    assertEquals(3, ((Number) records.next().getProperty("count")).intValue());
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWhereRid
+  @Test
+  @Order(2)
+  void updateWithWhereRid() {
+
+    session.begin();
+    var result =
+        session.execute("select @rid as rid from Profile where surname = 'Obama'").stream()
+            .toList();
+
+    assertEquals(3, result.size());
+    session.commit();
+
+    session.begin();
+    var records =
+        session.execute(
+            "update Profile set salary = 133.00 where @rid = ?",
+            result.get(0).<Object>getProperty("rid"));
+
+    assertEquals(1, ((Number) records.next().getProperty("count")).intValue());
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateUpsertOperator
+  @Test
+  @Order(3)
+  void updateUpsertOperator() {
+
+    session.begin();
+    var result =
+        session.execute(
+            "UPDATE Profile SET surname='Merkel' RETURN AFTER where surname = 'Merkel'");
+    session.commit();
+    assertEquals(0, result.stream().count());
+
+    session.begin();
+    result =
+        session.execute(
+            "UPDATE Profile SET surname='Merkel' UPSERT RETURN AFTER  where surname = 'Merkel'");
+    assertEquals(1, result.stream().count());
+    session.commit();
+
+    session.begin();
+    result = session.execute("SELECT FROM Profile  where surname = 'Merkel'");
+    assertEquals(1, result.stream().count());
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsAddWithWhereOperator
+  @Test
+  @Order(4)
+  void updateCollectionsAddWithWhereOperator() {
+    session.begin();
+    var positions = getAddressValidPositions();
+    updatedRecords =
+        session
+            .execute("update Account set addresses = addresses || " + positions.get(0))
+            .next()
+            .getProperty("count");
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsRemoveWithWhereOperator
+  @Test
+  @Order(5)
+  void updateCollectionsRemoveWithWhereOperator() {
+    session.begin();
+    var positions = getAddressValidPositions();
+    final long records =
+        session
+            .execute("update Account remove addresses = " + positions.get(0))
+            .next()
+            .getProperty("count");
+
+    assertEquals(updatedRecords, records);
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateCollectionsWithSetOperator
+  @Test
+  @Order(6)
+  void updateCollectionsWithSetOperator() {
+
+    session.begin();
+    var docs = session.query("select from Account").stream().toList();
+
+    var positions = getAddressValidPositions();
+    session.commit();
+
+    for (var doc : docs) {
+
+      var tx = session.begin();
+      doc = tx.load(doc.getIdentity());
+      final long records =
+          session
+              .execute(
+                  "update Account set addresses = ["
+                      + positions.get(0)
+                      + ","
+                      + positions.get(1)
+                      + ","
+                      + positions.get(2)
+                      + "] where @rid = "
+                      + doc.getIdentity())
+              .next()
+              .getProperty("count");
+      assertEquals(1, records);
+
+      EntityImpl loadedDoc = session.load(doc.getIdentity());
+      assertEquals(3, ((List<?>) loadedDoc.getProperty("addresses")).size());
+      assertEquals(
+          positions.get(0),
+          ((Identifiable) ((List<?>) loadedDoc.getProperty("addresses")).get(0)).getIdentity());
+      loadedDoc.setProperty("addresses", doc.getProperty("addresses"));
+
+      var activeTx = session.getActiveTransaction();
+      activeTx.load(loadedDoc);
+      session.commit();
+    }
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateMapsWithSetOperator
+  @Test
+  @Order(7)
+  void updateMapsWithSetOperator() {
+
+    session.begin();
+    var element =
+        session
+            .execute(
+                "insert into O (equaledges, name, properties) values ('no',"
+                    + " 'circleUpdate', {'round':'eeee', 'blaaa':'zigzag'} )")
+            .next()
+            .asEntityOrNull();
+
+    assertNotNull(element);
+
+    long records =
+        session
+            .execute(
+                "update "
+                    + element.getIdentity()
+                    + " set properties = {'roundOne':'ffff',"
+                    + " 'bla':'zagzig','testTestTEST':'okOkOK'}")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertEquals(1, records);
+
+    session.begin();
+    Entity loadedElement = session.load(element.getIdentity());
+
+    assertInstanceOf(Map.class, loadedElement.getProperty("properties"));
+
+    Map<Object, Object> entries = loadedElement.getProperty("properties");
+    assertEquals(3, entries.size());
+
+    assertNull(entries.get("round"));
+    assertNull(entries.get("blaaa"));
+
+    assertEquals("ffff", entries.get("roundOne"));
+    assertEquals("zagzig", entries.get("bla"));
+    assertEquals("okOkOK", entries.get("testTestTEST"));
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateAllOperator
+  @Test
+  @Order(8)
+  void updateAllOperator() {
+
+    session.begin();
+    var total = session.countClass("Profile");
+    session.rollback();
+
+    session.begin();
+    Long records = session.execute("update Profile set sex = 'male'").next().getProperty("count");
+    session.commit();
+
+    assertEquals((int) total, records.intValue());
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWildcards
+  @Test
+  @Order(9)
+  void updateWithWildcards() {
+
+    session.begin();
+    long updated =
+        session
+            .execute("update Profile set sex = ? where sex = 'male' limit 1", "male")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertEquals(1, updated);
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithWildcardsOnSetAndWhere
+  @Test
+  @Order(10)
+  void updateWithWildcardsOnSetAndWhere() {
+
+    session.createClassIfNotExist("Person");
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Person"));
+    doc.setProperty("name", "Raf");
+    doc.setProperty("city", "Torino");
+    doc.setProperty("gender", "fmale");
+
+    session.commit();
+
+    checkUpdatedDoc(session, "Torino", "fmale");
+
+    /* THESE COMMANDS ARE OK */
+    session.begin();
+    session.execute("update Person set gender = 'female' where name = 'Raf'", "Raf");
+    session.commit();
+
+    checkUpdatedDoc(session, "Torino", "female");
+
+    session.begin();
+    session.execute("update Person set city = 'Turin' where name = ?", "Raf");
+    session.commit();
+
+    checkUpdatedDoc(session, "Turin", "female");
+
+    session.begin();
+    session.execute("update Person set gender = ? where name = 'Raf'", "F");
+    session.commit();
+
+    checkUpdatedDoc(session, "Turin", "F");
+
+    session.begin();
+    session.execute(
+        "update Person set gender = ?, city = ? where name = 'Raf'", "FEMALE", "TORINO");
+    session.commit();
+
+    checkUpdatedDoc(session, "TORINO", "FEMALE");
+
+    session.begin();
+    session.execute("update Person set gender = ? where name = ?", "f", "Raf");
+    session.commit();
+
+    checkUpdatedDoc(session, "TORINO", "f");
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithReturn
+  @Test
+  @Order(11)
+  void updateWithReturn() {
+    session.createClassIfNotExist("Data");
+
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Data"));
+    doc.setProperty("name", "Pawel");
+    doc.setProperty("city", "Wroclaw");
+    doc.setProperty("really_big_field", "BIIIIIIIIIIIIIIIGGGGGGG!!!");
+
+    session.commit();
+
+    // check AFTER
+    var sqlString = "UPDATE " + doc.getIdentity() + " SET gender='male' RETURN AFTER";
+    session.begin();
+    var result1 = session.execute(sqlString).stream().toList();
+    assertEquals(1, result1.size());
+    assertEquals(doc.getIdentity(), result1.get(0).getIdentity());
+    assertEquals("male", result1.get(0).getProperty("gender"));
+    session.commit();
+
+    session.begin();
+    sqlString =
+        "UPDATE " + doc.getIdentity() + " set Age = 101 RETURN AFTER $current.Age";
+    result1 = session.execute(sqlString).stream().toList();
+
+    assertEquals(1, result1.size());
+    assertTrue(result1.get(0).hasProperty("$current.Age"));
+    assertEquals(101, result1.get(0).<Object>getProperty("$current.Age"));
+    // check exclude + WHERE + LIMIT
+    session.commit();
+
+    session.begin();
+    sqlString =
+        "UPDATE "
+            + doc.getIdentity()
+            + " set Age = Age + 100 RETURN AFTER $current.Exclude('really_big_field') as res WHERE"
+            + " Age=101 LIMIT 1";
+    result1 = session.execute(sqlString).stream().toList();
+
+    assertEquals(1, result1.size());
+    var element = result1.get(0).<Result>getProperty("res");
+    assertTrue(element.hasProperty("Age"));
+    assertEquals(201, element.<Integer>getProperty("Age"));
+    assertFalse(element.hasProperty("really_big_field"));
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateWithNamedParameters
+  @Test
+  @Order(12)
+  void updateWithNamedParameters() {
+
+    session.createClassIfNotExist("Data");
+
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Data"));
+
+    doc.setProperty("name", "Raf");
+    doc.setProperty("city", "Torino");
+    doc.setProperty("gender", "fmale");
+
+    session.commit();
+
+    var updatecommand = "update Data set gender = :gender , city = :city where name = :name";
+    Map<String, Object> params = new HashMap<String, Object>();
+    params.put("gender", "f");
+    params.put("city", "TOR");
+    params.put("name", "Raf");
+
+    session.begin();
+    session.execute(updatecommand, params);
+    session.commit();
+
+    var result = session.query("select * from Data");
+    var oDoc = result.next();
+    assertEquals("Raf", oDoc.getProperty("name"));
+    assertEquals("TOR", oDoc.getProperty("city"));
+    assertEquals("f", oDoc.getProperty("gender"));
+    result.close();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateIncrement
+  @Test
+  @Order(13)
+  void updateIncrement() {
+
+    session.begin();
+    var result1 =
+        session.query("select salary from Account where salary is defined").stream().toList();
+    assertFalse(result1.isEmpty());
+    session.commit();
+
+    session.begin();
+    updatedRecords =
+        session
+            .execute("update Account set salary += 10 where salary is defined")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertTrue(updatedRecords > 0);
+
+    session.begin();
+    var result2 =
+        session.query("select salary from Account where salary is defined").stream().toList();
+    assertFalse(result2.isEmpty());
+    assertEquals(result1.size(), result2.size());
+
+    for (var i = 0; i < result1.size(); ++i) {
+      float salary1 = result1.get(i).getProperty("salary");
+      float salary2 = result2.get(i).getProperty("salary");
+      assertEquals(salary1 + 10, salary2);
+    }
+    session.commit();
+
+    session.begin();
+    updatedRecords =
+        session
+            .execute("update Account set salary -= 10 where salary is defined")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertTrue(updatedRecords > 0);
+
+    session.begin();
+    var result3 =
+        session.execute("select salary from Account where salary is defined").stream().toList();
+    assertFalse(result3.isEmpty());
+    assertEquals(result1.size(), result3.size());
+
+    for (var i = 0; i < result1.size(); ++i) {
+      float salary1 = result1.get(i).getProperty("salary");
+      float salary3 = result3.get(i).getProperty("salary");
+      assertEquals(salary1, salary3);
+    }
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateSetMultipleFields
+  @Test
+  @Order(14)
+  void updateSetMultipleFields() {
+
+    session.begin();
+    var result1 =
+        session.query("select salary from Account where salary is defined").stream().toList();
+    assertFalse(result1.isEmpty());
+    session.commit();
+
+    session.begin();
+    updatedRecords =
+        session
+            .execute(
+                "update Account set salary2 = salary, checkpoint = true where salary is defined")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertTrue(updatedRecords > 0);
+
+    session.begin();
+    var result2 =
+        session.query("select from Account where salary is defined").stream().toList();
+    assertFalse(result2.isEmpty());
+    assertEquals(result1.size(), result2.size());
+
+    for (var i = 0; i < result1.size(); ++i) {
+      float salary1 = result1.get(i).getProperty("salary");
+      float salary2 = result2.get(i).getProperty("salary2");
+      assertEquals(salary1, salary2);
+      assertEquals(true, result2.get(i).<Object>getProperty("checkpoint"));
+    }
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#updateAddMultipleFields
+  @Test
+  @Order(15)
+  void updateAddMultipleFields() {
+
+    session.begin();
+    updatedRecords =
+        session
+            .execute("update Account set myCollection = myCollection || [1,2] limit 1")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertTrue(updatedRecords > 0);
+
+    session.begin();
+    var result2 =
+        session.execute("select from Account where myCollection is defined").stream().toList();
+    assertEquals(1, result2.size());
+
+    Collection<Object> myCollection = result2.iterator().next().getProperty("myCollection");
+
+    assertTrue(myCollection.containsAll(Arrays.asList(1, 2)));
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testEscaping
+  // Original used: @Test(enabled = false)
+  @Test
+  @Order(16)
+  @Disabled("Disabled in original TestNG test")
+  void testEscaping() {
+    final Schema schema = session.getMetadata().getSchema();
+    schema.createClass("FormatEscapingTest");
+
+    session.begin();
+    var document = ((EntityImpl) session.newEntity("FormatEscapingTest"));
+
+    session.commit();
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = format('aaa \\' bbb') WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx6 = session.getActiveTransaction();
+    document = activeTx6.load(document);
+    assertEquals("aaa ' bbb", document.getProperty("test"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'ccc \\' eee', test2 = format('aaa \\' bbb')"
+                + " WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx5 = session.getActiveTransaction();
+    document = activeTx5.load(document);
+    assertEquals("ccc ' eee", document.getProperty("test"));
+    assertEquals("aaa ' bbb", document.getProperty("test2"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'aaa \\n bbb' WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx4 = session.getActiveTransaction();
+    document = activeTx4.load(document);
+    assertEquals("aaa \n bbb", document.getProperty("test"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'aaa \\r bbb' WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx3 = session.getActiveTransaction();
+    document = activeTx3.load(document);
+    assertEquals("aaa \r bbb", document.getProperty("test"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'aaa \\b bbb' WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx2 = session.getActiveTransaction();
+    document = activeTx2.load(document);
+    assertEquals("aaa \b bbb", document.getProperty("test"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'aaa \\t bbb' WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx1 = session.getActiveTransaction();
+    document = activeTx1.load(document);
+    assertEquals("aaa \t bbb", document.getProperty("test"));
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE FormatEscapingTest SET test = 'aaa \\f bbb' WHERE @rid = "
+                + document.getIdentity())
+        .close();
+    session.commit();
+
+    var activeTx = session.getActiveTransaction();
+    document = activeTx.load(document);
+    assertEquals("aaa \f bbb", document.getProperty("test"));
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testUpdateVertexContent
+  @Test
+  @Order(17)
+  void testUpdateVertexContent() {
+    final Schema schema = session.getMetadata().getSchema();
+    var vertex = schema.getClass("V");
+    schema.createClass("UpdateVertexContent", vertex);
+
+    session.begin();
+    final var vOneId = session.execute("create vertex UpdateVertexContent").next().getIdentity();
+    final var vTwoId = session.execute("create vertex UpdateVertexContent").next().getIdentity();
+
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge from " + vOneId + " to " + vTwoId).close();
+    session.commit();
+
+    session.begin();
+    var result =
+        session
+            .query("select sum(outE().size(), inE().size()) as sum from UpdateVertexContent")
+            .stream()
+            .collect(Collectors.toList());
+
+    assertEquals(2, result.size());
+
+    for (var doc : result) {
+      assertEquals(3, doc.getLong("sum"));
+    }
+
+    session.commit();
+    session.begin();
+    session
+        .execute("update UpdateVertexContent content {value : 'val'} where @rid = " + vOneId)
+        .close();
+    session
+        .execute("update UpdateVertexContent content {value : 'val'} where @rid =  " + vTwoId)
+        .close();
+    session.commit();
+
+    session.begin();
+    result =
+        session
+            .query("select sum(outE().size(), inE().size()) as sum from UpdateVertexContent")
+            .stream()
+            .collect(Collectors.toList());
+
+    assertEquals(2, result.size());
+
+    for (var doc : result) {
+      assertEquals(3, doc.getLong("sum"));
+    }
+    session.commit();
+
+    session.begin();
+    result =
+        session.query("select from UpdateVertexContent").stream().collect(Collectors.toList());
+    assertEquals(2, result.size());
+    for (var doc : result) {
+      assertEquals("val", doc.getProperty("value"));
+    }
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testUpdateEdgeContent
+  @Test
+  @Order(18)
+  void testUpdateEdgeContent() {
+    final Schema schema = session.getMetadata().getSchema();
+    var vertex = schema.getClass("V");
+    var edge = schema.getClass("E");
+
+    schema.createClass("UpdateEdgeContentV", vertex);
+    schema.createClass("UpdateEdgeContentE", edge);
+
+    session.begin();
+    final var vOneId = session.execute("create vertex UpdateEdgeContentV").next().getIdentity();
+    final var vTwoId = session.execute("create vertex UpdateEdgeContentV").next().getIdentity();
+
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
+    session.commit();
+
+    session.begin();
+    var rs = session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE");
+    var result =
+        rs.stream()
+            .collect(Collectors.toList());
+    rs.close();
+
+    assertEquals(3, result.size());
+
+    for (var doc : result) {
+      assertEquals(vOneId, doc.getProperty("outV"));
+      assertEquals(vTwoId, doc.getProperty("inV"));
+    }
+    session.commit();
+
+    session.begin();
+    session.execute("update UpdateEdgeContentE content {value : 'val'}").close();
+    session.commit();
+
+    session.begin();
+    result =
+        session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE").stream()
+            .collect(Collectors.toList());
+
+    assertEquals(3, result.size());
+
+    for (var doc : result) {
+      assertEquals(vOneId, doc.getProperty("outV"));
+      assertEquals(vTwoId, doc.getProperty("inV"));
+    }
+    session.commit();
+
+    session.begin();
+
+    result = session.query("select from UpdateEdgeContentE").stream().collect(Collectors.toList());
+    assertEquals(3, result.size());
+    for (var doc : result) {
+      assertEquals("val", doc.getProperty("value"));
+    }
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testMultiplePut
+  @Test
+  @Order(19)
+  void testMultiplePut() {
+    session.begin();
+    var v = session.newVertex();
+
+    session.commit();
+
+    session.begin();
+    Long records =
+        session
+            .execute(
+                "UPDATE"
+                    + v.getIdentity()
+                    + " SET embmap[\"test\"] = \"Luca\" ,embmap[\"test2\"]=\"Alex\"")
+            .next()
+            .getProperty("count");
+    session.commit();
+
+    assertEquals(1, records.intValue());
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    v = activeTx.load(v);
+    assertInstanceOf(Map.class, v.getProperty("embmap"));
+    assertEquals(2, ((Map) v.getProperty("embmap")).size());
+    session.rollback();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testAutoConversionOfEmbeddededListWithLinkedClass
+  @Test
+  @Order(20)
+  void testAutoConversionOfEmbeddededListWithLinkedClass() {
+    var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
+    var cc = session.getMetadata().getSchema().getClass("TestConvertLinkedClass");
+    if (cc == null) {
+      cc = session.getMetadata().getSchema().createAbstractClass("TestConvertLinkedClass");
+    }
+    if (!c.existsProperty("embeddedListWithLinkedClass")) {
+      c.createProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST, cc);
+    }
+
+    session.begin();
+    var id =
+        session
+            .execute(
+                "INSERT INTO TestConvert SET name = 'embeddedListWithLinkedClass',"
+                    + " embeddedListWithLinkedClass = [{'line1':'123 Fake Street'}]")
+            .next()
+            .getIdentity();
+
+    session
+        .execute(
+            "UPDATE "
+                + id
+                + " set embeddedListWithLinkedClass = embeddedListWithLinkedClass || [{'line1':'123"
+                + " Fake Street'}]")
+        .close();
+    session.commit();
+
+    session.begin();
+    Entity doc = session.load(id);
+
+    assertInstanceOf(List.class, doc.getProperty("embeddedListWithLinkedClass"));
+    assertEquals(2, ((Collection) doc.getProperty("embeddedListWithLinkedClass")).size());
+    session.commit();
+
+    session.begin();
+    session
+        .execute(
+            "UPDATE "
+                + doc.getIdentity()
+                + " set embeddedListWithLinkedClass =  embeddedListWithLinkedClass ||"
+                + " [{'line1':'123 Fake Street'}]")
+        .close();
+    session.commit();
+
+    var activeTx = session.begin();
+    doc = activeTx.load(doc);
+    assertInstanceOf(List.class, doc.getProperty("embeddedListWithLinkedClass"));
+    assertEquals(3, ((Collection) doc.getProperty("embeddedListWithLinkedClass")).size());
+
+    List addr = doc.getProperty("embeddedListWithLinkedClass");
+    for (var o : addr) {
+      assertInstanceOf(EntityImpl.class, o);
+      assertEquals("TestConvertLinkedClass", ((EntityImpl) o).getSchemaClassName());
+    }
+    session.commit();
+  }
+
+  // Migrated from: com.jetbrains.youtrackdb.auto.SQLUpdateTest#testPutListOfMaps
+  @Test
+  @Order(21)
+  void testPutListOfMaps() {
+    var className = "testPutListOfMaps";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    session.command(
+        "insert into " + className + " set list = [{\"xxx\":1},{\"zzz\":3},{\"yyy\":2}]");
+    session.command("UPDATE " + className + " set list = list || [{\"kkk\":4}]");
+    session.commit();
+
+    session.begin();
+    var result =
+        session.query("select from " + className).stream().collect(Collectors.toList());
+    assertEquals(1, result.size());
+    var doc = result.get(0);
+    List list = doc.getProperty("list");
+    assertEquals(4, list.size());
+    var fourth = list.get(3);
+
+    assertInstanceOf(Map.class, fourth);
+    assertEquals("kkk", ((Map) fourth).keySet().iterator().next());
+    assertEquals(4, ((Map) fourth).values().iterator().next());
+    session.commit();
+  }
+
+  private void checkUpdatedDoc(
+      DatabaseSessionEmbedded database, String expectedCity, String expectedGender) {
+    database.executeInTx(transaction -> {
+      var result = transaction.query("select * from Person where name = 'Raf'");
+      var oDoc = result.next();
+      assertEquals(expectedCity, oDoc.getProperty("city"));
+      assertEquals(expectedGender, oDoc.getProperty("gender"));
+    });
+  }
+
+  private List<RID> getAddressValidPositions() {
+    final List<RID> positions = new ArrayList<>();
+
+    final var iteratorClass = session.browseClass("Address");
+
+    for (var i = 0; i < 7; i++) {
+      if (!iteratorClass.hasNext()) {
+        break;
+      }
+      var doc = iteratorClass.next();
+      positions.add(doc.getIdentity());
+    }
+    return positions;
+  }
+}

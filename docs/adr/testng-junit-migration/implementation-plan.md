@@ -633,7 +633,7 @@ public class EmbeddedTestSuite {
 | 10 | Index part 4 + IndexManager | 3 | COMPLETED | 57ed3be25e | 2026-03-12 | LinkSetIndexTest, CompositeIndexWithNullTest, IndexManagerTest |
 | 11 | Query + Parsing + Graph + GEO | 8 | COMPLETED | f2a77c0d07 | 2026-03-12 | WrongQueryTest, BetweenConversionTest, PreparedStatementTest, QueryLocalCacheIntegrationTest, PolymorphicQueryTest, JSONTest, GraphDatabaseTest, GEOTest; PolymorphicQueryTest needs @Order to avoid query optimizer bug; GraphDatabaseTest creates 'owns' edge class early for @Order compatibility |
 | 12 | SQL commands part 1 | 8 | COMPLETED | 491c8693fc | 2026-03-12 | SQLCommandsTest, SQLCreateClassTest, SQLDropClassTest, SQLInsertTest, SQLSelectTest, SQLMetadataTest, SQLSelectProjectionsTest, SQLSelectGroupByTest + AbstractSelectJUnit5Test |
-| 13 | SQL commands part 2 | 7 | NOT STARTED | — | — | SQLFunctionsTest → SQLCombinationFunctionTests |
+| 13 | SQL commands part 2 | 7 | COMPLETED | 42279ccbdb | 2026-03-12 | SQLFunctionsTest, SQLUpdateTest, SQLDeleteTest, SQLCreateVertexTest, SQLDeleteEdgeTest, SQLBatchTest, SQLCombinationFunctionTests |
 | 14 | Misc group | 13 | NOT STARTED | — | — | TruncateClassTest → SQLDBSequenceTest + LinkBagTest (abstract) |
 | 15 | End + Import/Export | 5 | NOT STARTED | — | — | BinaryTest, DbImport*Tests, DbClosedTest |
 | 16 | Remove TestNG | ~120 deleted | NOT STARTED | — | — | Delete auto/ package, remove TestNG deps |

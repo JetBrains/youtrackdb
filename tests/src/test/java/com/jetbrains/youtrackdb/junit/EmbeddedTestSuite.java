@@ -100,7 +100,15 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SQLSelectTest.class,
     SQLMetadataTest.class,
     SQLSelectProjectionsTest.class,
-    SQLSelectGroupByTest.class
+    SQLSelectGroupByTest.class,
+    // SQL commands (part 2)
+    SQLFunctionsTest.class,
+    SQLUpdateTest.class,
+    SQLDeleteTest.class,
+    SQLCreateVertexTest.class,
+    SQLDeleteEdgeTest.class,
+    SQLBatchTest.class,
+    SQLCombinationFunctionTests.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {
