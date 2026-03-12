@@ -3,11 +3,11 @@
   <parameter name="remote" value="false"/>
   <test name="DbCreation">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.DbCreationTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DbListenerTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DBMethodsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.AlterDatabaseTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DbCopyTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbCreationTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbListenerTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DBMethodsTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.AlterDatabaseTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DbCopyTest -->
     </classes>
   </test>
   <test name="Schema">

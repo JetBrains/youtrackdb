@@ -588,7 +588,7 @@ public abstract class BaseDBJUnit5Test extends BaseJUnit5Test {
       }
     }
 
-    assertEquals(edge1, edge2);
+    assertEquals(edge2, edge1);
     session.commit();
   }
 

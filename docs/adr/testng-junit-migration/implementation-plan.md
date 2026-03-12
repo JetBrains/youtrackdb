@@ -621,7 +621,7 @@ public class EmbeddedTestSuite {
 | Step | Description | Classes | Status | Commit SHA | Agent Session | Notes |
 |------|-------------|---------|--------|------------|---------------|-------|
 | 0 | Infrastructure setup | 0 (5 new) | COMPLETED | ada669584b | 2026-03-12 | JUnit 5 deps, dual runner, base classes, extensions |
-| 1 | DbCreation group | 5 | NOT STARTED | — | — | DbCreationTest, DbListenerTest, DBMethodsTest, AlterDatabaseTest, DbCopyTest |
+| 1 | DbCreation group | 5 | COMPLETED | cb1b5bc662 | 2026-03-12 | DbCreationTest, DbListenerTest, DBMethodsTest, AlterDatabaseTest, DbCopyTest |
 | 2 | Schema group | 3 | NOT STARTED | — | — | SchemaTest, AbstractClassTest, DefaultValuesTrivialTest |
 | 3 | Security + Hook groups | 3 | NOT STARTED | — | — | SecurityTest, HookTxTest, HookOnIndexedMapTest |
 | 4 | Population part 1 | 4 | NOT STARTED | — | — | EntityTreeTest, CRUDTest, CRUDInheritanceTest, CRUDDocumentPhysicalTest |

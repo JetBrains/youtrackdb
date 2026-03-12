@@ -15,7 +15,13 @@ import org.junit.platform.suite.api.SuiteDisplayName;
  */
 @Suite
 @SelectClasses({
-    SmokeTest.class
+    SmokeTest.class,
+    // DbCreation
+    DbCreationTest.class,
+    DbListenerTest.class,
+    DBMethodsTest.class,
+    AlterDatabaseTest.class,
+    DbCopyTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {
