@@ -236,7 +236,6 @@ public class DurablePage {
    * the on-page key. On the hot path (no WAL changes), delegates to the serializer's in-buffer
    * comparison. Falls back to deserialization when WAL changes are present.
    */
-  @SuppressWarnings("unchecked")
   protected final <T> int compareKeyInDirectMemory(
       final BinarySerializer<T> serializer, BinarySerializerFactory serializerFactory,
       final int pageOffset, final byte[] searchKey, final int searchKeyOffset) {
@@ -247,12 +246,9 @@ public class DurablePage {
       return serializer.compareInByteBuffer(
           serializerFactory, pageOffset, buffer, searchKey, searchKeyOffset);
     }
-    // WAL changes present: fall back to deserialization
-    T pageValue = serializer.deserializeFromByteBufferObject(
-        serializerFactory, buffer, changes, pageOffset);
-    T searchValue = serializer.deserializeNativeObject(
-        serializerFactory, searchKey, searchKeyOffset);
-    return ((Comparable<T>) pageValue).compareTo(searchValue);
+    // WAL changes present: delegate to serializer's WAL-aware comparison
+    return serializer.compareInByteBufferWithWALChanges(
+        serializerFactory, buffer, changes, pageOffset, searchKey, searchKeyOffset);
   }
 
   protected final <T> T deserializeFromDirectMemory(

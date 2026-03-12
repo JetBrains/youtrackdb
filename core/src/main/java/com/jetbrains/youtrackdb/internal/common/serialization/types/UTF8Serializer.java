@@ -251,12 +251,19 @@ public class UTF8Serializer implements BinarySerializer<String> {
    */
   private static int compareAsSurrogates(int cp1, int cp2) {
     if (cp1 <= 0xFFFF) {
-      // cp1 is BMP (1 code unit), cp2 is supplementary (2 code units)
-      return Character.compare((char) cp1, Character.highSurrogate(cp2));
+      // cp1 is BMP (1 code unit), cp2 is supplementary (2 code units).
+      // Compare the BMP char against the high surrogate of cp2.
+      // If they are equal (only possible with lone surrogates in the U+D800-U+DFFF range),
+      // the supplementary side has a remaining low surrogate code unit, making it greater.
+      var cmp = Character.compare((char) cp1, Character.highSurrogate(cp2));
+      return cmp != 0 ? cmp : -1;
     }
     if (cp2 <= 0xFFFF) {
-      // cp1 is supplementary, cp2 is BMP
-      return Character.compare(Character.highSurrogate(cp1), (char) cp2);
+      // cp1 is supplementary, cp2 is BMP.
+      // Symmetric: if the high surrogate of cp1 equals the BMP char,
+      // cp1 has a remaining low surrogate code unit, making it greater.
+      var cmp = Character.compare(Character.highSurrogate(cp1), (char) cp2);
+      return cmp != 0 ? cmp : 1;
     }
     // Both supplementary — compare high surrogates, then low surrogates
     var cmp = Character.compare(Character.highSurrogate(cp1), Character.highSurrogate(cp2));
