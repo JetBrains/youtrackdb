@@ -1966,4 +1966,8 @@ public class IndexHistogramManager extends DurableComponent {
   void setDirtyMutationsForTest(long value) {
     DIRTY_MUTATIONS.setRelease(this, value);
   }
+
+  void resetRebalanceInProgressForTest() {
+    rebalanceInProgress.set(false);
+  }
 }

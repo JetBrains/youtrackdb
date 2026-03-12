@@ -1117,6 +1117,149 @@ public class SelectivityEstimatorTest {
         DELTA);
   }
 
+  // ── Clamp edge cases ─────────────────────────────────────────────
+
+  @Test
+  public void clamp_NaN_returnsZero() {
+    // NaN from unexpected division-by-zero must clamp to 0.0, not propagate
+    Assert.assertEquals(0.0, SelectivityEstimator.clamp(Double.NaN), DELTA);
+  }
+
+  @Test
+  public void clamp_negativeInfinity_returnsZero() {
+    // Negative infinity from overflow must clamp to lower bound 0.0
+    Assert.assertEquals(0.0,
+        SelectivityEstimator.clamp(Double.NEGATIVE_INFINITY), DELTA);
+  }
+
+  @Test
+  public void clamp_positiveInfinity_returnsOne() {
+    // Positive infinity from overflow must clamp to upper bound 1.0
+    Assert.assertEquals(1.0,
+        SelectivityEstimator.clamp(Double.POSITIVE_INFINITY), DELTA);
+  }
+
+  @Test
+  public void clamp_slightlyAboveOne_returnsOne() {
+    // Value slightly above 1.0 from floating-point drift must clamp to 1.0
+    Assert.assertEquals(1.0, SelectivityEstimator.clamp(1.01), DELTA);
+  }
+
+  @Test
+  public void clamp_slightlyBelowZero_returnsZero() {
+    // Value slightly below 0.0 from floating-point drift must clamp to 0.0
+    Assert.assertEquals(0.0, SelectivityEstimator.clamp(-0.01), DELTA);
+  }
+
+  // ── Histogram: single-value bucket with zero frequency ─────────────
+
+  @Test
+  public void equalityHistogram_singleValueBucketWithZeroFrequency() {
+    // When a single-value bucket has frequency=0 (all entries deleted),
+    // equality estimate must return 0.0 rather than discreteFraction.
+    // Bucket 0: distinctCounts[0]=1, frequencies[0]=0 (empty after deletes)
+    var h = new EquiDepthHistogram(
+        1,
+        new Comparable<?>[] {5, 10},
+        new long[] {0},
+        new long[] {1},
+        0, null, 0);
+    var stats = new IndexStatistics(100, 1, 100);
+    // nonNullCount=0 → estimateEqualityHistogram returns 0.0 immediately
+    Assert.assertEquals(0.0,
+        SelectivityEstimator.estimateEquality(stats, h, 5), DELTA);
+  }
+
+  // ── Histogram: degenerate bucket with identical boundary scalars ───
+
+  @Test
+  public void equalityHistogram_degenerate_identicalBoundaryScalars() {
+    // When all boundaries scalarize to the same value (unknown type
+    // returning 0.5), continuousFraction returns 0.5 as a fallback.
+    // Use OpaqueKey (non-Number, non-Date, non-String) to trigger this.
+    @SuppressWarnings("rawtypes")
+    Comparable<?>[] boundaries = {
+        new OpaqueKey(1), new OpaqueKey(2)};
+    long[] frequencies = {100};
+    long[] distinctCounts = {10};
+    var h = new EquiDepthHistogram(
+        1, boundaries, frequencies, distinctCounts, 100, null, 0);
+    var stats = new IndexStatistics(100, 10, 0);
+
+    // GT with OpaqueKey: scalarize returns 0.5 for all three
+    // → scaledHi == scaledLo → continuousFraction returns 0.5
+    // → remaining = (1 - 0.5) * 100 = 50, above = 0
+    // → selectivity = 50 / 100 = 0.5
+    double sel = SelectivityEstimator.estimateGreaterThan(
+        stats, h, new OpaqueKey(1));
+    Assert.assertEquals(0.5, sel, DELTA);
+  }
+
+  // ── Histogram: negative bucket frequency clamped to zero ──────────
+
+  @Test
+  public void greaterThan_negativeBucketFrequency_clampedToZero() {
+    // When a bucket has a negative frequency (from incremental drift),
+    // Math.max(frequencies[b], 0) should clamp it to 0. The estimate
+    // must not go negative.
+    var h = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {-5, 100},
+        new long[] {10, 10},
+        95, null, 0);
+    var stats = new IndexStatistics(95, 20, 0);
+
+    // GT for key 25 is in bucket 0 (freq=-5, clamped to 0).
+    // remaining = (1 - fraction) * max(-5, 0) = 0
+    // above = bucket 1 freq = 100
+    // selectivity = (0 + 100) / 95 → clamped to 1.0
+    double sel = SelectivityEstimator.estimateGreaterThan(
+        stats, h, 25);
+    Assert.assertTrue(
+        "Estimate must not be negative, got " + sel, sel >= 0.0);
+    Assert.assertTrue(
+        "Estimate must be <= 1.0, got " + sel, sel <= 1.0);
+  }
+
+  // ── Range: BETWEEN X AND X delegates to equality ──────────────────
+
+  @Test
+  public void rangeHistogram_betweenXandX_delegatesToEquality() {
+    // BETWEEN 5 AND 5 (from == to, both inclusive) is equivalent to
+    // f = 5. The range estimator must delegate to equality, not
+    // produce 0 from fracY - fracX = 0.
+    var h = new EquiDepthHistogram(
+        1,
+        new Comparable<?>[] {0, 10},
+        new long[] {100},
+        new long[] {10},
+        100, null, 0);
+    var stats = new IndexStatistics(100, 10, 0);
+
+    double rangeSel = SelectivityEstimator.estimateRange(
+        stats, h, 5, 5, true, true);
+    double eqSel = SelectivityEstimator.estimateEquality(stats, h, 5);
+
+    // BETWEEN 5 AND 5 must match equality estimate, not return 0
+    Assert.assertTrue("BETWEEN X AND X must not be 0", rangeSel > 0);
+    Assert.assertEquals(
+        "BETWEEN X AND X must equal equality estimate",
+        eqSel, rangeSel, DELTA);
+  }
+
+  /**
+   * A Comparable that ScalarConversion does not recognize (not
+   * Number/Date/String), forcing the unknown-type fallback to 0.5.
+   */
+  @SuppressWarnings("rawtypes")
+  private record OpaqueKey(int value) implements Comparable {
+    @Override
+    public int compareTo(Object o) {
+      return Integer.compare(value, ((OpaqueKey) o).value);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   //  T6: Selectivity invariant property test (randomized)
   //  — For random histograms, verify:

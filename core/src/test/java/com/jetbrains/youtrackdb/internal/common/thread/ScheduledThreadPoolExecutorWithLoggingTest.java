@@ -52,13 +52,13 @@ public class ScheduledThreadPoolExecutorWithLoggingTest {
   }
 
   /**
-   * Verifies that afterExecute restores the thread interrupt flag when
-   * future.get() throws InterruptedException. If Thread.currentThread()
-   * .interrupt() were removed (VoidMethodCallMutator), the interrupt flag
-   * would be lost.
+   * Verifies that afterExecute handles a worker thread interrupt gracefully
+   * without crashing or hanging. The interrupt flag restoration itself cannot
+   * be directly asserted from the test thread because it is thread-local to
+   * the executor's worker thread.
    */
   @Test
-  public void afterExecuteRestoresInterruptFlagOnInterruptedException() throws Exception {
+  public void afterExecute_handlesInterruptedThreadGracefully() throws Exception {
     // We need to trigger the InterruptedException path in afterExecute.
     // This happens when the thread running afterExecute is interrupted
     // while calling future.get().
@@ -100,6 +100,41 @@ public class ScheduledThreadPoolExecutorWithLoggingTest {
 
       executor.shutdown();
       executor.awaitTermination(5, TimeUnit.SECONDS);
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  /**
+   * Verifies that the remove-on-cancel policy is enabled (primary constructor).
+   * This prevents accumulation of cancelled tasks in the queue for long-running
+   * processes with many schedule/cancel cycles.
+   */
+  @Test
+  public void removeOnCancelPolicyEnabled_primaryConstructor() {
+    var executor = new ScheduledThreadPoolExecutorWithLogging(
+        1, Thread::new);
+    try {
+      assertThat(executor.getRemoveOnCancelPolicy())
+          .as("removeOnCancelPolicy should be true")
+          .isTrue();
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  /**
+   * Verifies that the remove-on-cancel policy is enabled (three-arg constructor).
+   */
+  @Test
+  public void removeOnCancelPolicyEnabled_threeArgConstructor() {
+    var executor = new ScheduledThreadPoolExecutorWithLogging(
+        1, Thread::new,
+        new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+    try {
+      assertThat(executor.getRemoveOnCancelPolicy())
+          .as("removeOnCancelPolicy should be true")
+          .isTrue();
     } finally {
       executor.shutdownNow();
     }

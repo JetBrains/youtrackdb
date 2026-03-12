@@ -238,4 +238,36 @@ public class ScalarConversionTest {
     int len = ScalarConversion.commonCharPrefixLength("abc", "axyz", "amnop");
     Assert.assertEquals(1, len);
   }
+
+  // ── commonCharPrefixLength: all empty strings ────────────────────
+
+  @Test
+  public void commonCharPrefixLength_emptyStrings() {
+    // All three strings are empty. Math.min(0, Math.min(0, 0)) = 0,
+    // so the while loop never executes → returns 0.
+    int len = ScalarConversion.commonCharPrefixLength("", "", "");
+    Assert.assertEquals(0, len);
+  }
+
+  // ── charEncode: single-char string encoding formula ───────────────
+
+  @Test
+  public void charEncode_shortString() {
+    // A single-char string "B" (code 66): encoded as 66 / 65536.
+    // Verifies the base-65536 fractional encoding formula.
+    double result = ScalarConversion.charEncode("B", 0);
+    Assert.assertEquals(66.0 / 65536.0, result, DELTA);
+  }
+
+  // ── scalarize: unknown type returns 0.5 ───────────────────────────
+
+  @Test
+  public void scalarize_unknownType_returns0point5() {
+    // Pass a non-Number, non-Date, non-String type (a plain Object).
+    // The fallback branch returns 0.5 (midpoint assumption).
+    Object unknownType = new Object();
+    double result = ScalarConversion.scalarize(unknownType, unknownType,
+        unknownType);
+    Assert.assertEquals(0.5, result, DELTA);
+  }
 }

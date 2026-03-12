@@ -573,6 +573,202 @@ public class IndexSearchDescriptorCostTest {
     assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
+  // ── Null key condition ─────────────────────────────────────
+
+  @Test
+  public void cost_nullKeyCondition_returnsMaxValue() {
+    // When keyCondition is null, cost() should short-circuit to MAX_VALUE
+    // without consulting QueryStats or histogram.
+    var desc = new IndexSearchDescriptor(index);
+
+    assertEquals(Integer.MAX_VALUE, desc.cost(ctx));
+  }
+
+  // ── isLowerBound / isUpperBound operators ─────────────────
+
+  @Test
+  public void isRangeEstimate_withGtOperator_returnsTrue() {
+    // A single GT condition should be detected as a range estimate.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLGtOperator(-1), 50),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    // GT is a range operator → should use indexRangeCost (not equality cost).
+    var expectedSel =
+        SelectivityEstimator.estimateGreaterThan(stats, histogram, 50);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void isRangeEstimate_withGeOperator_returnsTrue() {
+    // A single GE condition should be detected as a range estimate.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLGeOperator(-1), 50),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 50);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void isRangeEstimate_withLtOperator_returnsTrue() {
+    // A single LT condition should be detected as a range estimate.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLLtOperator(-1), 50),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateLessThan(stats, histogram, 50);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void isRangeEstimate_withLeOperator_returnsTrue() {
+    // A single LE condition should be detected as a range estimate.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLLeOperator(-1), 50),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateLessOrEqual(stats, histogram, 50);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void isRangeEstimate_withEquality_returnsFalse() {
+    // An equality condition is not a range estimate → uses indexEqualityCost.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 50),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 50);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    // Equality → indexEqualityCost, NOT indexRangeCost
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
+  }
+
+  // ── isRangeEstimate with additionalRangeCondition ─────────
+
+  @Test
+  public void isRangeEstimate_withAdditionalRange_returnsTrue() {
+    // When additionalRangeCondition is non-null, isRangeEstimate returns true
+    // regardless of the leading operator. Here leading is equality but
+    // additionalRange makes it a range estimate → indexRangeCost.
+    var leading = binaryCondition("age", new SQLGeOperator(-1), 20);
+    var additional = binaryCondition("age", new SQLLtOperator(-1), 80);
+
+    var desc = new IndexSearchDescriptor(index, leading, additional, null);
+
+    var cost = desc.cost(ctx);
+
+    // Combined range → indexRangeCost
+    var expectedSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 80, true, false);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  // ── estimateFromHistogram: no stats / zero totalCount ─────
+
+  @Test
+  public void estimateFromHistogram_noStats_returnsMaxValue() {
+    // When index.getStatistics() returns null, estimateFromHistogram
+    // should return MAX_VALUE.
+    when(index.getStatistics(session)).thenReturn(null);
+
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLGtOperator(-1), 10),
+        null, null);
+
+    assertEquals(Integer.MAX_VALUE, desc.cost(ctx));
+  }
+
+  @Test
+  public void estimateFromHistogram_zeroTotalCount_returnsMaxValue() {
+    // When totalCount is 0, estimateFromHistogram should return MAX_VALUE.
+    when(index.getStatistics(session))
+        .thenReturn(new IndexStatistics(0, 0, 0));
+
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLGtOperator(-1), 10),
+        null, null);
+
+    assertEquals(Integer.MAX_VALUE, desc.cost(ctx));
+  }
+
+  // ── estimateFromHistogram: minimum cost of 1 ─────────────
+
+  @Test
+  public void estimateFromHistogram_ensuresMinimumCost1() {
+    // When selectivity is very small (value far outside histogram range),
+    // the cost must still be at least 1 — never 0.
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 999_999),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    assertTrue("Cost must be at least 1, was: " + cost, cost >= 1);
+  }
+
+  // ── estimateCombinedRange: f >= 20 AND f < 30 ─────────────
+
+  @Test
+  public void estimateCombinedRange_geAndLt() {
+    // Verify combined range estimation for f >= 20 AND f < 30.
+    var lower = binaryCondition("age", new SQLGeOperator(-1), 20);
+    var upper = binaryCondition("age", new SQLLtOperator(-1), 30);
+
+    var desc = new IndexSearchDescriptor(index, lower, upper, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 30, true, false);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void estimateCombinedRange_gtAndLe() {
+    // Verify combined range estimation for f > 20 AND f <= 30.
+    var lower = binaryCondition("age", new SQLGtOperator(-1), 20);
+    var upper = binaryCondition("age", new SQLLeOperator(-1), 30);
+
+    var desc = new IndexSearchDescriptor(index, lower, upper, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 30, false, true);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
   // ── Helpers ──────────────────────────────────────────────────
 
   /**

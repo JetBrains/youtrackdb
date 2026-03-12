@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -439,6 +441,48 @@ public class EdgeFanOutEstimatorTest {
 
     // OUT skipped (null), IN = 200/50 = 4.0
     assertEquals(4.0, fanOut, DELTA);
+  }
+
+  // ── Zero source count: verifies return is 0.0, not division by zero ─
+
+  @Test
+  public void estimateFanOut_zeroSourceCount_returnsZeroNotDefault() {
+    // When sourceCount == 0, the method must return 0.0 (not defaultFanOut
+    // and not throw ArithmeticException from division by zero).
+    // This is distinct from sourceCountZero_returnsZero above in that it
+    // verifies the result is specifically 0.0 and NOT defaultFanOut().
+    registerClass("Knows", 1000);
+    registerClass("Person", 0);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT,
+        "Person", "Person");
+
+    assertEquals(0.0, fanOut, DELTA);
+    // Explicitly verify it's NOT the default fan-out value
+    assertNotEquals(
+        "Should return 0.0, not default fan-out",
+        EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
+  }
+
+  // ── Null schema: verifies default fan-out is returned ─────────────
+
+  @Test
+  public void estimateFanOut_nullSchema_returnsDefault() {
+    // When getImmutableSchemaSnapshot() returns null, the method must
+    // return defaultFanOut() without attempting any class lookups.
+    var metadata2 = mock(MetadataDefault.class);
+    when(session.getMetadata()).thenReturn(metadata2);
+    when(metadata2.getImmutableSchemaSnapshot()).thenReturn(null);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.IN,
+        "Person", "Person");
+
+    assertEquals(EdgeFanOutEstimator.defaultFanOut(), fanOut, DELTA);
+    assertTrue(
+        "Default fan-out should be positive",
+        fanOut > 0.0);
   }
 
   @Test
