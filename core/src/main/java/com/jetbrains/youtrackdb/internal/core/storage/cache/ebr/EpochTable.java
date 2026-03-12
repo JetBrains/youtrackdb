@@ -19,6 +19,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.ebr;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner;
+import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
@@ -93,16 +94,23 @@ public final class EpochTable {
   // lives at index i * SLOT_STRIDE (128 bytes apart). The array is sized as
   // numSlots * SLOT_STRIDE.
   // Accessed via SLOTS_HANDLE for per-element access.
-  // The array reference is volatile to support dynamic growth (see step 1.2).
+  // The array reference is volatile to support dynamic growth (see grow()).
   private volatile long[] slots;
 
   // Per-slot released guard. Prevents double-free when both the Cleaner and
-  // scan-based reclamation (added in step 1.4) attempt to reclaim the same
-  // slot. Only the first CAS from 0 → 1 wins; the loser is a no-op.
+  // scan-based reclamation attempt to reclaim the same slot. Only the first
+  // CAS from 0 → 1 wins; the loser is a no-op.
   // Indexed by logical slot index. Grown in lockstep with slots under
   // growLock. Replaced atomically on grow (AtomicIntegerArray cannot be
   // resized in place).
   private volatile AtomicIntegerArray slotReleased;
+
+  // Per-slot WeakReference to the owning Thread. Used by computeSafeEpoch()
+  // to detect dead threads and reclaim their slots eagerly, without waiting
+  // for the Cleaner. Indexed by logical slot index (not padded). Grown in
+  // lockstep with the slots array under growLock. See "Scan-based slot
+  // reclamation" in the implementation plan for the full rationale.
+  private volatile WeakReference<Thread>[] slotOwners;
 
   // Per-slot Cleaner.Cleanable handle returned by Cleaner.register(). Stored
   // so that a new thread reusing a slot can cancel the previous owner's
@@ -112,18 +120,18 @@ public final class EpochTable {
   // the new thread is actively using it — a use-after-free. Calling
   // oldCleanable.clean() deregisters the action idempotently (safe even if
   // the Cleaner or scan-based reclamation already ran). Indexed by logical
-  // slot index. Grown in lockstep with slots under growLock.
+  // slot index. Grown in lockstep with slotOwners under growLock.
   private volatile Cleaner.Cleanable[] slotCleanables;
 
   // Lock for dynamic array growth. Serializes grow() to prevent concurrent
-  // resizes. Also used by releaseSlot() and reclaimSlot() (added in step
-  // 1.4) to ensure their CAS targets the current arrays.
+  // resizes. Also used by releaseSlot() and reclaimSlot() to ensure their
+  // CAS targets the current arrays.
   // Lock ordering: evictionLock → growLock (from reclaimSlot);
   // growLock only (from grow, releaseSlot). No cycles.
   private final ReentrantLock growLock = new ReentrantLock();
 
   // Free list of reusable slot indices. Threads that die return their slot
-  // index here (via Cleaner or scan-based reclamation in later steps).
+  // index here (via Cleaner or scan-based reclamation in computeSafeEpoch).
   // New threads try the free list before allocating a fresh index.
   private final ConcurrentLinkedQueue<Integer> freeList = new ConcurrentLinkedQueue<>();
 
@@ -145,6 +153,9 @@ public final class EpochTable {
     for (int i = 0; i < arraySize; i += SLOT_STRIDE) {
       s[i] = INACTIVE;
     }
+    @SuppressWarnings("unchecked")
+    WeakReference<Thread>[] owners = new WeakReference[initialSlotCount];
+    this.slotOwners = owners;
     this.slotReleased = new AtomicIntegerArray(initialSlotCount);
     this.slotCleanables = new Cleaner.Cleanable[initialSlotCount];
     this.slots = s;
@@ -250,15 +261,30 @@ public final class EpochTable {
       return -1;
     }
     long min = currentEpoch;
-    // Read the volatile slots reference once. If a concurrent grow() swaps
-    // the array, we scan the snapshot we captured. Any newly added slots
-    // hold INACTIVE (never entered), so missing them does not change the
-    // computed minimum.
+    // Read the volatile slots and slotOwners references once. If a concurrent
+    // grow() swaps the arrays, we scan the snapshots we captured. Any newly
+    // added slots hold INACTIVE (never entered), so missing them does not
+    // change the computed minimum.
     long[] slotsSnapshot = slots;
+    WeakReference<Thread>[] ownersSnapshot = slotOwners;
     // Iterate only the padded slot positions (stride = SLOT_STRIDE).
     for (int i = 0; i < slotsSnapshot.length; i += SLOT_STRIDE) {
       long slotValue = (long) SLOTS_HANDLE.getAcquire(slotsSnapshot, i);
-      if (slotValue != INACTIVE && slotValue < min) {
+      if (slotValue == INACTIVE) {
+        // Slot is inactive — check if the owning thread is dead.
+        // If the WeakReference is cleared, the thread can never call
+        // enter() again, so this slot can be safely reclaimed.
+        // See "Scan-based slot reclamation" in the implementation plan
+        // for the full correctness argument.
+        int logicalIndex = i / SLOT_STRIDE;
+        if (logicalIndex < ownersSnapshot.length) {
+          WeakReference<Thread> ref = ownersSnapshot[logicalIndex];
+          if (ref != null && ref.get() == null) {
+            reclaimSlot(logicalIndex);
+          }
+        }
+        // INACTIVE does not affect min — skip.
+      } else if (slotValue < min) {
         min = slotValue;
       }
     }
@@ -348,7 +374,18 @@ public final class EpochTable {
     // initialization sequence below, so the Cleaner cannot fire prematurely
     // between slotReleased.set(0) and threadLocal.set(handle).
     handle = new SlotHandle(slotIndex);
-    slotReleased.set(slotIndex, 0); // mark as not-yet-released
+    // Must precede slotReleased.set(0) — that volatile write acts as
+    // the release barrier that publishes this plain write to reclaimSlot()'s
+    // re-check (which uses the CAS's acquire semantics to observe it).
+    // Note: this plain write races benignly with grow() — if grow() copies
+    // the old slotOwners array before this write lands, the new array retains
+    // the stale value. The re-check in reclaimSlot() could theoretically see
+    // the stale ref, but this window is nanoseconds (between getOrAllocateSlot
+    // returning and enter()'s epoch write making the slot non-INACTIVE). See
+    // the implementation plan ("Slot reuse writes and concurrent grow()") for
+    // the full argument.
+    slotOwners[slotIndex] = new WeakReference<>(Thread.currentThread());
+    slotReleased.set(slotIndex, 0); // mark as not-yet-released (release fence)
     Cleaner.Cleanable cleanable = CLEANER.register(handle,
         new ReleaseSlotAction(this, slotIndex));
     slotCleanables[slotIndex] = cleanable;
@@ -386,8 +423,8 @@ public final class EpochTable {
    * immediately (double-checked locking).
    *
    * <p>The volatile write of {@code slots} must be the <b>last</b> publish
-   * in {@code grow()}, after all auxiliary arrays ({@code slotCleanables},
-   * {@code slotReleased}, and {@code slotOwners} when added in step 1.4).
+   * in {@code grow()}, after all auxiliary arrays ({@code slotOwners},
+   * {@code slotCleanables}, {@code slotReleased}).
    * This ensures readers that see the new {@code slots} array also see the
    * new auxiliary arrays via JMM transitivity.
    *
@@ -414,6 +451,16 @@ public final class EpochTable {
         newSlots[i] = INACTIVE;
       }
 
+      // Grow slotOwners in lockstep.
+      WeakReference<Thread>[] currentOwners = slotOwners;
+      @SuppressWarnings("unchecked")
+      WeakReference<Thread>[] newOwners = new WeakReference[newSlotCount];
+      if (currentOwners != null) {
+        System.arraycopy(currentOwners, 0, newOwners, 0,
+            Math.min(currentOwners.length, newSlotCount));
+      }
+      slotOwners = newOwners; // volatile write
+
       // Grow slotCleanables in lockstep.
       Cleaner.Cleanable[] currentCleanables = slotCleanables;
       Cleaner.Cleanable[] newCleanables = new Cleaner.Cleanable[newSlotCount];
@@ -435,12 +482,12 @@ public final class EpochTable {
       slotReleased = newReleased; // volatile write
 
       // IMPORTANT: `slots` must be published LAST, after all auxiliary arrays
-      // (slotCleanables, slotReleased, and slotOwners when added in step 1.4).
-      // This guarantees that a reader (computeSafeEpoch) that sees the new
-      // `slots` array also sees the new auxiliary arrays via JMM transitivity:
-      // auxiliary volatile writes hb→ slots volatile write (program order within
-      // grow()), and if the reader's slots volatile read sees the new array, it
-      // forms a hb chain through to the auxiliary array reads.
+      // (slotOwners, slotCleanables, slotReleased). This guarantees that a
+      // reader (computeSafeEpoch) that sees the new `slots` array also sees the
+      // new auxiliary arrays via JMM transitivity: auxiliary volatile writes hb→
+      // slots volatile write (program order within grow()), and if the reader's
+      // slots volatile read sees the new array, it forms a hb chain through to
+      // the auxiliary array reads.
       //
       // Volatile write publishes the new array. Readers (computeSafeEpoch)
       // read the volatile `slots` reference once and scan that snapshot.
@@ -480,8 +527,8 @@ public final class EpochTable {
   void releaseSlot(int slotIndex) {
     growLock.lock();
     try {
-      // CAS guards against double-free: if scan-based reclamation (added in
-      // step 1.4) already reclaimed this slot, the CAS fails and we skip.
+      // CAS guards against double-free: if scan-based reclamation in
+      // computeSafeEpoch() already reclaimed this slot, the CAS fails and we skip.
       // Only the first path to set released = 1 performs the actual release.
       if (!slotReleased.compareAndSet(slotIndex, 0, 1)) {
         return; // already reclaimed by scan-based reclamation
@@ -490,7 +537,90 @@ public final class EpochTable {
       // captured at registration time. If grow() replaced the array since
       // the slot was allocated, this still writes to the live array.
       SLOTS_HANDLE.setRelease(slots, slotIndex * SLOT_STRIDE, INACTIVE);
+      slotOwners[slotIndex] = null; // help GC
       freeList.offer(slotIndex);
+    } finally {
+      growLock.unlock();
+    }
+  }
+
+  /**
+   * Reclaims a slot whose owning thread is dead. Uses a CAS on
+   * {@code slotReleased} to prevent double-free with the Cleaner.
+   * Called from {@link #computeSafeEpoch()} scans, which may run under
+   * evictionLock (from {@code reclaimRetired()} or {@code assistReclamation()})
+   * or outside it (from {@code waitForSafeEpoch()}). In either case,
+   * this method only requires {@code growLock} for correctness.
+   *
+   * <p>Acquires {@code growLock} to ensure the CAS targets the current
+   * {@link AtomicIntegerArray}. Without this, a TOCTOU race exists: the
+   * volatile read of {@code slotReleased} could return the old array, then
+   * {@code grow()} could copy the old value (0) to a new array and publish it
+   * before the CAS executes. The CAS would succeed on the dead old array
+   * while the new array retains the stale 0 — allowing a second CAS (from
+   * the Cleaner or {@code Cleanable.clean()}) to also succeed and offer the
+   * same index to the free list twice. Holding {@code growLock} makes the
+   * read + CAS atomic w.r.t. {@code grow()}'s copy-and-publish sequence.
+   *
+   * <p><b>TOCTOU guard — re-check after CAS:</b> The caller
+   * ({@code computeSafeEpoch()}) reads {@code slotOwners[i]} with a plain
+   * array read OUTSIDE {@code growLock} and decides the owning thread is dead
+   * ({@code WeakReference} cleared). Between that read and the CAS inside
+   * this method, a new thread may have taken the slot from the free list
+   * and reset {@code slotReleased} to 0 (volatile write / release).
+   * On weakly-ordered architectures (ARM, RISC-V), the caller's earlier
+   * plain read of {@code slotOwners[i]} may observe a stale value (e.g.,
+   * the previous dead thread's cleared {@code WeakReference}) even though
+   * the new thread has already written a live {@code WeakReference}.
+   * The CAS sees the new thread's 0 and succeeds — stealing the slot
+   * while the new thread is actively using it.
+   *
+   * <p><b>The fix:</b> after the CAS succeeds, re-read {@code slotOwners}
+   * from the current volatile field (not the caller's snapshot) and verify
+   * the owning thread is still dead. The CAS on {@code slotReleased} has
+   * acquire semantics; if it read the new thread's volatile write of 0, the
+   * release-acquire pairing guarantees the new thread's prior plain write to
+   * {@code slotOwners[i]} is visible. If the re-check finds a live thread,
+   * the CAS is undone ({@code slotReleased} reset to 0) and the slot is NOT
+   * returned to the free list.
+   *
+   * <p>Lock ordering: when evictionLock is held ({@code reclaimRetired()} /
+   * {@code assistReclamation()} path), the nesting is evictionLock → growLock.
+   * When called from {@code waitForSafeEpoch()} (outside evictionLock), only
+   * {@code growLock} is acquired. {@code grow()} acquires growLock only,
+   * {@code releaseSlot()} acquires growLock only — no cycles in either case.
+   *
+   * @param logicalIndex the logical slot index to reclaim
+   */
+  private void reclaimSlot(int logicalIndex) {
+    growLock.lock();
+    try {
+      if (slotReleased.compareAndSet(logicalIndex, 0, 1)) {
+        // Re-check: the slot may have been reused by a new thread between
+        // the caller's slotOwners read (outside growLock) and this CAS.
+        // The CAS has acquire semantics: if it read 0 from the new thread's
+        // volatile write (slotReleased.set(i, 0)), the release-acquire
+        // pairing guarantees the new thread's prior slotOwners[i] write
+        // (plain, but ordered before the volatile write by program order)
+        // is visible here. Reading the current slotOwners volatile field
+        // (not the caller's snapshot) ensures we see the latest array even
+        // if grow() replaced it.
+        WeakReference<Thread>[] currentOwners = slotOwners; // volatile read
+        WeakReference<Thread> ref = currentOwners[logicalIndex];
+        if (ref != null && ref.get() != null) {
+          // A live thread owns this slot — undo the CAS and bail out.
+          // The new thread will eventually die and be reclaimed by a
+          // future scan or by the Cleaner.
+          slotReleased.set(logicalIndex, 0);
+          return;
+        }
+        // Thread is confirmed dead (or slot has no owner). Safe to reclaim.
+        // Write null to the current slotOwners array (not the caller's
+        // snapshot) to help GC and to prevent future scans from seeing
+        // the stale cleared WeakReference.
+        currentOwners[logicalIndex] = null;
+        freeList.offer(logicalIndex);
+      }
     } finally {
       growLock.unlock();
     }
