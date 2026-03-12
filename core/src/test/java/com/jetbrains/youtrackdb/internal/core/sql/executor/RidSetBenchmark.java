@@ -54,6 +54,7 @@ public class RidSetBenchmark {
   private RID[] ridsToLookup;
   private RID[] ridsToRemove;
   private RidSet prePopulatedSet;
+  private RidSet removeTarget;
 
   @Setup(Level.Trial)
   public void setup() {
@@ -64,10 +65,22 @@ public class RidSetBenchmark {
       case MIXED -> setupMixed();
     }
 
-    // Pre-populate a set for contains/remove/iterate benchmarks
+    // Pre-populate a set for contains/iterate benchmarks
     prePopulatedSet = new RidSet();
     for (var rid : ridsToAdd) {
       prePopulatedSet.add(rid);
+    }
+  }
+
+  /**
+   * Re-creates the remove target before each benchmark invocation so that the removeAll benchmark
+   * measures only remove operations, not set construction.
+   */
+  @Setup(Level.Invocation)
+  public void setupRemoveTarget() {
+    removeTarget = new RidSet();
+    for (var rid : ridsToAdd) {
+      removeTarget.add(rid);
     }
   }
 
@@ -157,18 +170,13 @@ public class RidSetBenchmark {
     }
   }
 
-  /** Measures the cost of removing all RIDs from a pre-populated copy. */
+  /** Measures the cost of removing all RIDs from a pre-populated set. */
   @Benchmark
   public RidSet removeAll() {
-    // Create a copy to remove from (so we don't mutate the shared prePopulatedSet)
-    var copy = new RidSet();
-    for (var rid : ridsToAdd) {
-      copy.add(rid);
-    }
     for (var rid : ridsToRemove) {
-      copy.remove(rid);
+      removeTarget.remove(rid);
     }
-    return copy;
+    return removeTarget;
   }
 
   public static void main(String[] args) throws RunnerException {
