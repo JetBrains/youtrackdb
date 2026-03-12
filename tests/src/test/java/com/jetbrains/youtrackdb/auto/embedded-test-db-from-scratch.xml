@@ -30,6 +30,8 @@
   </test>
   <test name="Population">
     <classes>
+      <!-- Migrated to JUnit 5 but kept here: later TestNG tests depend on the data
+           these classes create. Will be removed in Step 16 when TestNG is deleted. -->
       <class name="com.jetbrains.youtrackdb.auto.EntityTreeTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CRUDTest"/>
       <class name="com.jetbrains.youtrackdb.auto.CRUDInheritanceTest"/>

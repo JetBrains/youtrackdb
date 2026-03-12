@@ -31,7 +31,12 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SecurityTest.class,
     // Hook
     HookTxTest.class,
-    HookOnIndexedMapTest.class
+    HookOnIndexedMapTest.class,
+    // Population (part 1)
+    EntityTreeTest.class,
+    CRUDTest.class,
+    CRUDInheritanceTest.class,
+    CRUDDocumentPhysicalTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {
