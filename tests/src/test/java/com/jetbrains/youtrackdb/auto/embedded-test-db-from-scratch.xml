@@ -51,16 +51,16 @@
   </test>
   <test name="Index">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.DateIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ByteArrayKeyTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ClassIndexManagerTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.IndexConcurrentCommitTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCreateIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDropIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDropClassIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DateIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ByteArrayKeyTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ClassIndexManagerTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexConcurrentCommitTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLSelectIndexReuseTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCreateIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropClassIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDropSchemaPropertyIndexTest -->
 
       <class name="com.jetbrains.youtrackdb.auto.SchemaIndexTest"/>
       <class name="com.jetbrains.youtrackdb.auto.ClassIndexTest"/>

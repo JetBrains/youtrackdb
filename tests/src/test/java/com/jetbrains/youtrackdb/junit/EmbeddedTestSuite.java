@@ -45,7 +45,18 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     // Tx
     TransactionAtomicTest.class,
     FrontendTransactionImplTest.class,
-    TransactionConsistencyTest.class
+    TransactionConsistencyTest.class,
+    // Index (part 1)
+    DateIndexTest.class,
+    IndexTest.class,
+    ByteArrayKeyTest.class,
+    ClassIndexManagerTest.class,
+    IndexConcurrentCommitTest.class,
+    SQLSelectIndexReuseTest.class,
+    SQLCreateIndexTest.class,
+    SQLDropIndexTest.class,
+    SQLDropClassIndexTest.class,
+    SQLDropSchemaPropertyIndexTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

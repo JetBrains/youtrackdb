@@ -627,7 +627,7 @@ public class EmbeddedTestSuite {
 | 4 | Population part 1 | 4 | COMPLETED | 2b27886d68 | 2026-03-12 | EntityTreeTest, CRUDTest, CRUDInheritanceTest, CRUDDocumentPhysicalTest; originals kept in TestNG XML (classloader isolation prevents DB sharing between providers) |
 | 5 | Population part 2 | 4 | COMPLETED | d37f7e6ec1 | 2026-03-12 | ComplexTypesTest, CRUDDocumentValidationTest, DocumentTrackingTest, DBRecordCreateTest |
 | 6 | Transaction group | 3 | COMPLETED | 7f1e75bb95 | 2026-03-12 | TransactionAtomicTest, FrontendTransactionImplTest, TransactionConsistencyTest |
-| 7 | Index part 1 | 10 | NOT STARTED | — | — | DateIndexTest → SQLDropSchemaPropertyIndexTest + AbstractIndexReuseTest |
+| 7 | Index part 1 | 10 | COMPLETED | b356b1542d | 2026-03-12 | DateIndexTest, IndexTest, ByteArrayKeyTest, ClassIndexManagerTest, IndexConcurrentCommitTest, SQLSelectIndexReuseTest (@Disabled), SQLCreateIndexTest, SQLDropIndexTest, SQLDropClassIndexTest, SQLDropSchemaPropertyIndexTest + AbstractIndexReuseTest |
 | 8 | Index part 2 | 10 | NOT STARTED | — | — | SchemaIndexTest → IndexTxAwareOneValueGetEntriesTest + IndexTxAwareBaseTest |
 | 9 | Index part 3 | 7 | NOT STARTED | — | — | MapIndexTest → OrderByIndexReuseTest |
 | 10 | Index part 4 + IndexManager | 3 | NOT STARTED | — | — | LinkSetIndexTest, CompositeIndexWithNullTest, IndexManagerTest |
