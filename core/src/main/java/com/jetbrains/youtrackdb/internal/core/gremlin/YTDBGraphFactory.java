@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Locale;
@@ -166,14 +167,24 @@ public class YTDBGraphFactory {
 
   /// Resolves a database path to a canonical form suitable for use as a map key. Uses
   /// [Path#toRealPath] to resolve symlinks and junction points (important on Windows where temp
-  /// directories may involve junctions). Falls back to [Path#toAbsolutePath] +
-  /// [Path#normalize] if the path does not exist on disk yet.
+  /// directories may involve junctions). If the path does not exist yet, creates the directory
+  /// first so that [Path#toRealPath] can resolve the canonical form consistently — this avoids
+  /// a race condition where [Path#normalize] and [Path#toRealPath] produce different keys
+  /// for the same physical location (e.g., on Windows with junction points). Falls back to
+  /// [Path#toAbsolutePath] + [Path#normalize] only if directory creation also fails.
   private static Path resolvePath(String dbPath) {
     var path = Path.of(dbPath);
     try {
       return path.toRealPath();
     } catch (IOException e) {
-      return path.toAbsolutePath().normalize();
+      // Path doesn't exist yet. Create the directory so that toRealPath() can resolve
+      // symlinks and junction points consistently (critical on Windows).
+      try {
+        Files.createDirectories(path);
+        return path.toRealPath();
+      } catch (IOException ex) {
+        return path.toAbsolutePath().normalize();
+      }
     }
   }
 
