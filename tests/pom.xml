@@ -61,16 +61,14 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.testng</groupId>
-      <artifactId>testng</artifactId>
-      <version>7.11.0</version>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.beanshell</groupId>
-          <artifactId>bsh</artifactId>
-        </exclusion>
-      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.platform</groupId>
+      <artifactId>junit-platform-suite</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
@@ -175,60 +173,18 @@
             <youtrackdb.memory.directMemory.preallocate>false
             </youtrackdb.memory.directMemory.preallocate>
           </systemPropertyVariables>
-          <properties>
-            <property>
-              <name>listener</name>
-              <value>com.jetbrains.youtrackdb.TestNGTestListener</value>
-            </property>
-          </properties>
           <redirectTestOutputToFile>false</redirectTestOutputToFile>
+          <includes>
+            <include>com/jetbrains/youtrackdb/junit/EmbeddedTestSuite.java</include>
+          </includes>
         </configuration>
-        <executions>
-          <execution>
-            <id>default-test</id>
-            <configuration>
-              <skip>true</skip>
-            </configuration>
-          </execution>
-          <execution>
-            <id>test-embedded</id>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <suiteXmlFiles>
-                <suiteXmlFile>
-                  src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
-                </suiteXmlFile>
-              </suiteXmlFiles>
-            </configuration>
-          </execution>
-<!--          <execution>-->
-<!--            <id>test-remote</id>-->
-<!--            <goals>-->
-<!--              <goal>test</goal>-->
-<!--            </goals>-->
-<!--            <configuration>-->
-<!--              <systemPropertyVariables>-->
-<!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
-<!--                </youtrackdb.config.file>-->
-<!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
-<!--              </systemPropertyVariables>-->
-<!--              <suiteXmlFiles>-->
-<!--                <suiteXmlFile>-->
-          <!--                  src/test/java/com/jetbrains/youtrackdb/auto/remote-test-db-from-scratch.xml-->
-<!--                </suiteXmlFile>-->
-<!--              </suiteXmlFiles>-->
-<!--            </configuration>-->
-<!--          </execution>-->
-        </executions>
-        <dependencies>
-          <dependency>
-            <groupId>org.apache.maven.surefire</groupId>
-            <artifactId>surefire-testng</artifactId>
-            <version>${surefire.version}</version>
-          </dependency>
-        </dependencies>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <skipTests>true</skipTests>
+        </configuration>
       </plugin>
     </plugins>
   </build>

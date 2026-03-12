@@ -52,7 +52,7 @@ The `docs/` folder contains project documentation. See `docs/README.md` for the 
 | `console` | `youtrackdb-console` | Gremlin REPL console (Docker image) |
 | `lucene` | `youtrackdb-lucene` | **Excluded from build.** Kept as reference code for future reimplementation of Lucene full-text and spatial indexing. |
 | `gremlin-annotations` | `youtrackdb-gremlin-annotations` | Annotation processor for Gremlin DSL code generation |
-| `tests` | `youtrackdb-tests` | Integration/functional test suite (TestNG) |
+| `tests` | `youtrackdb-tests` | Integration/functional test suite (JUnit 5 with JUnit Platform Suite) |
 | `test-commons` | `youtrackdb-test-commons` | Shared test utilities (JUnit 4, Mockito, AssertJ) |
 | `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests (CI only) |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
@@ -137,7 +137,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 
 ### Unit Tests
 - **Core and server**: JUnit 4 with `surefire-junit47` runner
-- **Tests module**: TestNG with XML suite files (e.g., `embedded-test-db-from-scratch.xml`)
+- **Tests module**: JUnit 5 with JUnit Platform Suite (`EmbeddedTestSuite`). Tests share a single database instance and execute in a fixed class/method order via `@SelectClasses` and `@Order` annotations
 - **Test utilities**: `test-commons` module provides shared base classes (`TestBuilder`, `TestFactory`, `ConcurrentTestHelper`)
 
 ### Integration Tests
@@ -335,7 +335,7 @@ When the coverage gate fails on a PR, **always check the Ekstazi exclude files f
 4. **Public API vs Internal**: Only classes in `com.jetbrains.youtrackdb.api` are public API. Everything under `internal` is implementation detail
 5. **SPI pattern**: Engines, indexes, collations, SQL functions are loaded via `META-INF/services` (Java ServiceLoader)
 6. **Custom TinkerPop fork**: The project uses its own fork of TinkerPop under `io.youtrackdb` group ID - don't confuse with upstream `org.apache.tinkerpop`
-7. **Test infrastructure**: Core tests use JUnit 4; the `tests` module uses TestNG. Don't mix them
+7. **Test infrastructure**: Core tests use JUnit 4; the `tests` module uses JUnit 5 (Jupiter) with JUnit Platform Suite for ordered execution
 8. **Docker images**: Built only with `-P docker-images` profile. Server listens on port 8182
 9. **The `lucene` module is excluded from the build** - it exists only as reference code for future reimplementation
 10. **JaCoCo and Java `assert` statements**: JaCoCo 0.8.8+ filters the synthetic `$assertionsDisabled` branch but **not** the assertion condition's own true/false branch. An inline `assert x != null` always shows 1/2 branches covered because the `false` path (assertion failure) is never taken in normal tests. To get full branch coverage, extract the check into a static helper method (e.g. `MatchAssertions.checkNotNull()`) that can be unit-tested independently for both outcomes, then call it as `assert MatchAssertions.checkNotNull(x, "label")`. The helper method gets 100% branch coverage; only the `assert` call site retains 1 phantom uncovered branch.
