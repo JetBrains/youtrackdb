@@ -483,7 +483,7 @@ class SQLUpdateTest extends BaseDBJUnit5Test {
       float salary1 = result1.get(i).getProperty("salary");
       float salary2 = result2.get(i).getProperty("salary2");
       assertEquals(salary1, salary2);
-      assertEquals(true, result2.get(i).<Object>getProperty("checkpoint"));
+      assertTrue((Boolean) result2.get(i).<Object>getProperty("checkpoint"));
     }
     session.commit();
   }

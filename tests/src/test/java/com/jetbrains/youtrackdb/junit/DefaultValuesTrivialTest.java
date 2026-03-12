@@ -129,14 +129,14 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
       var doc = ((EntityImpl) session.newEntity(classA));
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
-      assertEquals(true, doc.getProperty("active"));
+      assertTrue((Boolean) doc.getProperty("active"));
     });
 
     session.executeInTx(tx -> {
       var doc = ((EntityImpl) session.newEntity(classA.getName()));
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
-      assertEquals(true, doc.getProperty("active"));
+      assertTrue((Boolean) doc.getProperty("active"));
     });
 
     session.executeInTx(tx -> {
@@ -147,7 +147,7 @@ public class DefaultValuesTrivialTest extends BaseDBJUnit5Test {
       doc.setClassNameIfExists(classA.getName());
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
-      assertEquals(true, doc.getProperty("active"));
+      assertTrue((Boolean) doc.getProperty("active"));
     });
   }
 

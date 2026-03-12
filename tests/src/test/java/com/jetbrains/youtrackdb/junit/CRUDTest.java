@@ -166,7 +166,7 @@ public class CRUDTest extends BaseDBJUnit5Test {
     assertEquals(123.45f, loadedRecord.<Float>getProperty("floatSimple"));
     assertEquals(12345678L, loadedRecord.<Long>getProperty("longSimple"));
     assertEquals((byte) 1, loadedRecord.<Byte>getProperty("byteSimple"));
-    assertEquals(true, loadedRecord.<Boolean>getProperty("flagSimple"));
+    assertTrue(loadedRecord.<Boolean>getProperty("flagSimple"));
     assertEquals(date, loadedRecord.getProperty("dateField"));
     session.commit();
   }

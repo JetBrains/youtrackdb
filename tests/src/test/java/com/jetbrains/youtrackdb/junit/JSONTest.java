@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.junit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -86,8 +87,8 @@ public class JSONTest extends BaseDBJUnit5Test {
 
       final var list = documentTarget.<Boolean>getEmbeddedList("list");
       assertNotNull(list);
-      assertEquals(true, list.getFirst());
-      assertEquals(false, list.get(1));
+      assertTrue(list.getFirst());
+      assertFalse(list.get(1));
     });
   }
 
