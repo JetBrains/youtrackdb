@@ -108,7 +108,21 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SQLCreateVertexTest.class,
     SQLDeleteEdgeTest.class,
     SQLBatchTest.class,
-    SQLCombinationFunctionTests.class
+    SQLCombinationFunctionTests.class,
+    // Misc
+    TruncateClassTest.class,
+    DateTest.class,
+    SQLCreateLinkTest.class,
+    MultipleDBTest.class,
+    ConcurrentUpdatesTest.class,
+    ConcurrentQueriesTest.class,
+    ConcurrentCommandAndOpenTest.class,
+    CollateTest.class,
+    EmbeddedLinkBagTest.class,
+    BTreeBasedLinkBagTest.class,
+    StringsTest.class,
+    DBSequenceTest.class,
+    SQLDBSequenceTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

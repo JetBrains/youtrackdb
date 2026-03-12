@@ -142,19 +142,19 @@
   </test>
   <test name="misc">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.TruncateClassTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DateTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLCreateLinkTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.MultipleDBTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ConcurrentQueriesTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.ConcurrentCommandAndOpenTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.CollateTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.EmbeddedLinkBagTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.StringsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DBSequenceTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.SQLDBSequenceTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.TruncateClassTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DateTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLCreateLinkTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.MultipleDBTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ConcurrentUpdatesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ConcurrentQueriesTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.ConcurrentCommandAndOpenTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.CollateTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.EmbeddedLinkBagTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.BTreeBasedLinkBagTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.StringsTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.DBSequenceTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.SQLDBSequenceTest -->
     </classes>
   </test>
   <test name="DbTools">

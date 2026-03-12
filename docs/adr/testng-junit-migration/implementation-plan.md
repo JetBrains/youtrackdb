@@ -634,7 +634,7 @@ public class EmbeddedTestSuite {
 | 11 | Query + Parsing + Graph + GEO | 8 | COMPLETED | f2a77c0d07 | 2026-03-12 | WrongQueryTest, BetweenConversionTest, PreparedStatementTest, QueryLocalCacheIntegrationTest, PolymorphicQueryTest, JSONTest, GraphDatabaseTest, GEOTest; PolymorphicQueryTest needs @Order to avoid query optimizer bug; GraphDatabaseTest creates 'owns' edge class early for @Order compatibility |
 | 12 | SQL commands part 1 | 8 | COMPLETED | 491c8693fc | 2026-03-12 | SQLCommandsTest, SQLCreateClassTest, SQLDropClassTest, SQLInsertTest, SQLSelectTest, SQLMetadataTest, SQLSelectProjectionsTest, SQLSelectGroupByTest + AbstractSelectJUnit5Test |
 | 13 | SQL commands part 2 | 7 | COMPLETED | 42279ccbdb | 2026-03-12 | SQLFunctionsTest, SQLUpdateTest, SQLDeleteTest, SQLCreateVertexTest, SQLDeleteEdgeTest, SQLBatchTest, SQLCombinationFunctionTests |
-| 14 | Misc group | 13 | NOT STARTED | — | — | TruncateClassTest → SQLDBSequenceTest + LinkBagTest (abstract) |
+| 14 | Misc group | 13 | COMPLETED | 8fa333b9bf | 2026-03-12 | TruncateClassTest, DateTest, SQLCreateLinkTest, MultipleDBTest, ConcurrentUpdatesTest, ConcurrentQueriesTest, ConcurrentCommandAndOpenTest, CollateTest, EmbeddedLinkBagTest, BTreeBasedLinkBagTest, StringsTest, DBSequenceTest, SQLDBSequenceTest + LinkBagJUnit5Test (abstract) |
 | 15 | End + Import/Export | 5 | NOT STARTED | — | — | BinaryTest, DbImport*Tests, DbClosedTest |
 | 16 | Remove TestNG | ~120 deleted | NOT STARTED | — | — | Delete auto/ package, remove TestNG deps |
 | 17 | Post-migration cleanup | — | NOT STARTED | — | — | Simplify @Order, review @Disabled, update CLAUDE.md |
