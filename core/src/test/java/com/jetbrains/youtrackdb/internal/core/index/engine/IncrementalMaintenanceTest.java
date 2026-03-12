@@ -44,6 +44,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.Test;
@@ -914,6 +915,9 @@ public class IncrementalMaintenanceTest {
     // Track peak concurrent rebalances to prove throttling
     var concurrentRebalances = new AtomicInteger(0);
     var peakConcurrent = new AtomicInteger(0);
+    // Any fixture may acquire the semaphore first — use CAS to let the
+    // winner signal the latch and block, regardless of fixture index.
+    var isFirst = new AtomicBoolean(false);
 
     var fixtures = new Fixture[3];
     for (int i = 0; i < 3; i++) {
@@ -924,11 +928,10 @@ public class IncrementalMaintenanceTest {
       fixtures[i].manager.setRebalanceSemaphore(sem);
       setFileId(fixtures[i].manager, 42 + i);
 
-      final int idx = i;
       fixtures[i].manager.setKeyStreamSupplier(() -> {
         int cur = concurrentRebalances.incrementAndGet();
         peakConcurrent.updateAndGet(old -> Math.max(old, cur));
-        if (idx == 0) {
+        if (isFirst.compareAndSet(false, true)) {
           rebalanceStarted.countDown();
           try {
             rebalanceProceeds.await(10, TimeUnit.SECONDS);

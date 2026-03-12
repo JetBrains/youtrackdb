@@ -681,8 +681,10 @@ public class IndexHistogramManager extends DurableComponent {
    * rebalance on the background executor (non-blocking).
    */
   @Nullable public EquiDepthHistogram getHistogram() {
-    maybeScheduleHistogramWork(backgroundExecutor);
+    // Read snapshot before scheduling — any rebalance triggered by this call
+    // must not affect the returned value (callers see a point-in-time view).
     var snapshot = cache.get(engineId);
+    maybeScheduleHistogramWork(backgroundExecutor);
     return snapshot != null ? snapshot.histogram() : null;
   }
 
