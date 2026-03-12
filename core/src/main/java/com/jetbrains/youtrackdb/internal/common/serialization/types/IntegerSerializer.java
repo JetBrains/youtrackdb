@@ -195,6 +195,16 @@ public class IntegerSerializer implements BinarySerializer<Integer> {
     return INT_SIZE;
   }
 
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    final var pageValue = buffer.getInt(bufferOffset);
+    final var searchValue = CONVERTER.getInt(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    return Integer.compare(pageValue, searchValue);
+  }
+
   private static void checkBoundaries(byte[] stream, int startPosition) {
     if (startPosition + INT_SIZE > stream.length) {
       throw new IllegalStateException(

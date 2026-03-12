@@ -193,6 +193,61 @@ public class BinaryTypeSerializer implements BinarySerializer<byte[]> {
   }
 
   /**
+   * Unsigned lexicographic comparison of two serialized byte arrays without deserialization.
+   * Format: 4-byte native int length prefix followed by the raw bytes.
+   */
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    final var pageLen = buffer.getInt(bufferOffset);
+    bufferOffset += Integer.BYTES;
+
+    final var searchLen = IntegerSerializer.deserializeNative(serializedKey, keyOffset);
+    keyOffset += Integer.BYTES;
+
+    final var minLen = Math.min(pageLen, searchLen);
+    for (int i = 0; i < minLen; i++) {
+      final int cmp = Byte.compareUnsigned(
+          buffer.get(bufferOffset + i),
+          serializedKey[keyOffset + i]);
+      if (cmp != 0) {
+        return cmp;
+      }
+    }
+    return Integer.compare(pageLen, searchLen);
+  }
+
+  /**
+   * Unsigned lexicographic comparison of a byte[] stored in a page with WAL overlay
+   * against a pre-serialized search key. Deserializes both sides since we cannot
+   * read directly from the buffer when WAL changes are present.
+   */
+  @Override
+  public int compareInByteBufferWithWALChanges(
+      BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer, WALChanges walChanges, int pageOffset,
+      byte[] serializedKey, int keyOffset) {
+    byte[] pageBytes = deserializeFromByteBufferObject(
+        serializerFactory, buffer, walChanges, pageOffset);
+
+    final var searchLen = IntegerSerializer.deserializeNative(serializedKey, keyOffset);
+    keyOffset += Integer.BYTES;
+
+    final var minLen = Math.min(pageBytes.length, searchLen);
+    for (int i = 0; i < minLen; i++) {
+      final int cmp = Byte.compareUnsigned(
+          pageBytes[i],
+          serializedKey[keyOffset + i]);
+      if (cmp != 0) {
+        return cmp;
+      }
+    }
+    return Integer.compare(pageBytes.length, searchLen);
+  }
+
+  /**
    * {@inheritDoc}
    */
   @Override

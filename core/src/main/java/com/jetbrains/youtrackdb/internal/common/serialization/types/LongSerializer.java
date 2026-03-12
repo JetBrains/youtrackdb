@@ -204,6 +204,16 @@ public class LongSerializer implements BinarySerializer<Long> {
     return LONG_SIZE;
   }
 
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    final var pageValue = buffer.getLong(bufferOffset);
+    final var searchValue = CONVERTER.getLong(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    return Long.compare(pageValue, searchValue);
+  }
+
   private static void checkBoundaries(byte[] stream, int startPosition) {
     if (startPosition + LONG_SIZE > stream.length) {
       throw new IllegalStateException(

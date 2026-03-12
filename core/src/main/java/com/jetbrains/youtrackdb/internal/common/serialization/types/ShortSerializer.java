@@ -190,6 +190,16 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return SHORT_SIZE;
   }
 
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    final var pageValue = buffer.getShort(bufferOffset);
+    final var searchValue = CONVERTER.getShort(serializedKey, keyOffset, ByteOrder.nativeOrder());
+    return Short.compare(pageValue, searchValue);
+  }
+
   private static void checkBoundaries(byte[] stream, int startPosition) {
     if (startPosition + SHORT_SIZE > stream.length) {
       throw new IllegalStateException(

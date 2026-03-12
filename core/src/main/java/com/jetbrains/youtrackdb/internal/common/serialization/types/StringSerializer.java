@@ -279,6 +279,38 @@ public class StringSerializer implements BinarySerializer<String> {
     return (walChanges.getIntValue(buffer, offset) << 1) + IntegerSerializer.INT_SIZE;
   }
 
+  @Override
+  public int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    // Read lengths: int in native byte order from both sources
+    final var pageLen = buffer.getInt(bufferOffset);
+    final var searchLen = IntegerSerializer.deserializeNative(serializedKey, keyOffset);
+
+    bufferOffset += IntegerSerializer.INT_SIZE;
+    var searchPos = keyOffset + IntegerSerializer.INT_SIZE;
+
+    // Compare char by char without creating String or char[] objects.
+    // Each char is stored as 2 bytes: low byte first, then high byte (little-endian char).
+    final var minLen = Math.min(pageLen, searchLen);
+    for (var i = 0; i < minLen; i++) {
+      final var pageChar = (char) ((0xFF & buffer.get(bufferOffset))
+          | ((0xFF & buffer.get(bufferOffset + 1)) << 8));
+      final var searchChar = (char) ((0xFF & serializedKey[searchPos])
+          | ((0xFF & serializedKey[searchPos + 1]) << 8));
+
+      if (pageChar != searchChar) {
+        return Character.compare(pageChar, searchChar);
+      }
+
+      bufferOffset += 2;
+      searchPos += 2;
+    }
+
+    return Integer.compare(pageLen, searchLen);
+  }
+
   public static byte[] staticSerializeNativeAsWhole(String object) {
     final var result = new byte[staticGetObjectSize(object)];
     staticSerializeNativeObject(object, result, 0);

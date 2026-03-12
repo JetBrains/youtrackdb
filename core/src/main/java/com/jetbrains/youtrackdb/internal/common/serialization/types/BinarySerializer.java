@@ -271,6 +271,52 @@ public interface BinarySerializer<T> {
    */
   int getObjectSizeInByteBuffer(ByteBuffer buffer, WALChanges walChanges, int offset);
 
+  /**
+   * Compares a key stored in a page ByteBuffer against a serialized search key byte[] without
+   * deserializing either side. The default implementation falls back to deserialization;
+   * serializers should override for zero-allocation comparison.
+   *
+   * @param serializerFactory Factory used to look up serializers for nested types
+   * @param bufferOffset      Offset of the key in the ByteBuffer
+   * @param buffer            ByteBuffer containing the on-page key (native byte order)
+   * @param serializedKey     Pre-serialized search key (native byte order)
+   * @param keyOffset         Offset of the key in the serializedKey array
+   * @return negative if page key &lt; search key, 0 if equal, positive if page key &gt; search key
+   */
+  @SuppressWarnings("unchecked")
+  default int compareInByteBuffer(
+      BinarySerializerFactory serializerFactory,
+      int bufferOffset, ByteBuffer buffer,
+      byte[] serializedKey, int keyOffset) {
+    T pageValue = deserializeFromByteBufferObject(serializerFactory, bufferOffset, buffer);
+    T searchValue = deserializeNativeObject(serializerFactory, serializedKey, keyOffset);
+    return ((Comparable<T>) pageValue).compareTo(searchValue);
+  }
+
+  /**
+   * Compares a key stored in a page ByteBuffer (with WAL overlay) against a pre-serialized search
+   * key. The default implementation deserializes both sides and delegates to {@link Comparable};
+   * serializers for non-Comparable types (e.g. byte[]) must override.
+   *
+   * @param serializerFactory Factory used to look up serializers for nested types
+   * @param buffer            ByteBuffer containing the on-page key
+   * @param walChanges        WAL changes overlay
+   * @param pageOffset        Offset of the key in the page (ByteBuffer + WAL)
+   * @param serializedKey     Pre-serialized search key (native byte order)
+   * @param keyOffset         Offset of the key in the serializedKey array
+   * @return negative if page key &lt; search key, 0 if equal, positive if page key &gt; search key
+   */
+  @SuppressWarnings("unchecked")
+  default int compareInByteBufferWithWALChanges(
+      BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer, WALChanges walChanges, int pageOffset,
+      byte[] serializedKey, int keyOffset) {
+    T pageValue = deserializeFromByteBufferObject(
+        serializerFactory, buffer, walChanges, pageOffset);
+    T searchValue = deserializeNativeObject(serializerFactory, serializedKey, keyOffset);
+    return ((Comparable<T>) pageValue).compareTo(searchValue);
+  }
+
   default byte[] serializeNativeAsWhole(BinarySerializerFactory serializerFactory, T object,
       Object... hints) {
     final var result = new byte[getObjectSize(serializerFactory, object, hints)];
