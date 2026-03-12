@@ -41,7 +41,11 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     ComplexTypesTest.class,
     CRUDDocumentValidationTest.class,
     DocumentTrackingTest.class,
-    DBRecordCreateTest.class
+    DBRecordCreateTest.class,
+    // Tx
+    TransactionAtomicTest.class,
+    FrontendTransactionImplTest.class,
+    TransactionConsistencyTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

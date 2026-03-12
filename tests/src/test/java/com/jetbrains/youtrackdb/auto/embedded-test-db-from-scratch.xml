@@ -44,9 +44,9 @@
   </test>
   <test name="Tx">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.TransactionAtomicTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.TransactionConsistencyTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.TransactionAtomicTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.FrontendTransactionImplTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.TransactionConsistencyTest -->
     </classes>
   </test>
   <test name="Index">
