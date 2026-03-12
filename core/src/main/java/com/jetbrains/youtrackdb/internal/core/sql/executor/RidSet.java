@@ -2,106 +2,77 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 /**
- * Special implementation of Java Set&lt;RID&gt; to efficiently handle memory and performance. It
- * does not store actual RIDs, but it only keeps track that a RID was stored, so the iterator will
- * return new instances.
+ * Memory-efficient Set&lt;RID&gt; implementation backed by compressed bitmaps.
+ *
+ * <p>Uses a fastutil {@link Int2ObjectOpenHashMap} keyed by collection ID, with each value being a
+ * {@link Roaring64Bitmap} that stores the collection positions as compressed bitmaps. This provides
+ * efficient storage for both dense and sparse position ranges.
+ *
+ * <p>RIDs with negative collection IDs or positions (temporary/new records) are stored separately
+ * in a {@link HashSet}.
+ *
+ * <p>The iterator returns new {@link com.jetbrains.youtrackdb.internal.core.id.RecordId} instances
+ * created on-the-fly from the stored bitmap data.
  */
 public class RidSet implements Set<RID> {
 
-  protected static int INITIAL_BLOCK_SIZE = 4096;
+  protected final Int2ObjectOpenHashMap<Roaring64Bitmap> content;
+  protected final Set<RID> negatives;
 
-  /*
-   * collection / offset / bitmask
-   * eg. inserting #12:0 you will have content[12][0][0] = 1
-   * eg. inserting #12:(63*maxArraySize + 1) you will have content[12][1][0] = 1
-   *
-   */
-  protected long[][][] content = new long[8][][];
-
-  private long size = 0;
-  protected Set<RID> negatives = new HashSet<>();
-
-  protected int maxArraySize;
-
-  /**
-   * instantiates an RidSet with a bucket size of Integer.MAX_VALUE / 10
-   */
   public RidSet() {
-    this(Integer.MAX_VALUE / 10);
+    content = new Int2ObjectOpenHashMap<>();
+    negatives = new HashSet<>();
   }
 
   /**
-   * @param bucketSize the maximum size of each internal bucket array
+   * @param bucketSize ignored, kept for backward compatibility
    */
   public RidSet(int bucketSize) {
-    maxArraySize = bucketSize;
+    this();
   }
 
   @Override
   public int size() {
-    return size + negatives.size() <= Integer.MAX_VALUE
-        ? (int) size + negatives.size()
-        : Integer.MAX_VALUE;
+    long total = negatives.size();
+    for (var bitmap : content.values()) {
+      total += bitmap.getLongCardinality();
+    }
+    return total <= Integer.MAX_VALUE ? (int) total : Integer.MAX_VALUE;
   }
 
   @Override
   public boolean isEmpty() {
-    return size == 0L;
+    return negatives.isEmpty() && content.isEmpty();
   }
 
   @Override
   public boolean contains(Object o) {
-    if (size == 0L && negatives.isEmpty()) {
+    RID rid;
+    if (o instanceof RID r) {
+      rid = r;
+    } else if (o instanceof Identifiable identifiable) {
+      rid = identifiable.getIdentity();
+    } else {
       return false;
     }
 
-    if (!(o instanceof RID)) {
-      if (o instanceof Identifiable identifiable) {
-        o = identifiable.getIdentity();
-      } else {
-        return false;
-      }
-    }
-
-    var rid = (RID) o;
     var collection = rid.getCollectionId();
     var position = rid.getCollectionPosition();
     if (collection < 0 || position < 0) {
       return negatives.contains(rid);
     }
 
-    var positionByte = (position / 63);
-    var positionBit = (int) (position % 63);
-    var block = (int) (positionByte / maxArraySize);
-    var blockPositionByteInt = (int) (positionByte % maxArraySize);
-
-    if (content.length <= collection) {
-      return false;
-    }
-    if (content[collection] == null) {
-      return false;
-    }
-    if (content[collection].length <= block) {
-      return false;
-    }
-    if (content[collection][block] == null) {
-      return false;
-    }
-    if (content[collection][block].length <= blockPositionByteInt) {
-      return false;
-    }
-
-    var currentMask = 1L << positionBit;
-    var existed = content[collection][block][blockPositionByteInt] & currentMask;
-
-    return existed > 0L;
+    var bitmap = content.get(collection);
+    return bitmap != null && bitmap.contains(position);
   }
 
   @Override
@@ -111,13 +82,29 @@ public class RidSet implements Set<RID> {
 
   @Override
   public Object[] toArray() {
-    return new Object[0];
+    var result = new Object[size()];
+    var i = 0;
+    for (var rid : this) {
+      result[i++] = rid;
+    }
+    return result;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
+  @SuppressWarnings("unchecked")
   public <T> T[] toArray(T[] a) {
-    return null;
+    var sz = size();
+    if (a.length < sz) {
+      a = (T[]) java.lang.reflect.Array.newInstance(a.getClass().getComponentType(), sz);
+    }
+    var i = 0;
+    for (var rid : this) {
+      a[i++] = (T) rid;
+    }
+    if (a.length > sz) {
+      a[sz] = null;
+    }
+    return a;
   }
 
   @Override
@@ -130,77 +117,18 @@ public class RidSet implements Set<RID> {
     if (collection < 0 || position < 0) {
       return negatives.add(identifiable);
     }
-    var positionByte = (position / 63);
-    var positionBit = (int) (position % 63);
-    var block = (int) (positionByte / maxArraySize);
-    var blockPositionByteInt = (int) (positionByte % maxArraySize);
 
-    if (content.length <= collection) {
-      var oldContent = content;
-      content = new long[collection + 1][][];
-      System.arraycopy(oldContent, 0, content, 0, oldContent.length);
-    }
-    if (content[collection] == null) {
-      content[collection] = createCollectionArray(block, blockPositionByteInt);
+    var bitmap = content.get(collection);
+    if (bitmap == null) {
+      bitmap = new Roaring64Bitmap();
+      content.put(collection, bitmap);
     }
 
-    if (content[collection].length <= block) {
-      content[collection] = expandCollectionBlocks(content[collection], block,
-          blockPositionByteInt);
+    var existed = bitmap.contains(position);
+    if (!existed) {
+      bitmap.addLong(position);
     }
-    if (content[collection][block] == null) {
-      content[collection][block] =
-          expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
-    }
-    if (content[collection][block].length <= blockPositionByteInt) {
-      content[collection][block] = expandCollectionArray(content[collection][block],
-          blockPositionByteInt);
-    }
-
-    var original = content[collection][block][blockPositionByteInt];
-    var currentMask = 1L << positionBit;
-    var existed = content[collection][block][blockPositionByteInt] & currentMask;
-    content[collection][block][blockPositionByteInt] = original | currentMask;
-    if (existed == 0L) {
-      size++;
-    }
-    return existed == 0L;
-  }
-
-  private static long[][] expandCollectionBlocks(long[][] longs, int block,
-      int blockPositionByteInt) {
-    var result = new long[block + 1][];
-    System.arraycopy(longs, 0, result, 0, longs.length);
-    result[block] = expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
-    return result;
-  }
-
-  private static long[][] createCollectionArray(int block, int positionByteInt) {
-    var currentSize = INITIAL_BLOCK_SIZE;
-    while (currentSize <= positionByteInt) {
-      currentSize *= 2;
-      if (currentSize < 0) {
-        currentSize = positionByteInt + 1;
-        break;
-      }
-    }
-    var result = new long[block + 1][];
-    result[block] = new long[currentSize];
-    return result;
-  }
-
-  private static long[] expandCollectionArray(long[] original, int positionByteInt) {
-    var currentSize = original.length;
-    while (currentSize <= positionByteInt) {
-      currentSize *= 2;
-      if (currentSize < 0) {
-        currentSize = positionByteInt + 1;
-        break;
-      }
-    }
-    var result = new long[currentSize];
-    System.arraycopy(original, 0, result, 0, original.length);
-    return result;
+    return !existed;
   }
 
   @Override
@@ -208,41 +136,25 @@ public class RidSet implements Set<RID> {
     if (!(o instanceof RID identifiable)) {
       throw new IllegalArgumentException();
     }
-    if (identifiable == null) {
-      throw new IllegalArgumentException();
-    }
     var collection = identifiable.getCollectionId();
     var position = identifiable.getCollectionPosition();
     if (collection < 0 || position < 0) {
       return negatives.remove(o);
     }
-    var positionByte = (position / 63);
-    var positionBit = (int) (position % 63);
-    var block = (int) (positionByte / maxArraySize);
-    var blockPositionByteInt = (int) (positionByte % maxArraySize);
 
-    if (content.length <= collection) {
-      return false;
-    }
-    if (content[collection] == null) {
-      return false;
-    }
-    if (content[collection].length <= block) {
-      return false;
-    }
-    if (content[collection][block].length <= blockPositionByteInt) {
+    var bitmap = content.get(collection);
+    if (bitmap == null) {
       return false;
     }
 
-    var original = content[collection][block][blockPositionByteInt];
-    var currentMask = 1L << positionBit;
-    var existed = content[collection][block][blockPositionByteInt] & currentMask;
-    currentMask = ~currentMask;
-    content[collection][block][blockPositionByteInt] = original & currentMask;
-    if (existed > 0) {
-      size--;
+    var existed = bitmap.contains(position);
+    if (existed) {
+      bitmap.removeLong(position);
+      if (bitmap.isEmpty()) {
+        content.remove(collection);
+      }
     }
-    return existed == 0L;
+    return existed;
   }
 
   @Override
@@ -257,11 +169,13 @@ public class RidSet implements Set<RID> {
 
   @Override
   public boolean addAll(Collection<? extends RID> c) {
-    var added = false;
+    var modified = false;
     for (var o : c) {
-      added = added && add(o);
+      if (add(o)) {
+        modified = true;
+      }
     }
-    return added;
+    return modified;
   }
 
   @Override
@@ -271,16 +185,18 @@ public class RidSet implements Set<RID> {
 
   @Override
   public boolean removeAll(Collection<?> c) {
+    var modified = false;
     for (var o : c) {
-      remove(o);
+      if (remove(o)) {
+        modified = true;
+      }
     }
-    return true;
+    return modified;
   }
 
   @Override
   public void clear() {
-    content = new long[8][][];
-    size = 0;
-    this.negatives.clear();
+    content.clear();
+    negatives.clear();
   }
 }

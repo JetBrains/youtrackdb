@@ -2,25 +2,40 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
+import org.roaringbitmap.longlong.LongIterator;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-/** Iterator over the record identifiers contained in a {@link RidSet}. */
+/**
+ * Iterator over the record identifiers contained in a {@link RidSet}.
+ *
+ * <p>Iterates first over negative RIDs, then over collection IDs in ascending order. Within each
+ * collection, positions are yielded in ascending order via the {@link Roaring64Bitmap} iterator.
+ */
 public class RidSetIterator implements Iterator<RID> {
 
   private final Iterator<RID> negativesIterator;
-  private final RidSet set;
+  private final Iterator<Int2ObjectMap.Entry<Roaring64Bitmap>> collectionIterator;
   private int currentCollection = -1;
-  private long currentId = -1;
+  private LongIterator currentPositionIterator;
 
   protected RidSetIterator(RidSet set) {
-    this.set = set;
     this.negativesIterator = set.negatives.iterator();
-    fetchNext();
+
+    // Sort collection IDs for deterministic iteration order
+    var sortedEntries = new java.util.ArrayList<>(set.content.int2ObjectEntrySet());
+    sortedEntries.sort(java.util.Comparator.comparingInt(Int2ObjectMap.Entry::getIntKey));
+    this.collectionIterator = sortedEntries.iterator();
+
+    advanceCollection();
   }
 
   @Override
   public boolean hasNext() {
-    return negativesIterator.hasNext() || currentCollection >= 0;
+    return negativesIterator.hasNext()
+        || (currentPositionIterator != null && currentPositionIterator.hasNext());
   }
 
   @Override
@@ -28,62 +43,29 @@ public class RidSetIterator implements Iterator<RID> {
     if (negativesIterator.hasNext()) {
       return negativesIterator.next();
     }
-    if (!hasNext()) {
-      throw new IllegalStateException();
+    if (currentPositionIterator == null || !currentPositionIterator.hasNext()) {
+      throw new NoSuchElementException();
     }
-    var result = new RecordId(currentCollection, currentId);
-    currentId++;
-    fetchNext();
+    var position = currentPositionIterator.next();
+    var result = new RecordId(currentCollection, position);
+
+    // If current bitmap is exhausted, advance to the next collection
+    if (!currentPositionIterator.hasNext()) {
+      advanceCollection();
+    }
     return result;
   }
 
-  private void fetchNext() {
-    if (currentCollection < 0) {
-      currentCollection = 0;
-      currentId = 0;
-    }
-
-    var currentArrayPos = currentId / 63;
-    var currentBit = currentId % 63;
-    var block = (int) (currentArrayPos / set.maxArraySize);
-    var blockPositionByteInt = (int) (currentArrayPos % set.maxArraySize);
-
-    while (currentCollection < set.content.length) {
-      while (set.content[currentCollection] != null && block < set.content[currentCollection].length) {
-        while (set.content[currentCollection][block] != null
-            && blockPositionByteInt < set.content[currentCollection][block].length) {
-          if (currentBit == 0 && set.content[currentCollection][block][blockPositionByteInt] == 0L) {
-            blockPositionByteInt++;
-            currentArrayPos++;
-            continue;
-          }
-          if (set.contains(new RecordId(currentCollection, currentArrayPos * 63 + currentBit))) {
-            currentId = currentArrayPos * 63 + currentBit;
-            return;
-          } else {
-            currentBit++;
-            if (currentBit > 63) {
-              currentBit = 0;
-              blockPositionByteInt++;
-              currentArrayPos++;
-            }
-          }
-        }
-        if (set.content[currentCollection][block] == null
-            && set.content[currentCollection].length >= block) {
-          currentArrayPos += set.maxArraySize;
-        }
-        block++;
-        blockPositionByteInt = 0;
-        currentBit = 0;
+  private void advanceCollection() {
+    while (collectionIterator.hasNext()) {
+      var entry = collectionIterator.next();
+      var bitmap = entry.getValue();
+      if (!bitmap.isEmpty()) {
+        currentCollection = entry.getIntKey();
+        currentPositionIterator = bitmap.getLongIterator();
+        return;
       }
-      block = 0;
-      currentBit = 0;
-      currentArrayPos = 0;
-      blockPositionByteInt = 0;
-      currentCollection++;
     }
-
-    currentCollection = -1;
+    currentPositionIterator = null;
   }
 }
