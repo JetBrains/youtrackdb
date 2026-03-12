@@ -172,7 +172,7 @@ public class YTDBGraphFactory {
   /// a race condition where [Path#normalize] and [Path#toRealPath] produce different keys
   /// for the same physical location (e.g., on Windows with junction points). Falls back to
   /// [Path#toAbsolutePath] + [Path#normalize] only if directory creation also fails.
-  private static Path resolvePath(String dbPath) {
+  static Path resolvePath(String dbPath) {
     var path = Path.of(dbPath);
     try {
       return path.toRealPath();
