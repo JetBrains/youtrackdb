@@ -261,6 +261,25 @@ public class EstimateEdgeCostTest {
     assertTrue("Cost should be positive", cost > 0);
   }
 
+  // -- parseDirection: case variants -----------------------------------------
+
+  @Test
+  public void parseDirectionMixedCase() {
+    // Verify case-insensitive matching for various casing patterns.
+    assertEquals(Direction.OUT, MatchExecutionPlanner.parseDirection("Out"));
+    assertEquals(Direction.IN, MatchExecutionPlanner.parseDirection("In"));
+    assertEquals(Direction.BOTH, MatchExecutionPlanner.parseDirection("Both"));
+    assertEquals(Direction.OUT, MatchExecutionPlanner.parseDirection("OutE"));
+    assertEquals(Direction.IN, MatchExecutionPlanner.parseDirection("InE"));
+    assertEquals(Direction.BOTH, MatchExecutionPlanner.parseDirection("BothE"));
+  }
+
+  @Test
+  public void parseDirection_null_returnsNull() {
+    // parseDirection(null) should return null without throwing.
+    assertNull(MatchExecutionPlanner.parseDirection(null));
+  }
+
   // -- Helper methods ---------------------------------------------------------
 
   private SchemaClassInternal mockSchemaClass(String name, long count) {

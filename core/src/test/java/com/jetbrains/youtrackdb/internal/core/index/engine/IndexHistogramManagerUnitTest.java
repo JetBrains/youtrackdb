@@ -1387,6 +1387,472 @@ public class IndexHistogramManagerUnitTest {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // computeNewSnapshot — clamping and version mismatch
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void computeNewSnapshot_clampsNegativeTotalToZero() {
+    // Given a snapshot with totalCount=100, nullCount=50
+    var stats = new IndexStatistics(100, 50, 50);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 0, 100, 0, false, null, false);
+
+    // When delta has totalCountDelta=-200 (would make totalCount=-100)
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = -200;
+    delta.nullCountDelta = -200;
+    delta.mutationCount = 1;
+
+    var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
+
+    // Then both are clamped to 0
+    assertEquals(0, result.stats().totalCount());
+    assertEquals(0, result.stats().nullCount());
+  }
+
+  @Test
+  public void computeNewSnapshot_versionMismatch_discardsFrequencyDeltas() {
+    // Given a snapshot with version=5 and a 2-bucket histogram
+    var histogram = new EquiDepthHistogram(
+        2,
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {50, 50},
+        new long[] {50, 50},
+        100,
+        null, 0);
+    var stats = new IndexStatistics(100, 100, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, histogram, 0, 100, 5, false, null, false);
+
+    // When delta has snapshotVersion=3 and non-null frequencyDeltas
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 1;
+    delta.mutationCount = 1;
+    delta.frequencyDeltas = new int[] {10, 20};
+    delta.snapshotVersion = 3;
+
+    var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
+
+    // Then histogram frequencies are NOT updated (version mismatch)
+    assertNotNull(result.histogram());
+    assertEquals(50, result.histogram().frequencies()[0]);
+    assertEquals(50, result.histogram().frequencies()[1]);
+  }
+
+  @Test
+  public void computeNewSnapshot_accumulatesMutationsCorrectly() {
+    // Given a snapshot with mutationsSinceRebalance=50
+    var stats = new IndexStatistics(100, 100, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, null, 50, 100, 0, false, null, false);
+
+    // When delta has mutationCount=7
+    var delta = new HistogramDelta();
+    delta.mutationCount = 7;
+
+    var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
+
+    // Then mutationsSinceRebalance = 50 + 7 = 57
+    assertEquals(57, result.mutationsSinceRebalance());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // onPut — frequency delta initialization guards
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void onPut_wasInsertFalse_doesNotInitializeFrequencyDeltas() {
+    // Given a manager with a histogram
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(200);
+    installSnapshot(fixture, 200, 200, 0, histogram);
+
+    // When onPut is called with wasInsert=false
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onPut(op, 42, true, false);
+
+    // Then delta's frequencyDeltas is null (update path returns early)
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNull(delta.frequencyDeltas);
+  }
+
+  @Test
+  public void onPut_nullKey_doesNotInitializeFrequencyDeltas() {
+    // Given a manager with a histogram
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(200);
+    installSnapshot(fixture, 200, 200, 0, histogram);
+
+    // When onPut is called with null key (wasInsert=true)
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onPut(op, null, true, true);
+
+    // Then delta's frequencyDeltas is null (null key goes to nullCount)
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNull(delta.frequencyDeltas);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Multi-value HLL — insert-only semantics
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void multiValue_onRemove_doesNotUpdateHll() {
+    // Given a multi-value manager with an HLL sketch in the snapshot
+    var fixture = new Fixture(false);
+    var hll = new HyperLogLogSketch();
+    var snapshot = new HistogramSnapshot(
+        new IndexStatistics(100, 80, 5), null,
+        0, 100, 0, false, hll, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+
+    // When onRemove is called (multi-value)
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onRemove(op, 42, false);
+
+    // Then delta has no HLL sketch (HLL is insert-only)
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNull(delta.hllSketch);
+  }
+
+  @Test
+  public void singleValue_onPut_doesNotCreateHllSketch() {
+    // Given a single-value manager with HLL in snapshot (unusual but
+    // tests the isSingleVal guard in onPut)
+    var fixture = new Fixture(true);
+    var hll = new HyperLogLogSketch();
+    var snapshot = new HistogramSnapshot(
+        new IndexStatistics(100, 100, 0), null,
+        0, 100, 0, false, hll, false);
+    fixture.cache.put(fixture.engineId, snapshot);
+
+    // When onPut is called with isSingleVal=true
+    var holder = new HistogramDeltaHolder();
+    var op = mockOp(holder);
+    fixture.manager.onPut(op, 42, true, true);
+
+    // Then delta has no HLL sketch (single-value skips HLL)
+    var delta = holder.getDeltas().get(fixture.engineId);
+    assertNull(delta.hllSketch);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // computeRebalanceThreshold — min/max clamping and drift halving
+  // (tested directly via computeNewSnapshot + maybeScheduleHistogramWork)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void computeRebalanceThreshold_clampsToMax() {
+    // Given totalCountAtLastBuild=1000, fraction=0.5 → raw=500, max=200
+    // Expected: min(500, 200) = 200. With 250 mutations → should schedule.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.5);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 10L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 200L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(1000);
+    var stats = new IndexStatistics(1000, 1000, 0);
+    // 250 mutations > max-clamped 200 → should schedule
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 250, 1000, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 1000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertFalse("Expected rebalance: 250 > max-clamped 200",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void computeRebalanceThreshold_clampsToMin() {
+    // Given totalCountAtLastBuild=100, fraction=0.5 → raw=50, min=300
+    // Expected: max(50, 300) = 300. With 200 mutations → should NOT schedule.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.5);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 300L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 1000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(100);
+    var stats = new IndexStatistics(100, 100, 0);
+    // 200 mutations < min-clamped 300 → should NOT schedule
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 200, 100, 0, false, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertTrue("Expected no rebalance: 200 < min-clamped 300",
+        executor.submitted.isEmpty());
+  }
+
+  @Test
+  public void computeRebalanceThreshold_halvesWhenDrifted() {
+    // Given totalCountAtLastBuild=10000, fraction=0.1 → raw=1000.
+    // With hasDriftedBuckets=true → threshold=500.
+    // 600 mutations > 500 → should schedule.
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.1);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 100L);
+    setConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS,
+        1_000_000L);
+
+    var fixture = new Fixture();
+    var histogram = createSimpleHistogram(10_000);
+    var stats = new IndexStatistics(10_000, 10_000, 0);
+    // 600 > 500 (halved from 1000) → should schedule
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 600, 10_000, 0, true, null, false));
+    fixture.manager.setFileIdForTest(1);
+    fixture.manager.setKeyStreamSupplier(
+        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+
+    var executor = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor);
+
+    assertFalse("Expected rebalance with drift halving: 600 > 500",
+        executor.submitted.isEmpty());
+
+    // But 400 mutations should NOT trigger (400 < 500)
+    fixture.cache.put(fixture.engineId,
+        new HistogramSnapshot(
+            stats, histogram, 400, 10_000, 0, true, null, false));
+    // Reset CAS guard from the previous scheduling
+    fixture.manager.resetRebalanceInProgressForTest();
+
+    var executor2 = new CapturingExecutor();
+    fixture.manager.maybeScheduleHistogramWork(executor2);
+    assertTrue("Expected no rebalance: 400 < halved threshold 500",
+        executor2.submitted.isEmpty());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // truncateBoundary — UTF-8 string truncation
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void truncateStringUtf8_preservesAsciiStringUnderLimit() {
+    // "hello" is 5 bytes UTF-8 + 2 byte header = 7 bytes.
+    // With maxBytes=100 it should be returned unchanged.
+    @SuppressWarnings("unchecked")
+    var serializer =
+        (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE;
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+
+    var result = IndexHistogramManager.truncateBoundary(
+        "hello", 100, serializer, factory);
+    assertEquals("hello", result);
+  }
+
+  @Test
+  public void truncateStringUtf8_truncatesLongAsciiString() {
+    // "abcdefghijklmnop" is 16 chars, each 1 byte UTF-8.
+    // UTF8Serializer header is 2 bytes (short). maxBytes=10 →
+    // maxPayload = 10 - 2 = 8 bytes → truncated to 8 chars.
+    @SuppressWarnings("unchecked")
+    var serializer =
+        (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE;
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+
+    var result = IndexHistogramManager.truncateBoundary(
+        "abcdefghijklmnop", 10, serializer, factory);
+    assertEquals("abcdefgh", result);
+  }
+
+  @Test
+  public void truncateStringUtf8_doesNotSplitMultiByteCharacter() {
+    // 'é' (U+00E9) is 2 bytes in UTF-8. A string of 5 'é' chars =
+    // 10 bytes UTF-8. With maxBytes=7 (header 2 + payload 5),
+    // we can fit only 2 chars (4 bytes) — not 2.5.
+    @SuppressWarnings("unchecked")
+    var serializer =
+        (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE;
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+
+    var input = "\u00e9\u00e9\u00e9\u00e9\u00e9"; // 5 × 'é'
+    var result = IndexHistogramManager.truncateBoundary(
+        input, 7, serializer, factory);
+    // maxPayload = 7 - 2 = 5 bytes. Each 'é' is 2 bytes.
+    // 2 chars = 4 bytes ≤ 5, 3 chars = 6 bytes > 5 → truncated to 2
+    assertEquals("\u00e9\u00e9", result);
+  }
+
+  @Test
+  public void truncateStringUtf8_handlesSurrogatePairs() {
+    // Emoji U+1F600 (grinning face) is 4 bytes in UTF-8 and represented
+    // as a surrogate pair (2 chars) in Java. Test that truncation does
+    // not split the surrogate pair.
+    @SuppressWarnings("unchecked")
+    var serializer =
+        (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+                ?>) com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE;
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+
+    var emoji = "\uD83D\uDE00"; // U+1F600
+    var input = emoji + emoji + emoji; // 3 emojis = 12 UTF-8 bytes
+    // maxBytes=8: header 2 + payload 6. Each emoji is 4 bytes.
+    // 1 emoji = 4 ≤ 6, 2 emojis = 8 > 6 → truncated to 1 emoji
+    var result = IndexHistogramManager.truncateBoundary(
+        input, 8, serializer, factory);
+    assertEquals(emoji, result);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // fitToPage — MINIMUM_BUCKET_COUNT guard
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void fitToPage_respectsMinimumBucketCount() {
+    // Create a BuildResult with 8 buckets where boundaries are very large
+    // so the page budget forces reduction. Verify it stops at 4 (minimum).
+    int buckets = 8;
+    var boundaries = new Comparable<?>[buckets + 1];
+    var frequencies = new long[buckets];
+    var distinctCounts = new long[buckets];
+    for (int i = 0; i <= buckets; i++) {
+      boundaries[i] = i;
+    }
+    for (int i = 0; i < buckets; i++) {
+      frequencies[i] = 100;
+      distinctCounts[i] = 100;
+    }
+
+    var result = new IndexHistogramManager.BuildResult(
+        boundaries, frequencies, distinctCounts, buckets, 800, null, 0);
+
+    // Use a BoundarySizeCalculator that always returns a huge size
+    // so that the loop keeps reducing bucket count.
+    IndexHistogramManager.BoundarySizeCalculator hugeSize =
+        (b, count) -> Integer.MAX_VALUE;
+
+    // Single-value (no HLL), mcvKeySize=0
+    var fitResult = IndexHistogramManager.fitToPage(
+        result, 800, true, 0, hugeSize);
+
+    // The while loop exits when bucketCount reaches MINIMUM_BUCKET_COUNT (4).
+    // Even though boundaries don't fit, the histogram is returned with 4
+    // buckets — fitToPage does not return null for single-value when the
+    // minimum is reached.
+    assertNotNull(fitResult);
+    assertEquals(IndexHistogramManager.MINIMUM_BUCKET_COUNT,
+        fitResult.histogram().bucketCount());
+  }
+
+  @Test
+  public void fitToPage_stopsReducingAtMinimumBucketCount() {
+    // Verify that when starting from 16 buckets and boundaries are too
+    // large for all counts above 4, the result has exactly 4 buckets.
+    int buckets = 16;
+    var boundaries = new Comparable<?>[buckets + 1];
+    var frequencies = new long[buckets];
+    var distinctCounts = new long[buckets];
+    for (int i = 0; i <= buckets; i++) {
+      boundaries[i] = i;
+    }
+    for (int i = 0; i < buckets; i++) {
+      frequencies[i] = 10;
+      distinctCounts[i] = 10;
+    }
+
+    var result = new IndexHistogramManager.BuildResult(
+        boundaries, frequencies, distinctCounts, buckets, 160, null, 0);
+
+    // Returns huge except when bucketCount <= 4
+    IndexHistogramManager.BoundarySizeCalculator selectiveSize =
+        (b, count) -> count <= 4 ? 0 : Integer.MAX_VALUE;
+
+    var fitResult = IndexHistogramManager.fitToPage(
+        result, 160, true, 0, selectiveSize);
+
+    assertNotNull(fitResult);
+    assertEquals(4, fitResult.histogram().bucketCount());
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // scanAndBuild — MCV tie-breaking and exact bucket boundaries
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void scanAndBuild_mcvTieBreaking_firstKeyWins() {
+    // Two keys with the same frequency: key 1 appears 3 times, then
+    // key 2 appears 3 times. MCV should be key 1 (first seen, uses
+    // strict > comparison).
+    var keys = java.util.stream.Stream.<Object>of(
+        1, 1, 1, 2, 2, 2, 3);
+
+    var result = IndexHistogramManager.scanAndBuild(keys, 7, 4);
+
+    assertNotNull(result);
+    // key 1 has run length 3, key 2 has run length 3. Since the
+    // comparator uses strict > (not >=), key 1 wins (it was first).
+    assertEquals(1, result.mcvValue);
+    assertEquals(3, result.mcvFrequency);
+  }
+
+  @Test
+  public void scanAndBuild_exactBucketBoundary_with100Entries4Buckets() {
+    // 100 entries [0..99], 4 buckets → ~25 per bucket
+    var keys = IntStream.range(0, 100).boxed().map(i -> (Object) i);
+
+    var result = IndexHistogramManager.scanAndBuild(keys, 100, 4);
+
+    assertNotNull(result);
+    // Verify we got the expected bucket count
+    assertTrue("Expected at most 4 buckets",
+        result.actualBucketCount <= 4);
+    assertTrue("Expected at least 1 bucket",
+        result.actualBucketCount >= 1);
+
+    // Sum of frequencies should equal 100
+    long totalFreq = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      totalFreq += result.frequencies[i];
+    }
+    assertEquals(100, totalFreq);
+
+    // Boundaries array should have actualBucketCount+1 entries
+    // and the first boundary should be 0, the last should be 99
+    assertEquals(0, result.boundaries[0]);
+    assertEquals(99, result.boundaries[result.actualBucketCount]);
+
+    // totalDistinct should be 100 (all unique)
+    assertEquals(100, result.totalDistinct);
+  }
+
   /**
    * Test fixture with mock storage and real CHM cache.
    *

@@ -508,7 +508,7 @@ public class HyperLogLogSketchTest {
     Assert.assertEquals("Register 0 should be clamped to 54",
         54, out[0]);
     Assert.assertEquals("Register 1 should be clamped to 54",
-        55 > HyperLogLogSketch.MAX_REGISTER_VALUE ? 54 : 55, out[1]);
+        54, out[1]);
     Assert.assertEquals("Register 2 should stay at 54",
         54, out[2]);
     Assert.assertEquals("Register 3 should stay at 30",
@@ -532,6 +532,167 @@ public class HyperLogLogSketchTest {
         54, out[0]);
     Assert.assertEquals("Negative register (0x80) should be clamped to 54",
         54, out[1]);
+  }
+
+  // ── add: verify register index from hash ──────────────────────
+
+  @Test
+  public void add_verifyRegisterIndex() {
+    // The low 10 bits of the hash select the register index.
+    // Construct a hash where the low 10 bits = 42 (0b0000101010).
+    // After add, register[42] should be non-zero.
+    var sketch = new HyperLogLogSketch();
+    // Hash with low 10 bits = 42 and some leading-zero pattern above
+    long hash = (1L << 10) | 42; // bits above P: ...0001, rho = 53
+    sketch.add(hash);
+
+    byte[] registers = new byte[HyperLogLogSketch.serializedSize()];
+    sketch.writeTo(registers, 0);
+
+    Assert.assertNotEquals(
+        "Register[42] should be updated by hash with low bits = 42",
+        0, registers[42]);
+    // Verify no other register in the range [40..44] except 42 was touched
+    // (to confirm index selection is correct)
+    Assert.assertEquals(0, registers[40]);
+    Assert.assertEquals(0, registers[41]);
+    Assert.assertEquals(0, registers[43]);
+    Assert.assertEquals(0, registers[44]);
+  }
+
+  // ── add: verify rho value ─────────────────────────────────────
+
+  @Test
+  public void add_verifyRhoValue() {
+    // Construct a hash where: low 10 bits = 0 (register 0),
+    // remaining 54 bits = 0 (all zeros). rho = leading zeros + 1.
+    // w = hash >>> 10 = 0. w | 1L = 1. numberOfLeadingZeros(1) = 63.
+    // rho = 63 - 10 + 1 = 54 (MAX_REGISTER_VALUE).
+    var sketch = new HyperLogLogSketch();
+    sketch.add(0L); // all bits zero
+
+    byte[] registers = new byte[HyperLogLogSketch.serializedSize()];
+    sketch.writeTo(registers, 0);
+
+    Assert.assertEquals(
+        "Register[0] should have rho=54 for all-zero hash",
+        54, registers[0]);
+  }
+
+  @Test
+  public void add_verifyRhoValueWithKnownLeadingZeros() {
+    // Hash = 1 << 20: low 10 bits = 0 → register 0.
+    // w = hash >>> 10 = 1 << 10 = 1024. w | 1L = 1025.
+    // 1025 in binary = 10_0000_0001 → 64 - 11 = 53 leading zeros.
+    // rho = 53 - 10 + 1 = 44.
+    var sketch = new HyperLogLogSketch();
+    long hash = 1L << 20; // only bit 20 set, register index = 0
+    sketch.add(hash);
+
+    byte[] registers = new byte[HyperLogLogSketch.serializedSize()];
+    sketch.writeTo(registers, 0);
+
+    // w = hash >>> 10 = 1 << 10 = 1024. w | 1L = 1025.
+    // numberOfLeadingZeros(1025) = 53 (1025 fits in 11 bits, 64-11=53).
+    // rho = 53 - 10 + 1 = 44.
+    Assert.assertEquals(
+        "Register[0] should have rho=44 for hash with bit 20 set",
+        44, registers[0]);
+  }
+
+  // ── estimate: all-zero registers returns zero ─────────────────
+
+  @Test
+  public void estimate_allZeroRegisters_returnsZero() {
+    // A freshly constructed sketch has all-zero registers.
+    // All 1024 registers are zero → zeroCount = 1024.
+    // rawEstimate = ALPHA_M * M * M / sum where sum = 1024 (each 1/(1<<0) = 1).
+    // rawEstimate = 0.72054 * 1024 * 1024 / 1024 ≈ 737.8.
+    // Small-range check: 737.8 <= 2.5 * 1024 = 2560, zeroCount = 1024 > 0.
+    // Linear counting: M * ln(M / 1024) = 1024 * ln(1) = 0.
+    var sketch = new HyperLogLogSketch();
+    Assert.assertEquals(
+        "All-zero registers should estimate 0", 0, sketch.estimate());
+  }
+
+  // ── estimate: single register set → small-range correction ────
+
+  @Test
+  public void estimate_singleRegisterSet_smallRangeCorrection() {
+    // Set exactly one register by adding one hash. With 1023 zero
+    // registers, small-range correction (linear counting) should be
+    // used: M * ln(M / zeroCount) = 1024 * ln(1024 / 1023) ≈ 1.0.
+    var sketch = new HyperLogLogSketch();
+    sketch.add(hashInt(0)); // adds exactly one key
+
+    long est = sketch.estimate();
+    // With linear counting, expected ≈ 1024 * ln(1024/1023) ≈ 1.00
+    Assert.assertTrue(
+        "Single key estimate should be ~1 (got " + est + ")",
+        est >= 1 && est <= 2);
+  }
+
+  // ── merge: takes max register ─────────────────────────────────
+
+  @Test
+  public void merge_takesMaxRegister() {
+    // Create two sketches where register 0 has different values.
+    // After merge, register 0 should be the maximum of both.
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+
+    // Add a hash to register 0 in sketch a with a known rho
+    a.add(0L); // register 0, rho = 54 (max)
+    // Add a hash to register 0 in sketch b with smaller rho
+    b.add(1L << 10); // register 0, w = 1 → rho = 54 too
+    // Use different register indices to demonstrate max behavior
+    // Register 5: only in sketch a
+    a.add(5L); // register 5
+    // Register 5: only in sketch b with different value
+    b.add(5L | (1L << 20)); // register 5, different w → different rho
+
+    byte[] regA = new byte[1024];
+    byte[] regB = new byte[1024];
+    a.writeTo(regA, 0);
+    b.writeTo(regB, 0);
+
+    a.merge(b);
+
+    byte[] merged = new byte[1024];
+    a.writeTo(merged, 0);
+
+    // Each register in merged should be max(regA[i], regB[i])
+    for (int i = 0; i < 1024; i++) {
+      int expected = Math.max(regA[i] & 0xFF, regB[i] & 0xFF);
+      Assert.assertEquals(
+          "Register[" + i + "] should be max of both sketches",
+          expected, merged[i] & 0xFF);
+    }
+  }
+
+  // ── readFrom: validates and clamps out-of-range registers ─────
+
+  @Test
+  public void readFrom_clampsRegisterAboveMaxRegisterValue() {
+    // Register value > 54 (MAX_REGISTER_VALUE) should be clamped to 54.
+    byte[] src = new byte[HyperLogLogSketch.serializedSize()];
+    src[0] = 55; // just above max
+
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+
+    byte[] out = new byte[1024];
+    sketch.writeTo(out, 0);
+    Assert.assertEquals(
+        "Register value 55 should be clamped to 54",
+        54, out[0]);
+  }
+
+  // ── serializedSize returns 1024 ───────────────────────────────
+
+  @Test
+  public void serializedSize_returns1024() {
+    // Verify serializedSize matches M = 2^10 = 1024
+    Assert.assertEquals(1024, HyperLogLogSketch.serializedSize());
   }
 
   @Test
