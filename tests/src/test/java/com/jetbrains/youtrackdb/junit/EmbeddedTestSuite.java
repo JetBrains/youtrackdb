@@ -75,7 +75,11 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     LinkBagIndexTest.class,
     LinkMapIndexTest.class,
     IndexTxTest.class,
-    OrderByIndexReuseTest.class
+    OrderByIndexReuseTest.class,
+    // Index (part 4) + Index Manager
+    LinkSetIndexTest.class,
+    CompositeIndexWithNullTest.class,
+    IndexManagerTest.class
 })
 @SuiteDisplayName("Paginated Local Test Suite")
 public class EmbeddedTestSuite {

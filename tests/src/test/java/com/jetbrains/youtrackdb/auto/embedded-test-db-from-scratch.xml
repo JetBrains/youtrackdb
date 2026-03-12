@@ -79,8 +79,8 @@
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.LinkMapIndexTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexTxTest -->
       <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.OrderByIndexReuseTest -->
-      <class name="com.jetbrains.youtrackdb.auto.LinkSetIndexTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.LinkSetIndexTest -->
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.CompositeIndexWithNullTest -->
     </classes>
   </test>
   <test name="Query">
@@ -109,7 +109,7 @@
   </test>
   <test name="Index Manager">
     <classes>
-      <class name="com.jetbrains.youtrackdb.auto.IndexManagerTest"/>
+      <!-- Migrated to JUnit 5: com.jetbrains.youtrackdb.junit.IndexManagerTest -->
     </classes>
   </test>
   <test name="Binary">
