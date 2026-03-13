@@ -13,8 +13,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import java.util.List;
@@ -278,6 +280,223 @@ public class EstimateEdgeCostTest {
   public void parseDirection_null_returnsNull() {
     // parseDirection(null) should return null without throwing.
     assertNull(MatchExecutionPlanner.parseDirection(null));
+  }
+
+  @Test
+  public void parseDirectionEmptyString_returnsNull() {
+    // Empty string is not a valid method name — must return null.
+    assertNull(MatchExecutionPlanner.parseDirection(""));
+  }
+
+  @Test
+  public void parseDirectionOutE_uppercase_returnsOut() {
+    // "OUTE" (all-caps) must map to OUT via case-insensitive matching.
+    assertEquals(Direction.OUT, MatchExecutionPlanner.parseDirection("OUTE"));
+  }
+
+  @Test
+  public void parseDirectionInE_uppercase_returnsIn() {
+    assertEquals(Direction.IN, MatchExecutionPlanner.parseDirection("INE"));
+  }
+
+  @Test
+  public void parseDirectionBothE_uppercase_returnsBoth() {
+    assertEquals(Direction.BOTH, MatchExecutionPlanner.parseDirection("BOTHE"));
+  }
+
+  // -- extractEdgeClassName: evaluable literal path ----------------------------
+
+  @Test
+  public void extractEdgeClassName_evaluableLiteral_returnsStringValue() {
+    // When execute() on the first param returns a String directly,
+    // extractEdgeClassName should use it without falling through to toString.
+    // Uses a real SQLExpression built via SQLMatchPathItem.outPath which creates
+    // a proper evaluable string parameter.
+    var pathItem = new SQLMatchPathItem(-1);
+    var edgeName = new SQLIdentifier("Knows");
+    pathItem.outPath(edgeName);
+
+    // pathItem.getMethod() now has a proper SQLExpression param that
+    // evaluates to "Knows" (a String).
+    assertEquals("Knows",
+        MatchExecutionPlanner.extractEdgeClassName(pathItem.getMethod()));
+  }
+
+  @Test
+  public void extractEdgeClassName_singleCharString_returnsRaw() {
+    // When the raw toString is a single character (length < 2), the
+    // quote-stripping branch must NOT be entered — returns as-is.
+    // Kills boundary mutation on "raw.length() >= 2".
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn("out");
+
+    var base = mock(SQLBaseExpression.class);
+    when(base.toString()).thenReturn("X");
+
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+
+    when(method.getParams()).thenReturn(List.of(param));
+
+    assertEquals("X", MatchExecutionPlanner.extractEdgeClassName(method));
+  }
+
+  @Test
+  public void extractEdgeClassName_emptyString_returnsEmpty() {
+    // Empty raw string (length 0 < 2) — returns as-is without stripping.
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn("out");
+
+    var base = mock(SQLBaseExpression.class);
+    when(base.toString()).thenReturn("");
+
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+
+    when(method.getParams()).thenReturn(List.of(param));
+
+    assertEquals("", MatchExecutionPlanner.extractEdgeClassName(method));
+  }
+
+  @Test
+  public void extractEdgeClassName_mismatchedQuotes_returnsRaw() {
+    // When first and last quotes don't match (e.g., "'Knows\""),
+    // the quote-stripping condition fails — returns raw string.
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn("out");
+
+    var base = mock(SQLBaseExpression.class);
+    when(base.toString()).thenReturn("'Knows\"");
+
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+
+    when(method.getParams()).thenReturn(List.of(param));
+
+    assertEquals("'Knows\"",
+        MatchExecutionPlanner.extractEdgeClassName(method));
+  }
+
+  @Test
+  public void extractEdgeClassName_nullRaw_returnsNull() {
+    // When base.toString() returns null, the null check on raw prevents NPE.
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn("out");
+
+    var base = mock(SQLBaseExpression.class);
+    when(base.toString()).thenReturn(null);
+
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+
+    when(method.getParams()).thenReturn(List.of(param));
+
+    assertNull(MatchExecutionPlanner.extractEdgeClassName(method));
+  }
+
+  @Test
+  public void extractEdgeClassName_twoCharQuoted_returnsEmpty() {
+    // Exactly 2 chars with matching quotes: "''" → empty string after strip.
+    // This is the boundary: length == 2 satisfies >= 2.
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn("out");
+
+    var base = mock(SQLBaseExpression.class);
+    when(base.toString()).thenReturn("''");
+
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+
+    when(method.getParams()).thenReturn(List.of(param));
+
+    assertEquals("", MatchExecutionPlanner.extractEdgeClassName(method));
+  }
+
+  // -- estimateEdgeCost: edge class properties null ----------------------------
+
+  @Test
+  public void estimateEdgeCost_edgeClassNoOutProperty() {
+    // Edge class exists but has no "out" property — outVertexClass stays null.
+    var personClass = mockSchemaClass("Person", 100);
+    when(personClass.isSubClassOf("Person")).thenReturn(true);
+    var edgeClass = mockSchemaClass("Knows", 500);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(null);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(null);
+
+    var edge = mockEdgeWithMethodAndParam("out", "\"Knows\"");
+    double cost = MatchExecutionPlanner.estimateEdgeCost(
+        edge, "p", 100, Map.of("p", "Person"), db);
+
+    // With null vertex classes, EdgeFanOutEstimator uses default fan-out.
+    assertTrue("Cost should be positive", cost > 0);
+  }
+
+  @Test
+  public void estimateEdgeCost_outPropertyLinkedClassNull() {
+    // Edge class has "out" property but getLinkedClass() returns null.
+    mockSchemaClass("Person", 100);
+    var edgeClass = mockSchemaClass("Knows", 500);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(null);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(null);
+
+    var edge = mockEdgeWithMethodAndParam("out", "\"Knows\"");
+    double cost = MatchExecutionPlanner.estimateEdgeCost(
+        edge, "p", 100, Map.of("p", "Person"), db);
+
+    assertTrue("Cost should be positive", cost > 0);
+  }
+
+  @Test
+  public void estimateEdgeCost_inPropertyLinkedClassNull() {
+    // Edge class has "in" property but getLinkedClass() returns null.
+    mockSchemaClass("Person", 100);
+    var edgeClass = mockSchemaClass("Knows", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(null);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(null);
+
+    var edge = mockEdgeWithMethodAndParam("in", "\"Knows\"");
+    double cost = MatchExecutionPlanner.estimateEdgeCost(
+        edge, "p", 100, Map.of("p", "Person"), db);
+
+    assertTrue("Cost should be positive", cost > 0);
+  }
+
+  @Test
+  public void estimateEdgeCost_verifyCostModelFormula() {
+    // Verify exact cost computation: cost = sourceRows * fanOut * randomPageReadCost.
+    // Kills mutants that replace the return value or negate conditions.
+    mockSchemaClass("Person", 100);
+    mockEdgeClassWithVertexLinks("Knows", 500, "Person", "Person");
+
+    var edge = mockEdgeWithMethodAndParam("out", "\"Knows\"");
+    double cost = MatchExecutionPlanner.estimateEdgeCost(
+        edge, "p", 200, Map.of("p", "Person"), db);
+
+    // fanOut = 500/100 = 5.0
+    // cost = 200 * 5.0 * randomPageReadCost
+    double expected = CostModel.edgeTraversalCost(200, 5.0);
+    assertEquals(expected, cost, 1e-9);
+  }
+
+  @Test
+  public void estimateEdgeCost_inDirection_verifyCostModelFormula() {
+    // Verify exact cost for IN direction.
+    mockSchemaClass("Person", 200);
+    mockEdgeClassWithVertexLinks("WorksAt", 600, "Person", "Person");
+
+    var edge = mockEdgeWithMethodAndParam("in", "\"WorksAt\"");
+    double cost = MatchExecutionPlanner.estimateEdgeCost(
+        edge, "p", 50, Map.of("p", "Person"), db);
+
+    // fanOut = 600/200 = 3.0
+    double expected = CostModel.edgeTraversalCost(50, 3.0);
+    assertEquals(expected, cost, 1e-9);
   }
 
   // -- Helper methods ---------------------------------------------------------

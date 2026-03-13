@@ -718,4 +718,320 @@ public class HyperLogLogSketchTest {
     Assert.assertTrue("Estimate should be finite (not Long.MAX_VALUE)",
         est < Long.MAX_VALUE);
   }
+
+  // ── estimate() boundary conditions ──────────────────────────
+
+  /**
+   * Tests estimate at the exact small-range correction threshold.
+   * With many registers set to a uniform low value and some zeros,
+   * the raw estimate should be near 2.5 * M = 2560. When at or below
+   * this threshold with zero registers present, linear counting is used.
+   */
+  @Test
+  public void estimate_atSmallRangeCorrectionThreshold() {
+    // With all 1024 registers set to 1 (rho=1), rawEstimate =
+    // ALPHA_M * M * M / (M * (1 / 2^1)) = ALPHA_M * M * 2 ≈ 1475.
+    // This is below 2560 threshold, but zeroCount=0 → no linear counting.
+    // We need zeroCount > 0 for linear counting to kick in.
+    var sketch = new HyperLogLogSketch();
+    // Add enough keys so that most registers are set (few zeros remain),
+    // but rawEstimate <= 2.5 * 1024. This happens around N ~ 800-1500.
+    for (int i = 0; i < 900; i++) {
+      sketch.add(hashInt(i));
+    }
+    long est = sketch.estimate();
+    // For ~900 distinct keys, small-range correction should be active
+    // (many zeros remain). Estimate should be reasonable.
+    Assert.assertTrue("Estimate for 900 keys should be in [700, 1100], got "
+        + est, est >= 700 && est <= 1100);
+  }
+
+  /**
+   * Tests that above the small-range correction threshold (when there
+   * are no zero registers), the raw estimate is returned without
+   * linear counting. With ~50K keys all registers will be non-zero.
+   */
+  @Test
+  public void estimate_aboveSmallRangeThresholdUsesRawEstimate() {
+    var sketch = new HyperLogLogSketch();
+    // 50K keys ensures all registers are non-zero (zeroCount = 0)
+    // and rawEstimate > 2.5 * 1024 = 2560.
+    for (int i = 0; i < 50_000; i++) {
+      sketch.add(hashInt(i));
+    }
+
+    // Verify no zero registers (zeroCount = 0).
+    byte[] registers = new byte[1024];
+    sketch.writeTo(registers, 0);
+    int zeroCount = 0;
+    for (byte r : registers) {
+      if (r == 0) {
+        zeroCount++;
+      }
+    }
+    Assert.assertEquals("All registers should be non-zero with 50K keys",
+        0, zeroCount);
+
+    long est = sketch.estimate();
+    double relativeError = Math.abs((double) est - 50_000) / 50_000;
+    Assert.assertTrue("Raw estimate should be within 7% of 50K, got " + est,
+        relativeError <= 0.07);
+  }
+
+  /**
+   * Verifies that small-range correction (linear counting) returns a
+   * different value than the raw HLL estimate for a sketch with many
+   * zero registers. With only a few keys added, the raw estimate and
+   * linear counting diverge — the test verifies the correction path
+   * is actually being taken.
+   */
+  @Test
+  public void estimate_smallRangeCorrectionDiffersFromRawEstimate() {
+    // With 5 keys in 1024 registers, ~1019 zeros remain.
+    // rawEstimate = ALPHA_M * M^2 / sum ≈ 0.72054 * 1024 * 1024 / 1019.1
+    //            ≈ 741.5 (since most terms are 1/(2^0)=1, plus 5 terms
+    //            with slightly smaller contributions).
+    // Linear counting: M * ln(M / 1019) ≈ 1024 * ln(1024/1019)
+    //                ≈ 1024 * 0.00490 ≈ 5.02.
+    // These are very different — confirms linear counting is used.
+    var sketch = new HyperLogLogSketch();
+    for (int i = 0; i < 5; i++) {
+      sketch.add(hashInt(i));
+    }
+    long est = sketch.estimate();
+    // Linear counting should give ~5, not ~742 (the raw estimate).
+    Assert.assertTrue(
+        "Estimate with 5 keys should be ~5 (linear counting), got " + est,
+        est >= 4 && est <= 7);
+  }
+
+  // ── add() rho calculation ──────────────────────────────────
+
+  /**
+   * Tests that a hash where all remaining bits (above the low P bits)
+   * are zero results in rho = MAX_REGISTER_VALUE (54). The sentinel
+   * bit (w | 1L) caps rho at 54 rather than allowing it to be 55.
+   */
+  @Test
+  public void add_allZeroRemainingBitsGivesMaxRho() {
+    // hash = 7 → low 10 bits = 7 (register 7), remaining 54 bits = 0.
+    // w = 7 >>> 10 = 0. w | 1L = 1. numberOfLeadingZeros(1) = 63.
+    // rho = 63 - 10 + 1 = 54 (MAX_REGISTER_VALUE).
+    var sketch = new HyperLogLogSketch();
+    sketch.add(7L); // register 7, all remaining bits zero
+
+    byte[] registers = new byte[1024];
+    sketch.writeTo(registers, 0);
+
+    Assert.assertEquals(
+        "Register[7] should be 54 (MAX_REGISTER_VALUE) for all-zero "
+            + "remaining bits",
+        54, registers[7]);
+  }
+
+  /**
+   * Tests add with a hash that targets a specific register index and
+   * produces a specific rho value, verifying both the index selection
+   * and the rho calculation together.
+   */
+  @Test
+  public void add_specificRegisterAndRho() {
+    // hash = 0b_0000...0100_00000_00011 (binary)
+    // Low 10 bits = 3 → register 3.
+    // w = hash >>> 10 = 0b100 = 4. w | 1L = 5 = 0b101.
+    // numberOfLeadingZeros(5) = 61. rho = 61 - 10 + 1 = 52.
+    long hash = (4L << 10) | 3L;
+    var sketch = new HyperLogLogSketch();
+    sketch.add(hash);
+
+    byte[] registers = new byte[1024];
+    sketch.writeTo(registers, 0);
+
+    Assert.assertEquals(
+        "Register[3] should be 52 for hash with w=4",
+        52, registers[3]);
+    // Neighbors should be untouched
+    Assert.assertEquals(0, registers[2]);
+    Assert.assertEquals(0, registers[4]);
+  }
+
+  // ── merge() exact behavior ────────────────────────────────
+
+  /**
+   * Verifies that merge takes the MAX of registers, not the sum.
+   * Sets register[0] to different values in two sketches, merges,
+   * and checks the result is max(a, b).
+   */
+  @Test
+  public void merge_takesMaxNotSum() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+
+    // register[0] in sketch a: rho=54 (hash=0)
+    a.add(0L);
+    // register[0] in sketch b: use hash = (1L << 10) → w=1, rho=54
+    // Actually, let's use a hash that gives a lower rho.
+    // hash = (8L << 10) → register 0, w=8, w|1=9.
+    // numberOfLeadingZeros(9) = 60. rho = 60 - 10 + 1 = 51.
+    b.add(8L << 10);
+
+    byte[] regA = new byte[1024];
+    byte[] regB = new byte[1024];
+    a.writeTo(regA, 0);
+    b.writeTo(regB, 0);
+    Assert.assertEquals(54, regA[0]);
+    Assert.assertEquals(51, regB[0]);
+
+    // Merge b into a: register[0] should be max(54, 51) = 54
+    a.merge(b);
+    byte[] merged = new byte[1024];
+    a.writeTo(merged, 0);
+    Assert.assertEquals("Merge should take max, not sum (54 + 51 = 105)",
+        54, merged[0]);
+  }
+
+  /**
+   * Tests merge where one register is higher in sketch A and another
+   * register is higher in sketch B. After merge, each register should
+   * hold the maximum from the two sketches.
+   */
+  @Test
+  public void merge_mixedHigherRegisters() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+
+    // register[0] higher in A: hash=0 → register 0, rho=54
+    a.add(0L);
+    // register[1] higher in B: hash=1 → register 1, rho=54
+    b.add(1L);
+
+    // register[0] lower in B: hash = (8L << 10) → register 0, rho=51
+    b.add(8L << 10);
+    // register[1] lower in A: hash = (8L << 10) | 1 → register 1, rho=51
+    a.add((8L << 10) | 1L);
+
+    byte[] regA = new byte[1024];
+    byte[] regB = new byte[1024];
+    a.writeTo(regA, 0);
+    b.writeTo(regB, 0);
+    Assert.assertEquals(54, regA[0]); // A higher at reg 0
+    Assert.assertEquals(51, regA[1]); // A lower at reg 1
+    Assert.assertEquals(51, regB[0]); // B lower at reg 0
+    Assert.assertEquals(54, regB[1]); // B higher at reg 1
+
+    a.merge(b);
+    byte[] merged = new byte[1024];
+    a.writeTo(merged, 0);
+    Assert.assertEquals("Register[0] should be max(54, 51) = 54",
+        54, merged[0]);
+    Assert.assertEquals("Register[1] should be max(51, 54) = 54",
+        54, merged[1]);
+  }
+
+  // ── writeTo/readFrom identity ──────────────────────────────
+
+  /**
+   * A populated sketch must round-trip perfectly through writeTo/readFrom:
+   * the deserialized sketch produces the exact same estimate as the
+   * original.
+   */
+  @Test
+  public void writeTo_readFrom_identityForPopulatedSketch() {
+    var original = new HyperLogLogSketch();
+    for (int i = 0; i < 25_000; i++) {
+      original.add(hashInt(i));
+    }
+    long originalEstimate = original.estimate();
+
+    byte[] buffer = new byte[1024];
+    original.writeTo(buffer, 0);
+    var restored = HyperLogLogSketch.readFrom(buffer, 0);
+
+    Assert.assertEquals("Round-trip must preserve exact estimate",
+        originalEstimate, restored.estimate());
+
+    // Also verify register-by-register equality
+    byte[] restoredRegs = new byte[1024];
+    restored.writeTo(restoredRegs, 0);
+    for (int i = 0; i < 1024; i++) {
+      Assert.assertEquals("Register[" + i + "] mismatch after round-trip",
+          buffer[i], restoredRegs[i]);
+    }
+  }
+
+  // ── rebuildFrom clears existing registers ──────────────────
+
+  /**
+   * rebuildFrom with an empty stream must reset all registers to zero,
+   * producing estimate = 0, even if the sketch previously had data.
+   * This specifically tests that Arrays.fill(registers, 0) is executed
+   * before the stream is consumed.
+   */
+  @Test
+  public void rebuildFrom_emptyStreamClearsRegistersToZero() {
+    var sketch = new HyperLogLogSketch();
+    // Populate with 10K keys to set many registers to non-zero.
+    for (int i = 0; i < 10_000; i++) {
+      sketch.add(hashInt(i));
+    }
+    Assert.assertTrue("Sketch should have non-zero estimate before rebuild",
+        sketch.estimate() > 0);
+
+    // Rebuild from empty stream
+    sketch.rebuildFrom(Stream.empty(), key -> hashKey(key.toString()));
+
+    // All registers must be zero → estimate = 0
+    Assert.assertEquals("After rebuild from empty stream, estimate must be 0",
+        0, sketch.estimate());
+
+    // Verify all registers are actually zero
+    byte[] registers = new byte[1024];
+    sketch.writeTo(registers, 0);
+    for (int i = 0; i < 1024; i++) {
+      Assert.assertEquals("Register[" + i + "] should be 0 after empty "
+          + "rebuild", 0, registers[i]);
+    }
+  }
+
+  // ── readFrom register clamping details ─────────────────────
+
+  /**
+   * Verifies that register value exactly at MAX_REGISTER_VALUE (54) is
+   * NOT clamped — it should be preserved as-is.
+   */
+  @Test
+  public void readFrom_preservesExactMaxRegisterValue() {
+    byte[] src = new byte[1024];
+    src[0] = 54; // exactly MAX_REGISTER_VALUE
+    src[1] = 53; // one below max
+
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+    byte[] out = new byte[1024];
+    sketch.writeTo(out, 0);
+
+    Assert.assertEquals("Register at MAX_REGISTER_VALUE should be preserved",
+        54, out[0]);
+    Assert.assertEquals("Register below max should be preserved",
+        53, out[1]);
+  }
+
+  /**
+   * Verifies that register value 0 is preserved (not clamped).
+   * This tests the lower boundary of the clamping check
+   * (registers[i] < 0 condition should not trigger for 0).
+   */
+  @Test
+  public void readFrom_preservesZeroRegister() {
+    byte[] src = new byte[1024];
+    // All zeros by default. readFrom should keep them as-is.
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+    byte[] out = new byte[1024];
+    sketch.writeTo(out, 0);
+
+    for (int i = 0; i < 1024; i++) {
+      Assert.assertEquals("Zero register should be preserved", 0, out[i]);
+    }
+    Assert.assertEquals("All-zero registers should estimate 0",
+        0, sketch.estimate());
+  }
 }

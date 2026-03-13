@@ -499,4 +499,162 @@ public class EdgeFanOutEstimatorTest {
     // OUT = 200/50 = 4.0, IN skipped (null)
     assertEquals(4.0, fanOut, DELTA);
   }
+
+  // ── BOTH with inVertexCount zero ──────────────────────────
+
+  @Test
+  public void bothDirection_inVertexCountZero_inFanOutIsZero() {
+    // Given: source "Animal" is subclass of both "PersonOut" and
+    // "PersonIn", but PersonIn has 0 vertices.
+    registerClass("Knows", 500);
+    var animal = registerClass("Animal", 100);
+    registerClass("PersonOut", 50);
+    registerClass("PersonIn", 0);
+    when(animal.isSubClassOf("PersonOut")).thenReturn(true);
+    when(animal.isSubClassOf("PersonIn")).thenReturn(true);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Animal", Direction.BOTH,
+        "PersonOut", "PersonIn");
+
+    // Then: OUT = 500/50 = 10.0, IN = 0 (inCount=0) → 10.0
+    assertEquals(10.0, fanOut, DELTA);
+  }
+
+  // ── Direction enum boundary: OUT vs IN vs BOTH ──────────────
+
+  @Test
+  public void outDirection_isNotBothDirection() {
+    // Verifies that OUT does NOT take the BOTH branch.
+    // Kills mutant that negates "direction == Direction.BOTH".
+    registerClass("Knows", 500);
+    registerClass("Person", 100);
+
+    double outFanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.OUT,
+        "Person", "Person");
+
+    double bothFanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.BOTH,
+        "Person", "Person");
+
+    // OUT = 500/100 = 5.0, BOTH = 5.0 + 5.0 = 10.0
+    assertEquals(5.0, outFanOut, DELTA);
+    assertEquals(10.0, bothFanOut, DELTA);
+    assertTrue("BOTH fan-out must be greater than OUT fan-out",
+        bothFanOut > outFanOut);
+  }
+
+  @Test
+  public void inDirection_isNotBothDirection() {
+    // Verifies that IN does NOT take the BOTH branch.
+    registerClass("Knows", 500);
+    registerClass("Person", 100);
+
+    double inFanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.IN,
+        "Person", "Person");
+
+    // IN = 500/100 = 5.0 (same as OUT for self-loop edge)
+    assertEquals(5.0, inFanOut, DELTA);
+  }
+
+  // ── Naive fallback multiplier is exactly 2.0 ──────────────
+
+  @Test
+  public void bothDirection_naiveFallback_multiplierIsExactlyTwo() {
+    // Verify the naive fallback uses exactly 2.0× (not 1.0× or 3.0×).
+    // Kills mutant that changes the 2.0 literal in "2.0 * edgeCount / sourceCount".
+    registerClass("E", 100);
+    registerClass("V", 100);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "E", "V", Direction.BOTH, null, null);
+
+    // 2.0 × 100 / 100 = 2.0 (not 1.0 or 0.0)
+    assertEquals(2.0, fanOut, DELTA);
+  }
+
+  // ── BOTH: subclass check uses isSubClassOf correctly ──────
+
+  @Test
+  public void bothDirection_subclassMatchesInVertex() {
+    // Given: Works (Employee→Works→Company), Student extends Company
+    registerClass("Works", 300);
+    registerClass("Employee", 200);
+    registerClass("Company", 50);
+    var student = registerClass("Student", 80);
+    when(student.isSubClassOf("Employee")).thenReturn(false);
+    when(student.isSubClassOf("Company")).thenReturn(true);
+
+    // When: BOTH from Student via Works
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Works", "Student", Direction.BOTH,
+        "Employee", "Company");
+
+    // Then: Student NOT isSubClassOf Employee → OUT=0
+    //       Student isSubClassOf Company → IN=300/50=6.0
+    assertEquals(6.0, fanOut, DELTA);
+  }
+
+  // ── Division precision: verify division, not subtraction ────
+
+  @Test
+  public void outDirection_divisionNotSubtraction() {
+    // Kills mutant that replaces division with subtraction.
+    // 7 edges / 2 sources = 3.5 (subtraction would give 5).
+    registerClass("E", 7);
+    registerClass("V", 2);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "E", "V", Direction.OUT, "V", "V");
+
+    assertEquals(3.5, fanOut, DELTA);
+  }
+
+  // ── Return value: default fan-out is NOT zero ───────────────
+
+  @Test
+  public void defaultFanOut_isPositive() {
+    // Kills mutant that replaces defaultFanOut() return with 0.0.
+    assertTrue("Default fan-out must be positive",
+        EdgeFanOutEstimator.defaultFanOut() > 0.0);
+  }
+
+  // ── BOTH with both sides contributing different amounts ────
+
+  @Test
+  public void bothDirection_asymmetricVertexCounts() {
+    // OUT vertex has 200, IN vertex has 50 — different fan-outs per side.
+    registerClass("Edge", 1000);
+    var source = registerClass("Source", 100);
+    registerClass("OutVertex", 200);
+    registerClass("InVertex", 50);
+    when(source.isSubClassOf("OutVertex")).thenReturn(true);
+    when(source.isSubClassOf("InVertex")).thenReturn(true);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Edge", "Source", Direction.BOTH,
+        "OutVertex", "InVertex");
+
+    // OUT = 1000/200 = 5.0, IN = 1000/50 = 20.0 → total = 25.0
+    assertEquals(25.0, fanOut, DELTA);
+  }
+
+  // ── BOTH: sum not max ──────────────────────────────────────
+
+  @Test
+  public void bothDirection_sumNotMax() {
+    // Verify BOTH returns outFanOut + inFanOut, not max(outFanOut, inFanOut).
+    // Kills mutant replacing addition with Math.max.
+    registerClass("Knows", 600);
+    registerClass("Person", 100);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.BOTH,
+        "Person", "Person");
+
+    // OUT = 600/100 = 6.0, IN = 600/100 = 6.0 → sum = 12.0 (max would be 6.0)
+    assertEquals(12.0, fanOut, DELTA);
+  }
 }
