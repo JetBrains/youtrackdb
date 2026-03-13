@@ -71,6 +71,13 @@ public final class CollectionDirtyPageBitSet extends DurableComponent {
   }
 
   /**
+   * Flushes pending writes for this dirty page bit set file to disk.
+   */
+  public void flush() {
+    writeCache.flush(fileId);
+  }
+
+  /**
    * Closes the dirty page bit set file.
    *
    * @param flush if {@code true}, pending writes are flushed to disk before closing

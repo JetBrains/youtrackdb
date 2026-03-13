@@ -1882,6 +1882,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     atomicOperationsManager.readUnderLock(this, () -> {
       writeCache.flush(fileId);
       collectionPositionMap.flush();
+      dirtyPageBitSet.flush();
       return null;
     });
   }

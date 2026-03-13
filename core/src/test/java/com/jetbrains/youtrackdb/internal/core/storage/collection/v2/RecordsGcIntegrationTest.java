@@ -390,12 +390,7 @@ public class RecordsGcIntegrationTest {
       // Do NOT run forceGc here — that would reclaim all dead records and clear
       // the dirty page bits, leaving nothing for Phase 2. Dirty bits are already
       // set during the update operations (committed with each transaction).
-      // We only need to flush to persist them to data files.
-      // Double-flush: WOWCache.executeFileFlush skips pages whose
-      // tryAcquireSharedLock fails (transient contention from the shared commit
-      // executor). A second synch catches any pages skipped by the first.
-      storage.synch();
-      storage.synch();
+      // They will be flushed to disk as part of the normal shutdown sequence.
     }
     diskYtdb.close();
 
@@ -703,13 +698,18 @@ public class RecordsGcIntegrationTest {
   // Dead record counter clamps to zero on over-decrement (post-restart scenario)
   // ---------------------------------------------------------------------------
 
-  // Verifies the counter clamp behavior: collectDeadRecords may reclaim more records
-  // than the dead record counter has tracked (e.g., after restart when the counter
-  // resets to 0 but dirty bits survive, or when manual collectDeadRecords is called
-  // without prior snapshot eviction). The counter must clamp to zero, never go negative.
+  // Verifies the counter clamp behavior after a restart: the dead record counter
+  // resets to 0 on restart but dirty bits survive. When collectDeadRecords runs,
+  // it reclaims records that the counter did not track (counter was 0). The counter
+  // must clamp to zero, never go negative.
   @Test
   public void deadRecordCounterClampsToZeroAfterRestart() {
-    try (var session = openSession()) {
+    var dbPath = diskTestPath("clamp");
+
+    // Phase 1: Create dead records, then shut down
+    var diskYtdb = createDiskInstance(dbPath, "clamptest");
+    try (var session = (DatabaseSessionEmbedded) diskYtdb.open(
+        "clamptest", "admin", DbTestBase.ADMIN_PASSWORD)) {
       var storage = storage(session);
       setEagerCleanup(storage);
 
@@ -719,34 +719,43 @@ public class RecordsGcIntegrationTest {
         session.command("INSERT INTO GcClampTest SET idx = " + i);
         session.commit();
       }
-
       // Three update rounds so earlier rounds' entries get evicted
       for (int round = 1; round <= 3; round++) {
         session.begin();
         session.command("UPDATE GcClampTest SET ver = " + round);
         session.commit();
       }
+    }
+    diskYtdb.close();
 
-      // Force snapshot eviction and GC via periodicRecordsGc().
-      forceGc(storage);
+    // Phase 2: Reopen from disk — counter resets to 0
+    diskYtdb = (YouTrackDBImpl) com.jetbrains.youtrackdb.api.YourTracks
+        .instance(dbPath);
+    try (var session = (DatabaseSessionEmbedded) diskYtdb.open(
+        "clamptest", "admin", DbTestBase.ADMIN_PASSWORD)) {
+      var storage = storage(session);
 
       var pc = findCollection(session, storage, "GcClampTest");
-      assertThat(pc).as("should find PaginatedCollectionV2").isNotNull();
+      assertThat(pc).as("should find collection after restart").isNotNull();
 
-      // After forced GC, the counter should be non-negative (clamped at 0
-      // if GC reclaimed more than the counter tracked).
+      // Counter is 0 after restart
       assertThat(pc.getDeadRecordCount())
-          .as("counter should clamp to 0, not go negative after GC")
-          .isGreaterThanOrEqualTo(0);
+          .as("counter should be 0 after restart")
+          .isEqualTo(0);
 
-      // Directly call collectDeadRecords — even though GC already ran,
-      // the remaining dirty pages (round 2 versions protected by round 3
-      // snapshot entries) may have been partially reclaimed. The counter
-      // must still not go negative.
-      long remaining = pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      // GC reclaims pre-restart dead records using persisted dirty bits.
+      // After restart the snapshot index is empty, so all stale records
+      // whose dirty bits survived are immediately reclaimable.
+      long reclaimed =
+          pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      assertThat(reclaimed).isGreaterThan(0);
+
+      // Counter should be clamped at 0, not negative
       assertThat(pc.getDeadRecordCount())
-          .as("counter should remain >= 0 after manual GC pass (reclaimed=" + remaining + ")")
+          .as("counter should clamp to 0, not go negative")
           .isGreaterThanOrEqualTo(0);
+    } finally {
+      diskYtdb.close();
     }
   }
 
