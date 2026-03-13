@@ -384,14 +384,13 @@ public class MatchEdgeTraverser implements ExecutionStream {
       var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
       iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
 
-      var dedup = item.getFilter() == null
-          || item.getFilter().getPathAlias() == null;
+      // Dedup is active when no pathAlias is declared. The filter is guaranteed
+      // non-null in the recursive branch (whileCondition/maxDepth require it).
+      assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
+      var dedup = item.getFilter().getPathAlias() == null;
 
-      // Evaluate the starting point against all filters, skipping if already visited
+      // Evaluate the starting point against all filters
       if (startingPoint != null
-          && (!dedup
-              || startingPoint.getIdentity() == null
-              || !visited.contains(startingPoint.getIdentity()))
           && matchesFilters(iCommandContext, filter, startingPoint)
           && matchesClass(iCommandContext, className, startingPoint)
           && matchesRid(iCommandContext, targetRid, startingPoint)) {
@@ -405,7 +404,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
           // Mark as visited only after all filters pass, so that a vertex
           // rejected by a depth-dependent WHERE can be re-evaluated at a
           // deeper level where the condition may hold.
-          if (dedup && startingPoint.getIdentity() != null) {
+          if (dedup) {
+            assert startingPoint.getIdentity() != null
+                : "graph vertex identity must not be null";
             visited.add(startingPoint.getIdentity());
           }
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
