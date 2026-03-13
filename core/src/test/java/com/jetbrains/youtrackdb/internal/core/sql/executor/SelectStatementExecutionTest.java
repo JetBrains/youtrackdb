@@ -6363,16 +6363,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
-  // ── Mutation coverage: isCountStar must reject count(*) wrapped in CASE ──
+  // ── isCountStar: count(*) shortcut guards ──
 
   /**
-   * Verifies that `SELECT CASE WHEN true THEN count(*) ELSE 0 END as cnt`
-   * does NOT use the CountFromClassStep shortcut. The isCountStar guard must
-   * return false because the output projection wraps count(*) in a CASE
-   * expression (postItem.isBaseIdentifier() == false).
-   *
-   * This covers pitest mutations on isCountStar lines 640-641: both the
-   * "equalsIgnoreCase" check and the "isBaseIdentifier" guard.
+   * count(*) wrapped in a CASE expression should NOT use the CountFromClassStep
+   * shortcut because the output projection is not a simple alias passthrough —
+   * it's a CASE expression that must be evaluated per-group.
    */
   @Test
   public void testCountStarInsideCaseDoesNotUseCountShortcut() {
@@ -6400,19 +6396,16 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var plan = result.getExecutionPlan().prettyPrint(0, 2);
     Assert.assertFalse(
         "count(*) inside CASE should NOT use CountFromClass shortcut, plan was:\n" + plan,
-        plan.contains("CALCULATE DOCUMENT COUNT"));
+        plan.contains("CALCULATE CLASS SIZE"));
 
     result.close();
     session.commit();
   }
 
   /**
-   * Verifies that `SELECT sum(val) FROM ...` does not trigger the count(*)
-   * shortcut. isCountStar must return false because the aggregate is sum(),
-   * not count(*).
-   *
-   * Covers pitest mutation: removing the "equalsIgnoreCase(count(*))" check
-   * on line 640.
+   * sum() is a different aggregate from count(*) and should not trigger the
+   * CountFromClassStep shortcut — the planner must perform a full scan and
+   * evaluate sum() per record.
    */
   @Test
   public void testSumDoesNotUseCountStarShortcut() {
@@ -6438,49 +6431,66 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var plan = result.getExecutionPlan().prettyPrint(0, 2);
     Assert.assertFalse(
         "sum() should NOT use CountFromClass shortcut, plan was:\n" + plan,
-        plan.contains("CALCULATE DOCUMENT COUNT"));
+        plan.contains("CALCULATE CLASS SIZE"));
 
     result.close();
     session.commit();
   }
 
-  // ── Mutation coverage: isCountOnly — ORDER BY alias filter ──
-
   /**
-   * Verifies that `SELECT count(*) FROM ... ORDER BY count(*)` still uses the
-   * count optimization despite the synthetic ORDER_BY_ALIAS projection item.
-   * The filter on line 657 must correctly exclude the synthetic alias so that
-   * isCountOnly returns true.
+   * SELECT count(*) on an empty table must return one row with count=0.
+   * This verifies that isCountOnly returns true and GuaranteeEmptyCountStep
+   * is inserted into the plan.
    */
   @Test
-  public void testCountOnlyWithOrderByUsesOptimization() {
-    var className = "testCountOnlyOrderBy";
+  public void testCountOnlyOnEmptyTableReturnsZero() {
+    var className = "testCountOnlyEmpty";
     session.getMetadata().getSchema().createClass(className);
-
-    for (var i = 0; i < 4; i++) {
-      session.begin();
-      session.newEntity(className);
-      session.commit();
-    }
 
     session.begin();
     var result = session.query("SELECT count(*) FROM " + className);
     printExecutionPlan(result);
-    Assert.assertTrue(result.hasNext());
+    Assert.assertTrue("count(*) on empty table must return one row", result.hasNext());
     var item = result.next();
-    Assert.assertEquals(4L, ((Number) item.getProperty("count(*)")).longValue());
+    Assert.assertEquals(0L, ((Number) item.getProperty("count(*)")).longValue());
     Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
   }
 
-  // ── Mutation coverage: index definition null-filter on line 2216 ──
+  /**
+   * SELECT count(*), count(*) FROM ... has two aggregate projection items,
+   * so isCountOnly must return false and GuaranteeEmptyCountStep should NOT
+   * be added. On an empty table this means the result set may be empty.
+   */
+  @Test
+  public void testTwoCountStarProjectionsNotTreatedAsCountOnly() {
+    var className = "testTwoCountNotOnly";
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    var result = session.query(
+        "SELECT count(*) as a, count(*) as b FROM " + className);
+    printExecutionPlan(result);
+    // With two projection items, isCountOnly is false → no guarantee of
+    // a row on empty table. The planner may still produce one (implementation
+    // detail), but the plan should NOT contain GuaranteeEmptyCountStep.
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    // Two count(*) columns → isCountOnly returns false → different plan path
+    Assert.assertFalse(
+        "Two count(*) projections should not trigger single-count optimization,"
+            + " plan was:\n" + plan,
+        plan.contains("GUARANTEE FOR ZERO COUNT"));
+    result.close();
+    session.commit();
+  }
+
+  // ── ORDER BY with indexed property ──
 
   /**
-   * Verifies that ORDER BY optimization on an indexed property works correctly.
-   * The filter `.filter(i -> i.getDefinition() != null)` on line 2216 prevents
-   * NPE when iterating indexes; this test ensures the index-backed ORDER BY
-   * path is exercised.
+   * ORDER BY on an indexed property should use the index to avoid sorting.
+   * The planner iterates available indexes and skips any with null definition;
+   * this test ensures the index-backed ORDER BY path is exercised.
    */
   @Test
   public void testOrderByUsesIndex() {
