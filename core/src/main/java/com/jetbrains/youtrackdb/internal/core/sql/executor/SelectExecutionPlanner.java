@@ -637,11 +637,9 @@ public class SelectExecutionPlanner {
       return false;
     }
     var item = info.aggregateProjection.getItems().getFirst();
-    if (!item.getExpression().toString().equalsIgnoreCase("count(*)")) {
-      return false;
-    }
     var postItem = info.projection.getItems().getFirst();
-    return postItem.getExpression().isBaseIdentifier();
+    return item.getExpression().toString().equalsIgnoreCase("count(*)")
+        && postItem.getExpression().isBaseIdentifier();
   }
 
   /**
