@@ -31,7 +31,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE VERTEX Person set name = 'n6'").close();
 
     var friendList =
-        new String[][]{{"n1", "n2"}, {"n1", "n3"}, {"n2", "n4"}, {"n4", "n5"}, {"n4", "n6"}};
+        new String[][] {{"n1", "n2"}, {"n1", "n3"}, {"n2", "n4"}, {"n4", "n5"}, {"n4", "n6"}};
 
     for (var pair : friendList) {
       session.execute(
@@ -134,30 +134,30 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE class ManagerOf extends E").close();
 
     var deptHierarchy = new int[10][];
-    deptHierarchy[0] = new int[]{1, 2};
-    deptHierarchy[1] = new int[]{3, 4};
-    deptHierarchy[2] = new int[]{5, 6};
-    deptHierarchy[3] = new int[]{7, 8};
-    deptHierarchy[4] = new int[]{};
-    deptHierarchy[5] = new int[]{};
-    deptHierarchy[6] = new int[]{};
-    deptHierarchy[7] = new int[]{9};
-    deptHierarchy[8] = new int[]{};
-    deptHierarchy[9] = new int[]{};
+    deptHierarchy[0] = new int[] {1, 2};
+    deptHierarchy[1] = new int[] {3, 4};
+    deptHierarchy[2] = new int[] {5, 6};
+    deptHierarchy[3] = new int[] {7, 8};
+    deptHierarchy[4] = new int[] {};
+    deptHierarchy[5] = new int[] {};
+    deptHierarchy[6] = new int[] {};
+    deptHierarchy[7] = new int[] {9};
+    deptHierarchy[8] = new int[] {};
+    deptHierarchy[9] = new int[] {};
 
-    var deptManagers = new String[]{"a", "b", "d", null, null, null, null, "c", null, null};
+    var deptManagers = new String[] {"a", "b", "d", null, null, null, null, "c", null, null};
 
     var employees = new String[10][];
-    employees[0] = new String[]{"p1"};
-    employees[1] = new String[]{"p2", "p3"};
-    employees[2] = new String[]{"p4", "p5"};
-    employees[3] = new String[]{"p6"};
-    employees[4] = new String[]{"p7"};
-    employees[5] = new String[]{"p8"};
-    employees[6] = new String[]{"p9"};
-    employees[7] = new String[]{"p10"};
-    employees[8] = new String[]{"p11"};
-    employees[9] = new String[]{"p12", "p13"};
+    employees[0] = new String[] {"p1"};
+    employees[1] = new String[] {"p2", "p3"};
+    employees[2] = new String[] {"p4", "p5"};
+    employees[3] = new String[] {"p6"};
+    employees[4] = new String[] {"p7"};
+    employees[5] = new String[] {"p8"};
+    employees[6] = new String[] {"p9"};
+    employees[7] = new String[] {"p10"};
+    employees[8] = new String[] {"p11"};
+    employees[9] = new String[] {"p12", "p13"};
 
     session.begin();
     for (var i = 0; i < deptHierarchy.length; i++) {
@@ -168,11 +168,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       var children = deptHierarchy[parent];
       for (var child : children) {
         session.execute(
-                "CREATE EDGE ParentDepartment from (select from Department where name = 'department"
-                    + child
-                    + "') to (select from Department where name = 'department"
-                    + parent
-                    + "') ")
+            "CREATE EDGE ParentDepartment from (select from Department where name = 'department"
+                + child
+                + "') to (select from Department where name = 'department"
+                + parent
+                + "') ")
             .close();
       }
     }
@@ -185,11 +185,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         session.execute("CREATE Vertex Employee set name = '" + manager + "' ").close();
 
         session.execute(
-                "CREATE EDGE ManagerOf from (select from Employee where name = '"
-                    + manager
-                    + "') to (select from Department where name = 'department"
-                    + dept
-                    + "') ")
+            "CREATE EDGE ManagerOf from (select from Employee where name = '"
+                + manager
+                + "') to (select from Department where name = 'department"
+                + dept
+                + "') ")
             .close();
       }
     }
@@ -202,11 +202,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         session.execute("CREATE Vertex Employee set name = '" + employee + "' ").close();
 
         session.execute(
-                "CREATE EDGE WorksAt from (select from Employee where name = '"
-                    + employee
-                    + "') to (select from Department where name = 'department"
-                    + dept
-                    + "') ")
+            "CREATE EDGE WorksAt from (select from Employee where name = '"
+                + employee
+                + "') to (select from Department where name = 'department"
+                + dept
+                + "') ")
             .close();
       }
     }
@@ -224,17 +224,17 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       session.execute("CREATE VERTEX TriangleV set uid = ?", i).close();
       session.commit();
     }
-    var edges = new int[][]{
+    var edges = new int[][] {
         {0, 1}, {0, 2}, {1, 2}, {1, 3}, {2, 4}, {3, 4}, {3, 5}, {4, 0}, {4, 7}, {6, 7}, {7, 8},
         {7, 9}, {8, 9}, {9, 1}, {8, 3}, {8, 4}
     };
     for (var edge : edges) {
       session.begin();
       session.execute(
-              "CREATE EDGE TriangleE from (select from TriangleV where uid = ?) to (select from"
-                  + " TriangleV where uid = ?)",
-              edge[0],
-              edge[1])
+          "CREATE EDGE TriangleE from (select from TriangleV where uid = ?) to (select from"
+              + " TriangleV where uid = ?)",
+          edge[0],
+          edge[1])
           .close();
       session.commit();
     }
@@ -249,14 +249,14 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       session.execute("CREATE VERTEX DiamondV set uid = ?", i).close();
       session.commit();
     }
-    var edges = new int[][]{{0, 1}, {0, 2}, {1, 3}, {2, 3}};
+    var edges = new int[][] {{0, 1}, {0, 2}, {1, 3}, {2, 3}};
     for (var edge : edges) {
       session.begin();
       session.execute(
-              "CREATE EDGE DiamondE from (select from DiamondV where uid = ?) to (select from"
-                  + " DiamondV where uid = ?)",
-              edge[0],
-              edge[1])
+          "CREATE EDGE DiamondE from (select from DiamondV where uid = ?) to (select from"
+              + " DiamondV where uid = ?)",
+          edge[0],
+          edge[1])
           .close();
       session.commit();
     }
@@ -2216,25 +2216,25 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE VERTEX " + clazz + " SET name = 'ddd'").close();
 
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'aaa') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'bbb')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'aaa') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'bbb')")
         .close();
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'bbb') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ccc')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'bbb') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ccc')")
         .close();
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ccc') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ddd')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ccc') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ddd')")
         .close();
     session.commit();
 
@@ -2255,19 +2255,19 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       Assert.assertTrue(depth instanceof Integer);
       Assert.assertEquals("aaa", item.getProperty("name"));
       switch ((int) depth) {
-        case 0:
+        case 0 :
           Assert.assertEquals("aaa", item.getProperty("bname"));
           break;
-        case 1:
+        case 1 :
           Assert.assertEquals("bbb", item.getProperty("bname"));
           break;
-        case 2:
+        case 2 :
           Assert.assertEquals("ccc", item.getProperty("bname"));
           break;
-        case 3:
+        case 3 :
           Assert.assertEquals("ddd", item.getProperty("bname"));
           break;
-        default:
+        default :
           Assert.fail();
       }
       sum += (int) depth;
@@ -2291,25 +2291,25 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE VERTEX " + clazz + " SET name = 'ddd'").close();
 
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'aaa') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'bbb')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'aaa') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'bbb')")
         .close();
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'bbb') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ccc')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'bbb') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ccc')")
         .close();
     session.execute(
-            "CREATE EDGE E FROM (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ccc') TO (SELECT FROM "
-                + clazz
-                + " WHERE name = 'ddd')")
+        "CREATE EDGE E FROM (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ccc') TO (SELECT FROM "
+            + clazz
+            + " WHERE name = 'ddd')")
         .close();
     session.commit();
 
@@ -2362,6 +2362,78 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
     result.close();
     session.commit();
+  }
+
+  // Verifies that a WHILE traversal with pathAlias on a diamond-shaped graph
+  // returns all distinct paths, including multiple paths that reach the same
+  // vertex via different routes. Graph: a→b, a→c, b→d, c→d. Starting from a,
+  // vertex d is reachable via two paths (a-b-d and a-c-d). With pathAlias the
+  // dedup logic must be disabled so both paths appear in the results.
+  @Test
+  public void testPathAliasDiamondGraphReturnsAllPaths() {
+    var clazz = "testPathAliasDiamond";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'a'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'b'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'c'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'd'").close();
+
+    // Diamond: a→b, a→c, b→d, c→d
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'b')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'c')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'b') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'd')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'c') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'd')")
+        .close();
+    session.commit();
+
+    // WHILE traversal with pathAlias: should enumerate all distinct paths
+    var query =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'a')} --> {as:dest, while:($depth<10),"
+            + " pathAlias: p} RETURN dest.name as dname, p";
+
+    session.begin();
+    var result = session.query(query);
+
+    // Collect (destination name, path length) pairs from all results.
+    // Expected results:
+    //   a at depth 0 (path=[])
+    //   b at depth 1 (path=[b])
+    //   c at depth 1 (path=[c])
+    //   d at depth 2 via b (path=[b,d])
+    //   d at depth 2 via c (path=[c,d])
+    // Total: 5 results, with 'd' appearing twice (different paths).
+    var resultPairs = new java.util.ArrayList<String>();
+    while (result.hasNext()) {
+      var item = result.next();
+      String dname = item.getProperty("dname");
+      List<?> path = item.getProperty("p");
+      resultPairs.add(dname + ":" + path.size());
+    }
+    result.close();
+    session.commit();
+
+    // Sort for deterministic comparison
+    java.util.Collections.sort(resultPairs);
+
+    // 'd' must appear twice — once for each path through the diamond
+    Assert.assertEquals(
+        "pathAlias must disable dedup so diamond vertex 'd' appears for each distinct path",
+        java.util.List.of("a:0", "b:1", "c:1", "d:2", "d:2"),
+        resultPairs);
   }
 
   @Test

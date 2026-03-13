@@ -384,10 +384,11 @@ public class MatchEdgeTraverser implements ExecutionStream {
       var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
       iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
 
-      // Dedup is active when no pathAlias is declared. The filter is guaranteed
-      // non-null in the recursive branch (whileCondition/maxDepth require it).
+      // Dedup is active when no pathAlias is declared. When pathAlias IS
+      // declared the user wants all distinct paths, so we null out the
+      // visited set to disable dedup entirely.
       assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
-      var dedup = item.getFilter().getPathAlias() == null;
+      var dedupVisited = item.getFilter().getPathAlias() == null ? visited : null;
 
       // Evaluate the starting point against all filters
       if (startingPoint != null
@@ -401,14 +402,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
           rs = ResultInternal.toResultInternal(startingPoint, session, null);
         }
         if (rs != null) {
-          // Mark as visited only after all filters pass, so that a vertex
-          // rejected by a depth-dependent WHERE can be re-evaluated at a
-          // deeper level where the condition may hold.
-          if (dedup) {
-            assert startingPoint.getIdentity() != null
-                : "graph vertex identity must not be null";
-            visited.add(startingPoint.getIdentity());
-          }
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
           rs.setMetadata("$depth", depth);
           rs.setMetadata("$matchPath",
@@ -423,6 +416,14 @@ public class MatchEdgeTraverser implements ExecutionStream {
           && (whileCondition == null
               || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
 
+        // Mark the starting point as visited before expanding neighbors so
+        // that cycles back to it are detected.
+        if (dedupVisited != null) {
+          assert startingPoint.getIdentity() != null
+              : "graph vertex identity must not be null";
+          dedupVisited.add(startingPoint.getIdentity());
+        }
+
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
         while (queryResult.hasNext(iCommandContext)) {
@@ -431,11 +432,11 @@ public class MatchEdgeTraverser implements ExecutionStream {
             continue;
           }
           // Skip neighbors already emitted to avoid duplicate results in
-          // diamond-shaped or cyclic graphs. Skipped when pathAlias is
-          // declared because the user wants all distinct paths.
-          if (dedup) {
+          // diamond-shaped or cyclic graphs. Skipped when dedupVisited is
+          // null (pathAlias declared) because the user wants all distinct paths.
+          if (dedupVisited != null) {
             var neighborRid = origin.getIdentity();
-            if (neighborRid != null && visited.contains(neighborRid)) {
+            if (neighborRid != null && dedupVisited.contains(neighborRid)) {
               continue;
             }
           }
