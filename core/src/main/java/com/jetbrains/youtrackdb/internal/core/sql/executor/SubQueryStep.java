@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 public class SubQueryStep extends AbstractExecutionStep {
 
   /** The pre-built execution plan for the subquery. */
-  private final InternalExecutionPlan subExecutionPlan;
+  final InternalExecutionPlan subExecutionPlan;
 
   /** True if the subquery shares the parent's context (no child context was created). */
   private final boolean sameContextAsParent;

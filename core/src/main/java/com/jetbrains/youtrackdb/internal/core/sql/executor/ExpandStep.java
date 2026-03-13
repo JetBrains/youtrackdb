@@ -9,8 +9,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Intermediate step that implements the {@code expand(field)} projection operator.
@@ -41,11 +43,26 @@ import java.util.Map;
 public class ExpandStep extends AbstractExecutionStep {
 
   /** The alias of the field to expand (e.g. "friends" from expand(friends)). */
-  private final String expandAlias;
+  final String expandAlias;
+
+  /**
+   * Optional WHERE clause pushed down from an outer SELECT. When present, each
+   * expanded element is tested against this filter during iteration — elements
+   * that don't match are discarded immediately without flowing through the rest
+   * of the pipeline. This avoids materializing and processing records that would
+   * be filtered out by the outer WHERE anyway.
+   */
+  @Nullable private final SQLWhereClause pushDownFilter;
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
+    this(ctx, profilingEnabled, expandAlias, null);
+  }
+
+  public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
+      @Nullable SQLWhereClause pushDownFilter) {
     super(ctx, profilingEnabled);
     this.expandAlias = expandAlias;
+    this.pushDownFilter = pushDownFilter;
   }
 
   @Override
@@ -55,7 +72,12 @@ public class ExpandStep extends AbstractExecutionStep {
           "Cannot expand without a target");
     }
     var resultSet = prev.start(ctx);
-    return resultSet.flatMap(this::nextResults);
+    var expanded = resultSet.flatMap(this::nextResults);
+    if (pushDownFilter != null) {
+      expanded = expanded.filter(
+          (result, filterCtx) -> pushDownFilter.matchesFilters(result, filterCtx) ? result : null);
+    }
+    return expanded;
   }
 
   private ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
@@ -123,11 +145,14 @@ public class ExpandStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
-    var result = spaces + "+ EXPAND";
-    if (profilingEnabled) {
-      result += " (" + getCostFormatted() + ")";
+    var result = new StringBuilder(spaces + "+ EXPAND");
+    if (pushDownFilter != null) {
+      result.append(" (push-down filter: ").append(pushDownFilter).append(")");
     }
-    return result;
+    if (profilingEnabled) {
+      result.append(" (").append(getCostFormatted()).append(")");
+    }
+    return result.toString();
   }
 
   /** Cacheable: the expand alias is a fixed string determined at plan time. */
@@ -138,6 +163,7 @@ public class ExpandStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new ExpandStep(ctx, profilingEnabled, expandAlias);
+    return new ExpandStep(ctx, profilingEnabled, expandAlias,
+        pushDownFilter != null ? pushDownFilter.copy() : null);
   }
 }

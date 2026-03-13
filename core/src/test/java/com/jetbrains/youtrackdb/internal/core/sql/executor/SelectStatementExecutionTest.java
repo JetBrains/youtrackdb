@@ -5828,6 +5828,103 @@ public class SelectStatementExecutionTest extends DbTestBase {
     });
   }
 
+  // ── Predicate push-down into expand() ──
+
+  /**
+   * Verifies that a WHERE predicate on a property of expanded records is pushed
+   * down into the expand() step. The query expands all edges then filters by
+   * a property — the pushed-down filter should appear in the EXPAND step
+   * of the execution plan rather than as a separate FilterStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_classFilter() {
+    session.execute("CREATE CLASS PdForum EXTENDS V").close();
+    session.execute("CREATE CLASS PdPost EXTENDS V").close();
+    session.execute("CREATE CLASS PdComment EXTENDS V").close();
+    session.execute("CREATE CLASS PdContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdForum SET name = 'forum1'").close();
+    // 5 posts + 3 comments in the forum
+    for (var i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX PdPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE PdContainerOf FROM (SELECT FROM PdForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX PdComment SET text = 'comment" + i + "'").close();
+      session.execute(
+          "CREATE EDGE PdContainerOf FROM (SELECT FROM PdForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdComment WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // Class filter: only Posts, not Comments
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PdContainerOf')) FROM PdForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'PdPost'");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return only 5 posts, not comments", 5, items.size());
+    for (var item : items) {
+      Assert.assertTrue("Each result should be a PdPost",
+          item.isEntity() && item.asEntity().getSchemaClassName().equals("PdPost"));
+    }
+
+    // Verify push-down: plan should show filter in EXPAND step
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Filter should be pushed down into EXPAND, plan was:\n" + plan,
+        plan.contains("push-down filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that a property filter on expanded records is pushed down and
+   * produces correct results. The outer WHERE filters by a date range — only
+   * matching expanded records should be returned.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_propertyFilter() {
+    session.execute("CREATE CLASS PdPerson EXTENDS V").close();
+    session.execute("CREATE CLASS PdMessage EXTENDS V").close();
+    session.execute("CREATE CLASS PdHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdPerson SET name = 'Alice'").close();
+    for (var i = 0; i < 10; i++) {
+      session.execute(
+          "CREATE VERTEX PdMessage SET text = 'msg" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE PdHasCreator FROM (SELECT FROM PdMessage WHERE text = 'msg" + i + "')"
+              + " TO (SELECT FROM PdPerson WHERE name = 'Alice')")
+          .close();
+    }
+    session.commit();
+
+    // Property filter: only messages with score >= 7
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('PdHasCreator')) FROM PdPerson"
+            + "    WHERE name = 'Alice'"
+            + ") WHERE score >= 7");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return only 3 messages with score >= 7", 3, items.size());
+    for (var item : items) {
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 7);
+    }
+    result.close();
+    session.commit();
+  }
+
   @Test
   public void testConditionalAggregationSumIf() {
     var className = "testConditionalAggregationSumIf";

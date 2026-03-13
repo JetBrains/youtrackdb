@@ -260,6 +260,9 @@ public class SelectExecutionPlanner {
 
     handleWhere(result, info, ctx, enableProfiling); // WHERE filtering
 
+    // --- 5b. Predicate push-down: move outer WHERE into expand() ---
+    tryPushDownFilterIntoExpand(result, info);
+
     handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
 
     // --- 6. Append timeout enforcement step if configured ---
@@ -3107,6 +3110,82 @@ public class SelectExecutionPlanner {
     var subExecutionPlan =
         subQuery.createExecutionPlan(subCtx, profilingEnabled);
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));
+  }
+
+  /**
+   * Attempts to push the outer WHERE filter down into a subquery's expand() step.
+   *
+   * <p>Detects the pattern:
+   * <pre>
+   *   SELECT FROM (SELECT expand(...) FROM ...) WHERE &lt;predicate&gt;
+   * </pre>
+   * and moves the predicate into the ExpandStep so it filters during iteration
+   * rather than after all elements are materialized. This avoids loading records
+   * that would be discarded by the outer WHERE.
+   *
+   * <p>The push-down is only applied when:
+   * <ul>
+   *   <li>The plan chain is: SubQueryStep → FilterStep</li>
+   *   <li>The subquery plan contains an ExpandStep as its last step</li>
+   *   <li>The WHERE clause does not reference parent scope ({@code $parent})</li>
+   * </ul>
+   */
+  private static void tryPushDownFilterIntoExpand(
+      SelectExecutionPlan plan, QueryPlanningInfo info) {
+    var steps = plan.steps;
+    if (steps.size() < 2) {
+      return;
+    }
+
+    // Find SubQueryStep followed by FilterStep
+    for (var i = 0; i < steps.size() - 1; i++) {
+      if (!(steps.get(i) instanceof SubQueryStep subQueryStep)) {
+        continue;
+      }
+      if (!(steps.get(i + 1) instanceof FilterStep)) {
+        continue;
+      }
+
+      // Don't push down filters that reference parent scope
+      if (info.whereClause != null && info.whereClause.refersToParent()) {
+        continue;
+      }
+
+      // Find ExpandStep in the subquery plan
+      if (!(subQueryStep.subExecutionPlan instanceof SelectExecutionPlan innerPlan)) {
+        continue;
+      }
+
+      ExpandStep expandStep = null;
+      int expandIndex = -1;
+      for (var j = 0; j < innerPlan.steps.size(); j++) {
+        if (innerPlan.steps.get(j) instanceof ExpandStep es) {
+          expandStep = es;
+          expandIndex = j;
+        }
+      }
+      if (expandStep == null) {
+        continue;
+      }
+
+      // Replace the ExpandStep with one that includes the push-down filter
+      var pushedDown = new ExpandStep(
+          innerPlan.getContext(), expandStep.isProfilingEnabled(),
+          expandStep.expandAlias, info.whereClause);
+      pushedDown.setPrevious(expandStep.prev);
+      innerPlan.steps.set(expandIndex, pushedDown);
+
+      // Remove the outer FilterStep — its predicate is now inside expand
+      steps.remove(i + 1);
+
+      // Relink the chain: the step after the removed FilterStep (if any)
+      // should now pull from SubQueryStep
+      if (i + 1 < steps.size()) {
+        steps.get(i + 1).setPrevious(subQueryStep);
+      }
+
+      return; // Only push down once
+    }
   }
 
   /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid DESC}. */
