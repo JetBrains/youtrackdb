@@ -387,15 +387,10 @@ public class RecordsGcIntegrationTest {
         session.commit();
       }
 
-      // Force snapshot cleanup + partial GC. The eager cleanup uses tryLock which
-      // can be skipped under contention from the shared executor.
-      // periodicRecordsGc forces cleanup deterministically and also ensures dirty
-      // page bitset pages are committed through the write cache (works around a
-      // write cache race where WOWCache.executeFileFlush skips pages when
-      // tryAcquireSharedLock fails).
-      forceGc(storage);
-
-      // Explicit flush to ensure dirty page bitset pages are persisted.
+      // Do NOT run forceGc here — that would reclaim all dead records and clear
+      // the dirty page bits, leaving nothing for Phase 2. Dirty bits are already
+      // set during the update operations (committed with each transaction).
+      // We only need to flush to persist them to data files.
       // Double-flush: WOWCache.executeFileFlush skips pages whose
       // tryAcquireSharedLock fails (transient contention from the shared commit
       // executor). A second synch catches any pages skipped by the first.
