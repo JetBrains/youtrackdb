@@ -657,4 +657,21 @@ public class EdgeFanOutEstimatorTest {
     // OUT = 600/100 = 6.0, IN = 600/100 = 6.0 → sum = 12.0 (max would be 6.0)
     assertEquals(12.0, fanOut, DELTA);
   }
+
+  /**
+   * BOTH direction with zero source count must return 0.0 immediately
+   * (the early return fires before the BOTH branch). Kills a mutant that
+   * could swap the order of the zero-check and BOTH-direction branch.
+   */
+  @Test
+  public void bothDirection_sourceCountZero_returnsZero() {
+    registerClass("Knows", 500);
+    registerClass("Person", 0);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, "Knows", "Person", Direction.BOTH,
+        "Person", "Person");
+
+    assertEquals(0.0, fanOut, DELTA);
+  }
 }

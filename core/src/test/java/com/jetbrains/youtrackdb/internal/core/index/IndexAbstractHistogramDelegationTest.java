@@ -463,7 +463,7 @@ public class IndexAbstractHistogramDelegationTest {
 
     // Then: no executeInTxInternal call since manager is null
     verify(session, never()).executeInTxInternal(
-        org.mockito.ArgumentMatchers.any());
+        any());
   }
 
   /**
@@ -537,7 +537,9 @@ public class IndexAbstractHistogramDelegationTest {
       consumer.accept(mockTx);
       return null;
     }).when(session).executeInTxInternal(any());
-    org.mockito.Mockito.doThrow(new java.io.IOException("simulated build failure"))
+    doAnswer(invocation2 -> {
+      throw new java.io.IOException("simulated build failure");
+    })
         .when(btreeEngine).buildInitialHistogram(mockAtomicOp);
 
     // When: no exception should propagate
