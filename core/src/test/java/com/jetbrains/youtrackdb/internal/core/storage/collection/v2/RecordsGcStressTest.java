@@ -131,13 +131,10 @@ public class RecordsGcStressTest {
 
     var result = test.run();
     result.printReport();
-    System.out.flush();
 
-    // Use halt() to skip JVM shutdown hooks. The YouTrackDBEnginesManager
-    // shutdown hook races with youTrackDB.close() (called in run()'s finally
-    // block) and crashes in ByteBufferPool.clear() → Unsafe.freeMemory()
-    // on already-freed direct memory. halt() bypasses this cleanly.
-    Runtime.getRuntime().halt(result.passed ? 0 : 1);
+    if (!result.passed) {
+      System.exit(1);
+    }
   }
 
   /**
@@ -155,6 +152,13 @@ public class RecordsGcStressTest {
   }
 
   public StressTestResult run() throws Exception {
+    // Remove the engine shutdown hook up front. The hook races with
+    // youTrackDB.close() in the finally block below and can crash in
+    // ByteBufferPool.clear() → Unsafe.freeMemory() on already-freed
+    // direct memory. We handle cleanup explicitly via close().
+    com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager.instance()
+        .removeShutdownHook();
+
     FileUtils.deleteRecursively(dbPath.toFile());
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(dbPath);
@@ -197,7 +201,8 @@ public class RecordsGcStressTest {
         }
       }
 
-      return runWorkload(youTrackDB);
+      var result = runWorkload(youTrackDB);
+      return result;
     } finally {
       youTrackDB.close();
       FileUtils.deleteRecursively(dbPath.toFile());
@@ -315,34 +320,50 @@ public class RecordsGcStressTest {
       while (!stop.get()) {
         long windowStartWrites = writeOps.get();
         long windowStartReads = readOps.get();
-        long diskSizeStart = measureDiskSize();
+        long pclStart = measureByExt(".pcl");
+        long cpmStart = measureByExt(".cpm");
+        long fsmStart = measureByExt(".fsm");
+        long dpbStart = measureByExt(".dpb");
         long windowStartMs = System.currentTimeMillis();
 
         Thread.sleep(windowDuration.toMillis());
 
         long windowEndWrites = writeOps.get();
         long windowEndReads = readOps.get();
-        long diskSizeEnd = measureDiskSize();
+        long pclEnd = measureByExt(".pcl");
+        long cpmEnd = measureByExt(".cpm");
+        long fsmEnd = measureByExt(".fsm");
+        long dpbEnd = measureByExt(".dpb");
         long elapsedMs = System.currentTimeMillis() - windowStartMs;
 
         var wm = new WindowMetrics(
             Duration.between(startTime, Instant.now()),
             windowEndWrites - windowStartWrites,
             windowEndReads - windowStartReads,
-            diskSizeEnd,
-            diskSizeEnd - diskSizeStart,
+            pclEnd, pclEnd - pclStart,
+            cpmEnd, cpmEnd - cpmStart,
+            fsmEnd, fsmEnd - fsmStart,
+            dpbEnd, dpbEnd - dpbStart,
             elapsedMs);
         windows.add(wm);
 
         System.out.printf(
-            "[%6.1fs] writes: %5d (%4.0f ops/s) | reads: %5d | "
-                + "disk: %6.1f MB (delta: %+.1f KB)%n",
+            "[%6.1fs] w/s: %4.0f | r/s: %4.0f"
+                + " | pcl: %5.1fM(%+.0fK)"
+                + " | cpm: %5.2fM(%+.0fK)"
+                + " | fsm: %4.0fK(%+.0fK)"
+                + " | dpb: %4.0fK(%+.0fK)%n",
             wm.elapsed.toMillis() / 1000.0,
-            wm.writes,
             wm.writeThroughput(),
-            wm.reads,
-            wm.diskSizeBytes / (1024.0 * 1024.0),
-            wm.diskDeltaBytes / 1024.0);
+            wm.readThroughput(),
+            wm.pclBytes / (1024.0 * 1024.0),
+            wm.pclDelta / 1024.0,
+            wm.cpmBytes / (1024.0 * 1024.0),
+            wm.cpmDelta / 1024.0,
+            wm.fsmBytes / 1024.0,
+            wm.fsmDelta / 1024.0,
+            wm.dpbBytes / 1024.0,
+            wm.dpbDelta / 1024.0);
 
         if (Duration.between(startTime, Instant.now())
             .compareTo(testDuration) >= 0) {
@@ -387,27 +408,15 @@ public class RecordsGcStressTest {
     }
   }
 
-  /**
-   * Measures the total size of data files in the database directory, excluding
-   * WAL segments (.wal), master records (.wmr), double-write log (.dwl), and
-   * flush buffer (.flb). These transient files grow with write volume regardless
-   * of GC effectiveness, so including them would mask whether dead records are
-   * actually being reclaimed.
-   */
-  private long measureDiskSize() {
+  /** Measures total size of files with the given extension in the DB directory. */
+  private long measureByExt(String ext) {
     var dbDir = dbPath.resolve(DB_NAME);
     if (!Files.exists(dbDir)) {
       return 0;
     }
     try (var stream = Files.walk(dbDir)) {
       return stream.filter(Files::isRegularFile)
-          .filter(p -> {
-            var name = p.getFileName().toString();
-            return !name.endsWith(".wal")
-                && !name.endsWith(".wmr")
-                && !name.endsWith(".dwl")
-                && !name.endsWith(".flb");
-          })
+          .filter(p -> p.getFileName().toString().endsWith(ext))
           .mapToLong(p -> {
             try {
               return Files.size(p);
@@ -509,27 +518,28 @@ public class RecordsGcStressTest {
       }
     }
 
-    // Check 5: Disk growth rate stabilization — the growth rate (bytes per
-    // window) in the last third must not exceed 3x the first third's rate.
-    // With a fixed collection size (no pure inserts), disk growth comes only
-    // from WAL segments and transient dead records. Once GC reaches steady
-    // state the growth rate should stabilize or decrease. If GC is broken,
-    // dead records accumulate and the growth rate accelerates.
+    // Check 5: Collection data (.pcl) growth rate stabilization. The .pcl
+    // files contain actual record data and are the purest signal for GC
+    // effectiveness. With a fixed collection size, .pcl growth comes only
+    // from page allocation for new record versions. Once GC reaches steady
+    // state, freed space is reused and .pcl growth rate drops to near zero.
+    // If GC is broken, dead records accumulate and .pcl grows unboundedly.
+    // The last third's growth rate must not exceed 3x the first third's.
     if (steadyState.size() >= 6) {
       int third = steadyState.size() / 3;
       double firstThirdGrowthRate = steadyState.subList(0, third).stream()
-          .mapToLong(w -> Math.max(0, w.diskDeltaBytes))
+          .mapToLong(w -> Math.max(0, w.pclDelta))
           .average().orElse(0);
       double lastThirdGrowthRate = steadyState.subList(
           steadyState.size() - third, steadyState.size()).stream()
-          .mapToLong(w -> Math.max(0, w.diskDeltaBytes))
+          .mapToLong(w -> Math.max(0, w.pclDelta))
           .average().orElse(0);
 
       if (firstThirdGrowthRate > 0
           && lastThirdGrowthRate > firstThirdGrowthRate * 3) {
         result.passed = false;
         result.failureReason = String.format(
-            "Disk growth rate accelerating: first third avg %.1f KB/window,"
+            "PCL growth rate accelerating: first third avg %.1f KB/window,"
                 + " last third avg %.1f KB/window (%.1fx)",
             firstThirdGrowthRate / 1024.0,
             lastThirdGrowthRate / 1024.0,
@@ -554,22 +564,39 @@ public class RecordsGcStressTest {
     final Duration elapsed;
     final long writes;
     final long reads;
-    final long diskSizeBytes;
-    final long diskDeltaBytes;
+    // Per-extension file sizes and deltas.
+    final long pclBytes, pclDelta; // .pcl — collection record data
+    final long cpmBytes, cpmDelta; // .cpm — collection position map
+    final long fsmBytes, fsmDelta; // .fsm — free space map
+    final long dpbBytes, dpbDelta; // .dpb — dirty page bit set
     final long windowMs;
 
     WindowMetrics(Duration elapsed, long writes, long reads,
-        long diskSizeBytes, long diskDeltaBytes, long windowMs) {
+        long pclBytes, long pclDelta,
+        long cpmBytes, long cpmDelta,
+        long fsmBytes, long fsmDelta,
+        long dpbBytes, long dpbDelta,
+        long windowMs) {
       this.elapsed = elapsed;
       this.writes = writes;
       this.reads = reads;
-      this.diskSizeBytes = diskSizeBytes;
-      this.diskDeltaBytes = diskDeltaBytes;
+      this.pclBytes = pclBytes;
+      this.pclDelta = pclDelta;
+      this.cpmBytes = cpmBytes;
+      this.cpmDelta = cpmDelta;
+      this.fsmBytes = fsmBytes;
+      this.fsmDelta = fsmDelta;
+      this.dpbBytes = dpbBytes;
+      this.dpbDelta = dpbDelta;
       this.windowMs = windowMs;
     }
 
     double writeThroughput() {
       return windowMs > 0 ? (writes * 1000.0 / windowMs) : 0;
+    }
+
+    double readThroughput() {
+      return windowMs > 0 ? (reads * 1000.0 / windowMs) : 0;
     }
   }
 
@@ -604,42 +631,67 @@ public class RecordsGcStressTest {
       if (windows != null && !windows.isEmpty()) {
         System.out.println();
         System.out.println("--- Per-window metrics ---");
-        System.out.printf("%-10s %12s %12s %12s %12s%n",
-            "Time", "Writes/s", "Reads", "Disk (MB)", "Disk Delta");
+        System.out.printf(
+            "%-8s %6s %6s  %8s %8s  %8s %8s  %6s %6s  %6s %6s%n",
+            "Time", "w/s", "r/s",
+            "PCL MB", "PCL d", "CPM MB", "CPM d",
+            "FSM K", "FSM d", "DPB K", "DPB d");
         for (var w : windows) {
-          System.out.printf("%-10.1fs %12.1f %12d %12.1f %+12.1f KB%n",
+          System.out.printf(
+              "%-8.0fs %6.0f %6.0f  %8.1f %+7.0fK  %8.2f %+7.0fK"
+                  + "  %6.0f %+5.0fK  %6.0f %+5.0fK%n",
               w.elapsed.toMillis() / 1000.0,
               w.writeThroughput(),
-              w.reads,
-              w.diskSizeBytes / (1024.0 * 1024.0),
-              w.diskDeltaBytes / 1024.0);
+              w.readThroughput(),
+              w.pclBytes / (1024.0 * 1024.0),
+              w.pclDelta / 1024.0,
+              w.cpmBytes / (1024.0 * 1024.0),
+              w.cpmDelta / 1024.0,
+              w.fsmBytes / 1024.0,
+              w.fsmDelta / 1024.0,
+              w.dpbBytes / 1024.0,
+              w.dpbDelta / 1024.0);
         }
 
-        double avgThroughput = windows.stream()
+        var last = windows.get(windows.size() - 1);
+        double avgWrites = windows.stream()
             .mapToDouble(WindowMetrics::writeThroughput)
             .average().orElse(0);
-        double minThroughput = windows.stream()
+        double minWrites = windows.stream()
             .mapToDouble(WindowMetrics::writeThroughput)
             .min().orElse(0);
-        double maxThroughput = windows.stream()
+        double maxWrites = windows.stream()
             .mapToDouble(WindowMetrics::writeThroughput)
             .max().orElse(0);
-        long maxDiskSize = windows.stream()
-            .mapToLong(w -> w.diskSizeBytes)
-            .max().orElse(0);
-        long minDiskSize = windows.stream()
-            .mapToLong(w -> w.diskSizeBytes)
+        double avgReads = windows.stream()
+            .mapToDouble(WindowMetrics::readThroughput)
+            .average().orElse(0);
+        double minReads = windows.stream()
+            .mapToDouble(WindowMetrics::readThroughput)
             .min().orElse(0);
+        double maxReads = windows.stream()
+            .mapToDouble(WindowMetrics::readThroughput)
+            .max().orElse(0);
+        long peakPcl = windows.stream()
+            .mapToLong(w -> w.pclBytes).max().orElse(0);
 
         System.out.println();
         System.out.printf(
-            "Throughput — avg: %.1f, min: %.1f, max: %.1f ops/s%n",
-            avgThroughput, minThroughput, maxThroughput);
+            "Write throughput — avg: %.0f, min: %.0f, max: %.0f ops/s%n",
+            avgWrites, minWrites, maxWrites);
         System.out.printf(
-            "Disk size — min: %.1f MB, max: %.1f MB, ratio: %.2fx%n",
-            minDiskSize / (1024.0 * 1024.0),
-            maxDiskSize / (1024.0 * 1024.0),
-            minDiskSize > 0 ? (double) maxDiskSize / minDiskSize : 0);
+            "Read throughput  — avg: %.0f, min: %.0f, max: %.0f ops/s%n",
+            avgReads, minReads, maxReads);
+        System.out.printf(
+            "PCL  — peak: %.1f MB, final: %.1f MB%n",
+            peakPcl / (1024.0 * 1024.0),
+            last.pclBytes / (1024.0 * 1024.0));
+        System.out.printf(
+            "CPM  — final: %.2f MB%n", last.cpmBytes / (1024.0 * 1024.0));
+        System.out.printf(
+            "FSM  — final: %.0f KB%n", last.fsmBytes / 1024.0);
+        System.out.printf(
+            "DPB  — final: %.0f KB%n", last.dpbBytes / 1024.0);
       }
     }
   }
