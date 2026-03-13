@@ -179,6 +179,15 @@ public class CostModelTest {
     assertEquals(16.0, CostModel.indexRangeCost(0), 0.0001);
   }
 
+  @Test
+  public void indexRangeCost_nonDefaultSeqCost_usesMultiplication() {
+    // With seqPageReadCost=2.0, indexRangeCost(100) = 16.0 + 100*2.0 = 216.0.
+    // If the mutation replaces * with /, result = 16.0 + 100/2.0 = 66.0.
+    // This kills the multiplication→division mutation at CostModel line 133.
+    GlobalConfiguration.QUERY_STATS_COST_SEQ_PAGE_READ.setValue(2.0);
+    assertEquals(216.0, CostModel.indexRangeCost(100), 0.0001);
+  }
+
   // -- edgeTraversalCost -----------------------------------------------------
 
   @Test
