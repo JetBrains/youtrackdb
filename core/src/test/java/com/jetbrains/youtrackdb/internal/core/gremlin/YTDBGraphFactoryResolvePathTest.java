@@ -37,7 +37,7 @@ public class YTDBGraphFactoryResolvePathTest {
    * via {@link Path#toRealPath()}, ensuring symlinks/junctions are resolved.
    */
   @Test
-  public void testResolvePathNonExistentDirectoryCreatesAndResolves() {
+  public void testResolvePathNonExistentDirectoryCreatesAndResolves() throws IOException {
     var nonExistent = tempFolder.getRoot().toPath().resolve("newDb");
     assertThat(nonExistent).doesNotExist();
 
@@ -45,28 +45,33 @@ public class YTDBGraphFactoryResolvePathTest {
 
     // Directory should have been created
     assertThat(nonExistent).exists().isDirectory();
-    // Resolved path should match the real path
-    assertThat(resolved).isEqualTo(nonExistent.toAbsolutePath().normalize());
+    // Resolved path should match the real path (toRealPath resolves 8.3 names on Windows)
+    assertThat(resolved).isEqualTo(nonExistent.toRealPath());
   }
 
   /**
-   * When the path does not exist and cannot be created (e.g., under a read-only or non-existent
-   * parent), resolvePath should fall back to {@link Path#toAbsolutePath()} +
+   * When the path does not exist and cannot be created (e.g., under a regular file rather than
+   * a directory), resolvePath should fall back to {@link Path#toAbsolutePath()} +
    * {@link Path#normalize()}.
    */
   @Test
   public void testResolvePathFallsBackToNormalizeWhenCreationFails() {
-    // Use a path under /proc (Linux) which is not writable, causing createDirectories to fail.
-    // On systems where /proc doesn't exist, use a path under a non-writable location.
-    var impossiblePath = "/proc/1/fdinfo/impossibleDb_" + System.nanoTime();
-    var path = Path.of(impossiblePath);
+    // Use a filename component exceeding the 255-char filesystem limit,
+    // which makes Files.createDirectories fail on all platforms.
+    var longName = "x".repeat(300);
+    var impossiblePath = tempFolder.getRoot().toPath()
+        .resolve(longName);
 
-    var resolved = YTDBGraphFactory.resolvePath(impossiblePath);
+    var resolved = YTDBGraphFactory.resolvePath(
+        impossiblePath.toString());
 
-    // Should fall back to absolute + normalize since both toRealPath and createDirectories fail
-    assertThat(resolved).isEqualTo(path.toAbsolutePath().normalize());
-    // The path should NOT have been created
-    assertThat(path).doesNotExist();
+    // Should fall back to absolute + normalize since both
+    // toRealPath and createDirectories fail
+    assertThat(resolved)
+        .isEqualTo(impossiblePath.toAbsolutePath().normalize());
+    // Verify the path was not created (Files.exists returns false
+    // for paths with invalid names)
+    assertThat(Files.exists(impossiblePath)).isFalse();
   }
 
   /**
