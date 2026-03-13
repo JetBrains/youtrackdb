@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -270,7 +271,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
         startingElem = ResultInternal.toResultInternal(startingElem, ctx.getDatabaseSession());
       }
 
-      downstream = executeTraversal(ctx, this.item, (Result) startingElem, 0, null);
+      downstream =
+          executeTraversal(ctx, this.item, (Result) startingElem, 0, null, new RidSet());
     }
   }
 
@@ -324,6 +326,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * @param depth          current recursion depth (0 at the start)
    * @param pathToHere     the sequence of records visited so far (for `$matchPath`),
    *                       `null` at the start
+   * @param visited        mutable bitmap set of RIDs already emitted; used to deduplicate
+   *                       vertices reachable via multiple paths in diamond/cyclic graphs
    * @return a stream of matching result records
    */
   protected ExecutionStream executeTraversal(
@@ -331,7 +335,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
       SQLMatchPathItem item,
       Result startingPoint,
       int depth,
-      List<Result> pathToHere) {
+      List<Result> pathToHere,
+      RidSet visited) {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
     Integer maxDepth = null;
@@ -369,10 +374,21 @@ public class MatchEdgeTraverser implements ExecutionStream {
       // ---- Recursive (WHILE / maxDepth) mode ----
       // The starting point IS included (depth 0) if it passes the filters. Expansion
       // continues while the WHILE condition holds and depth < maxDepth.
+      //
+      // Dedup strategy: when no pathAlias is declared, a RidSet tracks emitted
+      // vertices so that diamond/cyclic graphs don't produce duplicates. When a
+      // pathAlias IS declared the user is asking for distinct *paths*, so each
+      // path to a vertex is a legitimate separate result and we skip dedup.
       List<Result> result = new ArrayList<>();
       iCommandContext.setSystemVariable(CommandContext.VAR_DEPTH, depth);
       var previousMatch = iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
       iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
+
+      // Dedup is active when no pathAlias is declared. When pathAlias IS
+      // declared the user wants all distinct paths, so we null out the
+      // visited set to disable dedup entirely.
+      assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
+      var dedupVisited = item.getFilter().getPathAlias() == null ? visited : null;
 
       // Evaluate the starting point against all filters
       if (startingPoint != null
@@ -400,6 +416,14 @@ public class MatchEdgeTraverser implements ExecutionStream {
           && (whileCondition == null
               || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
 
+        // Mark the starting point as visited before expanding neighbors so
+        // that cycles back to it are detected.
+        if (dedupVisited != null) {
+          assert startingPoint.getIdentity() != null
+              : "graph vertex identity must not be null";
+          dedupVisited.add(startingPoint.getIdentity());
+        }
+
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
         while (queryResult.hasNext(iCommandContext)) {
@@ -407,11 +431,15 @@ public class MatchEdgeTraverser implements ExecutionStream {
           if (origin == null) {
             continue;
           }
-          // Known limitation: the recursive expansion does not track already-visited
-          // nodes; if the graph contains cycles, the same record may be traversed
-          // multiple times at different depths. A break strategy (e.g. a visited set)
-          // would prevent this but is not yet implemented. In practice, the maxDepth
-          // or WHILE condition prevents infinite recursion.
+          // Skip neighbors already emitted to avoid duplicate results in
+          // diamond-shaped or cyclic graphs. Skipped when dedupVisited is
+          // null (pathAlias declared) because the user wants all distinct paths.
+          if (dedupVisited != null) {
+            var neighborRid = origin.getIdentity();
+            if (neighborRid != null && dedupVisited.contains(neighborRid)) {
+              continue;
+            }
+          }
 
           // Build the path by appending the current neighbor
           List<Result> newPath = new ArrayList<>();
@@ -420,9 +448,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
           }
           newPath.add(origin);
 
-          // Recursive call with incremented depth
+          // Recursive call with incremented depth, sharing the visited set
           var subResult =
-              executeTraversal(iCommandContext, item, origin, depth + 1, newPath);
+              executeTraversal(iCommandContext, item, origin, depth + 1, newPath, visited);
           while (subResult.hasNext(iCommandContext)) {
             var sub = subResult.next(iCommandContext);
             result.add(sub);

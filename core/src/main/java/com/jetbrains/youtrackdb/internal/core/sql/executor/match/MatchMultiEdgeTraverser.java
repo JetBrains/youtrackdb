@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItemFirst;
@@ -106,7 +107,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
           var subtraverser = new MatchEdgeTraverser(null, sub);
           var rightStream =
               subtraverser.executeTraversal(iCommandContext, sub, o, 0,
-                  null);
+                  null, new RidSet());
           while (rightStream.hasNext(iCommandContext)) {
             rightSide.add((ResultInternal) rightStream.next(iCommandContext));
           }
@@ -161,8 +162,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
           .stream()
           .map(obj -> toOResultInternal(db, obj))
           .filter(
-              x ->
-                  matchesCondition(x, filter, iCommandContext))
+              x -> matchesCondition(x, filter, iCommandContext))
           .forEach(rightSide::add);
     } else if (nextSteps instanceof Identifiable identifiable) {
       var res = new ResultInternal(db, identifiable);

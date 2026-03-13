@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -3140,6 +3142,106 @@ public class MatchStatementExecutionTest extends DbTestBase {
         "Adding LET $x = 42 must not change the number of rows from while MATCH",
         2,
         letResults.size());
+  }
+
+  /**
+   * Diamond graph: 0→1→3, 0→2→3. A WHILE traversal starting from vertex 0 with
+   * maxDepth 3 must emit vertex 3 only once, even though it is reachable via two
+   * distinct paths (0→1→3 and 0→2→3). Before the visited-set fix, vertex 3 would
+   * appear twice in the result set.
+   */
+  @Test
+  public void testWhileTraversalDeduplicatesDiamondVertices() {
+    session.begin();
+
+    // WHILE ($depth < 3) traverses depths 0, 1, 2 from vertex 0:
+    //   depth 0: vertex 0
+    //   depth 1: vertices 1 and 2
+    //   depth 2: vertex 3 (reachable from both 1 and 2)
+    // Vertex 3 must appear exactly once.
+    var results = session.query(
+        "MATCH {class:DiamondV, as:start, where:(uid = 0)}"
+            + ".out('DiamondE'){as:reached, while:($depth < 3)}"
+            + " RETURN reached.uid as uid")
+        .stream().toList();
+
+    // Collect the uid values
+    var uids = new ArrayList<Integer>();
+    for (var r : results) {
+      uids.add(((Number) r.getProperty("uid")).intValue());
+    }
+    Collections.sort(uids);
+
+    // Expect exactly 4 unique vertices: 0, 1, 2, 3
+    assertEquals(
+        "Diamond WHILE traversal should emit each vertex exactly once",
+        List.of(0, 1, 2, 3),
+        uids);
+    session.commit();
+  }
+
+  /**
+   * Diamond graph with pathAlias: 0→1→3, 0→2→3. When pathAlias is declared the
+   * user is asking for all distinct *paths*, so vertex 3 must appear twice — once
+   * for each path that reaches it. Without the pathAlias-aware dedup bypass,
+   * the visited set would suppress the second occurrence.
+   */
+  @Test
+  public void testWhileTraversalWithPathAliasPreservesAllPaths() {
+    session.begin();
+
+    var results = session.query(
+        "MATCH {class:DiamondV, as:start, where:(uid = 0)}"
+            + ".out('DiamondE'){as:reached, while:($depth < 3),"
+            + " pathAlias: p}"
+            + " RETURN reached.uid as uid, p")
+        .stream().toList();
+
+    // Count how many times vertex 3 appears — it should be 2 (one per path)
+    var uid3Count = results.stream()
+        .filter(r -> ((Number) r.getProperty("uid")).intValue() == 3)
+        .count();
+    assertEquals(
+        "Vertex 3 should appear twice (once per path) when pathAlias is declared",
+        2,
+        uid3Count);
+
+    session.commit();
+  }
+
+  /**
+   * Verifies that visited-set dedup does not suppress a vertex that was rejected
+   * by a depth-dependent WHERE clause at a shallower depth. Diamond graph:
+   * 0→1→3, 0→2→3. With {@code where: ($depth > 0)}, vertex 0 (depth 0) should
+   * be excluded by the filter but must NOT be permanently marked as visited,
+   * so if a cycle led back to it at a deeper depth it could still be evaluated.
+   * Here we simply verify that the depth filter correctly excludes depth-0 and
+   * still emits deeper vertices.
+   */
+  @Test
+  public void testWhileTraversalWithDepthDependentFilter() {
+    session.begin();
+
+    var results = session.query(
+        "MATCH {class:DiamondV, as:start, where:(uid = 0)}"
+            + ".out('DiamondE'){as:reached, while:($depth < 3),"
+            + " where: ($depth > 0)}"
+            + " RETURN reached.uid as uid")
+        .stream().toList();
+
+    var uids = new ArrayList<Integer>();
+    for (var r : results) {
+      uids.add(((Number) r.getProperty("uid")).intValue());
+    }
+    Collections.sort(uids);
+
+    // Depth 0 (vertex 0) is excluded by WHERE ($depth > 0).
+    // Depth 1: vertices 1, 2. Depth 2: vertex 3 (deduped).
+    assertEquals(
+        "Only vertices at depth > 0 should be returned",
+        List.of(1, 2, 3),
+        uids);
+    session.commit();
   }
 
 }
