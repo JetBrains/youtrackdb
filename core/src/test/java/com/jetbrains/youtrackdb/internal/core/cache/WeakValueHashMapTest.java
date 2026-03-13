@@ -139,17 +139,18 @@ public class WeakValueHashMapTest {
   /**
    * Verifies that put() is still blocked during forEach() iteration
    * to prevent ConcurrentModificationException on the underlying HashMap.
+   * Strong references to key and value must be kept to prevent GC from
+   * clearing the WeakReference before forEach iterates.
    */
   @Test
   public void putShouldBeBlockedDuringForEach() {
     var map = new WeakValueHashMap<TestKey, TestValue>();
-    map.put(new TestKey("k1"), new TestValue("v1"));
+    var key = new TestKey("k1");
+    var value = new TestValue("v1");
+    map.put(key, value);
 
-    assertThatThrownBy(() ->
-        map.forEach((k, v) ->
-            map.put(new TestKey("k2"), new TestValue("v2"))
-        )
-    ).isInstanceOf(IllegalStateException.class)
+    assertThatThrownBy(() -> map.forEach((k, v) -> map.put(new TestKey("k2"), new TestValue("v2"))))
+        .isInstanceOf(IllegalStateException.class)
         .hasMessage("Modification is not allowed");
   }
 
@@ -161,11 +162,11 @@ public class WeakValueHashMapTest {
   public void removeShouldBeBlockedDuringForEach() {
     var map = new WeakValueHashMap<TestKey, TestValue>();
     var key = new TestKey("k1");
-    map.put(key, new TestValue("v1"));
+    var value = new TestValue("v1");
+    map.put(key, value);
 
-    assertThatThrownBy(() ->
-        map.forEach((k, v) -> map.remove(k))
-    ).isInstanceOf(IllegalStateException.class)
+    assertThatThrownBy(() -> map.forEach((k, v) -> map.remove(k)))
+        .isInstanceOf(IllegalStateException.class)
         .hasMessage("Modification is not allowed");
   }
 
