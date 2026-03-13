@@ -681,23 +681,22 @@ public class HistogramStatsPageHllSpillTest {
         "Blob size does not hit the histogram+HLL overflow sweet spot",
         81 + blob.length <= PAGE_SIZE
             && 81 + blob.length + 1024 > PAGE_SIZE);
-    {
-      var hll = createPopulatedHll();
-      var stats = new IndexStatistics(100, 100, 0);
-      var snapshot = new HistogramSnapshot(
-          stats, mediumHistogram, 0, 0, 0, false, hll, false);
 
-      CacheEntry page0 = allocatePage();
-      try {
-        var page = new HistogramStatsPage(page0);
-        page.writeSnapshot(snapshot, (byte) 5,
-            intKeySerializer(), serializerFactory);
-        fail("Expected IllegalStateException for histogram + HLL overflow");
-      } catch (IllegalStateException e) {
-        assertTrue(e.getMessage().contains("exceeds page 0 capacity"));
-      } finally {
-        releasePage(page0);
-      }
+    var hll = createPopulatedHll();
+    var stats = new IndexStatistics(100, 100, 0);
+    var snapshot = new HistogramSnapshot(
+        stats, mediumHistogram, 0, 0, 0, false, hll, false);
+
+    CacheEntry page0 = allocatePage();
+    try {
+      var page = new HistogramStatsPage(page0);
+      page.writeSnapshot(snapshot, (byte) 5,
+          intKeySerializer(), serializerFactory);
+      fail("Expected IllegalStateException for histogram + HLL overflow");
+    } catch (IllegalStateException e) {
+      assertTrue(e.getMessage().contains("exceeds page 0 capacity"));
+    } finally {
+      releasePage(page0);
     }
   }
 
