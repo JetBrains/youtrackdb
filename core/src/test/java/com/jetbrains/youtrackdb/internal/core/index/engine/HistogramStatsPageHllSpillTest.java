@@ -413,33 +413,20 @@ public class HistogramStatsPageHllSpillTest {
    */
   @Test
   public void readSnapshotAcceptsVersion0AsOldFormat() {
+    // A fresh ByteBuffer-backed page has all zeros, so version = 0,
+    // simulating an old-format page before versioning was introduced.
     CacheEntry page0 = allocatePage();
     try {
       var page = new HistogramStatsPage(page0);
-      // Write an empty page first, then overwrite FORMAT_VERSION with 0.
-      // writeEmpty sets FORMAT_VERSION=1; we manually set it to 0 to
-      // simulate an old-format page.
-      page.writeEmpty((byte) 5);
-      // Overwrite version field with 0 by writing a snapshot then patching.
-      // Simpler: just zero out the version via setIntValue on the page.
-      // Since HistogramStatsPage extends DurablePage which has setIntValue,
-      // but we don't have direct access, we use a fresh page (all zeros).
-      // A fresh ByteBuffer-backed page has all zeros, so version = 0.
-      var freshPage0 = allocatePage();
-      try {
-        var freshPage = new HistogramStatsPage(freshPage0);
-        // All fields are zero, including version=0.
-        var loaded = freshPage.readSnapshot(
-            intKeySerializer(), serializerFactory);
-        // Should not throw; all values should be zero/default.
-        assertEquals(0, loaded.stats().totalCount());
-        assertEquals(0, loaded.stats().distinctCount());
-        assertEquals(0, loaded.stats().nullCount());
-        assertNull(loaded.histogram());
-        assertNull(loaded.hllSketch());
-      } finally {
-        releasePage(freshPage0);
-      }
+      // All fields are zero, including version=0.
+      var loaded = page.readSnapshot(
+          intKeySerializer(), serializerFactory);
+      // Should not throw; all values should be zero/default.
+      assertEquals(0, loaded.stats().totalCount());
+      assertEquals(0, loaded.stats().distinctCount());
+      assertEquals(0, loaded.stats().nullCount());
+      assertNull(loaded.histogram());
+      assertNull(loaded.hllSketch());
     } finally {
       releasePage(page0);
     }
@@ -689,8 +676,12 @@ public class HistogramStatsPageHllSpillTest {
         intKeySerializer(), serializerFactory);
     // Only proceed if the blob + HLL exceeds page capacity but blob alone
     // does not. If blob alone already exceeds, the first check will fire.
-    if (81 + blob.length <= PAGE_SIZE
-        && 81 + blob.length + 1024 > PAGE_SIZE) {
+    // Use Assume so CI reports this as "skipped" rather than silently passing.
+    org.junit.Assume.assumeTrue(
+        "Blob size does not hit the histogram+HLL overflow sweet spot",
+        81 + blob.length <= PAGE_SIZE
+            && 81 + blob.length + 1024 > PAGE_SIZE);
+    {
       var hll = createPopulatedHll();
       var stats = new IndexStatistics(100, 100, 0);
       var snapshot = new HistogramSnapshot(
@@ -708,8 +699,6 @@ public class HistogramStatsPageHllSpillTest {
         releasePage(page0);
       }
     }
-    // If the blob size doesn't hit the sweet spot, that's fine — the
-    // histogram-only overflow test above covers the capacity check path.
   }
 
   // ---- Tests: writeSnapshot HLL page-1 flag encoding ----
