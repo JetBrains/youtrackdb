@@ -6403,34 +6403,35 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * sum() is a different aggregate from count(*) and should not trigger the
-   * CountFromClassStep shortcut — the planner must perform a full scan and
-   * evaluate sum() per record.
+   * count(1) is NOT count(*) — it counts non-null evaluations of the literal 1.
+   * The planner must not use the CountFromClassStep shortcut for count(1)
+   * because it's semantically different (though the result is the same for
+   * non-null literals). This also verifies that isCountStar correctly
+   * distinguishes "count(*)" from "count(1)" via string comparison.
    */
   @Test
-  public void testSumDoesNotUseCountStarShortcut() {
-    var className = "testSumNoCountShortcut";
+  public void testCountOneDoesNotUseCountStarShortcut() {
+    var className = "testCountOneNoShortcut";
     session.getMetadata().getSchema().createClass(className);
 
     for (var i = 0; i < 3; i++) {
       session.begin();
-      var doc = (EntityImpl) session.newEntity(className);
-      doc.setProperty("val", 10);
+      session.newEntity(className);
       session.commit();
     }
 
     session.begin();
-    var result = session.query("SELECT sum(val) as s FROM " + className);
+    var result = session.query("SELECT count(1) as c FROM " + className);
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
-    Assert.assertEquals(30L, ((Number) item.getProperty("s")).longValue());
+    Assert.assertEquals(3L, ((Number) item.getProperty("c")).longValue());
     Assert.assertFalse(result.hasNext());
 
-    // sum() must NOT use CountFromClass shortcut
+    // count(1) must NOT use CountFromClass shortcut
     var plan = result.getExecutionPlan().prettyPrint(0, 2);
     Assert.assertFalse(
-        "sum() should NOT use CountFromClass shortcut, plan was:\n" + plan,
+        "count(1) should NOT use CountFromClass shortcut, plan was:\n" + plan,
         plan.contains("CALCULATE CLASS SIZE"));
 
     result.close();
@@ -6472,15 +6473,38 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var result = session.query(
         "SELECT count(*) as a, count(*) as b FROM " + className);
     printExecutionPlan(result);
-    // With two projection items, isCountOnly is false → no guarantee of
-    // a row on empty table. The planner may still produce one (implementation
-    // detail), but the plan should NOT contain GuaranteeEmptyCountStep.
     var plan = result.getExecutionPlan().prettyPrint(0, 2);
-    // Two count(*) columns → isCountOnly returns false → different plan path
     Assert.assertFalse(
         "Two count(*) projections should not trigger single-count optimization,"
             + " plan was:\n" + plan,
         plan.contains("GUARANTEE FOR ZERO COUNT"));
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * SELECT count(*) FROM ... ORDER BY name — the ORDER BY creates a synthetic
+   * projection alias (_$$$ORDER_BY_ALIAS$$$_0) that must be excluded when
+   * counting user-visible projection items. Without the filter, isCountOnly
+   * would see 2 items and wrongly return false, causing count(*) on an
+   * empty table to not guarantee a row with 0.
+   */
+  @Test
+  public void testCountOnlyWithOrderByOnEmptyTable() {
+    var className = "testCountOnlyOrderByEmpty";
+    var cls = session.getMetadata().getSchema().createClass(className);
+    cls.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var result = session.query(
+        "SELECT count(*) FROM " + className + " ORDER BY name");
+    printExecutionPlan(result);
+    Assert.assertTrue(
+        "count(*) with ORDER BY on empty table must still return one row",
+        result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(0L, ((Number) item.getProperty("count(*)")).longValue());
+    Assert.assertFalse(result.hasNext());
     result.close();
     session.commit();
   }
