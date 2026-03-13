@@ -401,13 +401,19 @@ public class RecordsGcIntegrationTest {
         "disktest", "admin", DbTestBase.ADMIN_PASSWORD)) {
       var storage = storage(session);
 
-      var pc = findCollection(session, storage, "GcRestartTest");
-      assertThat(pc).as("should find PaginatedCollectionV2 after restart").isNotNull();
+      // Collect dead records across ALL clusters for the class.
+      // RoundRobinCollectionSelectionStrategy distributes records randomly
+      // across multiple clusters, so any single cluster may have no records.
+      var collections = findAllCollections(session, storage, "GcRestartTest");
+      assertThat(collections).as("should find collections after restart").isNotEmpty();
 
       // GC should find dirty pages from before the restart (bit set is durable)
       // and reclaim dead records whose snapshot entries are gone (in-memory
       // snapshot index is empty after restart).
-      long reclaimed = pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      long reclaimed = 0;
+      for (var pc : collections) {
+        reclaimed += pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      }
       assertThat(reclaimed)
           .as("GC should reclaim dead records using persisted dirty page bits")
           .isGreaterThan(0);
@@ -735,25 +741,33 @@ public class RecordsGcIntegrationTest {
         "clamptest", "admin", DbTestBase.ADMIN_PASSWORD)) {
       var storage = storage(session);
 
-      var pc = findCollection(session, storage, "GcClampTest");
-      assertThat(pc).as("should find collection after restart").isNotNull();
+      // Collect across ALL clusters: RoundRobinCollectionSelectionStrategy
+      // distributes records randomly, so any single cluster may be empty.
+      var collections = findAllCollections(session, storage, "GcClampTest");
+      assertThat(collections).as("should find collections after restart").isNotEmpty();
 
-      // Counter is 0 after restart
-      assertThat(pc.getDeadRecordCount())
-          .as("counter should be 0 after restart")
-          .isEqualTo(0);
+      // All counters are 0 after restart
+      for (var pc : collections) {
+        assertThat(pc.getDeadRecordCount())
+            .as("counter should be 0 after restart for collection " + pc.getName())
+            .isEqualTo(0);
+      }
 
       // GC reclaims pre-restart dead records using persisted dirty bits.
       // After restart the snapshot index is empty, so all stale records
       // whose dirty bits survived are immediately reclaimable.
-      long reclaimed =
-          pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      long reclaimed = 0;
+      for (var pc : collections) {
+        reclaimed += pc.collectDeadRecords(storage.getSharedSnapshotIndex());
+      }
       assertThat(reclaimed).isGreaterThan(0);
 
-      // Counter should be clamped at 0, not negative
-      assertThat(pc.getDeadRecordCount())
-          .as("counter should clamp to 0, not go negative")
-          .isGreaterThanOrEqualTo(0);
+      // All counters should be clamped at 0, not negative
+      for (var pc : collections) {
+        assertThat(pc.getDeadRecordCount())
+            .as("counter should clamp to 0, not go negative for " + pc.getName())
+            .isGreaterThanOrEqualTo(0);
+      }
     } finally {
       diskYtdb.close();
     }
@@ -814,6 +828,27 @@ public class RecordsGcIntegrationTest {
       }
     }
     return null;
+  }
+
+  /**
+   * Returns all {@link PaginatedCollectionV2} instances (clusters) for the given class.
+   * A class may have multiple clusters because {@code RoundRobinCollectionSelectionStrategy}
+   * distributes records randomly across {@code CLASS_COLLECTIONS_COUNT} clusters (default 8).
+   */
+  private static java.util.List<PaginatedCollectionV2> findAllCollections(
+      DatabaseSessionEmbedded session,
+      AbstractStorage storage,
+      String className) {
+    var result = new ArrayList<PaginatedCollectionV2>();
+    var collectionIds = session.getClass(className).getCollectionIds();
+    for (int cid : collectionIds) {
+      for (var coll : storage.getCollectionInstances()) {
+        if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+          result.add(pc);
+        }
+      }
+    }
+    return result;
   }
 
   /**
