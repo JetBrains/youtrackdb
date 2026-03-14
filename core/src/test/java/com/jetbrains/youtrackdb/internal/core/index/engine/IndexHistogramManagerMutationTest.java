@@ -555,4 +555,96 @@ public class IndexHistogramManagerMutationTest {
     assertNotNull(fit);
     assertTrue("HLL should be spilled to page 1", fit.hllOnPage1());
   }
+
+  @Test
+  public void scanAndBuild_largeData_frequenciesAndDistinctsSumCorrectly() {
+    Stream<Object> keys = IntStream.range(0, 10000)
+        .mapToObj(i -> (Object) (i / 100));
+
+    var result = IndexHistogramManager.scanAndBuild(keys, 10000, 4);
+
+    assertNotNull(result);
+    assertEquals(4, result.actualBucketCount);
+
+    long totalFreq = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      assertTrue("Bucket " + i + " freq > 0", result.frequencies[i] > 0);
+      totalFreq += result.frequencies[i];
+    }
+    assertEquals("Total freq = 10000", 10000, totalFreq);
+
+    long totalDistinct = 0;
+    for (int i = 0; i < result.actualBucketCount; i++) {
+      assertTrue("Bucket " + i + " distinct > 0", result.distinctCounts[i] > 0);
+      totalDistinct += result.distinctCounts[i];
+    }
+    assertEquals("Total distinct = 100", 100, totalDistinct);
+  }
+
+  @Test
+  public void scanAndBuild_stringKeys_correctMinMaxBoundaries() {
+    Stream<Object> keys = IntStream.range(0, 26)
+        .mapToObj(i -> (Object) (String.valueOf((char) ('a' + i)).repeat(3)));
+
+    var result = IndexHistogramManager.scanAndBuild(keys, 26, 4);
+
+    assertNotNull(result);
+    assertTrue(result.actualBucketCount >= 1);
+    assertEquals(26, result.totalDistinct);
+    assertEquals("aaa", result.boundaries[0]);
+    assertEquals("zzz", result.boundaries[result.actualBucketCount]);
+  }
+
+  @Test
+  public void computeNewSnapshot_hllMerge_increasesEstimate() {
+    var hll = new HyperLogLogSketch();
+    for (int i = 0; i < 500; i++) {
+      hll.add(MurmurHash3.murmurHash3_x64_64(
+          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+    }
+    long baseEstimate = hll.estimate();
+
+    var stats = new IndexStatistics(500, baseEstimate, 0);
+    var snapshot = new HistogramSnapshot(stats, null, 0, 500, 0, false, hll, false);
+
+    var deltaHll = new HyperLogLogSketch();
+    for (int i = 500; i < 1000; i++) {
+      deltaHll.add(MurmurHash3.murmurHash3_x64_64(
+          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+    }
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 500;
+    delta.mutationCount = 500;
+    delta.hllSketch = deltaHll;
+
+    var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
+
+    assertNotNull(result);
+    assertNotNull(result.hllSketch());
+    assertTrue("HLL estimate should increase after merge",
+        result.hllSketch().estimate() > baseEstimate);
+  }
+
+  @Test
+  public void computeNewSnapshot_nullDeltaHll_preservesOriginal() {
+    var hll = new HyperLogLogSketch();
+    for (int i = 0; i < 500; i++) {
+      hll.add(i * 7919L);
+    }
+    long baseEstimate = hll.estimate();
+
+    var stats = new IndexStatistics(500, baseEstimate, 0);
+    var snapshot = new HistogramSnapshot(stats, null, 0, 500, 0, false, hll, false);
+
+    var delta = new HistogramDelta();
+    delta.totalCountDelta = 10;
+    delta.mutationCount = 10;
+    delta.hllSketch = null;
+
+    var result = IndexHistogramManager.computeNewSnapshot(snapshot, delta);
+
+    assertNotNull(result);
+    assertNotNull(result.hllSketch());
+    assertEquals("HLL unchanged", baseEstimate, result.hllSketch().estimate());
+  }
 }

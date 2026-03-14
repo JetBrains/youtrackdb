@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -808,6 +809,96 @@ public class HistogramStatsPageHllSpillTest {
       // Verify serializer ID is written.
       byte serId = buffer.get(32); // SERIALIZER_ID_OFFSET
       assertEquals(5, serId);
+    } finally {
+      releasePage(page0);
+    }
+  }
+
+  // ---- Tests: accessor return values with non-zero data ----
+
+  @Test
+  public void accessorsReturnNonZeroValuesAfterWrite() {
+    // Kills PrimitiveReturnsMutator on getTotalCount, getDistinctCount,
+    // getNullCount, getHistogramDataLength (lines 306, 310, 314, 318).
+    CacheEntry page0 = allocatePage();
+    try {
+      var page = new HistogramStatsPage(page0);
+      var stats = new IndexStatistics(12345, 678, 90);
+      var histogram = createSimpleHistogram();
+      var snapshot = new HistogramSnapshot(
+          stats, histogram, 100, 900, 0, false, null, false);
+      page.writeSnapshot(snapshot, (byte) 5,
+          intKeySerializer(), serializerFactory);
+
+      assertNotEquals("getTotalCount should not be 0",
+          0, page.getTotalCount());
+      assertEquals(12345, page.getTotalCount());
+      assertNotEquals("getDistinctCount should not be 0",
+          0, page.getDistinctCount());
+      assertEquals(678, page.getDistinctCount());
+      assertNotEquals("getNullCount should not be 0",
+          0, page.getNullCount());
+      assertEquals(90, page.getNullCount());
+      assertNotEquals("getHistogramDataLength should not be 0",
+          0, page.getHistogramDataLength());
+      assertTrue("getHistogramDataLength should be positive",
+          page.getHistogramDataLength() > 0);
+    } finally {
+      releasePage(page0);
+    }
+  }
+
+  @Test
+  public void readSnapshotParamOrderPreservesDistinctFields() {
+    // Kills ParamSwapMutator on HistogramSnapshot constructor (line 203).
+    CacheEntry page0 = allocatePage();
+    try {
+      var page = new HistogramStatsPage(page0);
+      // Use unique values so any swap is detectable
+      var stats = new IndexStatistics(111, 222, 333);
+      var snapshot = new HistogramSnapshot(
+          stats, null, 444, 555, 0, false, null, false);
+      page.writeSnapshot(snapshot, (byte) 5,
+          intKeySerializer(), serializerFactory);
+
+      var loaded = page.readSnapshot(intKeySerializer(), serializerFactory);
+      assertEquals("totalCount", 111, loaded.stats().totalCount());
+      assertEquals("distinctCount", 222, loaded.stats().distinctCount());
+      assertEquals("nullCount", 333, loaded.stats().nullCount());
+      assertEquals("mutationsSinceRebalance", 444,
+          loaded.mutationsSinceRebalance());
+      assertEquals("totalCountAtLastBuild", 555,
+          loaded.totalCountAtLastBuild());
+    } finally {
+      releasePage(page0);
+    }
+  }
+
+  @Test
+  public void writeAndReadHistogramDataLengthRoundTrip() {
+    // Kills boundary mutations on histogramDataLength check (line 228).
+    CacheEntry page0 = allocatePage();
+    try {
+      var page = new HistogramStatsPage(page0);
+      var histogram = new EquiDepthHistogram(
+          2, new Comparable<?>[] {10, 50, 90},
+          new long[] {300, 700}, new long[] {15, 35},
+          1000, 60, 150);
+      var stats = new IndexStatistics(1000, 50, 100);
+      var snapshot = new HistogramSnapshot(
+          stats, histogram, 50, 800, 0, false, null, false);
+      page.writeSnapshot(snapshot, (byte) 5,
+          intKeySerializer(), serializerFactory);
+
+      assertTrue("histogramDataLength should be > 0",
+          page.getHistogramDataLength() > 0);
+      var loaded = page.readSnapshot(intKeySerializer(), serializerFactory);
+      assertNotNull("Histogram should be loaded", loaded.histogram());
+      assertEquals(2, loaded.histogram().bucketCount());
+      assertEquals(300, loaded.histogram().frequencies()[0]);
+      assertEquals(700, loaded.histogram().frequencies()[1]);
+      assertEquals(60, loaded.histogram().mcvValue());
+      assertEquals(150, loaded.histogram().mcvFrequency());
     } finally {
       releasePage(page0);
     }
