@@ -18,8 +18,8 @@ import org.junit.runner.RunWith;
  * the embedded (shaded uber-jar) module. Validates full Gremlin compliance using
  * the same datasets and scenarios as {@code YTDBGraphFeatureTest} in the core module.
  *
- * <p>Excluded from the default surefire run (heavyweight). Activated only when
- * the {@code ci-integration-tests} Maven profile is enabled.
+ * <p>Runs as part of the default surefire test phase. Requires {@code -Xms4096m -Xmx4096m}
+ * heap for the GRATEFUL dataset.
  */
 @RunWith(Cucumber.class)
 @CucumberOptions(

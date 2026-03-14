@@ -19,26 +19,6 @@ already present in `core`). This mix of test frameworks creates:
 The target is JUnit 5 (Jupiter) for the `tests` module. JUnit 4 → JUnit 5 migration of
 other modules is out of scope for this plan.
 
-## Ekstazi Compatibility Assessment
-
-**Ekstazi 5.3.0 does NOT support JUnit 5** ([gliga/ekstazi#12](https://github.com/gliga/ekstazi/issues/12),
-open since 2019, unresolved). It only supports JUnit 3/4 by instrumenting test classes
-that use JUnit 4 annotations.
-
-**Impact on this migration: NONE.** The `tests` module migration is safe because:
-
-1. Ekstazi is used exclusively for **integration tests** via `maven-failsafe-plugin` in the
-   `ekstazi` Maven profile (root `pom.xml`, lines 1088–1150).
-2. The `tests` module has **no `maven-failsafe-plugin` configuration** — only surefire with
-   TestNG. The `ekstazi` profile skips surefire entirely (`<skipTests>true</skipTests>`).
-3. Modules that use Ekstazi for integration tests (`core`, `server`, `embedded`,
-   `gremlin-annotations`) all use **JUnit 4**, which is completely unaffected by this migration.
-4. The `tests` module's TestNG tests were never part of the Ekstazi pipeline.
-
-**Warning for future work**: If `core`/`server` integration tests are ever migrated from
-JUnit 4 to JUnit 5, Ekstazi will break and an alternative test-selection tool must be
-adopted first. This is out of scope for the current plan.
-
 ## Key Constraints
 
 1. **Test ordering is critical**: TestNG tests share a single database instance across the

@@ -18,10 +18,13 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 # Full build (skip tests for speed)
 ./mvnw clean package -DskipTests
 
-# Full build with unit tests
+# Full build with unit tests (in-memory storage, default)
 ./mvnw clean package
 
-# Run integration tests
+# Full build with unit tests on disk storage (as CI does)
+./mvnw clean package -Dyoutrackdb.test.env=ci
+
+# Run integration tests (separate from PR pipeline, used by nightly CI)
 ./mvnw clean verify -P ci-integration-tests
 
 # Build with Docker images (requires Docker)
@@ -54,7 +57,7 @@ The `docs/` folder contains project documentation. See `docs/README.md` for the 
 | `gremlin-annotations` | `youtrackdb-gremlin-annotations` | Annotation processor for Gremlin DSL code generation |
 | `tests` | `youtrackdb-tests` | Integration/functional test suite (JUnit 5 with JUnit Platform Suite) |
 | `test-commons` | `youtrackdb-test-commons` | Shared test utilities (JUnit 4, Mockito, AssertJ) |
-| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests (CI only) |
+| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
 | `examples` | `youtrackdb-examples` | Example applications |
 | `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). See `jmh-ldbc/README.md` |
@@ -148,7 +151,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - Validate full Gremlin compliance by running the TinkerPop Cucumber scenario suite (~1900 scenarios)
 - Present in both `core` (`YTDBGraphFeatureTest`) and `embedded` (`EmbeddedGraphFeatureTest`) modules
 - **`core`**: runs by default with `mvn test` (always included)
-- **`embedded`**: excluded from default `mvn test` (heavyweight); only runs with `-P ci-integration-tests`
+- **`embedded`**: runs by default with `mvn test` (always included)
 - Uses Cucumber-JUnit runner with Guice DI; graph datasets (MODERN, CLASSIC, CREW, GRATEFUL, SINK) are loaded once per JVM via static initializers
 - Requires `-Xms4096m -Xmx4096m` heap for the GRATEFUL dataset
 
@@ -204,9 +207,8 @@ Runs on `develop` pushes and PRs:
 - **Change detection**: Skips CI for non-build-relevant changes (markdown, docs, etc.)
 - **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
-- **Integration tests**: Run on Linux with Ekstazi test selection caching
+- **Disk-based unit tests**: All unit tests run with `-Dyoutrackdb.test.env=ci` so they use disk storage instead of memory. Integration tests are not run on PRs — they have a separate nightly pipeline.
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
-- **Ekstazi exclude files**: Uploaded as the `ekstazi-excludes` artifact (retained 7 days). Contains `/tmp/ekstazi-*.excludes` files listing which integration tests Ekstazi skipped. Use these to diagnose coverage gate failures caused by Ekstazi test selection (see "Investigating Coverage Gate Failures" below).
 - **Test count gate**: Detects unintentional test removal or disabling by comparing per-module test counts against the develop baseline stored in git notes (`refs/notes/test-counts`). Fails if any module's test count drops by more than 5%. Posts a PR comment with a per-module comparison table. Baseline is automatically updated on every successful develop build. Bypassed when the PR title contains `[no-test-number-check]` (useful for intentional test refactorings). Scripts: `collect-test-counts.py` (collection) and `test-count-gate.py` (comparison).
 - **Mutation testing**: PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions. Uses `GIT` mode to scope mutations to changed source lines only. Uses `STRONGER` + `EXTENDED` mutator groups. Logging calls are excluded via `avoidCallsTo` (LogManager, SLF4J, JUL, Log4j). Posts inline PR annotations via `pitest-github-maven-plugin`. Fails below 85% mutation score. Requires `ARCMUTATE_LICENCE` GitHub secret.
 - **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
@@ -303,20 +305,13 @@ Runs on `develop` pushes and PRs:
    - Changes to `server` module: run `./mvnw -pl server clean test`
    - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
    - Changes to Gremlin integration or transaction handling: also run integration tests
-   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (smoke test only); use `-P ci-integration-tests` to include Cucumber feature tests
+   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (includes Cucumber feature tests)
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
 
 ## Investigating Coverage Gate Failures
 
-When the coverage gate fails on a PR, **always check the Ekstazi exclude files first** before writing new tests. Integration tests use Ekstazi test selection, which may skip tests that would have covered the changed lines.
-
-1. **Download the `ekstazi-excludes` artifact** from the failed CI run (available for 7 days).
-2. **Examine the exclude files** (`ekstazi-*.excludes`). Each file lists the integration tests that Ekstazi skipped for that module.
-3. **Cross-reference** the uncovered lines (from the coverage gate PR comment) with the excluded tests:
-   - If excluded tests would cover the uncovered lines → the coverage gap is an **Ekstazi selection artifact**, not genuinely missing coverage. To fix this, first try invalidating the Ekstazi cache (by deleting the `ekstazi-*` cache entries in GitHub Actions) and re-running the job. If the problem persists, you may need to adjust the Ekstazi dependency configuration.
-   - If no existing tests (included or excluded) cover the uncovered lines → the coverage gap is **genuine**. Write new tests targeting the uncovered code paths.
-4. **Do not blindly write duplicate tests** for code that is already tested by Ekstazi-excluded integration tests.
+When the coverage gate fails on a PR, check the coverage gate PR comment for the list of uncovered lines. Cross-reference those lines with existing tests to determine whether coverage is genuinely missing or the lines are tested indirectly. Write new tests targeting any genuinely uncovered code paths.
 
 ## File Modification Rules
 
