@@ -310,4 +310,82 @@ public class EquiDepthHistogramMutationTest {
     // above max → last bucket
     assertEquals(n - 1, h.findBucket("z"));
   }
+
+  @Test
+  public void deserialize_negativeMcvKeyLen_returnsNull() {
+    // Kills RemoveConditionalMutator on mcvKeyLen < 0 check (line 315).
+    byte[] data = new byte[200];
+    int pos = 0;
+    IntegerSerializer.serializeNative(2, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(100L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(50L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(-1, data, pos);
+
+    var sf = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    @SuppressWarnings("unchecked")
+    var serializer = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (Object) IntegerSerializer.INSTANCE;
+
+    assertNull("Negative mcvKeyLen should return null",
+        EquiDepthHistogram.deserialize(data, 0, serializer, sf));
+  }
+
+  @Test
+  public void deserialize_mcvKeyLenExceedsBuffer_returnsNull() {
+    byte[] data = new byte[30];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(10L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(5L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(data.length - pos + 1, data, pos);
+
+    var sf = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    @SuppressWarnings("unchecked")
+    var serializer = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (Object) IntegerSerializer.INSTANCE;
+
+    assertNull("mcvKeyLen exceeding buffer should return null",
+        EquiDepthHistogram.deserialize(data, 0, serializer, sf));
+  }
+
+  @Test
+  public void deserialize_truncatedBoundaryLength_returnsNull() {
+    // Kills RemoveConditionalMutator on INT_SIZE > data.length - pos (line 331).
+    int headerSize = IntegerSerializer.INT_SIZE
+        + com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE
+        + com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE
+        + IntegerSerializer.INT_SIZE;
+    byte[] data = new byte[headerSize + 2];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(10L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+        .serializeNative(5L, data, pos);
+    pos += com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(0, data, pos);
+
+    var sf = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    @SuppressWarnings("unchecked")
+    var serializer = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (Object) IntegerSerializer.INSTANCE;
+
+    assertNull("Truncated data before boundary length should return null",
+        EquiDepthHistogram.deserialize(data, 0, serializer, sf));
+  }
 }

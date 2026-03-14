@@ -294,4 +294,37 @@ public class HyperLogLogSketchMutationTest {
       prev = est;
     }
   }
+
+  @Test
+  public void estimate_highRegisters_triggerLargeRangeCorrection_v2() {
+    // All registers at 50 (not max): triggers large-range correction.
+    byte[] src = new byte[1024];
+    for (int i = 0; i < 1024; i++) {
+      src[i] = 50;
+    }
+    var sketch = HyperLogLogSketch.readFrom(src, 0);
+    long est = sketch.estimate();
+    assertTrue("Estimate with register=50 should be > 0", est > 0);
+  }
+
+  @Test
+  public void merge_nonOverlapping_estimateExceedsEitherAlone() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    for (int i = 0; i < 1000; i++) {
+      a.add(MurmurHash3.murmurHash3_x64_64(
+          ("a" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+      b.add(MurmurHash3.murmurHash3_x64_64(
+          ("b" + i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+    }
+    long estA = a.estimate();
+    long estB = b.estimate();
+    a.merge(b);
+    long estMerged = a.estimate();
+
+    assertTrue("Merged >= estA", estMerged >= estA);
+    assertTrue("Merged >= estB", estMerged >= estB);
+    assertTrue("Merged > max(estA, estB)",
+        estMerged > Math.max(estA, estB));
+  }
 }

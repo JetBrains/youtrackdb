@@ -368,4 +368,166 @@ public class SelectivityEstimatorBoundaryMutationTest {
     assertEquals("LT(75) in 2-bucket [0,50,100] → 0.75",
         0.75, sel, 0.01);
   }
+
+  @Test
+  public void zeroNonNull_histogram_allMethodsReturnZero() {
+    // Kills RemoveConditionalMutator on nonNull <= 0 guards (lines 143, 194, 231, 269, 308, 371).
+    var h = new EquiDepthHistogram(
+        1, new Comparable<?>[] {0, 100},
+        new long[] {0}, new long[] {0}, 0, null, 0);
+    var stats = new IndexStatistics(100, 0, 100);
+
+    assertEquals(0.0, SelectivityEstimator.estimateEquality(stats, h, 50), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateGreaterThan(stats, h, 50), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateLessThan(stats, h, 50), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateGreaterOrEqual(stats, h, 50), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateLessOrEqual(stats, h, 50), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateRange(
+        stats, h, 10, 90, true, true), DELTA);
+  }
+
+  @Test
+  public void nonNullExactlyZero_vs_nonNullOne_boundaryTest() {
+    // Catches boundary mutation (nonNull <= 0 → nonNull < 0).
+    var hZero = new EquiDepthHistogram(
+        1, new Comparable<?>[] {50, 50},
+        new long[] {0}, new long[] {0}, 0, null, 0);
+    var statsZero = new IndexStatistics(10, 0, 10);
+
+    var hOne = new EquiDepthHistogram(
+        1, new Comparable<?>[] {50, 50},
+        new long[] {1}, new long[] {1}, 1, null, 0);
+    var statsOne = new IndexStatistics(10, 1, 9);
+
+    assertEquals(0.0, SelectivityEstimator.estimateEquality(statsZero, hZero, 50), DELTA);
+    assertTrue("nonNull=1 should give > 0",
+        SelectivityEstimator.estimateEquality(statsOne, hOne, 50) > 0);
+  }
+
+  @Test
+  public void isNull_totalZero_returnsZero() {
+    var stats = new IndexStatistics(0, 0, 0);
+    assertEquals(0.0, SelectivityEstimator.estimateIsNull(stats, null), DELTA);
+    assertEquals(0.0, SelectivityEstimator.estimateIsNotNull(stats, null), DELTA);
+  }
+
+  @Test
+  public void isNotNull_histogram_usesHistogramNonNull() {
+    // Kills RemoveConditionalMutator on line 459 (histogram != null check).
+    var h = new EquiDepthHistogram(
+        1, new Comparable<?>[] {0, 100},
+        new long[] {800}, new long[] {100}, 800, null, 0);
+    var stats = new IndexStatistics(1000, 100, 200);
+
+    assertEquals("IS NOT NULL with histogram", 0.8,
+        SelectivityEstimator.estimateIsNotNull(stats, h), DELTA);
+    assertEquals("IS NULL with histogram", 0.2,
+        SelectivityEstimator.estimateIsNull(stats, h), DELTA);
+    assertEquals("IS NOT NULL without histogram", 0.8,
+        SelectivityEstimator.estimateIsNotNull(stats, null), DELTA);
+  }
+
+  @Test
+  public void singleValueBucket_discreteFraction_allDirections() {
+    // Kills ConditionalsBoundaryMutator on distinctCounts[b] == 1 (line 556).
+    var h = new EquiDepthHistogram(
+        1, new Comparable<?>[] {50, 50},
+        new long[] {100}, new long[] {1}, 100, null, 0);
+    var stats = new IndexStatistics(100, 1, 0);
+
+    assertEquals("GT(50) on single-value 50 → 0", 0.0,
+        SelectivityEstimator.estimateGreaterThan(stats, h, 50), DELTA);
+    assertEquals("LT(50) on single-value 50 → 0", 0.0,
+        SelectivityEstimator.estimateLessThan(stats, h, 50), DELTA);
+    assertEquals("GT(30) on single-value 50 → 1.0", 1.0,
+        SelectivityEstimator.estimateGreaterThan(stats, h, 30), DELTA);
+    assertEquals("LT(70) on single-value 50 → 1.0", 1.0,
+        SelectivityEstimator.estimateLessThan(stats, h, 70), DELTA);
+  }
+
+  @Test
+  public void distinctCountTwo_usesContinuousInterpolation_allBoundaries() {
+    var h = new EquiDepthHistogram(
+        1, new Comparable<?>[] {0, 100},
+        new long[] {1000}, new long[] {2}, 1000, null, 0);
+    var stats = new IndexStatistics(1000, 2, 0);
+
+    assertEquals("GT(50) continuous", 0.5,
+        SelectivityEstimator.estimateGreaterThan(stats, h, 50), 0.05);
+    assertEquals("GT(0) continuous", 1.0,
+        SelectivityEstimator.estimateGreaterThan(stats, h, 0), 0.05);
+    assertEquals("GT(100) continuous", 0.0,
+        SelectivityEstimator.estimateGreaterThan(stats, h, 100), 0.05);
+  }
+
+  @Test
+  public void range_degenerateEqualEndpoints_delegatesToEquality() {
+    var h = new EquiDepthHistogram(
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500}, new long[] {50, 50}, 1000, null, 0);
+    var stats = new IndexStatistics(1000, 100, 0);
+
+    double range = SelectivityEstimator.estimateRange(stats, h, 50, 50, true, true);
+    double equality = SelectivityEstimator.estimateEquality(stats, h, 50);
+    assertEquals("BETWEEN X AND X should equal equality", equality, range, DELTA);
+  }
+
+  @Test
+  public void range_exclusiveEndpoints_sameValue_returnsZero() {
+    var h = new EquiDepthHistogram(
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500}, new long[] {50, 50}, 1000, null, 0);
+    var stats = new IndexStatistics(1000, 100, 0);
+
+    assertEquals("(X, X] → 0", 0.0,
+        SelectivityEstimator.estimateRange(stats, h, 50, 50, false, true), DELTA);
+    assertEquals("[X, X) → 0", 0.0,
+        SelectivityEstimator.estimateRange(stats, h, 50, 50, true, false), DELTA);
+    assertEquals("(X, X) → 0", 0.0,
+        SelectivityEstimator.estimateRange(stats, h, 50, 50, false, false), DELTA);
+  }
+
+  @Test
+  public void gte_zeroFrequencyBucket_noEqualityContribution() {
+    var h = new EquiDepthHistogram(
+        2, new Comparable<?>[] {0, 50, 100},
+        new long[] {0, 1000}, new long[] {0, 100}, 1000, null, 0);
+    var stats = new IndexStatistics(1000, 100, 0);
+
+    double gte = SelectivityEstimator.estimateGreaterOrEqual(stats, h, 25);
+    double gt = SelectivityEstimator.estimateGreaterThan(stats, h, 25);
+    assertEquals("GTE ≈ GT when bucket has freq=0", gt, gte, 0.01);
+  }
+
+  @Test
+  public void range_multipleBuckets_exactCalculation() {
+    var h = new EquiDepthHistogram(
+        4, new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250}, new long[] {25, 25, 25, 25},
+        1000, null, 0);
+    var stats = new IndexStatistics(1000, 100, 0);
+
+    assertEquals("Range [25,75] → ~0.5", 0.5,
+        SelectivityEstimator.estimateRange(stats, h, 25, 75, true, true), 0.1);
+    assertEquals("Full range → 1.0", 1.0,
+        SelectivityEstimator.estimateRange(stats, h, 0, 100, true, true), 0.05);
+    assertEquals("Range [40,60] → ~0.2", 0.2,
+        SelectivityEstimator.estimateRange(stats, h, 40, 60, true, true), 0.1);
+  }
+
+  @Test
+  public void in_multipleValues_accumulates() {
+    var h = new EquiDepthHistogram(
+        4, new Comparable<?>[] {0, 25, 50, 75, 100},
+        new long[] {250, 250, 250, 250}, new long[] {25, 25, 25, 25},
+        1000, null, 0);
+    var stats = new IndexStatistics(1000, 100, 0);
+
+    double selSingle = SelectivityEstimator.estimateEquality(stats, h, 30);
+    double selIn = SelectivityEstimator.estimateIn(stats, h, java.util.List.of(30));
+    assertEquals("IN(x) should equal equality(x)", selSingle, selIn, DELTA);
+
+    double selIn3 = SelectivityEstimator.estimateIn(stats, h, java.util.List.of(10, 30, 60));
+    assertTrue("IN(3 values) > single equality", selIn3 > selSingle);
+  }
 }
