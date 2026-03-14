@@ -29,6 +29,11 @@ import org.junit.runner.RunWith;
 @RunWith(GremlinProcessRunner.class)
 public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
+  // The ticker-based millis timestamp is derived from two independently-refreshed volatile
+  // fields (nanoTime and nanoTimeDifference). When nanoTimeDifference is recalibrated,
+  // integer truncation in nanoTime/1_000_000 can cause the result to dip by up to 1 ms.
+  private static final long ALLOWED_TICKER_JITTER_MS = 1;
+
   private static long TICKER_POSSIBLE_LAG_NANOS;
   private static long TICKER_POSSIBLE_LAG_MILLIS;
 
@@ -954,11 +959,9 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         // Ticker should not run ahead of real time.
         assertThat(listener.startedAtMillis)
             .isLessThanOrEqualTo(afterMillis + TICKER_POSSIBLE_LAG_MILLIS)
-            // Approximate monotonicity: the ticker-based millis timestamp is derived from two
-            // independently-refreshed volatile fields (nanoTime and nanoTimeDifference). When
-            // nanoTimeDifference is recalibrated, integer truncation in nanoTime/1_000_000
-            // can cause the result to dip by up to 1 ms. Allow that jitter.
-            .isGreaterThanOrEqualTo(prevStartedAtMillis - 1);
+            // Approximate monotonicity: allow for ticker jitter caused by independent
+            // recalibration of volatile fields and integer truncation.
+            .isGreaterThanOrEqualTo(prevStartedAtMillis - ALLOWED_TICKER_JITTER_MS);
         // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
         // window [beforeNanos, afterNanos], so the measured duration is at most the real
         // elapsed time plus ticker lag.
