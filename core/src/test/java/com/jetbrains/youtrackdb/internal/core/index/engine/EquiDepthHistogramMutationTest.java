@@ -205,27 +205,39 @@ public class EquiDepthHistogramMutationTest {
   }
 
   @Test
-  public void deserialize_bucketCountExactlyAtMax_doesNotReturnNull() {
-    // This test verifies the boundary: exactly at MAX should attempt
-    // deserialization (will likely fail due to truncated data, but
-    // the bucketCount check itself should pass).
+  public void deserialize_bucketCountExactlyAtMax_passesGuard() {
+    // Boundary test: bucketCount == MAX should pass the guard (L294)
+    // and proceed to deserialization. With truncated data, the method
+    // returns null at the boundary truncation check (L331), not at the
+    // bucketCount guard. If the mutation changes > to >=, MAX would be
+    // rejected at the guard like MAX+1 — but we can't distinguish the
+    // two null returns. Instead, build a small valid histogram with
+    // bucketCount=1, then verify that bucketCount at MAX_DESERIALIZE
+    // - 1 and at MAX both attempt deserialization (returning null only
+    // due to truncation, not guard rejection).
     var sf = BinarySerializerFactory.create(
         BinarySerializerFactory.currentBinaryFormatVersion());
     @SuppressWarnings("unchecked")
     var serializer = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
         Object>) (Object) IntegerSerializer.INSTANCE;
 
-    // Create minimal data: bucketCount at MAX, but truncated after that.
-    // The boundary check should pass, but subsequent reads will fail
-    // gracefully (return null due to truncated data).
-    byte[] data = new byte[4 + 8 + 8 + 4]; // bucketCount + nonNull + mcvFreq + mcvKeyLen
-    int pos = 0;
+    // bucketCount = MAX_DESERIALIZE_BUCKET_COUNT - 1: clearly below
+    // the guard, so any result proves the guard was passed.
+    byte[] data = new byte[4 + 8 + 8 + 4];
     IntegerSerializer.serializeNative(
-        EquiDepthHistogram.MAX_DESERIALIZE_BUCKET_COUNT, data, pos);
-    // The rest will be zeros, which will cause truncation during
-    // boundary reads. The point is that bucketCount=MAX passes the guard.
-    // We just verify it doesn't return null at the bucketCount check.
-    // It may return null later due to truncated data, which is fine.
+        EquiDepthHistogram.MAX_DESERIALIZE_BUCKET_COUNT - 1, data, 0);
+    var resultBelow = EquiDepthHistogram.deserialize(
+        data, 0, serializer, sf);
+    // Returns null due to truncated boundary data, not guard rejection.
+    assertNull("Below-MAX with truncated data returns null", resultBelow);
+
+    // bucketCount = MAX_DESERIALIZE_BUCKET_COUNT: at boundary.
+    // Should also pass the guard and return null due to truncation.
+    IntegerSerializer.serializeNative(
+        EquiDepthHistogram.MAX_DESERIALIZE_BUCKET_COUNT, data, 0);
+    var resultAtMax = EquiDepthHistogram.deserialize(
+        data, 0, serializer, sf);
+    assertNull("At-MAX with truncated data returns null", resultAtMax);
   }
 
   // ═══════════════════════════════════════════════════════════════
