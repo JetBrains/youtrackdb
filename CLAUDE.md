@@ -18,10 +18,13 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 # Full build (skip tests for speed)
 ./mvnw clean package -DskipTests
 
-# Full build with unit tests
+# Full build with unit tests (in-memory storage, default)
 ./mvnw clean package
 
-# Run integration tests
+# Full build with unit tests on disk storage (as CI does)
+./mvnw clean package -Dyoutrackdb.test.env=ci
+
+# Run integration tests (separate from PR pipeline, used by nightly CI)
 ./mvnw clean verify -P ci-integration-tests
 
 # Build with Docker images (requires Docker)
@@ -204,7 +207,7 @@ Runs on `develop` pushes and PRs:
 - **Change detection**: Skips CI for non-build-relevant changes (markdown, docs, etc.)
 - **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
 - **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
-- **Integration tests**: Run on Linux
+- **Disk-based unit tests**: All unit tests run with `-Dyoutrackdb.test.env=ci` so they use disk storage instead of memory. Integration tests are not run on PRs — they have a separate nightly pipeline.
 - **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
 - **Test count gate**: Detects unintentional test removal or disabling by comparing per-module test counts against the develop baseline stored in git notes (`refs/notes/test-counts`). Fails if any module's test count drops by more than 5%. Posts a PR comment with a per-module comparison table. Baseline is automatically updated on every successful develop build. Bypassed when the PR title contains `[no-test-number-check]` (useful for intentional test refactorings). Scripts: `collect-test-counts.py` (collection) and `test-count-gate.py` (comparison).
 - **Mutation testing**: PIT mutation testing with [Arcmutate](https://docs.arcmutate.com/) extensions. Uses `GIT` mode to scope mutations to changed source lines only. Uses `STRONGER` + `EXTENDED` mutator groups. Logging calls are excluded via `avoidCallsTo` (LogManager, SLF4J, JUL, Log4j). Posts inline PR annotations via `pitest-github-maven-plugin`. Fails below 85% mutation score. Requires `ARCMUTATE_LICENCE` GitHub secret.
