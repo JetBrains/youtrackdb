@@ -416,9 +416,6 @@
             <buildDirectory>${project.build.directory}</buildDirectory>
             <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
-          <excludes>
-            <exclude>**/EmbeddedGraphFeatureTest.java</exclude>
-          </excludes>
           <argLine>
             -ea
             -Xms4096m
@@ -449,22 +446,4 @@
       </plugin>
     </plugins>
   </build>
-
-  <profiles>
-    <!-- Include cucumber feature tests only in CI integration mode -->
-    <profile>
-      <id>ci-integration-tests</id>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-surefire-plugin</artifactId>
-            <configuration>
-              <excludes combine.self="override"/>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
-    </profile>
-  </profiles>
 </project>

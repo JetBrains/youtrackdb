@@ -57,7 +57,7 @@ The `docs/` folder contains project documentation. See `docs/README.md` for the 
 | `gremlin-annotations` | `youtrackdb-gremlin-annotations` | Annotation processor for Gremlin DSL code generation |
 | `tests` | `youtrackdb-tests` | Integration/functional test suite (JUnit 5 with JUnit Platform Suite) |
 | `test-commons` | `youtrackdb-test-commons` | Shared test utilities (JUnit 4, Mockito, AssertJ) |
-| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests (CI only) |
+| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
 | `examples` | `youtrackdb-examples` | Example applications |
 | `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). See `jmh-ldbc/README.md` |
@@ -151,7 +151,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - Validate full Gremlin compliance by running the TinkerPop Cucumber scenario suite (~1900 scenarios)
 - Present in both `core` (`YTDBGraphFeatureTest`) and `embedded` (`EmbeddedGraphFeatureTest`) modules
 - **`core`**: runs by default with `mvn test` (always included)
-- **`embedded`**: excluded from default `mvn test` (heavyweight); only runs with `-P ci-integration-tests`
+- **`embedded`**: runs by default with `mvn test` (always included)
 - Uses Cucumber-JUnit runner with Guice DI; graph datasets (MODERN, CLASSIC, CREW, GRATEFUL, SINK) are loaded once per JVM via static initializers
 - Requires `-Xms4096m -Xmx4096m` heap for the GRATEFUL dataset
 
@@ -305,7 +305,7 @@ Runs on `develop` pushes and PRs:
    - Changes to `server` module: run `./mvnw -pl server clean test`
    - Changes to storage, WAL, or index code: also run integration tests (`-P ci-integration-tests`)
    - Changes to Gremlin integration or transaction handling: also run integration tests
-   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (smoke test only); use `-P ci-integration-tests` to include Cucumber feature tests
+   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (includes Cucumber feature tests)
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
 
