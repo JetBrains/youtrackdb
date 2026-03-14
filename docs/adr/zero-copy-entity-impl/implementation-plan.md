@@ -54,9 +54,9 @@ graph TD
     PCV2 -->|internalReadRecord| CP[CollectionPage]
     PCV2 -->|returns| RD{RecordData}
     RD -->|PageRecordRef| PF[PageFrame]
-    RD -->|RawBuffer| HEAP[byte array]
+    RD -->|RawBuffer| HEAP["byte[]"]
     DSE -->|fillFromPageRef / fill| RA[RecordAbstract]
-    RA <|-- EI[EntityImpl]
+    EI[EntityImpl] -->|extends| RA
     EI -->|deserializeProperties| SER[RecordSerializerBinaryV1]
     SER -->|reads via| BC[BytesContainer]
     BC -->|backed by| BS{BytesSource}
