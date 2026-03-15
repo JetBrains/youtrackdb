@@ -1206,6 +1206,14 @@
                      needs ~4 GB) and do not test project-specific mutations;
                      exclude them to reduce minion memory pressure. -->
                 <param>*FeatureTest</param>
+                <!-- Heavyweight tests that PIT flags as slowing analysis.
+                     StorageBackupTest takes ~72s and covers 25685 blocks;
+                     the others are large SQL test suites. Excluding them
+                     prevents minion timeouts without reducing mutation
+                     kill rate (focused unit tests cover the same mutations). -->
+                <param>com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBackupTest</param>
+                <param>com.jetbrains.youtrackdb.internal.core.sql.executor.ResultSetTest</param>
+                <param>com.jetbrains.youtrackdb.internal.core.sql.CommandExecutorSQLSelectTest</param>
               </excludedTestClasses>
               <targetTests>
                 <param>com.jetbrains.youtrackdb.*</param>

@@ -552,7 +552,133 @@ jobs:
           cat /tmp/test-counts/test-counts.json
 
   # ------------------------------------------------------------------
-  # JOB 6: DEPLOY
+  # JOB 6: MUTATION TESTING
+  # PIT mutation testing with Arcmutate extensions for new/changed code.
+  # Uses GIT_MIXED mode to mutate only changed lines plus code exercised
+  # by modified tests. Posts inline PR annotations via pitest-github.
+  # Fails the build if mutation score < 85%
+  # ------------------------------------------------------------------
+  mutation-testing:
+    name: Mutation Testing (New Code)
+    needs: [ test-linux ]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      pull-requests: write
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          overwrite-settings: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Determine Changed Modules
+        id: changes
+        run: |
+          BASE_BRANCH="origin/${{ github.event.pull_request.base.ref }}"
+
+          # Get changed production Java files (exclude tests, generated code)
+          CHANGED_FILES=$(git diff --name-only "${BASE_BRANCH}...HEAD" -- '*.java' | \
+            grep '/src/main/java/' | \
+            grep -v '/sql/parser/' | \
+            grep -v '/gql/parser/gen/' || true)
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No changed production Java files. Skipping mutation testing."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+          # Determine which modules have changes
+          CHANGED_MODULES=$(echo "$CHANGED_FILES" | \
+            sed 's|/src/main/java/.*||' | \
+            sort -u | \
+            paste -sd ',' -)
+          echo "modules=$CHANGED_MODULES" >> "$GITHUB_OUTPUT"
+          echo "Changed modules: $CHANGED_MODULES"
+
+      - name: Write Arcmutate Licence
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          if [ -z "$ARCMUTATE_LICENCE" ]; then
+            echo "::error::ARCMUTATE_LICENCE secret is not set"
+            exit 1
+          fi
+          echo "$ARCMUTATE_LICENCE" > arcmutate-licence.txt
+        env:
+          ARCMUTATE_LICENCE: ${{ secrets.ARCMUTATE_LICENCE }}
+
+      - name: Compile Test Classes
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          # -am (--also-make) builds reactor dependencies (e.g.
+          # gremlin-annotations) from source so the annotation processor
+          # matches the branch code, avoiding "Attempt to recreate a file"
+          # errors when the remotely deployed SNAPSHOT is stale.
+          ./mvnw -s .github/workflows/settings.xml \
+            -pl ${{ steps.changes.outputs.modules }} -am \
+            clean test-compile -B
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Run PIT Mutation Testing
+        id: pit
+        if: steps.changes.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          # Arcmutate GIT mode filters mutations to changed source lines only.
+          # No explicit targetClasses needed — the git plugin handles scoping
+          # automatically.
+          # +gitci generates JSON output consumed by pitest-github plugin.
+          # No 'clean' here — the preceding Compile step already did it.
+          ./mvnw -s .github/workflows/settings.xml \
+            -pl ${{ steps.changes.outputs.modules }} -am \
+            org.pitest:pitest-maven:mutationCoverage \
+            -P mutation-testing \
+            -Dpit.git.from="origin/${{ github.event.pull_request.base.ref }}" -B
+        env:
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Post Arcmutate GitHub Annotations
+        if: always() && steps.changes.outputs.skip != 'true' && steps.pit.outcome != 'cancelled'
+        continue-on-error: true
+        run: |
+          ./mvnw -s .github/workflows/settings.xml \
+            -pl ${{ steps.changes.outputs.modules }} \
+            com.arcmutate:pitest-github-maven-plugin:github -B
+        env:
+          REPO_TOKEN: ${{ github.token }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+
+      - name: Enforce Mutation Gate
+        if: always() && steps.changes.outputs.skip != 'true' && steps.pit.outcome == 'failure'
+        run: |
+          echo "Mutation testing failed. See Arcmutate PR comment for details."
+          exit 1
+
+  # ------------------------------------------------------------------
+  # JOB 7: DEPLOY
   # Runs only if all Test jobs pass. Uses JDK 21
   # ------------------------------------------------------------------
   deploy:
