@@ -109,7 +109,8 @@ public class MurmurHash3 {
     state.h2 = fmix(state.h2);
 
     state.h1 += state.h2;
-    state.h2 += state.h1;
+    // Note: state.h2 is not computed here because this method only returns
+    // the 64-bit h1 half. The full 128-bit MurmurHash3 would also finalize h2.
 
     return state.h1;
   }
@@ -186,7 +187,8 @@ public class MurmurHash3 {
     state.h2 = fmix(state.h2);
 
     state.h1 += state.h2;
-    state.h2 += state.h1;
+    // Note: state.h2 is not computed here because this method only returns
+    // the 64-bit h1 half. The full 128-bit MurmurHash3 would also finalize h2.
 
     return state.h1;
   }

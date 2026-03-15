@@ -764,4 +764,232 @@ public class EquiDepthHistogramTest {
     Assert.assertNull(
         "Overflowing boundary keyLen should return null", result);
   }
+
+  // ═══════════════════════════════════════════════════════════════
+  // Mutation-killing deserialization tests migrated from
+  // EquiDepthHistogramMutationTest. Target pitest survivors on
+  // L294 (bucketCount guard), L295 (!=0 check), L315 (mcvKeyLen
+  // boundary), L331 (boundary length prefix truncation).
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * bucketCount=1 with complete valid data round-trips successfully.
+   * Proves the guard at L294 accepts bucketCount=1.
+   */
+  @Test
+  public void testDeserializeBucketCountOneValidRoundTrip() {
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    var h = new EquiDepthHistogram(
+        1, new Comparable<?>[] {10, 20},
+        new long[] {50},
+        new long[] {5},
+        50, null, 0);
+
+    byte[] data = h.serialize(serializer, serializerFactory);
+    var restored = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+
+    Assert.assertNotNull(
+        "bucketCount=1 should deserialize successfully", restored);
+    Assert.assertEquals(1, restored.bucketCount());
+    Assert.assertEquals(10, restored.boundaries()[0]);
+    Assert.assertEquals(20, restored.boundaries()[1]);
+    Assert.assertEquals(50, restored.frequencies()[0]);
+    Assert.assertEquals(5, restored.distinctCounts()[0]);
+  }
+
+  /**
+   * bucketCount=MAX_DESERIALIZE_BUCKET_COUNT (10000) should pass the guard.
+   * With truncated data it returns null at a later check, but NOT at the
+   * guard. If the mutation changes > to >= at L294, MAX would be rejected.
+   */
+  @Test
+  public void testDeserializeBucketCountAtMaxPassesGuard() {
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    int headerSize = IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+        + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+
+    byte[] data = new byte[headerSize + IntegerSerializer.INT_SIZE];
+    int pos = 0;
+    IntegerSerializer.serializeNative(
+        EquiDepthHistogram.MAX_DESERIALIZE_BUCKET_COUNT, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(100L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    LongSerializer.serializeNative(0L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(0, data, pos); // mcvKeyLen=0
+    pos += IntegerSerializer.INT_SIZE;
+    // Write a boundary length that is too large, causing a later failure
+    IntegerSerializer.serializeNative(999999, data, pos);
+
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    // Returns null due to invalid boundary keyLen, NOT the bucketCount guard
+    Assert.assertNull(
+        "MAX bucketCount with bad boundary data returns null", result);
+  }
+
+  /**
+   * Very large positive bucketCount (Integer.MAX_VALUE) above MAX returns
+   * null (guard rejection at L294).
+   */
+  @Test
+  public void testDeserializeVeryLargeBucketCountReturnsNull() {
+    byte[] data = new byte[100];
+    IntegerSerializer.serializeNative(Integer.MAX_VALUE, data, 0);
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    Assert.assertNull("Integer.MAX_VALUE bucketCount should return null",
+        EquiDepthHistogram.deserialize(
+            data, 0, serializer, serializerFactory));
+  }
+
+  /**
+   * mcvKeyLen exactly equal to remaining data should be accepted (L315).
+   * The key occupies all remaining bytes after the header. Deserialization
+   * then fails at the boundary reading stage (no bytes left), but the
+   * mcvKeyLen guard must pass.
+   */
+  @Test
+  public void testDeserializeMcvKeyLenExactlyAtBoundaryPassesGuard() {
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    byte[] mcvBytes = IntegerSerializer.INSTANCE.serializeNativeAsWhole(
+        serializerFactory, 42);
+    int mcvLen = mcvBytes.length;
+
+    int headerSize = IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+        + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+    byte[] data = new byte[headerSize + mcvLen];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(100L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    LongSerializer.serializeNative(50L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(mcvLen, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    System.arraycopy(mcvBytes, 0, data, pos, mcvLen);
+
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Should pass mcvKeyLen guard but fail on boundary read", result);
+  }
+
+  /**
+   * mcvKeyLen = remaining + 1 exceeds available data, must return null
+   * (L315 guard).
+   */
+  @Test
+  public void testDeserializeMcvKeyLenExceedsBufferReturnsNull() {
+    int headerSize = IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+        + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+    byte[] data = new byte[headerSize + 3]; // 3 bytes after header
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(10L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    LongSerializer.serializeNative(5L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    // mcvKeyLen = 4, but only 3 bytes remain
+    IntegerSerializer.serializeNative(4, data, pos);
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    Assert.assertNull("mcvKeyLen exceeding buffer should return null",
+        EquiDepthHistogram.deserialize(
+            data, 0, serializer, serializerFactory));
+  }
+
+  /**
+   * Data has exactly INT_SIZE bytes remaining when reading the first
+   * boundary length prefix (L331). The original code (>) allows this;
+   * a >= mutant would reject it.
+   */
+  @Test
+  public void testDeserializeExactlyEnoughBytesForBoundaryLengthPrefix() {
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    int headerSize = IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+        + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+
+    byte[] mcvBytes = IntegerSerializer.INSTANCE.serializeNativeAsWhole(
+        serializerFactory, 99);
+    int keySize = mcvBytes.length;
+
+    byte[] data = new byte[headerSize + IntegerSerializer.INT_SIZE + keySize];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos); // bucketCount=1
+    pos += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(100L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    LongSerializer.serializeNative(0L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(0, data, pos); // mcvKeyLen=0
+    pos += IntegerSerializer.INT_SIZE;
+    // First boundary: length prefix + key data
+    IntegerSerializer.serializeNative(keySize, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    IntegerSerializer.INSTANCE.serializeNativeObject(
+        99, serializerFactory, data, pos);
+
+    // bucketCount=1 needs 2 boundaries. We provided data for exactly 1.
+    // boundary[0] reads successfully, then boundary[1] hits truncation.
+    var result = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+    Assert.assertNull(
+        "Should read boundary[0] but fail on boundary[1]", result);
+  }
+
+  /**
+   * Data truncated so that fewer than INT_SIZE bytes remain when reading
+   * the very first boundary length prefix (L331). Must return null.
+   */
+  @Test
+  public void testDeserializeTruncatedBeforeBoundaryLengthPrefix() {
+    int headerSize = IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE
+        + LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE;
+    // Only 2 bytes after header -- not enough for INT_SIZE (4)
+    byte[] data = new byte[headerSize + 2];
+    int pos = 0;
+    IntegerSerializer.serializeNative(1, data, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(10L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    LongSerializer.serializeNative(5L, data, pos);
+    pos += LongSerializer.LONG_SIZE;
+    IntegerSerializer.serializeNative(0, data, pos); // mcvKeyLen=0
+
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    Assert.assertNull(
+        "Truncated data before boundary length should return null",
+        EquiDepthHistogram.deserialize(
+            data, 0, serializer, serializerFactory));
+  }
+
+  /**
+   * Round-trip with a larger histogram (16 buckets) that exercises binary
+   * search after deserialization, verifying findBucket works on restored data.
+   */
+  @Test
+  public void testSerializeDeserializeRoundTripLargeWithFindBucket() {
+    var serializer = objectSerializer(IntegerSerializer.INSTANCE);
+    int n = 16;
+    var hist = createIntHistogram(n, 10, 100, 10);
+
+    byte[] data = hist.serialize(serializer, serializerFactory);
+    var restored = EquiDepthHistogram.deserialize(
+        data, 0, serializer, serializerFactory);
+
+    Assert.assertNotNull(restored);
+    Assert.assertEquals(n, restored.bucketCount());
+
+    // Verify findBucket works correctly on the deserialized histogram
+    for (int i = 1; i < n; i++) {
+      Assert.assertEquals("Key " + (i * 10), i, restored.findBucket(i * 10));
+    }
+    Assert.assertEquals(n - 1, restored.findBucket(n * 10));
+    Assert.assertEquals(0, restored.findBucket(-100));
+  }
 }

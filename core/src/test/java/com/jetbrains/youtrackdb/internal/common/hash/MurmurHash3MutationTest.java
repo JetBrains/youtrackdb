@@ -7,7 +7,7 @@ import org.junit.Test;
 
 /**
  * Mutation-killing tests for {@link MurmurHash3} targeting pitest mutations
- * at lines 112 and 189 (addition replaced with subtraction in final mixing).
+ * in the final mixing steps of the long and CharSequence overloads.
  *
  * <p>Pins exact hash output values for seed {@code 0x9747b28c} (the seed used
  * by the HyperLogLog hash function). Any mutation to the final mixing steps
@@ -21,7 +21,7 @@ public class MurmurHash3MutationTest {
   private static final int SEED = 0x9747b28c;
 
   // ═══════════════════════════════════════════════════════════════
-  // Line 112: state.h2 += state.h1 (long overload, final mixing)
+  // Long overload: final mixing (h1 += h2)
   // If + is mutated to -, the output changes for all inputs.
   // ═══════════════════════════════════════════════════════════════
 
@@ -38,7 +38,7 @@ public class MurmurHash3MutationTest {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // Line 189: state.h2 += state.h1 (CharSequence overload, final mixing)
+  // CharSequence overload: final mixing (h1 += h2)
   // If + is mutated to -, the output changes for all inputs.
   // ═══════════════════════════════════════════════════════════════
 
@@ -62,7 +62,7 @@ public class MurmurHash3MutationTest {
 
   @Test
   public void longHash_finalizationStepProducesDistinctOutputs() {
-    // Kills MathMutator on line 112: h2 += h1 → h2 -= h1
+    // Kills MathMutator: h1 += h2 → h1 -= h2 in long overload finalization
     long h42 = MurmurHash3.murmurHash3_x64_64(42L, 0);
     long h43 = MurmurHash3.murmurHash3_x64_64(43L, 0);
     long h0 = MurmurHash3.murmurHash3_x64_64(0L, 0);
@@ -77,7 +77,7 @@ public class MurmurHash3MutationTest {
 
   @Test
   public void charSequenceHash_finalizationStepProducesDistinctOutputs() {
-    // Kills MathMutator on line 189: h2 += h1 → h2 -= h1
+    // Kills MathMutator: h1 += h2 → h1 -= h2 in CharSequence overload finalization
     long h1 = MurmurHash3.murmurHash3_x64_64("hello", 0);
     long h2 = MurmurHash3.murmurHash3_x64_64("hellp", 0);
     long hShort = MurmurHash3.murmurHash3_x64_64("ab", 0);
