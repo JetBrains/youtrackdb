@@ -38,13 +38,26 @@ public final class CASObjectArray<T> {
     Objects.requireNonNull(value);
     Objects.requireNonNull(placeholder);
 
-    final var size = this.size.get();
-
-    if (size <= index) {
-      //noinspection StatementWithEmptyBody
-      while (add(placeholder) < index) {
-        // repeat till we will not create place for the element
+    if (this.size.get() <= index) {
+      // Expand the array to accommodate the target index. Fill gap slots
+      // [currentSize, index) with placeholders, then write the actual value
+      // at the target index directly via add(value). This eliminates the
+      // window where a concurrent reader (e.g., the snapshot scan in
+      // AtomicOperationsTable) could observe a NOT_STARTED placeholder at the
+      // target slot before the overwrite — a race that can violate snapshot
+      // isolation on ARM's relaxed memory model.
+      while (this.size.get() < index) {
+        add(placeholder);
       }
+      // size >= index now. If size == index, the target slot is the next to
+      // be allocated — write the actual value directly, no placeholder window.
+      if (this.size.get() == index) {
+        add(value);
+        return;
+      }
+      // size > index: the target slot was already expanded past (by a
+      // concurrent add() or by the gap-filling loop overshooting due to
+      // contention). Fall through to overwrite the placeholder.
     }
 
     final var containerIndex = 31 - Integer.numberOfLeadingZeros(index + 1);
