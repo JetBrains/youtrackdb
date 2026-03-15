@@ -76,6 +76,38 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
   cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet'
 ```
 
+### Step 3b: Download dataset from Storage Box (jmh-ldbc only)
+
+Instead of relying on the LDBC dataset download during benchmark setup (which uses the SURF tape archive and can take 20+ minutes to stage), pre-download the dataset from the Hetzner Storage Box:
+
+```bash
+ssh root@<IP> 'apt-get install -y -qq sshpass > /dev/null 2>&1 && \
+  mkdir -p /root/ytdb/<module>/target/ldbc-dataset/tmp && \
+  sshpass -p "Ldbc#Bench2026" scp -o StrictHostKeyChecking=no \
+    u561694@u561694.your-storagebox.de:social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst \
+    /root/ytdb/<module>/target/ldbc-dataset/tmp/'
+```
+
+Then extract and rename:
+```bash
+ssh root@<IP> 'cd /root/ytdb/<module>/target/ldbc-dataset/tmp && \
+  apt-get install -y -qq zstd > /dev/null 2>&1 && \
+  tar --use-compress-program=unzstd -xf social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
+  mv social_network-sf0.1-CsvComposite-LongDateFormatter sf0.1'
+```
+
+Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`).
+
+**Fallback — Cloudflare R2**: If the Storage Box is unavailable, download from Cloudflare R2 instead (fast from Hetzner, ~1s):
+```bash
+ssh root@<IP> 'cd /root/ytdb/<module>/target/ldbc-dataset/tmp && \
+  curl -sLO https://datasets.ldbcouncil.org/snb-interactive-v1/social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
+  tar --use-compress-program=unzstd -xf social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
+  mv social_network-sf0.1-CsvComposite-LongDateFormatter sf0.1'
+```
+
+**Avoid** the SURF repository at `repository.surfsara.nl` — it stores files on tape and can take 20+ minutes to stage before the download begins.
+
 ### Step 4: Compile
 
 ```bash
@@ -99,6 +131,8 @@ ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl <module> -am verify -P bench -DskipTe
 ```
 
 This runs a single in-process iteration (`-f 0`) that triggers dataset download and DB creation. Subsequent forked runs will find the existing DB at `./target/ldbc-bench-db` and skip loading.
+
+**If the dataset was pre-downloaded via Step 3b**: The pre-load step is still required — it creates the YouTrackDB database from the CSV files. However, the download phase will be skipped automatically because the dataset files already exist in `target/ldbc-dataset/`.
 
 **When comparing two code versions (A/B testing)**: After running version A, delete the benchmark database before running version B to avoid stale cached data:
 
@@ -201,6 +235,7 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 | Need real-time output | Use tmux + tee (already in the command above) |
 | Wild/inconsistent ops/s in MT benchmarks | Dataset not pre-loaded. Run Step 4b first. The first fork loads the DB during warmup; MT threads see partially loaded data. |
 | `apt-get` lock on fresh server | Wait 30s for `unattended-upgrades` to finish, then retry. |
+| SURF tape staging takes 20+ minutes | Use Storage Box (Step 3b) or Cloudflare R2 URL instead. |
 
 ## Notes
 
@@ -210,3 +245,4 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
+- **Storage Box**: A Hetzner Storage Box at `u561694.your-storagebox.de` (username: `u561694`, password: `Ldbc#Bench2026`) caches the LDBC dataset archive (`social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst`). This avoids the slow SURF tape staging. Access via SCP using `sshpass`. The Cloudflare R2 mirror at `https://datasets.ldbcouncil.org/snb-interactive-v1/` is a fast alternative (~1s from Hetzner).
