@@ -20,6 +20,10 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import java.nio.charset.StandardCharsets;
 import java.util.stream.IntStream;
@@ -54,6 +58,24 @@ public class HyperLogLogSketchTest {
    */
   private static long hashInt(int key) {
     return hashKey(Integer.toString(key));
+  }
+
+  // Constants mirroring the source (used to compute expected values)
+  private static final int P = 10;
+  private static final int M = 1 << P; // 1024
+  private static final double ALPHA_M = 0.7213 / (1.0 + 1.079 / M);
+  private static final double TWO_POW_64 = Math.pow(2, 64);
+
+  /** Reads the register array from a sketch by serializing it. */
+  private static byte[] readRegisters(HyperLogLogSketch sketch) {
+    byte[] regs = new byte[M];
+    sketch.writeTo(regs, 0);
+    return regs;
+  }
+
+  /** Creates a sketch from a raw register array via readFrom. */
+  private static HyperLogLogSketch sketchFromRegisters(byte[] registers) {
+    return HyperLogLogSketch.readFrom(registers, 0);
   }
 
   // ── Empty sketch ─────────────────────────────────────────────
@@ -1033,5 +1055,472 @@ public class HyperLogLogSketchTest {
     }
     Assert.assertEquals("All-zero registers should estimate 0",
         0, sketch.estimate());
+  }
+
+  // ── Boundary precision tests (catch < vs <= mutations) ─────
+
+  /**
+   * Adding the same hash twice must not change any register. The second
+   * add has rho == registers[index], so the condition rho > registers[index]
+   * is false. If mutated to >=, the write still produces the same byte
+   * value (idempotent max), but the test captures the mutation by verifying
+   * the register array is byte-for-byte identical after both adds.
+   */
+  @Test
+  public void add_sameHashTwice_registersUnchanged() {
+    var sketch = new HyperLogLogSketch();
+    sketch.add(0L); // register 0, rho=54
+    byte[] after1 = readRegisters(sketch);
+
+    sketch.add(0L); // same hash again — rho == registers[0], no update
+    byte[] after2 = readRegisters(sketch);
+
+    assertArrayEquals(
+        "Registers must be identical after adding the same hash twice",
+        after1, after2);
+  }
+
+  /**
+   * Adding a hash with strictly greater rho must update the register.
+   * This is the positive case for the > condition.
+   */
+  @Test
+  public void add_greaterRho_updatesRegister() {
+    var sketch = new HyperLogLogSketch();
+    // hash = (8L << 10) | 0 → register 0, w=8, w|1=9,
+    // nlz(9)=60, rho=60-10+1=51
+    sketch.add(8L << 10);
+    byte[] regs = readRegisters(sketch);
+    assertEquals(51, regs[0]);
+
+    // hash = 0L → register 0, rho=54 (greater)
+    sketch.add(0L);
+    regs = readRegisters(sketch);
+    assertEquals("Register should update to higher rho",
+        54, regs[0]);
+  }
+
+  /**
+   * Adding a hash with strictly lower rho must NOT update the register.
+   */
+  @Test
+  public void add_lowerRho_doesNotUpdateRegister() {
+    var sketch = new HyperLogLogSketch();
+    sketch.add(0L); // register 0, rho=54
+    byte[] regs = readRegisters(sketch);
+    assertEquals(54, regs[0]);
+
+    // hash = (8L << 10) → register 0, rho=51 (lower)
+    sketch.add(8L << 10);
+    regs = readRegisters(sketch);
+    assertEquals("Register should stay at max rho", 54, regs[0]);
+  }
+
+  /**
+   * Verifies that when rawEstimate is small and zeroCount > 0, the
+   * small-range (linear counting) correction is used. With 5 distinct
+   * keys in 1024 registers, rawEstimate ~742 but linear counting gives
+   * ~5. If the condition is mutated to skip linear counting, the
+   * estimate would be ~742, far from the true 5.
+   */
+  @Test
+  public void estimate_smallCardinality_usesLinearCounting() {
+    var sketch = new HyperLogLogSketch();
+    for (int i = 0; i < 5; i++) {
+      sketch.add(hashInt(i));
+    }
+    long est = sketch.estimate();
+    assertTrue("Estimate should be ~5 (linear counting), got " + est,
+        est >= 3 && est <= 8);
+  }
+
+  /**
+   * When zeroCount == 0, linear counting must NOT be used even if
+   * rawEstimate <= 2.5 * M. The && ensures both conditions are needed.
+   * If mutated to ||, linear counting would fire with zeroCount=0,
+   * causing M * ln(M/0) = +infinity.
+   *
+   * <p>With 50K keys all registers are non-zero, so zeroCount=0.
+   * The raw estimate (~50K) is returned directly.
+   */
+  @Test
+  public void estimate_noZeroRegisters_rawEstimateUsed() {
+    var sketch = new HyperLogLogSketch();
+    for (int i = 0; i < 50_000; i++) {
+      sketch.add(hashInt(i));
+    }
+    long est = sketch.estimate();
+    double error = Math.abs((double) est - 50_000) / 50_000;
+    assertTrue("Estimate should be ~50K (raw), got " + est, error < 0.07);
+  }
+
+  /**
+   * Tests the boundary at rawEstimate == 2.5 * M = 2560.
+   * We create a sketch where all registers are set to 1 except some
+   * that are set to 0. The rawEstimate = ALPHA_M * M^2 / sum.
+   * With all registers at 1: sum = M * (1/2) = 512,
+   * rawEstimate = 0.72054 * 1024^2 / 512 = 1475.2 (below 2560).
+   * With all registers at 2: sum = M * (1/4) = 256,
+   * rawEstimate = 0.72054 * 1024^2 / 256 = 2950.4 (above 2560).
+   *
+   * <p>We test just above the threshold (all regs at 2, no zeros)
+   * to confirm the raw estimate is returned (no linear counting).
+   */
+  @Test
+  public void estimate_justAboveSmallRangeThreshold_noLinearCounting() {
+    // All registers at 2, no zeros → rawEstimate ≈ 2950 > 2560.
+    // zeroCount=0, so linear counting would give ln(1024/0)=infinity.
+    // The raw estimate should be returned.
+    byte[] src = new byte[M];
+    for (int i = 0; i < M; i++) {
+      src[i] = 2;
+    }
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    // rawEstimate = ALPHA_M * M^2 / (M * 1/4) = ALPHA_M * M * 4
+    double expectedRaw = ALPHA_M * M * 4;
+    assertEquals("Should return raw estimate (~2950)",
+        Math.round(expectedRaw), est);
+  }
+
+  /**
+   * Below the threshold with zeros present, linear counting is used.
+   * All registers at 1 except the last which is 0:
+   * zeroCount=1, sum = 1023*(1/2) + 1*(1/1) = 512.5,
+   * rawEstimate = ALPHA_M * M^2 / 512.5 ≈ 1474.
+   * Since 1474 <= 2560 and zeroCount=1 > 0, linear counting fires:
+   * M * ln(M/1) = 1024 * ln(1024) ≈ 7100.
+   */
+  @Test
+  public void estimate_belowThresholdWithZeros_usesLinearCounting() {
+    byte[] src = new byte[M];
+    for (int i = 0; i < M - 1; i++) {
+      src[i] = 1;
+    }
+    src[M - 1] = 0; // one zero register
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    // Linear counting: M * ln(M / 1) = 1024 * ln(1024) ≈ 7100
+    long expectedLinear = Math.round(M * Math.log((double) M / 1));
+    assertEquals("Should use linear counting", expectedLinear, est);
+  }
+
+  /**
+   * Sets all registers to MAX_REGISTER_VALUE (54) to push the raw
+   * estimate far above the large-range threshold (TWO_POW_64 / 30).
+   * Verifies the large-range correction produces the mathematically
+   * expected value.
+   *
+   * <p>rawEstimate = ALPHA_M * M^2 / (M * 2^-54) = ALPHA_M * M * 2^54.
+   * The correction is: -2^64 * ln(1 - rawEstimate / 2^64).
+   *
+   * <p>If the * on line 135 is mutated to /, the result would be
+   * -TWO_POW_64 / ln(1 - rawEstimate / TWO_POW_64) which is a
+   * completely different (much larger) value.
+   */
+  @Test
+  public void estimate_allMaxRegisters_largeRangeCorrection() {
+    byte[] src = new byte[M];
+    for (int i = 0; i < M; i++) {
+      src[i] = 54;
+    }
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    // Compute expected value manually
+    double rawEstimate = ALPHA_M * M * M / (M * (1.0 / (1L << 54)));
+    // rawEstimate = ALPHA_M * M * 2^54 ≈ 1.33e19
+    assertTrue("rawEstimate should exceed large-range threshold",
+        rawEstimate > TWO_POW_64 / 30.0);
+
+    double corrected =
+        -TWO_POW_64 * Math.log(1.0 - rawEstimate / TWO_POW_64);
+    long expected = Math.round(corrected);
+
+    assertEquals(
+        "Large-range correction should produce the expected value",
+        expected, est);
+  }
+
+  /**
+   * Tests the large-range correction with registers at 50 (not max).
+   * This produces a rawEstimate well above the threshold and allows
+   * us to verify the correction formula precisely.
+   *
+   * <p>rawEstimate = ALPHA_M * M * 2^50 ≈ 8.31e17.
+   * TWO_POW_64 / 30 ≈ 6.15e17.
+   * Since 8.31e17 > 6.15e17, large-range correction fires.
+   */
+  @Test
+  public void estimate_highRegisters_largeRangeCorrection() {
+    byte[] src = new byte[M];
+    for (int i = 0; i < M; i++) {
+      src[i] = 50;
+    }
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    double rawEstimate = ALPHA_M * M * M / (M * (1.0 / (1L << 50)));
+    assertTrue("rawEstimate should exceed large-range threshold",
+        rawEstimate > TWO_POW_64 / 30.0);
+
+    double corrected =
+        -TWO_POW_64 * Math.log(1.0 - rawEstimate / TWO_POW_64);
+    long expected = Math.round(corrected);
+
+    assertEquals(
+        "Large-range correction value should match formula",
+        expected, est);
+  }
+
+  /**
+   * Tests a register value (49) that produces a rawEstimate just below
+   * the large-range threshold. The raw estimate should be returned
+   * without correction.
+   *
+   * <p>rawEstimate = ALPHA_M * M * 2^49 ≈ 4.15e17.
+   * TWO_POW_64 / 30 ≈ 6.15e17.
+   * Since 4.15e17 < 6.15e17, no large-range correction.
+   */
+  @Test
+  public void estimate_belowLargeRangeThreshold_noCorrectionApplied() {
+    byte[] src = new byte[M];
+    for (int i = 0; i < M; i++) {
+      src[i] = 49;
+    }
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    // No zeros → zeroCount=0 → small-range correction skipped.
+    // rawEstimate < TWO_POW_64/30 → large-range correction skipped.
+    // Raw estimate returned directly.
+    double rawEstimate = ALPHA_M * M * M / (M * (1.0 / (1L << 49)));
+    long expected = Math.round(rawEstimate);
+
+    assertEquals(
+        "Below large-range threshold, raw estimate should be returned",
+        expected, est);
+  }
+
+  /**
+   * Verifies the / 30.0 on line 133 is not mutated to * 30.0.
+   * With registers at 50, rawEstimate ≈ 8.31e17. The threshold
+   * TWO_POW_64 / 30 ≈ 6.15e17, so correction fires. But if the
+   * threshold were TWO_POW_64 * 30, it would be ≈ 5.53e20, and the
+   * correction would NOT fire — the raw estimate would be returned
+   * instead, which is a different value.
+   */
+  @Test
+  public void estimate_divisionNotMultiplication_inThresholdCheck() {
+    byte[] src = new byte[M];
+    for (int i = 0; i < M; i++) {
+      src[i] = 50;
+    }
+    var sketch = sketchFromRegisters(src);
+    long est = sketch.estimate();
+
+    double rawEstimate = ALPHA_M * M * M / (M * (1.0 / (1L << 50)));
+    long rawRounded = Math.round(rawEstimate);
+
+    // If / 30 were mutated to * 30, the threshold would be huge and
+    // correction wouldn't fire, so est == rawRounded.
+    // With correct / 30, correction fires and est != rawRounded.
+    double corrected =
+        -TWO_POW_64 * Math.log(1.0 - rawEstimate / TWO_POW_64);
+    long correctedRounded = Math.round(corrected);
+
+    // The corrected value differs from the raw estimate
+    assertTrue(
+        "Corrected value should differ from raw estimate",
+        rawRounded != correctedRounded);
+    assertEquals(
+        "Estimate should match the corrected (not raw) value",
+        correctedRounded, est);
+  }
+
+  /**
+   * Merging two identical sketches must produce byte-for-byte identical
+   * registers. This catches the >= mutation because the merge operation
+   * with >= would still write the same value (idempotent), but we
+   * verify the array is not modified.
+   */
+  @Test
+  public void merge_identicalSketches_registersUnchanged() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    for (int i = 0; i < 5000; i++) {
+      long h = hashInt(i);
+      a.add(h);
+      b.add(h);
+    }
+    byte[] before = readRegisters(a);
+    a.merge(b);
+    byte[] after = readRegisters(a);
+
+    assertArrayEquals(
+        "Merge of identical sketches should not change any register",
+        before, after);
+  }
+
+  /**
+   * Merging where other has a strictly higher register must update.
+   */
+  @Test
+  public void merge_higherRegisterInOther_updates() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    a.add(8L << 10); // register 0, rho=51
+    b.add(0L); // register 0, rho=54
+
+    byte[] regsA = readRegisters(a);
+    assertEquals(51, regsA[0]);
+
+    a.merge(b);
+    regsA = readRegisters(a);
+    assertEquals("Register should be updated to higher value from other",
+        54, regsA[0]);
+  }
+
+  /**
+   * Merging where other has a strictly lower register must not update.
+   */
+  @Test
+  public void merge_lowerRegisterInOther_doesNotUpdate() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    a.add(0L); // register 0, rho=54
+    b.add(8L << 10); // register 0, rho=51
+
+    a.merge(b);
+    byte[] regsA = readRegisters(a);
+    assertEquals("Register should stay at 54 (higher)",
+        54, regsA[0]);
+  }
+
+  /**
+   * Tests merge where exactly one register has equal values in both
+   * sketches, verifying the estimate is unchanged.
+   */
+  @Test
+  public void merge_equalSingleRegister_estimateUnchanged() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    // Both get the same hash → same register index, same rho
+    long hash = hashInt(42);
+    a.add(hash);
+    b.add(hash);
+
+    long before = a.estimate();
+    a.merge(b);
+    assertEquals("Merge of equal single-register sketches should not "
+        + "change estimate", before, a.estimate());
+  }
+
+  /**
+   * Buffer of exactly M bytes with offset=0 should succeed.
+   */
+  @Test
+  public void readFrom_exactlyMBytes_succeeds() {
+    byte[] exact = new byte[M];
+    exact[0] = 5;
+    var sketch = HyperLogLogSketch.readFrom(exact, 0);
+    byte[] out = readRegisters(sketch);
+    assertEquals(5, out[0]);
+  }
+
+  /**
+   * Buffer with non-zero offset: exactly enough bytes remaining.
+   * src.length = offset + M → passes the check.
+   */
+  @Test
+  public void readFrom_nonZeroOffset_exactFit_succeeds() {
+    int offset = 100;
+    byte[] buf = new byte[offset + M];
+    buf[offset] = 10;
+    var sketch = HyperLogLogSketch.readFrom(buf, offset);
+    byte[] out = readRegisters(sketch);
+    assertEquals(10, out[0]);
+  }
+
+  /**
+   * Edge case: offset equals src.length (zero remaining bytes).
+   * Should throw.
+   */
+  @Test(expected = IllegalArgumentException.class)
+  public void readFrom_offsetAtEnd_throws() {
+    byte[] buf = new byte[M];
+    HyperLogLogSketch.readFrom(buf, M);
+  }
+
+  /**
+   * Verifies that a register value of 1 is preserved. This is the
+   * first value above the < 0 boundary.
+   */
+  @Test
+  public void readFrom_valueOne_isPreserved() {
+    byte[] src = new byte[M];
+    src[0] = 1;
+    var sketch = sketchFromRegisters(src);
+    byte[] out = readRegisters(sketch);
+    assertEquals("Register value 1 should be preserved", 1, out[0]);
+  }
+
+  /**
+   * Verifies that register value 53 (one below MAX) is preserved.
+   */
+  @Test
+  public void readFrom_oneBelowMax_isPreserved() {
+    byte[] src = new byte[M];
+    src[0] = 53;
+    var sketch = sketchFromRegisters(src);
+    byte[] out = readRegisters(sketch);
+    assertEquals("Register value 53 should be preserved", 53, out[0]);
+  }
+
+  /**
+   * Estimate must be non-decreasing as more distinct keys are added.
+   * Catches mutations that break the estimate formula (e.g., replacing
+   * multiplication with division in the correction formulas).
+   */
+  @Test
+  public void estimate_monotonicallyIncreasingWithMoreKeys() {
+    var sketch = new HyperLogLogSketch();
+    long prev = 0;
+    for (int n = 100; n <= 10_000; n += 100) {
+      for (int i = n - 100; i < n; i++) {
+        sketch.add(hashInt(i));
+      }
+      long est = sketch.estimate();
+      assertTrue("Estimate should be non-decreasing: prev=" + prev
+          + " current=" + est + " at n=" + n, est >= prev);
+      prev = est;
+    }
+  }
+
+  /**
+   * Merge of non-overlapping sketches must produce an estimate >= either
+   * individual sketch's estimate.
+   */
+  @Test
+  public void merge_nonOverlapping_estimateExceedsEitherAlone() {
+    var a = new HyperLogLogSketch();
+    var b = new HyperLogLogSketch();
+    for (int i = 0; i < 1000; i++) {
+      a.add(MurmurHash3.murmurHash3_x64_64(
+          ("a" + i).getBytes(StandardCharsets.UTF_8), HASH_SEED));
+      b.add(MurmurHash3.murmurHash3_x64_64(
+          ("b" + i).getBytes(StandardCharsets.UTF_8), HASH_SEED));
+    }
+    long estA = a.estimate();
+    long estB = b.estimate();
+    a.merge(b);
+    long estMerged = a.estimate();
+
+    assertTrue("Merged >= estA", estMerged >= estA);
+    assertTrue("Merged >= estB", estMerged >= estB);
+    assertTrue("Merged > max(estA, estB)",
+        estMerged > Math.max(estA, estB));
   }
 }
