@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -37,7 +38,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -62,7 +62,7 @@ public class AtomicOperationsManager {
   private final WriteCache writeCache;
 
   private final AtomicOperationIdGen idGen;
-  private final ReentrantLock segmentLock = new ReentrantLock();
+  private final ScalableRWLock segmentLock = new ScalableRWLock();
 
   private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
@@ -79,7 +79,22 @@ public class AtomicOperationsManager {
   }
 
   public AtomicOperation startAtomicOperation() {
-    var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(idGen.getLastId());
+    // Read lastId under segmentLock to guarantee that all operations with
+    // commitTs <= lastId have already been registered in the operations table
+    // (via startOperation). Without this lock, a concurrent writer thread could
+    // have called idGen.nextId() (volatile write) but not yet called
+    // startOperation(), causing the snapshot scan to miss the in-progress
+    // operation. The reader would then treat the writer's commitTs as visible
+    // (below the snapshot boundary), violating snapshot isolation when the
+    // writer commits between two reads within the same transaction.
+    final long lastId;
+    segmentLock.sharedLock();
+    try {
+      lastId = idGen.getLastId();
+    } finally {
+      segmentLock.sharedUnlock();
+    }
+    var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(lastId);
     return new AtomicOperationBinaryTracking(readCache, writeCache, storage.getId(),
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize());
@@ -97,13 +112,13 @@ public class AtomicOperationsManager {
     // violate Snapshot Isolation's assumption that all TXs below minActiveTs
     // are completed.
     final long commitTs;
-    segmentLock.lock();
+    segmentLock.exclusiveLock();
     try {
       commitTs = idGen.nextId();
       activeSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.startOperation(commitTs, activeSegment);
     } finally {
-      segmentLock.unlock();
+      segmentLock.exclusiveUnlock();
     }
 
     atomicOperation.startToApplyOperations(commitTs);
@@ -166,7 +181,8 @@ public class AtomicOperationsManager {
               "Exception during execution of component operation inside component "
                   + component.getLockName()
                   + " in storage "
-                  + storage.getName(), component.getLockName(), storage.getName()),
+                  + storage.getName(),
+              component.getLockName(), storage.getName()),
           e, storage.getName());
     }
   }
@@ -185,7 +201,8 @@ public class AtomicOperationsManager {
               "Exception during execution of component operation inside component "
                   + component.getLockName()
                   + " in storage "
-                  + storage.getName(), component.getLockName(), storage.getName()),
+                  + storage.getName(),
+              component.getLockName(), storage.getName()),
           e, storage.getName());
     }
   }
