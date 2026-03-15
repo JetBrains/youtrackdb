@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.concur.collection;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.vmlens.api.AllInterleavingsBuilder;
 import org.junit.jupiter.api.Test;
@@ -62,8 +62,8 @@ public class CASObjectArrayMTTest {
         reader.join();
 
         // The reader must see the actual value, never the placeholder.
-        assertNotEquals(PLACEHOLDER, readValue[0],
-            "Reader observed placeholder at target index during set() expansion");
+        assertEquals(ACTUAL, readValue[0],
+            "Reader should observe actual value, not placeholder or default");
       }
     }
   }
@@ -110,7 +110,7 @@ public class CASObjectArrayMTTest {
         reader.join();
 
         // Target index must have the actual value
-        assertNotEquals(PLACEHOLDER, readValues[TARGET_INDEX],
+        assertEquals(ACTUAL, readValues[TARGET_INDEX],
             "Target index should have actual value, not placeholder");
       }
     }
