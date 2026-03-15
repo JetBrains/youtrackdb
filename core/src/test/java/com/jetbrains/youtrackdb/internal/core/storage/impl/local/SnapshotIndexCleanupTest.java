@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -1047,6 +1048,174 @@ public class SnapshotIndexCleanupTest {
         youTrackDB.close();
       }
     }
+  }
+
+  // --- Dead record counter: direct unit tests for eviction with collections ---
+
+  // Exercises lines 5589, 5595, 5597: eviction with a non-null collections list
+  // containing a PaginatedCollectionV2 at the correct index. Verifies that eviction
+  // increments the dead record counter only when snapshotIndex.remove() returns non-null.
+  @Test
+  public void testEvictIncrementsCounterForMatchingCollection() {
+    // Create a real database to get a real PaginatedCollectionV2 instance
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestCounterDirect");
+      session.begin();
+      session.command("INSERT INTO TestCounterDirect SET name = 'v1'");
+      session.commit();
+
+      // Find a PaginatedCollectionV2 for this class
+      PaginatedCollectionV2 targetCollection = null;
+      int targetId = -1;
+      var collectionIds = session.getClass("TestCounterDirect").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            targetId = cid;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+      assertThat(targetCollection.getDeadRecordCount()).isEqualTo(0);
+
+      // Build a collections list matching the storage layout (indexed by collection ID).
+      // The internal list in AbstractStorage is indexed by collection ID, with nulls
+      // for unused slots. We need at least targetId+1 slots.
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      for (int i = 0; i <= targetId; i++) {
+        collections.add(null);
+      }
+      collections.set(targetId, targetCollection);
+
+      // Create snapshot + visibility entries with componentId matching the collection
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      var sk = new SnapshotKey(targetId, 100L, 5L);
+      localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+      localVisibility.put(new VisibilityKey(10L, targetId, 100L), sk);
+
+      var sizeCounter = new AtomicLong(1);
+
+      // Evict: should remove the entry and increment the collection's dead record counter
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localSnapshot).isEmpty();
+      assertThat(sizeCounter.get()).isEqualTo(0);
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("dead record counter should be incremented for the matching collection")
+          .isEqualTo(1);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // Exercises line 5589: verifies that the dead record counter is NOT incremented when
+  // snapshotIndex.remove() returns null (orphaned visibility entry).
+  @Test
+  public void testEvictDoesNotIncrementCounterForOrphanedVisibilityEntry() {
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestOrphanCounter");
+      session.begin();
+      session.command("INSERT INTO TestOrphanCounter SET name = 'v1'");
+      session.commit();
+
+      PaginatedCollectionV2 targetCollection = null;
+      int targetId = -1;
+      var collectionIds = session.getClass("TestOrphanCounter").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            targetId = cid;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      for (int i = 0; i <= targetId; i++) {
+        collections.add(null);
+      }
+      collections.set(targetId, targetCollection);
+
+      // Create only a visibility entry with no matching snapshot entry (orphaned)
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      var sk = new SnapshotKey(targetId, 100L, 5L);
+      // No entry in localSnapshot — the remove() will return null
+      localVisibility.put(new VisibilityKey(10L, targetId, 100L), sk);
+
+      long countBefore = targetCollection.getDeadRecordCount();
+      var sizeCounter = new AtomicLong(0);
+
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localVisibility).isEmpty();
+      // Counter should NOT be incremented (snapshotIndex.remove returned null)
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("counter should not increment for orphaned visibility entries")
+          .isEqualTo(countBefore);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // Exercises lines 5595, 5597: verifies that a non-PaginatedCollectionV2 collection
+  // in the list does not cause dead record counting (instanceof check).
+  @Test
+  public void testEvictSkipsNonPaginatedCollectionV2InList() {
+    // Use a mock StorageCollection that is NOT a PaginatedCollectionV2
+    var mockCollection = mock(StorageCollection.class);
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    collections.add(mockCollection); // index 0
+
+    var sk = new SnapshotKey(0, 100L, 5L);
+    var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+    var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+    localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+    localVisibility.put(new VisibilityKey(10L, 0, 100L), sk);
+
+    var sizeCounter = new AtomicLong(1);
+
+    // Should evict without error and NOT increment any counter
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+    assertThat(localSnapshot).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
   }
 
   // --- GlobalConfiguration: GC parameters ---
