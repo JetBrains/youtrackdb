@@ -2,9 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -13,7 +15,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -29,17 +33,19 @@ import javax.annotation.Nullable;
  *
  * <h2>Predicate push-down</h2>
  *
- * <p>Two levels of push-down are supported:
+ * <p>Three levels of push-down are supported (cheapest to most expensive):
  * <ol>
  *   <li><b>Class filter ({@code acceptedCollectionIds})</b> — When the outer WHERE
  *       contains {@code @class = 'ClassName'}, the planner resolves the class to its
  *       collection (cluster) IDs. During expansion, the collection ID of each target
  *       RID is checked <em>before</em> loading the record from storage. Vertices
  *       whose collection ID is not in the accepted set are skipped with zero disk I/O.
+ *   <li><b>Index pre-filter ({@code indexDescriptor})</b> — When the target class is
+ *       known and the remaining WHERE references an indexed property, the index is
+ *       queried at execution time to build a {@link RidSet}. Non-matching RIDs are
+ *       skipped without disk I/O.
  *   <li><b>Generic filter ({@code pushDownFilter})</b> — Any remaining WHERE predicates
- *       that cannot be resolved to a class filter are applied <em>after</em> each
- *       expanded record is loaded. This still avoids flowing non-matching records
- *       through the rest of the pipeline.
+ *       are applied <em>after</em> each expanded record is loaded.
  * </ol>
  *
  * @see SelectExecutionPlanner#handleExpand
@@ -64,17 +70,34 @@ public class ExpandStep extends AbstractExecutionStep {
    */
   @Nullable private final IntSet acceptedCollectionIds;
 
+  /**
+   * When non-null, describes an index lookup to pre-filter expanded records.
+   * At execution time, the index is queried to build a {@link RidSet}; during
+   * iteration, RIDs not in the set are skipped without loading from storage.
+   */
+  @Nullable private final IndexSearchDescriptor indexDescriptor;
+
+  private static final int INDEX_RIDSET_SIZE_CAP = 100_000;
+
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
-    this(ctx, profilingEnabled, expandAlias, null, null);
+    this(ctx, profilingEnabled, expandAlias, null, null, null);
   }
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
       @Nullable SQLWhereClause pushDownFilter,
       @Nullable IntSet acceptedCollectionIds) {
+    this(ctx, profilingEnabled, expandAlias, pushDownFilter, acceptedCollectionIds, null);
+  }
+
+  public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
+      @Nullable SQLWhereClause pushDownFilter,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable IndexSearchDescriptor indexDescriptor) {
     super(ctx, profilingEnabled);
     this.expandAlias = expandAlias;
     this.pushDownFilter = pushDownFilter;
     this.acceptedCollectionIds = acceptedCollectionIds;
+    this.indexDescriptor = indexDescriptor;
   }
 
   @Override
@@ -83,8 +106,16 @@ public class ExpandStep extends AbstractExecutionStep {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot expand without a target");
     }
+
+    @Nullable RidSet indexRidSet = null;
+    if (indexDescriptor != null) {
+      indexRidSet = resolveIndexToRidSet(indexDescriptor, ctx);
+    }
+
+    final var ridSet = indexRidSet;
     var resultSet = prev.start(ctx);
-    var expanded = resultSet.flatMap(this::nextResults);
+    var expanded = resultSet.flatMap(
+        (result, fmCtx) -> nextResults(result, fmCtx, ridSet));
     if (pushDownFilter != null) {
       expanded = expanded.filter(
           (result, filterCtx) -> pushDownFilter.matchesFilters(result, filterCtx) ? result : null);
@@ -92,13 +123,12 @@ public class ExpandStep extends AbstractExecutionStep {
     return expanded;
   }
 
-  private ExecutionStream nextResults(Result nextAggregateItem, CommandContext ctx) {
+  private ExecutionStream nextResults(
+      Result nextAggregateItem, CommandContext ctx, @Nullable RidSet indexRidSet) {
     if (nextAggregateItem.getPropertyNames().isEmpty()) {
       return ExecutionStream.empty();
     }
 
-    // For entity results, expand the entity itself. For projected results, the single
-    // property value is the collection/link to expand.
     Object projValue;
     if (nextAggregateItem.isEntity()) {
       projValue = nextAggregateItem.asEntity();
@@ -120,10 +150,12 @@ public class ExpandStep extends AbstractExecutionStep {
           throw new CommandExecutionException(db,
               "Cannot expand a record with a non-null alias: " + expandAlias);
         }
-        // For single identifiable, apply class filter via collection ID check
+        var rid = identifiable.getIdentity();
         if (acceptedCollectionIds != null
-            && !acceptedCollectionIds.contains(
-                identifiable.getIdentity().getCollectionId())) {
+            && !acceptedCollectionIds.contains(rid.getCollectionId())) {
+          return ExecutionStream.empty();
+        }
+        if (indexRidSet != null && !indexRidSet.contains(rid)) {
           return ExecutionStream.empty();
         }
         DBRecord rec;
@@ -144,12 +176,15 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.iterator(iterator, expandAlias);
       }
       case Iterable<?> iterable -> {
-        // When the iterable is a VertexFromLinkBagIterable (from edge traversal)
-        // and we have a class filter, inject it so that non-matching vertices
-        // are skipped before loading from storage — zero disk I/O for skipped records.
-        if (acceptedCollectionIds != null
-            && iterable instanceof VertexFromLinkBagIterable linkBagIterable) {
-          var filtered = linkBagIterable.withClassFilter(acceptedCollectionIds);
+        if (iterable instanceof VertexFromLinkBagIterable linkBagIterable
+            && (acceptedCollectionIds != null || indexRidSet != null)) {
+          var filtered = linkBagIterable;
+          if (acceptedCollectionIds != null) {
+            filtered = filtered.withClassFilter(acceptedCollectionIds);
+          }
+          if (indexRidSet != null) {
+            filtered = filtered.withRidFilter(indexRidSet);
+          }
           return ExecutionStream.iterator(filtered.iterator(), expandAlias);
         }
         return ExecutionStream.iterator(iterable.iterator(), expandAlias);
@@ -175,6 +210,10 @@ public class ExpandStep extends AbstractExecutionStep {
       result.append(" (class filter: ").append(acceptedCollectionIds.size())
           .append(" collection(s))");
     }
+    if (indexDescriptor != null) {
+      result.append(" (index pre-filter: ")
+          .append(indexDescriptor.getIndex().getName()).append(")");
+    }
     if (pushDownFilter != null) {
       result.append(" (push-down filter: ").append(pushDownFilter).append(")");
     }
@@ -194,6 +233,49 @@ public class ExpandStep extends AbstractExecutionStep {
   public ExecutionStep copy(CommandContext ctx) {
     return new ExpandStep(ctx, profilingEnabled, expandAlias,
         pushDownFilter != null ? pushDownFilter.copy() : null,
-        acceptedCollectionIds);
+        acceptedCollectionIds,
+        indexDescriptor);
+  }
+
+  /**
+   * Queries the index described by the given descriptor and collects matching RIDs
+   * into a {@link RidSet}. Returns {@code null} if the index returned too many
+   * entries (exceeding {@link #INDEX_RIDSET_SIZE_CAP}) or the query failed.
+   */
+  @Nullable private static RidSet resolveIndexToRidSet(
+      IndexSearchDescriptor desc, CommandContext ctx) {
+    List<Stream<RawPair<Object, RID>>> streams;
+    try {
+      streams = FetchFromIndexStep.init(desc, true, ctx);
+    } catch (Exception ignored) {
+      return null;
+    }
+    if (streams.isEmpty()) {
+      return null;
+    }
+
+    var ridSet = new RidSet();
+    var count = 0;
+    var exceeded = false;
+    try {
+      for (var stream : streams) {
+        var iter = stream.iterator();
+        while (iter.hasNext()) {
+          ridSet.add(iter.next().second());
+          if (++count > INDEX_RIDSET_SIZE_CAP) {
+            exceeded = true;
+            break;
+          }
+        }
+        if (exceeded) {
+          break;
+        }
+      }
+    } finally {
+      for (var stream : streams) {
+        stream.close();
+      }
+    }
+    return exceeded ? null : ridSet;
   }
 }

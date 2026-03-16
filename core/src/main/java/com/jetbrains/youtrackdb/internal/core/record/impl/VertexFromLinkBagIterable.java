@@ -2,10 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -32,19 +34,23 @@ public class VertexFromLinkBagIterable implements Iterable<Vertex>, Sizeable {
    */
   @Nullable private final IntSet acceptedCollectionIds;
 
+  @Nullable private final Set<RID> acceptedRids;
+
   public VertexFromLinkBagIterable(
       @Nonnull LinkBag linkBag,
       @Nonnull DatabaseSessionEmbedded session) {
-    this(linkBag, session, null);
+    this(linkBag, session, null, null);
   }
 
   private VertexFromLinkBagIterable(
       @Nonnull LinkBag linkBag,
       @Nonnull DatabaseSessionEmbedded session,
-      @Nullable IntSet acceptedCollectionIds) {
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable Set<RID> acceptedRids) {
     this.linkBag = linkBag;
     this.session = session;
     this.acceptedCollectionIds = acceptedCollectionIds;
+    this.acceptedRids = acceptedRids;
   }
 
   /**
@@ -57,14 +63,25 @@ public class VertexFromLinkBagIterable implements Iterable<Vertex>, Sizeable {
    */
   @Nonnull
   public VertexFromLinkBagIterable withClassFilter(@Nonnull IntSet collectionIds) {
-    return new VertexFromLinkBagIterable(linkBag, session, collectionIds);
+    return new VertexFromLinkBagIterable(linkBag, session, collectionIds, acceptedRids);
+  }
+
+  /**
+   * Returns a new iterable that only yields vertices whose RID is in the given set.
+   * Vertices not in the set are skipped without any disk I/O.
+   *
+   * @param ridSet accepted RIDs (typically built from an index query)
+   */
+  @Nonnull
+  public VertexFromLinkBagIterable withRidFilter(@Nonnull Set<RID> ridSet) {
+    return new VertexFromLinkBagIterable(linkBag, session, acceptedCollectionIds, ridSet);
   }
 
   @Nonnull
   @Override
   public Iterator<Vertex> iterator() {
     return new VertexFromLinkBagIterator(
-        linkBag.iterator(), session, linkBag.size(), acceptedCollectionIds);
+        linkBag.iterator(), session, linkBag.size(), acceptedCollectionIds, acceptedRids);
   }
 
   @Override

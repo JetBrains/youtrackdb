@@ -4,12 +4,14 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -46,13 +48,20 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
    */
   @Nullable private final IntSet acceptedCollectionIds;
 
+  /**
+   * When non-null, only vertices whose RID is in this set are loaded from storage.
+   * Built at execution time from an index query; provides zero-I/O skipping for
+   * records that do not satisfy an indexed property condition.
+   */
+  @Nullable private final Set<RID> acceptedRids;
+
   @Nullable private Vertex nextVertex;
 
   public VertexFromLinkBagIterator(
       @Nonnull Iterator<RidPair> ridPairIterator,
       @Nonnull DatabaseSessionEmbedded session,
       int size) {
-    this(ridPairIterator, session, size, null);
+    this(ridPairIterator, session, size, null, null);
   }
 
   public VertexFromLinkBagIterator(
@@ -60,10 +69,20 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
       @Nonnull DatabaseSessionEmbedded session,
       int size,
       @Nullable IntSet acceptedCollectionIds) {
+    this(ridPairIterator, session, size, acceptedCollectionIds, null);
+  }
+
+  public VertexFromLinkBagIterator(
+      @Nonnull Iterator<RidPair> ridPairIterator,
+      @Nonnull DatabaseSessionEmbedded session,
+      int size,
+      @Nullable IntSet acceptedCollectionIds,
+      @Nullable Set<RID> acceptedRids) {
     this.ridPairIterator = ridPairIterator;
     this.session = session;
     this.size = size;
     this.acceptedCollectionIds = acceptedCollectionIds;
+    this.acceptedRids = acceptedRids;
   }
 
   @Override
@@ -91,6 +110,10 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
     // The collection ID is part of the RID and already in memory — no disk I/O.
     if (acceptedCollectionIds != null
         && !acceptedCollectionIds.contains(rid.getCollectionId())) {
+      return null;
+    }
+
+    if (acceptedRids != null && !acceptedRids.contains(rid)) {
       return null;
     }
 

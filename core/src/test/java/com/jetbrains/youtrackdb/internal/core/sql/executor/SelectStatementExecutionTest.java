@@ -7409,4 +7409,183 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Verifies that when the outer WHERE has @class + an indexed property condition,
+   * the planner uses an index pre-filter on the ExpandStep. The index is queried
+   * at execution time and non-matching RIDs are skipped without disk I/O.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_indexedPropertyFilter() {
+    session.execute("CREATE CLASS IdxForum EXTENDS V").close();
+    session.execute("CREATE CLASS IdxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IdxComment EXTENDS V").close();
+    session.execute("CREATE CLASS IdxContainerOf EXTENDS E").close();
+    session.execute("CREATE PROPERTY IdxPost.score INTEGER").close();
+    session.execute("CREATE INDEX IdxPost.score ON IdxPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IdxForum SET name = 'forum1'").close();
+    for (var i = 0; i < 10; i++) {
+      session.execute(
+          "CREATE VERTEX IdxPost SET title = 'post" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE IdxContainerOf FROM (SELECT FROM IdxForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM IdxPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX IdxComment SET text = 'c" + i + "', score = " + (i + 8)).close();
+      session.execute(
+          "CREATE EDGE IdxContainerOf FROM (SELECT FROM IdxForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM IdxComment WHERE text = 'c" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('IdxContainerOf')) FROM IdxForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'IdxPost' AND score >= 7");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 posts with score >= 7 (post7, post8, post9)", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("IdxPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 7);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Index pre-filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the property in the WHERE clause is NOT indexed, the planner
+   * falls back to a generic push-down filter (no index pre-filter in the plan).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_nonIndexedPropertyFallback() {
+    session.execute("CREATE CLASS NiForum EXTENDS V").close();
+    session.execute("CREATE CLASS NiPost EXTENDS V").close();
+    session.execute("CREATE CLASS NiContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NiForum SET name = 'forum1'").close();
+    for (var i = 0; i < 8; i++) {
+      session.execute(
+          "CREATE VERTEX NiPost SET title = 'post" + i + "', rating = " + i).close();
+      session.execute(
+          "CREATE EDGE NiContainerOf FROM (SELECT FROM NiForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM NiPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('NiContainerOf')) FROM NiForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'NiPost' AND rating >= 5");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 posts with rating >= 5", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("NiPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("rating")).intValue() >= 5);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertFalse(
+        "No index pre-filter should be present (property is not indexed), plan was:\n"
+            + plan,
+        plan.contains("index pre-filter"));
+    Assert.assertTrue(
+        "Generic push-down filter should be present, plan was:\n" + plan,
+        plan.contains("push-down filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that all three filter levels coexist correctly: class filter (zero I/O),
+   * index pre-filter (skip non-matching RIDs), and generic push-down filter
+   * (post-load check for non-indexed properties).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_compoundIndexedAndNonIndexed() {
+    session.execute("CREATE CLASS CmpForum EXTENDS V").close();
+    session.execute("CREATE CLASS CmpPost EXTENDS V").close();
+    session.execute("CREATE CLASS CmpComment EXTENDS V").close();
+    session.execute("CREATE CLASS CmpContainerOf EXTENDS E").close();
+    session.execute("CREATE PROPERTY CmpPost.score INTEGER").close();
+    session.execute("CREATE INDEX CmpPost.score ON CmpPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CmpForum SET name = 'f1'").close();
+    for (var i = 0; i < 10; i++) {
+      var tag = (i % 2 == 0) ? "even" : "odd";
+      session.execute(
+          "CREATE VERTEX CmpPost SET title = 'p" + i + "', score = " + i
+              + ", tag = '" + tag + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE CmpContainerOf FROM (SELECT FROM CmpForum WHERE name = 'f1')"
+              + " TO (SELECT FROM CmpPost WHERE title = 'p" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CmpComment SET text = 'c" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CmpContainerOf FROM (SELECT FROM CmpForum WHERE name = 'f1')"
+              + " TO (SELECT FROM CmpComment WHERE text = 'c" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // @class = 'CmpPost' -> class filter (zero I/O, skips 3 comments)
+    // score >= 5         -> index pre-filter (skip posts with score < 5)
+    // tag = 'odd'        -> generic push-down (post-load check)
+    // Expected results: posts with score >= 5 AND tag = 'odd' -> score 5, 7, 9
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('CmpContainerOf')) FROM CmpForum"
+            + "    WHERE name = 'f1'"
+            + ") WHERE @class = 'CmpPost' AND score >= 5 AND tag = 'odd'");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return posts with score>=5 AND tag='odd': p5, p7, p9", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("CmpPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 5);
+      Assert.assertEquals("odd", item.getProperty("tag"));
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Index pre-filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
 }

@@ -3130,14 +3130,13 @@ public class SelectExecutionPlanner {
    *   <li>The WHERE clause does not reference parent scope ({@code $parent})</li>
    * </ul>
    */
-  private static void tryPushDownFilterIntoExpand(
+  private void tryPushDownFilterIntoExpand(
       SelectExecutionPlan plan, QueryPlanningInfo info) {
     var steps = plan.steps;
     if (steps.size() < 2 || info.whereClause == null) {
       return;
     }
 
-    // Find SubQueryStep followed by FilterStep
     for (var i = 0; i < steps.size() - 1; i++) {
       if (!(steps.get(i) instanceof SubQueryStep subQueryStep)) {
         continue;
@@ -3146,7 +3145,6 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      // Find ExpandStep in the subquery plan
       if (!(subQueryStep.subExecutionPlan instanceof SelectExecutionPlan innerPlan)) {
         continue;
       }
@@ -3163,21 +3161,20 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      // Try to extract @class = 'X' from the WHERE (even compound AND).
-      // This yields a zero-I/O class filter (collection ID check on the RID)
-      // plus an optional remaining WHERE for the other conditions.
+      // Extract @class = 'X' from the WHERE (even compound AND).
       it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
+      String className = null;
       SQLWhereClause remainingWhere = info.whereClause;
       var extraction = info.whereClause.extractAndRemoveClassEquality();
       if (extraction != null) {
         classFilter = resolveClassToCollectionIds(extraction.className(), plan);
         if (classFilter != null) {
+          className = extraction.className();
           remainingWhere = extraction.remainingWhere();
         }
       }
 
-      // Determine what can be pushed down as a generic filter.
-      // Conditions that reference $parent scope must stay as an outer FilterStep.
+      // Conditions referencing $parent scope must stay as an outer FilterStep.
       SQLWhereClause pushDownWhere = null;
       SQLWhereClause outerWhere = null;
       if (remainingWhere != null) {
@@ -3188,20 +3185,24 @@ public class SelectExecutionPlanner {
         }
       }
 
-      // Nothing to push down — keep the plan unchanged
-      if (classFilter == null && pushDownWhere == null) {
+      // Try to find an index for the push-down filter (Case B optimization).
+      IndexSearchDescriptor indexDescriptor = null;
+      if (pushDownWhere != null && className != null) {
+        indexDescriptor = tryBuildExpandIndexDescriptor(
+            pushDownWhere, className, plan.getContext());
+      }
+
+      if (classFilter == null && pushDownWhere == null && indexDescriptor == null) {
         continue;
       }
 
-      // Replace the ExpandStep with one that includes the push-down filter(s)
       var pushedDown = new ExpandStep(
           innerPlan.getContext(), expandStep.isProfilingEnabled(),
-          expandStep.expandAlias, pushDownWhere, classFilter);
+          expandStep.expandAlias, pushDownWhere, classFilter, indexDescriptor);
       pushedDown.setPrevious(expandStep.prev);
       innerPlan.steps.set(expandIndex, pushedDown);
 
       if (outerWhere != null) {
-        // Replace the FilterStep with one that only has the remaining conditions
         var newFilter = new FilterStep(
             outerWhere, plan.getContext(), 0, filterStep.isProfilingEnabled());
         newFilter.setPrevious(filterStep.prev);
@@ -3210,15 +3211,45 @@ public class SelectExecutionPlanner {
           steps.get(i + 2).setPrevious(newFilter);
         }
       } else {
-        // Remove the outer FilterStep entirely — everything was pushed down
         steps.remove(i + 1);
         if (i + 1 < steps.size()) {
           steps.get(i + 1).setPrevious(subQueryStep);
         }
       }
 
-      return; // Only push down once
+      return;
     }
+  }
+
+  /**
+   * Attempts to build an {@link IndexSearchDescriptor} for the push-down filter
+   * by looking up indexes on the target class. Only single-OR-branch WHERE clauses
+   * are considered (multi-branch OR is too complex for this optimization).
+   *
+   * @param pushDownWhere the WHERE clause to analyze (must not reference $parent)
+   * @param className     the target class name (from an extracted @class filter)
+   * @param ctx           command context
+   * @return an index descriptor, or {@code null} if no suitable index exists
+   */
+  @Nullable private IndexSearchDescriptor tryBuildExpandIndexDescriptor(
+      SQLWhereClause pushDownWhere, String className, CommandContext ctx) {
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = getSchemaFromContext(ctx);
+    var schemaClass = schema.getClassInternal(className);
+    if (schemaClass == null) {
+      return null;
+    }
+    var indexes = schemaClass.getIndexesInternal();
+    if (indexes.isEmpty()) {
+      return null;
+    }
+    var flatWhere = pushDownWhere.flatten(ctx, schemaClass);
+    if (flatWhere.size() != 1) {
+      return null;
+    }
+    return findBestIndexFor(ctx, indexes, flatWhere.getFirst(), schemaClass);
   }
 
   /**
