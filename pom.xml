@@ -1200,8 +1200,12 @@
               <excludedTestClasses>
                 <param>*IT</param>
                 <param>*IntegrationTest</param>
-                <!-- GremlinProcessRunner-based tests fail under PIT's classloader -->
-                <param>com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.*$Traversals</param>
+                <!-- Gremlin process/structure/suite tests create full databases
+                     for every test method (1800+ database instances via
+                     GremlinProcessRunner). Exclude the entire gremlintest
+                     package to prevent PIT minion timeouts — focused unit
+                     tests cover the same production-code mutations. -->
+                <param>com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.*</param>
                 <!-- Cucumber feature tests are heavyweight (GRATEFUL dataset
                      needs ~4 GB) and do not test project-specific mutations;
                      exclude them to reduce minion memory pressure. -->
