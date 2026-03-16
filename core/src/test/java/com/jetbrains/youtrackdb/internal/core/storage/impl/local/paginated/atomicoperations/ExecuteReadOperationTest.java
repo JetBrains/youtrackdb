@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -7,10 +8,12 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.CommonDurableComponentException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -618,8 +621,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
                   writerSession.rollback();
                 }
                 // ConcurrentModificationException is expected under contention
-                if (!(e instanceof
-                    com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException)) {
+                if (!(e instanceof com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException)) {
                   throw e;
                 }
               }
@@ -1118,11 +1120,11 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
     try {
       // Insert a few records
-      var data = new byte[]{1, 2, 3, 4, 5};
+      var data = new byte[] {1, 2, 3, 4, 5};
       var pos = mgr.calculateInsideAtomicOperation(
           op -> collection.createRecord(data, (byte) 1, null, op));
       var pos2 = mgr.calculateInsideAtomicOperation(
-          op -> collection.createRecord(new byte[]{6, 7, 8}, (byte) 1, null, op));
+          op -> collection.createRecord(new byte[] {6, 7, 8}, (byte) 1, null, op));
 
       // exists(AtomicOperation) — exercises readUnderLock path
       var exists = mgr.calculateInsideAtomicOperation(op -> collection.exists(op));
@@ -1181,5 +1183,118 @@ public class ExecuteReadOperationTest extends DbTestBase {
       // Clean up
       mgr.executeInsideAtomicOperation(op -> collection.delete(op));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // executeInsideComponentOperation: exception field verification
+  // ---------------------------------------------------------------------------
+
+  // Verifies that CommonDurableComponentException created by executeInsideComponentOperation
+  // has the correct componentName and dbName (not swapped).
+  // Targets ParamSwap mutants at AtomicOperationsManager lines 170 and 190.
+  @Test
+  public void componentOperationExceptionContainsCorrectFields() throws IOException {
+    var mgr = manager();
+    var storage = (AbstractStorage) session.getStorage();
+    var storageName = storage.getName();
+
+    // Find any PaginatedCollectionV2 component
+    PaginatedCollectionV2 collection = null;
+    for (var coll : storage.getCollectionInstances()) {
+      if (coll instanceof PaginatedCollectionV2 pc) {
+        collection = pc;
+        break;
+      }
+    }
+    assertNotNull("Need at least one PaginatedCollectionV2", collection);
+
+    var componentLockName = collection.getLockName();
+
+    // Verify names are different (otherwise swap would be undetectable)
+    assertThat(componentLockName).isNotEqualTo(storageName);
+
+    // executeInsideComponentOperation: consumer variant (line 170)
+    // The outer executeInsideAtomicOperation wraps the CommonDurableComponentException
+    // in a StorageException. Dig into the cause chain to find it.
+    var comp = collection;
+    try {
+      mgr.executeInsideAtomicOperation(atomicOp -> {
+        mgr.executeInsideComponentOperation(atomicOp, comp, op -> {
+          throw new RuntimeException("intentional test error");
+        });
+      });
+      fail("Should have thrown");
+    } catch (Exception e) {
+      var cause = findCause(e, CommonDurableComponentException.class);
+      assertNotNull("Should contain CommonDurableComponentException in cause chain",
+          cause);
+      var message = cause.getMessage();
+      assertThat(message)
+          .as("exception should contain correct component name")
+          .contains("Component Name=\"" + componentLockName + "\"");
+      assertThat(message)
+          .as("exception should contain correct DB name")
+          .contains("DB Name=\"" + storageName + "\"");
+    }
+
+    // calculateInsideComponentOperation: function variant (line 190)
+    try {
+      mgr.executeInsideAtomicOperation(atomicOp -> {
+        mgr.calculateInsideComponentOperation(atomicOp, comp, op -> {
+          throw new RuntimeException("intentional test error");
+        });
+      });
+      fail("Should have thrown");
+    } catch (Exception e) {
+      var cause = findCause(e, CommonDurableComponentException.class);
+      assertNotNull("Should contain CommonDurableComponentException in cause chain",
+          cause);
+      var message = cause.getMessage();
+      assertThat(message)
+          .as("exception should contain correct component name (calculate variant)")
+          .contains("Component Name=\"" + componentLockName + "\"");
+      assertThat(message)
+          .as("exception should contain correct DB name (calculate variant)")
+          .contains("DB Name=\"" + storageName + "\"");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // executeReadOperation: AssertionError re-thrown when stamp is valid
+  // ---------------------------------------------------------------------------
+
+  // Verifies that an AssertionError thrown during a valid optimistic read is re-thrown
+  // (not swallowed). When lock.validate(stamp) returns true, the error is genuine.
+  // Targets RemoveConditional mutant at AtomicOperationsManager line 347.
+  @Test
+  public void assertionErrorReThrownWhenStampValid() throws IOException {
+    var mgr = manager();
+    var storage = (AbstractStorage) session.getStorage();
+
+    // Create a standalone component with no writer contention (stamp will be valid)
+    var component = new TestableComponent(storage, "assertionTest.tst");
+
+    try {
+      mgr.executeReadOperation(component, () -> {
+        throw new AssertionError("intentional assertion error");
+      });
+      fail("Should have thrown AssertionError");
+    } catch (AssertionError e) {
+      assertEquals("intentional assertion error", e.getMessage());
+    }
+  }
+
+  /**
+   * Walks the exception cause chain to find an instance of the given type.
+   */
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> T findCause(Throwable t, Class<T> type) {
+    while (t != null) {
+      if (type.isInstance(t)) {
+        return (T) t;
+      }
+      t = t.getCause();
+    }
+    return null;
   }
 }

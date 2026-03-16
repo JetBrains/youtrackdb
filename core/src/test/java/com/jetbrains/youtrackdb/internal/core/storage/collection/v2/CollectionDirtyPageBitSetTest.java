@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -284,6 +285,76 @@ public class CollectionDirtyPageBitSetTest {
     assertThat(bitSet.nextSetBit(0, atomicOperation)).isEqualTo(0);
 
     bitSet.clear(0, atomicOperation);
+    assertThat(bitSet.nextSetBit(0, atomicOperation)).isEqualTo(-1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle: flush, close, rename delegate to cache
+  // ---------------------------------------------------------------------------
+
+  // Verifies that flush() delegates to writeCache.flush(fileId).
+  // Targets mutant at CollectionDirtyPageBitSet line 77: "removed call to flush".
+  @Test
+  public void flushDelegatesToWriteCache() {
+    bitSet.flush();
+    verify(mockWriteCache).flush(FILE_ID);
+  }
+
+  // Verifies that close(flush=true) delegates to readCache.closeFile(fileId, true, writeCache).
+  // Targets mutant at CollectionDirtyPageBitSet line 86: "removed call to closeFile".
+  @Test
+  public void closeDelegatesToReadCache() {
+    bitSet.close(true);
+    verify(mockReadCache).closeFile(FILE_ID, true, mockWriteCache);
+  }
+
+  // Verifies that close(flush=false) passes false to readCache.closeFile.
+  @Test
+  public void closeWithoutFlushDelegatesToReadCache() {
+    bitSet.close(false);
+    verify(mockReadCache).closeFile(FILE_ID, false, mockWriteCache);
+  }
+
+  // Verifies that rename() delegates to writeCache.renameFile() and updates the internal name.
+  // Targets mutants at CollectionDirtyPageBitSet lines 100-101.
+  @Test
+  public void renameDelegatesToWriteCacheAndUpdatesName() throws IOException {
+    bitSet.rename("newCollection");
+    verify(mockWriteCache).renameFile(FILE_ID, "newCollection" + EXTENSION);
+    assertThat(bitSet.getName()).isEqualTo("newCollection");
+  }
+
+  // Verifies that ensureCapacity initialises new pages via init().
+  // Targets mutant at CollectionDirtyPageBitSet line 199: "removed call to init".
+  // After growth, gap pages must have all bits clear; if init() is skipped and the
+  // buffer happens to contain stale data, false positive bits would appear.
+  @Test
+  public void ensureCapacityInitialisesNewPages() throws IOException {
+    // Set a bit on page 2 of the bit set file (skipping page 1).
+    var bitOnPage2 = DirtyPageBitSetPage.BITS_PER_PAGE * 2 + 1;
+    bitSet.set(bitOnPage2, atomicOperation);
+
+    // Page 1 (the gap page) should have been initialised — no bits set.
+    // Scan from the start of page 1: nextSetBit should skip all of page 1.
+    var startOfPage1 = DirtyPageBitSetPage.BITS_PER_PAGE;
+    assertThat(bitSet.nextSetBit(startOfPage1, atomicOperation))
+        .as("gap page should have no bits set after ensureCapacity init()")
+        .isEqualTo(bitOnPage2);
+  }
+
+  // Verifies boundary condition: clearing a bit where the computed bitSetPageIndex
+  // equals filledUpTo should be a no-op and not attempt to load a non-existent page.
+  // Targets mutant at CollectionDirtyPageBitSet line 141: boundary change (>= to >).
+  @Test
+  public void clearAtExactBoundaryIsNoOp() throws IOException {
+    // After setUp(), pageCount is 1 (one page, index 0).
+    // Bit at BITS_PER_PAGE would be on bitSetPageIndex 1, which equals filledUpTo (1).
+    // With >= check: returns early (no-op). With > check: would try to load page 1.
+    var initialPageCount = pageCount;
+    bitSet.clear(DirtyPageBitSetPage.BITS_PER_PAGE, atomicOperation);
+
+    // No new pages should have been allocated, and no bits should be affected.
+    assertThat(pageCount).isEqualTo(initialPageCount);
     assertThat(bitSet.nextSetBit(0, atomicOperation)).isEqualTo(-1);
   }
 

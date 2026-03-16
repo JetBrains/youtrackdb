@@ -1218,6 +1218,76 @@ public class SnapshotIndexCleanupTest {
     assertThat(sizeCounter.get()).isEqualTo(0);
   }
 
+  // --- Boundary: componentId == 0 ---
+
+  // Exercises the boundary condition at AbstractStorage line 5595: `id >= 0 && id < size`.
+  // The mutant changes `>=` to `>`, which would skip componentId=0. This test places a
+  // PaginatedCollectionV2 at index 0 in the collections list and verifies its dead record
+  // counter is incremented when an entry with componentId=0 is evicted.
+  @Test
+  public void testEvictIncrementsCounterForComponentIdZero() {
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestIdZero");
+      session.begin();
+      session.command("INSERT INTO TestIdZero SET name = 'v1'");
+      session.commit();
+
+      // Find any PaginatedCollectionV2 for this class
+      PaginatedCollectionV2 targetCollection = null;
+      var collectionIds = session.getClass("TestIdZero").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+
+      // Place the collection at index 0, regardless of its real ID.
+      // The snapshot entry uses componentId=0 to match this position.
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      collections.add(targetCollection); // index 0
+
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      // componentId = 0 targets the collection at index 0
+      var sk = new SnapshotKey(0, 100L, 5L);
+      localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+      localVisibility.put(new VisibilityKey(10L, 0, 100L), sk);
+
+      long countBefore = targetCollection.getDeadRecordCount();
+      var sizeCounter = new AtomicLong(1);
+
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localSnapshot).isEmpty();
+      assertThat(sizeCounter.get()).isEqualTo(0);
+      // With `id >= 0`: counter is incremented. With `id > 0` (mutant): skipped.
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("dead record counter must be incremented for componentId=0")
+          .isEqualTo(countBefore + 1);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
   // --- GlobalConfiguration: GC parameters ---
 
   @Test
