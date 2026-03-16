@@ -282,7 +282,7 @@
   },
   "time": { "from": "now-30d", "to": "now" },
   "timepicker": {},
-  "timezone": "utc",
+  "timezone": "Europe/Berlin",
   "title": "LDBC JMH Benchmarks",
   "uid": "ldbc-jmh-benchmarks",
   "version": 1
