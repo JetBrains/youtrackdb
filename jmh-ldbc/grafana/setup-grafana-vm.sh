@@ -37,7 +37,7 @@ ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp    # SSH
-ufw allow 3000/tcp  # Grafana
+ufw allow 80/tcp    # Grafana
 ufw allow 8086/tcp  # InfluxDB (token-protected)
 ufw --force enable
 ufw status verbose
@@ -78,7 +78,7 @@ echo "========================================="
 echo "  Setup complete!"
 echo "========================================="
 echo ""
-echo "Grafana:  http://$(hostname -I | awk '{print $1}'):3000"
+echo "Grafana:  http://$(hostname -I | awk '{print $1}')"
 echo "InfluxDB: http://$(hostname -I | awk '{print $1}'):8086"
 echo ""
 echo "Add these GitHub secrets:"
