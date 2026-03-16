@@ -621,7 +621,7 @@
                 <exclude>**/generated-test-sources/**</exclude>
               </excludes>
               <eclipse>
-                <file>${maven.multiModuleProjectDirectory}/config/eclipse-formatter.xml</file>
+                <file>${maven.multiModuleProjectDirectory}/project-config/eclipse-formatter.xml</file>
               </eclipse>
               <importOrder>
                 <order>\#,</order>
