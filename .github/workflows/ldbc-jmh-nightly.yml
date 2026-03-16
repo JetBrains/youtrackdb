@@ -1,0 +1,205 @@
+name: LDBC JMH Nightly Benchmark
+
+permissions:
+  contents: read
+  actions: write
+
+on:
+  schedule:
+    # Run at 3 AM UTC daily (after nightly integration tests)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to benchmark'
+        required: false
+        default: 'develop'
+
+concurrency:
+  group: ldbc-jmh-nightly
+  cancel-in-progress: false
+
+env:
+  SERVER_NAME: jmh-nightly-${{ github.run_id }}
+  SERVER_TYPE: ccx33
+  SERVER_IMAGE: ubuntu-24.04
+  SERVER_LOCATION: fsn1
+  SSH_KEY_NAME: github-actions-orchestrator
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || 'develop' }}
+          fetch-depth: 1
+
+      - name: Get commit info
+        id: commit
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Install hcloud CLI
+        run: |
+          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xzf - -C /usr/local/bin hcloud
+
+      - name: Create CCX33 server
+        id: server
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Create the server
+          output=$(hcloud server create \
+            --name "$SERVER_NAME" \
+            --type "$SERVER_TYPE" \
+            --image "$SERVER_IMAGE" \
+            --location "$SERVER_LOCATION" \
+            --ssh-key "$SSH_KEY_NAME" \
+            --output json)
+
+          ip=$(echo "$output" | jq -r '.server.public_net.ipv4.ip')
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+          echo "Server IP: $ip"
+
+          # Wait for SSH to become available
+          for i in $(seq 1 30); do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+                root@"$ip" 'echo ok' 2>/dev/null; then
+              echo "SSH ready after $i attempts"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Install JDK 21 and tools
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            # Wait for any unattended-upgrades to finish
+            for i in $(seq 1 12); do
+              if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
+                break
+              fi
+              sleep 5
+            done
+            apt-get update -qq
+            apt-get install -y -qq openjdk-21-jdk-headless git zstd sshpass > /dev/null 2>&1
+            java -version
+          '
+
+      - name: Deploy project
+        run: |
+          rsync -az --exclude='.git' --exclude='target' --exclude='.idea' --exclude='*.iml' \
+            ./ root@${{ steps.server.outputs.ip }}:/root/ytdb/
+
+          # Initialize git repo (required by Spotless)
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            git config --global --add safe.directory /root/ytdb
+            git config --global user.email "bench@ci"
+            git config --global user.name "bench"
+            cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
+          '
+
+      - name: Download LDBC dataset from Storage Box
+        env:
+          STORAGEBOX_USER: ${{ secrets.STORAGEBOX_USER }}
+          STORAGEBOX_PASSWORD: ${{ secrets.STORAGEBOX_PASSWORD }}
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} "
+            set -euo pipefail
+            mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset
+
+            # Try Storage Box first (same DC, fast)
+            echo 'Downloading dataset from Storage Box...'
+            if sshpass -p '${STORAGEBOX_PASSWORD}' scp -o StrictHostKeyChecking=no \
+                '${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:ldbc/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
+                /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst 2>/dev/null; then
+              echo 'Downloaded from Storage Box'
+            else
+              echo 'Storage Box failed, falling back to R2...'
+              curl -fsSL 'https://pub-383a26ad23fc4ba3abaa2fd1eee40713.r2.dev/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
+                -o /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst
+              echo 'Downloaded from R2'
+            fi
+
+            # Extract
+            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset
+            zstd -d dataset.tar.zst -o dataset.tar
+            tar xf dataset.tar
+            rm -f dataset.tar.zst dataset.tar
+            # Move contents to sf0.1/ if needed
+            if [ ! -d sf0.1 ]; then
+              mkdir -p sf0.1
+              mv social_network/* sf0.1/ 2>/dev/null || true
+            fi
+            echo 'Dataset extracted'
+          "
+
+      - name: Compile
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            cd /root/ytdb && chmod +x mvnw
+            ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
+          '
+
+      - name: Pre-load LDBC database
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            cd /root/ytdb
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20
+          '
+
+      - name: Run benchmarks
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            cd /root/ytdb
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+              -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
+              2>&1 | tee /root/bench.log
+          '
+
+      - name: Collect results
+        run: |
+          scp root@${{ steps.server.outputs.ip }}:/root/results.json /tmp/jmh-results.json
+          cp /tmp/jmh-results.json results.json
+
+      - name: Push results to InfluxDB
+        if: success()
+        env:
+          INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
+          INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
+        run: |
+          python3 jmh-ldbc/jmh-to-influxdb.py \
+            --input results.json \
+            --influxdb-url "$INFLUXDB_URL" \
+            --influxdb-token "$INFLUXDB_TOKEN" \
+            --influxdb-org youtrackdb \
+            --influxdb-bucket jmh-benchmarks \
+            --branch "${{ steps.commit.outputs.branch }}" \
+            --commit-sha "${{ steps.commit.outputs.sha }}" \
+            --timestamp "${{ steps.commit.outputs.timestamp }}"
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmh-results-${{ steps.commit.outputs.short_sha }}-${{ github.run_id }}
+          path: results.json
+          retention-days: 90
+
+      - name: Destroy server
+        if: always()
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          hcloud server delete "$SERVER_NAME" || true

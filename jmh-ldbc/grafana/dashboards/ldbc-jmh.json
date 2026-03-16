@@ -1,0 +1,289 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Single-Thread Throughput (ops/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "ops/s",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Multi-Thread Throughput (ops/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "ops/s",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Scalability: MT/ST Throughput Ratio",
+      "description": "How well each query parallelizes across 8 CCX33 cores. Ratio > 1 means MT is faster than ST.",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "MT/ST ratio",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "green", "value": 4 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "mean"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"scalability\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"ratio\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Latest vs Previous Run (Single-Thread)",
+      "description": "Delta table comparing the last two runs",
+      "type": "table",
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 30 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "delta_pct" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": -5 },
+                { "color": "green", "value": 0 }
+              ]}}
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "query", "desc": false }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "latest = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> last()\n  |> set(key: \"run\", value: \"latest\")\n\nprevious = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 2)\n  |> first()\n  |> set(key: \"run\", value: \"previous\")\n\nunion(tables: [latest, previous])\n  |> pivot(rowKey: [\"query\"], columnKey: [\"run\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      query: r.query,\n      latest: r.latest,\n      previous: r.previous,\n      delta_pct: if r.previous > 0.0 then (r.latest - r.previous) / r.previous * 100.0 else 0.0\n  }))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Latest vs Previous Run (Multi-Thread)",
+      "description": "Delta table comparing the last two runs",
+      "type": "table",
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 30 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "delta_pct" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": -5 },
+                { "color": "green", "value": 0 }
+              ]}}
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "query", "desc": false }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "latest = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> last()\n  |> set(key: \"run\", value: \"latest\")\n\nprevious = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 2)\n  |> first()\n  |> set(key: \"run\", value: \"previous\")\n\nunion(tables: [latest, previous])\n  |> pivot(rowKey: [\"query\"], columnKey: [\"run\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      query: r.query,\n      latest: r.latest,\n      previous: r.previous,\n      delta_pct: if r.previous > 0.0 then (r.latest - r.previous) / r.previous * 100.0 else 0.0\n  }))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Per-Query Detail: ${query}",
+      "description": "Score with error band for the selected query",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 42 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "ops/s",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always"
+          },
+          "unit": "ops",
+          "links": [
+            {
+              "title": "View commit",
+              "url": "https://github.com/JetBrains/youtrackdb/commit/${__data.fields.commit_sha}",
+              "targetBlank": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "min", "max", "mean"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.query == \"${query}\")\n  |> filter(fn: (r) => r.suite =~ /${suite}/)\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\" or r._field == \"score_error\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _value: r.score,\n      score_low: r.score - r.score_error,\n      score_high: r.score + r.score_error\n  }))",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["jmh", "ldbc", "benchmark", "youtrackdb"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "InfluxDB", "value": "InfluxDB" },
+        "hide": 2,
+        "name": "DS_INFLUXDB",
+        "type": "datasource",
+        "query": "influxdb"
+      },
+      {
+        "current": { "selected": false, "text": "develop", "value": "develop" },
+        "name": "branch",
+        "type": "custom",
+        "query": "develop,main,.*",
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "suite",
+        "type": "custom",
+        "query": "SingleThread,MultiThread,.*",
+        "current": { "selected": false, "text": ".*", "value": ".*" },
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "query",
+        "type": "custom",
+        "query": "is1_personProfile,is2_personPosts,is3_personFriends,is4_messageContent,is5_messageCreator,is6_messageForum,is7_messageReplies,ic1_transitiveFriends,ic2_recentFriendMessages,ic3_friendsInCountries,ic4_newTopics,ic5_newGroups,ic6_tagCoOccurrence,ic7_recentLikers,ic8_recentReplies,ic9_recentFofMessages,ic10_friendRecommendation,ic11_jobReferral,ic12_expertSearch,ic13_shortestPath",
+        "current": { "selected": false, "text": "is1_personProfile", "value": "is1_personProfile" },
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "LDBC JMH Benchmarks",
+  "uid": "ldbc-jmh-benchmarks",
+  "version": 1
+}
