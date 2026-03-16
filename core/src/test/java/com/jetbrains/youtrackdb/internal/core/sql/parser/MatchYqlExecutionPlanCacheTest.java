@@ -6,9 +6,9 @@ import org.junit.Test;
 
 /**
  * Verifies that MATCH query execution plans are cached in the
- * {@link ExecutionPlanCache}, just like SELECT plans.
+ * {@link YqlExecutionPlanCache}, just like SELECT plans.
  */
-public class MatchExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
+public class MatchYqlExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
 
   @Override
   public void beforeTest() throws Exception {
@@ -27,14 +27,11 @@ public class MatchExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
   }
 
   @Test
-  public void testMatchPlanIsCached() throws InterruptedException {
-    var cache = ExecutionPlanCache.instance(session);
+  public void testMatchPlanIsCached() {
+    var cache = YqlExecutionPlanCache.instance(session);
     var matchSql =
         "MATCH {class: Person, as: p, where: (name = 'Alice')}"
             + ".out('Friend'){as: f} RETURN p, f";
-
-    // Ensure we're past the last invalidation timestamp
-    Thread.sleep(2);
 
     // First execution — plan should be created and cached
     session.begin();
@@ -49,13 +46,10 @@ public class MatchExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
   }
 
   @Test
-  public void testMatchPlanCacheHitReturnsSameResults() throws InterruptedException {
+  public void testMatchPlanCacheHitReturnsSameResults() {
     var matchSql =
         "MATCH {class: Person, as: p, where: (name = 'Alice')}"
             + ".out('Friend'){as: f} RETURN f.name as friendName";
-
-    // Ensure we're past the last invalidation timestamp
-    Thread.sleep(2);
 
     // First execution — populates cache
     session.begin();
@@ -81,13 +75,10 @@ public class MatchExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
   }
 
   @Test
-  public void testMatchPlanCacheInvalidatedOnSchemaChange()
-      throws InterruptedException {
-    var cache = ExecutionPlanCache.instance(session);
+  public void testMatchPlanCacheInvalidatedOnSchemaChange() {
+    var cache = YqlExecutionPlanCache.instance(session);
     var matchSql =
         "MATCH {class: Person, as: p} RETURN p.name as name";
-
-    Thread.sleep(2);
 
     // Populate cache
     session.begin();
@@ -106,12 +97,10 @@ public class MatchExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
   }
 
   @Test
-  public void testMatchWithBuiltinReturnIsCached() throws InterruptedException {
-    var cache = ExecutionPlanCache.instance(session);
+  public void testMatchWithBuiltinReturnIsCached() {
+    var cache = YqlExecutionPlanCache.instance(session);
     var matchSql =
         "MATCH {class: Person, as: p}.out('Friend'){as: f} RETURN $patterns";
-
-    Thread.sleep(2);
 
     session.begin();
     session.query(matchSql).close();

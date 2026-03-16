@@ -49,8 +49,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSecurityResourceSegment;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLServerStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -80,13 +80,12 @@ public class SQLEngine {
   private static final ClassLoader youTrackDbClassLoader = SQLEngine.class.getClassLoader();
 
   public static SQLStatement parse(String query, DatabaseSessionEmbedded db) {
-    return StatementCache.get(query, db);
+    return YqlStatementCache.get(query, db);
   }
 
   public static SQLServerStatement parseServerStatement(String query, YouTrackDBInternal db) {
-    return StatementCache.getServerStatement(query, db);
+    return YqlStatementCache.getServerStatement(query, db);
   }
-
 
   public static List<SQLStatement> parseScript(String script, DatabaseSessionEmbedded db) {
     final InputStream is = new ByteArrayInputStream(script.getBytes());
@@ -369,8 +368,7 @@ public class SQLEngine {
     FUNCTION_FACTORIES = null;
   }
 
-  @Nullable
-  public static Object foreachRecord(
+  @Nullable public static Object foreachRecord(
       final Function<Object, Object> function,
       Object current,
       final CommandContext context) {
@@ -415,9 +413,8 @@ public class SQLEngine {
     return null;
   }
 
-  @Nullable
-  public static Collate getCollate(final String name) {
-    for (var iter = getCollateFactories(); iter.hasNext(); ) {
+  @Nullable public static Collate getCollate(final String name) {
+    for (var iter = getCollateFactories(); iter.hasNext();) {
       var f = iter.next();
       final var c = f.getCollate(name);
       if (c != null) {
@@ -427,8 +424,7 @@ public class SQLEngine {
     return null;
   }
 
-  @Nullable
-  public static SQLMethod getMethod(String iMethodName) {
+  @Nullable public static SQLMethod getMethod(String iMethodName) {
     iMethodName = iMethodName.toLowerCase(Locale.ENGLISH);
 
     final var ite = getMethodFactories();
@@ -475,8 +471,7 @@ public class SQLEngine {
           boolean added;
           do {
             added = false;
-            scan:
-            for (final var it = operators.iterator(); it.hasNext(); ) {
+            scan : for (final var it = operators.iterator(); it.hasNext();) {
               final var candidate = it.next();
               for (final var pair : pairs) {
                 if (pair.after == candidate) {
@@ -505,8 +500,7 @@ public class SQLEngine {
     DynamicSQLElementFactory.FUNCTIONS.put(iName.toLowerCase(Locale.ENGLISH), iFunction);
   }
 
-  @Nullable
-  public static SQLFunction getFunction(DatabaseSessionEmbedded session, String functionName) {
+  @Nullable public static SQLFunction getFunction(DatabaseSessionEmbedded session, String functionName) {
     var functionInstance = getFunctionOrNull(session, functionName);
 
     if (functionInstance != null) {
@@ -520,8 +514,7 @@ public class SQLEngine {
             + Collections.toString(getFunctionNames(session)));
   }
 
-  @Nullable
-  public static SQLFunction getFunctionOrNull(DatabaseSessionEmbedded session,
+  @Nullable public static SQLFunction getFunctionOrNull(DatabaseSessionEmbedded session,
       String iFunctionName) {
     var functionName = iFunctionName.toLowerCase(Locale.ENGLISH);
 
@@ -547,8 +540,7 @@ public class SQLEngine {
     DynamicSQLElementFactory.FUNCTIONS.remove(iName);
   }
 
-  @Nullable
-  public static CommandExecutor getCommand(String candidate) {
+  @Nullable public static CommandExecutor getCommand(String candidate) {
     candidate = candidate.trim();
     final var names = getCommandNames();
     var commandName = candidate;

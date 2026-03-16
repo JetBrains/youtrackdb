@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -45,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SubQueryCollector;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -110,7 +110,7 @@ import javax.annotation.Nullable;
  *      UNWIND, ORDER BY,        |
  *      SKIP, LIMIT, DISTINCT)   |
  *  9. Timeout                   | AccumulatingTimeoutStep
- *  10. Cache plan (optional)    | ExecutionPlanCache.put()
+ *  10. Cache plan (optional)    | YqlExecutionPlanCache.put()
  * </pre>
  *
  * <h2>Projection splitting for aggregation</h2>
@@ -214,7 +214,7 @@ public class SelectExecutionPlanner {
    * @param ctx              command context carrying the database session and input parameters
    * @param enableProfiling  if true, each step wraps its output stream with profiling counters
    * @param useCache         if true, the planner will check / populate the
-   *                         {@link ExecutionPlanCache}
+   *                         {@link YqlExecutionPlanCache}
    * @return a ready-to-execute {@link InternalExecutionPlan}
    */
   public InternalExecutionPlan createExecutionPlan(
@@ -223,7 +223,7 @@ public class SelectExecutionPlanner {
 
     // --- 1. Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
@@ -231,7 +231,7 @@ public class SelectExecutionPlanner {
 
     // Record the timestamp so we can avoid caching a stale plan if the schema
     // was modified concurrently during planning.
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     // --- 2. Copy AST into mutable QueryPlanningInfo ---
     init(ctx);
@@ -272,8 +272,8 @@ public class SelectExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      ExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
+        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
     }
     return result;
   }
