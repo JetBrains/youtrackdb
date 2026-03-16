@@ -10,7 +10,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.PriorityQueue;
 
 /**
  * Intermediate <b>blocking</b> step that sorts all upstream records according to an
@@ -19,22 +21,21 @@ import java.util.List;
  * <p>This step must consume the entire upstream before producing any output (it cannot
  * stream sorted results lazily). The sorted records are cached in-memory.
  *
- * <pre>
- *  SQL:   SELECT FROM Person ORDER BY lastName, firstName
+ * <h2>Bounded path (ORDER BY + LIMIT)</h2>
+ * When {@code maxResults} is set (derived from SKIP + LIMIT), a bounded min-heap
+ * (priority queue) of size {@code maxResults} is used. Each incoming row is compared
+ * against the heap's worst element (O(1) peek). Rows that rank higher replace the
+ * worst element (O(log N) re-heapify); rows that rank lower are discarded immediately.
+ * After all upstream rows are consumed, the heap is drained and sorted to produce the
+ * final ordered output.
  *
- *  Processing:
- *    1. Pull ALL records from upstream into cachedResult list
- *    2. Sort using orderBy.apply(comparator)
- *    3. Emit sorted records as an iterator-based stream
- * </pre>
+ * <p>This reduces memory from O(|all results|) to O(N) and time from
+ * O(|results| &times; log(|results|)) to O(|results| &times; log(N)).
  *
- * <h2>Memory optimization</h2>
- * When {@code maxResults} is set (derived from SKIP + LIMIT), the step periodically
- * sorts and truncates the cached list to keep at most {@code maxResults * 2} entries
- * in memory at a time. This trades extra sort passes for reduced peak heap usage.
- *
- * <p>The step also respects {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} and throws
- * a {@link CommandExecutionException} if the result set exceeds the configured limit.
+ * <h2>Unbounded path (ORDER BY without LIMIT)</h2>
+ * All upstream rows are collected into a list and sorted once. The step respects
+ * {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} and throws a
+ * {@link CommandExecutionException} if the result set exceeds the configured limit.
  *
  * @see SelectExecutionPlanner#handleOrderBy
  * @see SelectExecutionPlanner#handleProjectionsBlock
@@ -49,19 +50,14 @@ public class OrderByStep extends AbstractExecutionStep {
 
   /**
    * When non-null, the maximum number of results needed (SKIP + LIMIT).
-   * Used to compact the sort buffer periodically, reducing memory usage.
+   * Enables the bounded min-heap path that holds at most this many elements.
    */
   private Integer maxResults;
-
-  public OrderByStep(
-      SQLOrderBy orderBy, CommandContext ctx, long timeoutMillis, boolean profilingEnabled) {
-    this(orderBy, null, ctx, timeoutMillis, profilingEnabled);
-  }
 
   /**
    * @param orderBy          the ORDER BY clause defining sort keys and directions
    * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
-   *                         When set, enables periodic buffer compaction to reduce memory.
+   *                         When set, enables the bounded min-heap path.
    * @param ctx              the query context
    * @param timeoutMillis    query timeout in milliseconds (-1 = no timeout)
    * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
@@ -97,42 +93,46 @@ public class OrderByStep extends AbstractExecutionStep {
   /**
    * Pulls all records from the upstream step, sorts them, and returns the sorted list.
    *
-   * <p>When {@code maxResults} is set (derived from SKIP + LIMIT), a memory optimization
-   * is applied: once the buffer exceeds {@code 2 * maxResults}, it is sorted and truncated
-   * to {@code maxResults} entries. This trades extra sort passes for reduced peak memory.
+   * <p>When {@code maxResults} is set (derived from SKIP + LIMIT), a bounded min-heap
+   * (priority queue) of size {@code maxResults} is used. Each incoming row is compared
+   * against the heap's worst element: rows that rank higher replace the worst and
+   * re-heapify; rows that rank lower are discarded immediately. This reduces memory
+   * from O(|all results|) to O(maxResults) and avoids repeated full sorts.
    *
-   * <pre>
-   *  Without maxResults:
-   *    pull all -> sort once -> return
-   *
-   *  With maxResults = 100:
-   *    pull records into buffer
-   *    when buffer > 200: sort + truncate to 100
-   *    ... continue pulling ...
-   *    final sort + truncate -> return
-   * </pre>
+   * <p>When {@code maxResults} is not set, all rows are collected and sorted once.
    *
    * @param p   the upstream step to pull from
    * @param ctx the command context
    * @return the sorted (and possibly truncated) list of results
-   * @throws CommandExecutionException if the buffer exceeds
+   * @throws CommandExecutionException if the number of elements exceeds
    *         {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}
    */
   private List<Result> init(ExecutionStepInternal p, CommandContext ctx) {
     var timeoutBegin = System.currentTimeMillis();
-    List<Result> cachedResult = new ArrayList<>();
-    final var maxElementsAllowed =
-        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
-    var sorted = true;
     var lastBatch = p.start(ctx);
-    while (lastBatch.hasNext(ctx)) {
-      if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
-        sendTimeout();
-      }
 
-      var item = lastBatch.next(ctx);
-      cachedResult.add(item);
-      if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
+    if (maxResults != null) {
+      if (maxResults == 0) {
+        lastBatch.close(ctx);
+        return Collections.emptyList();
+      }
+      return initBoundedHeap(lastBatch, ctx, timeoutBegin);
+    }
+    return initUnbounded(lastBatch, ctx, timeoutBegin);
+  }
+
+  /**
+   * Bounded top-N selection using a min-heap. The heap holds at most {@code maxResults}
+   * elements, with the <em>worst</em> element (last in ORDER BY order) at the root.
+   * A reversed comparator is used so that {@link PriorityQueue#peek()} returns the
+   * worst kept element, enabling O(1) comparison for each incoming row.
+   */
+  private List<Result> initBoundedHeap(
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
                 + maxElementsAllowed
@@ -140,30 +140,64 @@ public class OrderByStep extends AbstractExecutionStep {
                 + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
                 + " to increase this limit");
       }
-      sorted = false;
-      // Memory optimization: when we know only maxResults rows are needed (SKIP+LIMIT),
-      // periodically sort and truncate the buffer to maxResults once it exceeds
-      // 2x maxResults. This trades extra sort passes for reduced peak heap usage.
-      if (this.maxResults != null) {
-        var compactThreshold = 2L * maxResults;
-        if (compactThreshold < cachedResult.size()) {
-          cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
-          cachedResult = new ArrayList<>(cachedResult.subList(0, maxResults));
-          sorted = true;
+      // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).
+      var heap = new PriorityQueue<Result>(
+          maxResults, (a, b) -> orderBy.compare(b, a, ctx));
+
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+
+        if (heap.size() < maxResults) {
+          heap.offer(item);
+        } else if (orderBy.compare(item, heap.peek(), ctx) < 0) {
+          heap.poll();
+          heap.offer(item);
         }
       }
+
+      var result = new LinkedList<Result>();
+      while (!heap.isEmpty()) {
+        result.addFirst(heap.poll());
+      }
+      return result;
+    } finally {
+      upstream.close(ctx);
     }
-    lastBatch.close(ctx);
-    // Post-loop compaction: sort and truncate if new unsorted records were added.
-    if (!sorted && this.maxResults != null && maxResults < cachedResult.size()) {
+  }
+
+  /**
+   * Unbounded path: collects all upstream rows, then sorts once.
+   * Enforces {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}.
+   */
+  private List<Result> initUnbounded(
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    List<Result> cachedResult = new ArrayList<>();
+    try {
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+        cachedResult.add(item);
+        if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+                  + maxElementsAllowed
+                  + ") . You can set "
+                  + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+                  + " to increase this limit");
+        }
+      }
       cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
-      cachedResult = new ArrayList<>(cachedResult.subList(0, maxResults));
-      sorted = true;
+      return cachedResult;
+    } finally {
+      upstream.close(ctx);
     }
-    if (!sorted) {
-      cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx));
-    }
-    return cachedResult;
   }
 
   @Override

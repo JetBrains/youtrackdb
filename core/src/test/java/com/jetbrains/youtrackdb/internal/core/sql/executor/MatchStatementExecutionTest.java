@@ -2093,6 +2093,109 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that ORDER BY + LIMIT on the RETURN $elements path goes through the
+   * bounded min-heap in OrderByStep (the MatchExecutionPlanner must propagate
+   * maxResults = SKIP + LIMIT). With 2 MATCH rows each yielding 2 $elements,
+   * the heap must return exactly the top-1 element by name DESC.
+   */
+  @Test
+  public void testReturnElementsOrderByLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
+            + " RETURN $elements ORDER BY name DESC LIMIT 1")
+        .toList();
+    // n1 has friends n2 and n3. MATCH produces 2 rows: (a=n1,b=n2) and (a=n1,b=n3).
+    // $elements unrolls each row into 2 records → 4 elements: n1,n2,n1,n3.
+    // ORDER BY name DESC LIMIT 1 → top-1 is "n3" (lexicographically largest).
+    assertEquals(1, result.size());
+    assertEquals("n3", result.getFirst().getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY without LIMIT on the RETURN $elements path goes through
+   * the unbounded sort in OrderByStep (maxResults remains null). All 4 $elements
+   * from 2 MATCH rows must be returned in sorted order.
+   */
+  @Test
+  public void testReturnElementsOrderByWithoutLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b}"
+            + " RETURN $elements ORDER BY name ASC")
+        .toList();
+    // 2 MATCH rows * 2 aliases = 4 elements, sorted by name
+    assertEquals(4, result.size());
+    for (var i = 0; i < result.size() - 1; i++) {
+      var nameA = (String) result.get(i).getProperty("name");
+      var nameB = (String) result.get(i + 1).getProperty("name");
+      if (nameA != null && nameB != null) {
+        assertTrue(nameA.compareTo(nameB) <= 0);
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY + SKIP + LIMIT on the RETURN $elements path computes
+   * the bounded-heap size as skip + limit. With 6 Person vertices:
+   * ORDER BY name ASC → n1,n2,n3,n4,n5,n6; SKIP 2 LIMIT 3 → n3,n4,n5.
+   * The bounded heap must keep top 5 (2+3) elements so that after SKIP 2
+   * there are still 3 results. If the heap size ignores SKIP, it keeps only 3,
+   * and after SKIP 2 only 1 result remains — which is wrong.
+   */
+  @Test
+  public void testReturnElementsOrderBySkipLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2 LIMIT 3")
+        .toList();
+    assertEquals(3, result.size());
+    assertEquals("n3", result.get(0).getProperty("name"));
+    assertEquals("n4", result.get(1).getProperty("name"));
+    assertEquals("n5", result.get(2).getProperty("name"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY + LIMIT 0 on RETURN $elements returns nothing.
+   * Exercises the maxResults=0 fast path in OrderByStep.init() which
+   * must close the upstream stream without consuming it.
+   */
+  @Test
+  public void testReturnElementsOrderByLimitZero() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 0")
+        .toList();
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Verifies that ORDER BY + SKIP (without LIMIT) on the RETURN $elements path
+   * does NOT use the bounded-heap (maxResults is null). All elements are sorted,
+   * then the first 2 are skipped.
+   */
+  @Test
+  public void testReturnElementsOrderBySkipWithoutLimit() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2")
+        .toList();
+    assertEquals(4, result.size());
+    assertEquals("n3", result.get(0).getProperty("name"));
+    assertEquals("n4", result.get(1).getProperty("name"));
+    assertEquals("n5", result.get(2).getProperty("name"));
+    assertEquals("n6", result.get(3).getProperty("name"));
+    session.commit();
+  }
+
+  /**
    * Exercises ReturnMatchPathElementsStep by using RETURN $pathElements.
    * Unlike $elements, $pathElements includes auto-generated aliases too, yielding
    * more elements per row. Each result should be an identifiable record.
@@ -3116,6 +3219,42 @@ public class MatchStatementExecutionTest extends DbTestBase {
    * by LDBC IC5.
    */
   @Test
+  public void testUnwindBeforeOrderByLimit() {
+    session.execute("CREATE class UWPerson extends V").close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'alice', tags = ['zulu', 'bravo', 'alpha']").close();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'bob', tags = ['yankee', 'charlie']").close();
+    session.execute(
+        "CREATE VERTEX UWPerson set name = 'carol', tags = ['delta']").close();
+    session.commit();
+
+    // Grammar requires ORDER BY before UNWIND, but the execution planner must
+    // run UNWIND first (it changes cardinality), then ORDER BY + LIMIT on the
+    // expanded rows. Without this fix, the bounded heap in OrderByStep would
+    // discard rows before UNWIND expands them, producing wrong results.
+    //
+    // 3 persons × variable tag counts = 6 rows after UNWIND.
+    // ORDER BY tags ASC, LIMIT 3 → alpha, bravo, charlie.
+    // If ORDER BY ran before UNWIND with bounded heap of 3, it would keep
+    // only 3 of the 3 original person rows and we'd lose tags from discarded persons.
+    var results = session.query(
+        "MATCH {class: UWPerson, as: p}"
+            + " RETURN p.name as name, p.tags as tags"
+            + " ORDER BY tags ASC"
+            + " UNWIND tags"
+            + " LIMIT 3")
+        .stream().toList();
+
+    assertEquals(3, results.size());
+    assertEquals("alpha", results.get(0).getProperty("tags"));
+    assertEquals("bravo", results.get(1).getProperty("tags"));
+    assertEquals("charlie", results.get(2).getProperty("tags"));
+  }
+
+  @Test
   public void testWhileMatchSubqueryWithLet() {
     // Baseline: existing while test query that returns 2 results
     // (same as testWhile second query)
@@ -3181,6 +3320,25 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Verifies that MATCH ... RETURN $elements ORDER BY ... SKIP N LIMIT M uses the
+   * bounded-heap optimization with buffer size = SKIP + LIMIT.
+   */
+  @Test
+  public void testExplainReturnElementsOrderBySkipLimitUsesBoundedHeap() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC SKIP 2 LIMIT 3")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should use bounded heap with buffer size 5 (skip 2 + limit 3)",
+        plan.contains("buffer size: 5"));
+    session.commit();
+  }
+
+  /**
    * Diamond graph with pathAlias: 0→1→3, 0→2→3. When pathAlias is declared the
    * user is asking for all distinct *paths*, so vertex 3 must appear twice — once
    * for each path that reaches it. Without the pathAlias-aware dedup bypass,
@@ -3241,6 +3399,46 @@ public class MatchStatementExecutionTest extends DbTestBase {
         "Only vertices at depth > 0 should be returned",
         List.of(1, 2, 3),
         uids);
+    session.commit();
+  }
+
+  /**
+   * Verifies that MATCH ... RETURN $elements ORDER BY ... LIMIT M (no SKIP) uses the
+   * bounded-heap optimization with buffer size = LIMIT.
+   */
+  @Test
+  public void testExplainReturnElementsOrderByLimitOnlyUsesBoundedHeap() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 3")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should use bounded heap with buffer size 3 (limit 3, no skip)",
+        plan.contains("buffer size: 3"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that LIMIT 0 causes the planner to pass maxResults=0 to OrderByStep
+   * (visible as "buffer size: 0" in EXPLAIN), which triggers an immediate empty
+   * return without creating a heap or sorting. Without this, LIMIT 0 would fall
+   * back to unbounded sorting of all rows before LimitStep discards them.
+   */
+  @Test
+  public void testExplainReturnElementsOrderByLimitZeroUsesMaxResults() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a}"
+            + " RETURN $elements ORDER BY name ASC LIMIT 0")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("Plan should pass maxResults=0 to OrderByStep (buffer size: 0)",
+        plan.contains("buffer size: 0"));
     session.commit();
   }
 

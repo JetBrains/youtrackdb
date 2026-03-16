@@ -51,7 +51,6 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-
 public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
@@ -400,6 +399,209 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
+  public void testOrderByLimitHeapDescending() {
+    // Verifies that the bounded min-heap in OrderByStep produces correct top-N
+    // results when N is much smaller than the total number of rows.
+    var className = "testOrderByLimitHeapDescending";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 500; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by val desc limit 10");
+    printExecutionPlan(result);
+
+    for (var i = 0; i < 10; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(499 - i, (int) (Integer) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderBySkipLimitHeapAscending() {
+    // Verifies that the bounded min-heap works correctly when combined with SKIP.
+    // maxResults = SKIP + LIMIT = 15, so the heap holds the top-15 ASC, then
+    // the downstream SkipStep discards the first 5 and LimitStep takes 10.
+    var className = "testOrderBySkipLimitHeapAscending";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 500; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by val asc skip 5 limit 10");
+    printExecutionPlan(result);
+
+    for (var i = 0; i < 10; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(5 + i, (int) (Integer) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderByLimitHeapMultipleKeys() {
+    // Verifies correct behavior with composite ORDER BY (two keys) and a small LIMIT,
+    // exercising the heap comparator with multi-key sort.
+    var className = "testOrderByLimitHeapMultipleKeys";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 200; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("group", i % 5);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query(
+        "select from " + className + " order by group asc, val desc limit 5");
+    printExecutionPlan(result);
+
+    // group=0 rows have val 0,5,10,...,195. DESC => 195,190,185,180,175
+    int[] expected = {195, 190, 185, 180, 175};
+    for (var i = 0; i < 5; i++) {
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(0, (int) item.getProperty("group"));
+      Assert.assertEquals(expected[i], (int) item.getProperty("val"));
+    }
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderByLimitZeroReturnsEmpty() {
+    // Verifies that LIMIT 0 is short-circuited in OrderByStep: no upstream rows are
+    // pulled into the heap and an empty result is returned immediately.
+    var className = "testOrderByLimitZeroReturnsEmpty";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    session.begin();
+    var result = session.query("select from " + className + " order by val asc limit 0");
+    printExecutionPlan(result);
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  @Test
+  public void testOrderByLimitHeapRespectsMaxElementsAllowed() {
+    // Verifies that the bounded-heap path throws CommandExecutionException when
+    // LIMIT exceeds QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP, preventing OOM from
+    // a maliciously large LIMIT value.
+    var className = "testOrderByLimitHeapRespectsMaxElementsAllowed";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(3);
+      session.begin();
+      try {
+        try (var result = session.query(
+            "select from " + className + " order by val asc limit 10")) {
+          result.forEachRemaining(x -> x.getProperty("val"));
+        }
+        Assert.fail("Expected CommandExecutionException");
+      } catch (CommandExecutionException ex) {
+        session.rollback();
+      }
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
+  public void testOrderByLimitHeapWithMaxElementsAllowedDisabled() {
+    var className = "testOrderByLimitHeapWithMaxElementsAllowedDisabled";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(-1);
+      session.begin();
+      var result = session.query(
+          "select from " + className + " order by val desc limit 3");
+      printExecutionPlan(result);
+      for (var i = 0; i < 3; i++) {
+        Assert.assertTrue(result.hasNext());
+        var item = result.next();
+        Assert.assertEquals(9 - i, (int) item.getProperty("val"));
+      }
+      Assert.assertFalse(result.hasNext());
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
+  public void testOrderByWithoutLimitUnbounded() {
+    var className = "testOrderByWithoutLimitUnbounded";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 20; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    var oldValue = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(-1);
+      session.begin();
+      var result = session.query("select from " + className + " order by val asc");
+      printExecutionPlan(result);
+      for (var i = 0; i < 20; i++) {
+        Assert.assertTrue(result.hasNext());
+        var item = result.next();
+        Assert.assertEquals(i, (int) item.getProperty("val"));
+      }
+      Assert.assertFalse(result.hasNext());
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(oldValue);
+    }
+  }
+
+  @Test
   public void testSelectOrderWithProjections() {
     var className = "testSelectOrderWithProjections";
     session.getMetadata().getSchema().createClass(className);
@@ -667,7 +869,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try {
       session.executeInTx(transaction -> {
         session.query(
-                "select max(a) + max(b) + pippo + pluto as foo, max(d) + max(e), f from " + className)
+            "select max(a) + max(b) + pippo + pluto as foo, max(d) + max(e), f from " + className)
             .close();
         Assert.fail();
       });
@@ -2305,7 +2507,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.begin();
       var doc = session.newInstance(className);
       doc.setInt("i", i);
-      doc.newEmbeddedList("iSeq", new int[]{i, 2 * i, 4 * i});
+      doc.newEmbeddedList("iSeq", new int[] {i, 2 * i, 4 * i});
 
       session.commit();
     }
@@ -2346,7 +2548,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.begin();
       var doc = session.newInstance(className);
       doc.setProperty("i", i);
-      doc.newEmbeddedList("iSeq", new int[]{i, 2 * i, 4 * i});
+      doc.newEmbeddedList("iSeq", new int[] {i, 2 * i, 4 * i});
 
       session.commit();
     }
@@ -2586,9 +2788,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     printExecutionPlan(result);
     var plan = (InternalExecutionPlan) result.getExecutionPlan();
     Assert.assertTrue(
-        plan.getSteps().getFirst()
-            instanceof
-            FetchFromClassExecutionStep); // no index, because the superclass is not empty
+        plan.getSteps().getFirst() instanceof FetchFromClassExecutionStep); // no index, because the superclass is not empty
     for (var i = 0; i < 2; i++) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -2728,11 +2928,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -2778,11 +2978,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -2828,11 +3028,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -2879,11 +3079,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -2931,11 +3131,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname, address) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname, address) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -2981,11 +3181,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname, address) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname, address) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3031,11 +3231,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname, address) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname, address) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3079,11 +3279,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3128,11 +3328,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3175,11 +3375,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3222,11 +3422,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3269,11 +3469,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
-            "create index "
-                + className
-                + ".name_surname on "
-                + className
-                + " (name, surname) NOTUNIQUE")
+        "create index "
+            + className
+            + ".name_surname on "
+            + className
+            + " (name, surname) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 10; i++) {
@@ -3405,7 +3605,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[] {"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3440,7 +3640,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[] {"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3474,7 +3674,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[] {"a", "b", "c", "d"});
 
     session.commit();
 
@@ -3512,7 +3712,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     var doc = session.newInstance(className);
-    doc.newEmbeddedList("name", new String[]{"a", "b", "c", "d"});
+    doc.newEmbeddedList("name", new String[] {"a", "b", "c", "d"});
 
     session.commit();
 
@@ -4364,24 +4564,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.execute("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
         .close();
     session.commit();
 
@@ -4404,24 +4604,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.execute("INSERT INTO " + className + " content {\"name\": \"jack\", \"age\": 22}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[]]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"rose\", \"age\": 22, \"test\": [[1]]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"pete\", \"age\": 22, \"test\": [{}]}")
         .close();
     session.execute(
-            "INSERT INTO "
-                + className
-                + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
+        "INSERT INTO "
+            + className
+            + " content {\"name\": \"david\", \"age\": 22, \"test\": [\"hello\"]}")
         .close();
     session.commit();
 
@@ -4800,14 +5000,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.execute("create class " + classNamePrefix + "User extends V;").close();
     session.execute("create property " + classNamePrefix + "User.id String;").close();
     session.execute(
-            "create index "
-                + classNamePrefix
-                + "User.id ON "
-                + classNamePrefix
-                + "User(id) unique;")
+        "create index "
+            + classNamePrefix
+            + "User.id ON "
+            + classNamePrefix
+            + "User(id) unique;")
         .close();
     session.execute(
-            "create class " + classNamePrefix + "Report extends " + classNamePrefix + "Ownership;")
+        "create class " + classNamePrefix + "Report extends " + classNamePrefix + "Ownership;")
         .close();
     session.execute("create property " + classNamePrefix + "Report.id String;").close();
     session.execute("create property " + classNamePrefix + "Report.label String;").close();
@@ -4818,25 +5018,25 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.begin();
     session.execute("insert into " + classNamePrefix + "User content {id:\"admin\"};");
     session.execute(
-            "insert into "
-                + classNamePrefix
-                + "Report content {format:\"PDF\", id:\"rep1\", label:\"Report 1\","
-                + " source:\"Report1.src\"};")
+        "insert into "
+            + classNamePrefix
+            + "Report content {format:\"PDF\", id:\"rep1\", label:\"Report 1\","
+            + " source:\"Report1.src\"};")
         .close();
     session.execute(
-            "insert into "
-                + classNamePrefix
-                + "Report content {format:\"CSV\", id:\"rep2\", label:\"Report 2\","
-                + " source:\"Report2.src\"};")
+        "insert into "
+            + classNamePrefix
+            + "Report content {format:\"CSV\", id:\"rep2\", label:\"Report 2\","
+            + " source:\"Report2.src\"};")
         .close();
     session.execute(
-            "create edge "
-                + classNamePrefix
-                + "hasOwnership from (select from "
-                + classNamePrefix
-                + "User) to (select from "
-                + classNamePrefix
-                + "Report);")
+        "create edge "
+            + classNamePrefix
+            + "hasOwnership from (select from "
+            + classNamePrefix
+            + "User) to (select from "
+            + classNamePrefix
+            + "Report);")
         .close();
     session.commit();
 
@@ -4859,11 +5059,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
 
     session.execute(
-            "create index "
-                + classNamePrefix
-                + "Report.id ON "
-                + classNamePrefix
-                + "Report(id) unique;")
+        "create index "
+            + classNamePrefix
+            + "Report.id ON "
+            + classNamePrefix
+            + "Report(id) unique;")
         .close();
 
     session.begin();
@@ -4902,7 +5102,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       var edge = v1.addStateFulEdge(v2, edgeClass);
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -4961,7 +5161,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
       var edge = v1.addStateFulEdge(v2, edgeClass);
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5006,7 +5206,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5065,7 +5265,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5110,7 +5310,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5170,7 +5370,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5214,7 +5414,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5258,7 +5458,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5309,7 +5509,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         edge = v1.addStateFulEdge(v2, edgeClass);
       }
 
-      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
 
     session.executeInTx(transaction -> {
@@ -5346,7 +5546,6 @@ public class SelectStatementExecutionTest extends DbTestBase {
       }
     });
   }
-
 
   @Test
   public void testExclude() {
@@ -5418,9 +5617,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     session.begin();
     session.execute(
-            "insert into "
-                + className
-                + " set name = 'foo', themap = {\"foo bar\":\"baz\", \"riz\":\"faz\"}")
+        "insert into "
+            + className
+            + " set name = 'foo', themap = {\"foo bar\":\"baz\", \"riz\":\"faz\"}")
         .close();
     session.commit();
 
@@ -5594,9 +5793,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v2.addEdge(v3, "link2");
       }
 
-      return new RID[]{v1rid, v3rid, v2rid};
+      return new RID[] {v1rid, v3rid, v2rid};
     });
-
 
     final var query = "SELECT expand(intersect($a0, $b0)) "
         + "LET $a0=(SELECT expand(out('link1')) FROM :targetIds1), "

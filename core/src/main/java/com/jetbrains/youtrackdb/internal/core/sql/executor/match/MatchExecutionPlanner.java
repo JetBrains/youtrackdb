@@ -435,12 +435,22 @@ public class MatchExecutionPlanner {
                 + " or $paths");
       }
 
-      if (this.orderBy != null) {
-        result.chain(new OrderByStep(orderBy, context, -1, enableProfiling));
-      }
-
       if (this.unwind != null) {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
+      }
+
+      if (this.orderBy != null) {
+        // Compute bounded-heap size: keep only the top (skip + limit) rows
+        // during sorting to avoid materializing the full result set.
+        // Safe here because UNWIND (if present) has already run, so row
+        // cardinality is final and sort keys are scalar values.
+        Integer maxResults = null;
+        if (this.limit != null && this.limit.getValue(context) >= 0) {
+          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
+              ? this.skip.getValue(context) : 0;
+          maxResults = skipSize + this.limit.getValue(context);
+        }
+        result.chain(new OrderByStep(orderBy, maxResults, context, -1, enableProfiling));
       }
 
       if (this.skip != null && skip.getValue(context) >= 0) {
