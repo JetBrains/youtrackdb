@@ -60,7 +60,7 @@ The `docs/` folder contains project documentation. See `docs/README.md` for the 
 | `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests |
 | `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
 | `examples` | `youtrackdb-examples` | Example applications |
-| `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). See `jmh-ldbc/README.md` |
+| `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). Also contains `grafana/` (Grafana+InfluxDB infra) and `jmh-to-influxdb.py`. See `jmh-ldbc/README.md` |
 
 ## Package Structure
 
@@ -221,6 +221,16 @@ Runs on `develop` pushes and PRs:
 - Tests on Linux (x86+arm) and Windows with JDK 21+25, 2 distributions (temurin, oracle)
 - Auto-merges `develop` to `main` (fast-forward only) on success
 - Sends Zulip notifications on failure/recovery
+
+### Nightly LDBC JMH Benchmarks (`ldbc-jmh-nightly.yml`)
+- Runs at 3 AM UTC on `develop` (after integration tests), also supports `workflow_dispatch`
+- Provisions an ephemeral Hetzner CCX33 (8 dedicated vCPUs, 32 GB RAM) in fsn1
+- Builds `jmh-ldbc`, pre-loads the LDBC SF 0.1 dataset, runs all 40 benchmarks (20 queries x 2 suites)
+- Pushes results to InfluxDB via `jmh-ldbc/jmh-to-influxdb.py`, uploads JSON as artifact (90-day retention)
+- **Always** destroys the CCX33 server after completion
+- **Grafana dashboard**: https://bench.youtrackdb.io (anonymous read access)
+- **Infrastructure**: Persistent CX23 VM (`grafana-bench`, 116.203.166.137 floating IP) in nbg1 running Caddy + Grafana + InfluxDB 2.x via Docker Compose. Config in `jmh-ldbc/grafana/`.
+- **Secrets**: `HCLOUD_TOKEN`, `INFLUXDB_URL`, `INFLUXDB_TOKEN`, `STORAGEBOX_USER`, `STORAGEBOX_PASSWORD`
 
 ### Main Deploy (`maven-main-deploy-pipeline.yml`)
 - Triggered on `main` pushes
