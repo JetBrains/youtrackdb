@@ -241,5 +241,23 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     return right != null && right.isVariable(varName) ||
         left != null && left.varMightBeInUse(varName);
   }
+
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    return left != null && left.isAggregate(session);
+  }
+
+  @Override
+  public SQLBooleanExpression splitForAggregation(
+      AggregateProjectionSplit aggregateProj, CommandContext ctx) {
+    if (!isAggregate(ctx.getDatabaseSession())) {
+      return this;
+    }
+    var result = new SQLInstanceofCondition(-1);
+    result.left = left.splitForAggregation(aggregateProj, ctx);
+    result.right = right == null ? null : right.copy();
+    result.rightString = rightString;
+    return result;
+  }
 }
 /* JavaCC - OriginalChecksum=0b5eb529744f307228faa6b26f0592dc (do not edit this line) */

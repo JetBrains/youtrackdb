@@ -120,6 +120,103 @@ public class SelectStatementTest extends DbTestBase {
   }
 
   @Test
+  public void testConditionalAggregationWithSingleCondition() {
+    checkRightSyntax(
+        "select sum(if(out('IS_LOCATED_IN').name contains 'PL', 1, 0)) as xCount from Person");
+  }
+
+  @Test
+  public void testConditionalAggregationWithCompoundAndCondition() {
+    checkRightSyntax(
+        "select sum(if(age > 18 AND city = 'NYC', 1, 0)) as cnt from Person");
+  }
+
+  @Test
+  public void testConditionalAggregationWithCompoundOrCondition() {
+    checkRightSyntax(
+        "select count(if(status = 'A' OR status = 'B', 1, 0)) as cnt from Record");
+  }
+
+  @Test
+  public void testConditionalAggregationMultipleAggregatesInSelect() {
+    checkRightSyntax(
+        "select sum(if(out('IS_LOCATED_IN').name contains :countryX, 1, 0)) as xCount,"
+            + " sum(if(out('IS_LOCATED_IN').name contains :countryY, 1, 0)) as yCount"
+            + " from Person");
+  }
+
+  @Test
+  public void testConditionalAggregationNestedFunctions() {
+    checkRightSyntax(
+        "select count(if(name is not null, 1, 0)) as cnt from Foo");
+  }
+
+  @Test
+  public void testConditionalAggregationWithNotCondition() {
+    checkRightSyntax(
+        "select sum(if(NOT active = true, 1, 0)) as inactiveCnt from Person");
+  }
+
+  @Test
+  public void testConditionalAggregationBetweenCondition() {
+    checkRightSyntax(
+        "select sum(if(age BETWEEN 18 AND 65, 1, 0)) as workingAge from Person");
+  }
+
+  @Test
+  public void testNonAggregateIfWithConditionStillParses() {
+    checkRightSyntax(
+        "select if(name = 'test', 'yes', 'no') from Foo");
+  }
+
+  @Test
+  public void testRegularFunctionCallsUnaffected() {
+    checkRightSyntax("select sum(salary) from Employee");
+    checkRightSyntax("select count(*) from Foo");
+    checkRightSyntax("select min(age), max(age) from Person");
+    checkRightSyntax("select avg(score) from Student where grade = 'A'");
+  }
+
+  @Test
+  public void testCaseWhenSimple() {
+    checkRightSyntax(
+        "select CASE WHEN status = 'A' THEN 'active' ELSE 'inactive' END from Foo");
+  }
+
+  @Test
+  public void testCaseWhenMultipleBranches() {
+    checkRightSyntax(
+        "select CASE WHEN score > 90 THEN 'A'"
+            + " WHEN score > 80 THEN 'B'"
+            + " WHEN score > 70 THEN 'C'"
+            + " ELSE 'F' END as grade from Student");
+  }
+
+  @Test
+  public void testCaseWhenWithoutElse() {
+    checkRightSyntax(
+        "select CASE WHEN active = true THEN 'yes' END from Person");
+  }
+
+  @Test
+  public void testCaseWhenInsideAggregateFunction() {
+    checkRightSyntax(
+        "select sum(CASE WHEN age > 18 THEN 1 ELSE 0 END) as adultCount from Person");
+  }
+
+  @Test
+  public void testCaseWhenWithCompoundCondition() {
+    checkRightSyntax(
+        "select CASE WHEN age > 18 AND city = 'NYC' THEN 'match' ELSE 'no' END from Person");
+  }
+
+  @Test
+  public void testCaseWhenMissingEnd() {
+    checkWrongSyntax(
+        "select CASE WHEN status = 'A' THEN 'active' from Foo");
+  }
+
+  @Test
   public void testSubSelect() {
     checkRightSyntax("select from (select from Foo)");
 

@@ -32,6 +32,7 @@ public class SQLExpression extends SimpleNode {
   protected SQLMathExpression mathExpression;
   protected SQLArrayConcatExpression arrayConcatExpression;
   protected SQLJson json;
+  protected SQLBooleanExpression booleanExpression;
   protected Boolean booleanValue;
 
   public SQLExpression(int id) {
@@ -82,6 +83,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.execute(iCurrentRecord, ctx);
     }
+    if (booleanExpression != null) {
+      return booleanExpression.evaluate(iCurrentRecord, ctx);
+    }
     if (json != null) {
       return json.toObjectDetermineType(iCurrentRecord, ctx);
     }
@@ -124,6 +128,9 @@ public class SQLExpression extends SimpleNode {
     }
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.execute(iCurrentRecord, ctx);
+    }
+    if (booleanExpression != null) {
+      return booleanExpression.evaluate(iCurrentRecord, ctx);
     }
     if (json != null) {
       return json.toObjectDetermineType(iCurrentRecord, ctx);
@@ -252,6 +259,8 @@ public class SQLExpression extends SimpleNode {
       mathExpression.toString(params, builder);
     } else if (arrayConcatExpression != null) {
       arrayConcatExpression.toString(params, builder);
+    } else if (booleanExpression != null) {
+      booleanExpression.toString(params, builder);
     } else if (json != null) {
       json.toString(params, builder);
     } else if (booleanValue != null) {
@@ -283,6 +292,8 @@ public class SQLExpression extends SimpleNode {
       mathExpression.toGenericStatement(builder);
     } else if (arrayConcatExpression != null) {
       arrayConcatExpression.toGenericStatement(builder);
+    } else if (booleanExpression != null) {
+      booleanExpression.toGenericStatement(builder);
     } else if (json != null) {
       json.toGenericStatement(builder);
     } else if (booleanValue != null) {
@@ -447,6 +458,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.needsAliases(aliases);
     }
+    if (booleanExpression != null) {
+      return booleanExpression.needsAliases(aliases);
+    }
     if (json != null) {
       return json.needsAliases(aliases);
     }
@@ -522,6 +536,7 @@ public class SQLExpression extends SimpleNode {
     result.arrayConcatExpression =
         arrayConcatExpression == null ? null : arrayConcatExpression.copy();
     result.json = json == null ? null : json.copy();
+    result.booleanExpression = booleanExpression == null ? null : booleanExpression.copy();
     result.booleanValue = booleanValue;
 
     return result;
@@ -559,6 +574,9 @@ public class SQLExpression extends SimpleNode {
     if (!Objects.equals(json, that.json)) {
       return false;
     }
+    if (!Objects.equals(booleanExpression, that.booleanExpression)) {
+      return false;
+    }
     return Objects.equals(booleanValue, that.booleanValue);
   }
 
@@ -571,6 +589,7 @@ public class SQLExpression extends SimpleNode {
     result = 31 * result + (mathExpression != null ? mathExpression.hashCode() : 0);
     result = 31 * result + (arrayConcatExpression != null ? arrayConcatExpression.hashCode() : 0);
     result = 31 * result + (json != null ? json.hashCode() : 0);
+    result = 31 * result + (booleanExpression != null ? booleanExpression.hashCode() : 0);
     result = 31 * result + (booleanValue != null ? booleanValue.hashCode() : 0);
     return result;
   }
@@ -586,6 +605,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       arrayConcatExpression.extractSubQueries(collector);
     }
+    if (booleanExpression != null) {
+      booleanExpression.extractSubQueries(collector);
+    }
     if (json != null) {
       json.extractSubQueries(collector);
     }
@@ -598,6 +620,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       arrayConcatExpression.extractSubQueries(collector);
     }
+    if (booleanExpression != null) {
+      booleanExpression.extractSubQueries(collector);
+    }
     if (json != null) {
       json.extractSubQueries(collector);
     }
@@ -608,6 +633,9 @@ public class SQLExpression extends SimpleNode {
       return true;
     }
     if (arrayConcatExpression != null && arrayConcatExpression.refersToParent()) {
+      return true;
+    }
+    if (booleanExpression != null && booleanExpression.refersToParent()) {
       return true;
     }
     return json != null && json.refersToParent();
@@ -639,6 +667,9 @@ public class SQLExpression extends SimpleNode {
     }
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.getMatchPatternInvolvedAliases();
+    }
+    if (booleanExpression != null) {
+      return booleanExpression.getMatchPatternInvolvedAliases();
     }
     return null;
   }
@@ -684,6 +715,9 @@ public class SQLExpression extends SimpleNode {
     if (json != null) {
       result.setProperty("json", json.serialize(session));
     }
+    if (booleanExpression != null) {
+      result.setProperty("booleanExpression", booleanExpression.serialize(session));
+    }
     result.setProperty("booleanValue", booleanValue);
     return result;
   }
@@ -708,6 +742,10 @@ public class SQLExpression extends SimpleNode {
     if (fromResult.getProperty("json") != null) {
       json = new SQLJson(-1);
       json.deserialize(fromResult.getProperty("json"));
+    }
+    if (fromResult.getProperty("booleanExpression") != null) {
+      booleanExpression =
+          SQLBooleanExpression.deserializeFromOResult(fromResult.getProperty("booleanExpression"));
     }
     booleanValue = fromResult.getProperty("booleanValue");
   }
@@ -743,6 +781,9 @@ public class SQLExpression extends SimpleNode {
     if (arrayConcatExpression != null) {
       return arrayConcatExpression.isCacheable(session);
     }
+    if (booleanExpression != null) {
+      return booleanExpression.isCacheable(session);
+    }
     // TODO optimize
     return json == null;
   }
@@ -769,9 +810,9 @@ public class SQLExpression extends SimpleNode {
   }
 
   public boolean varMightBeInUse(String varName) {
-    return mathExpression != null && mathExpression.varMightBeInUse(varName) ||
-        arrayConcatExpression != null && arrayConcatExpression.varMightBeInUse(varName);
-
+    return mathExpression != null && mathExpression.varMightBeInUse(varName)
+        || arrayConcatExpression != null && arrayConcatExpression.varMightBeInUse(varName)
+        || booleanExpression != null && booleanExpression.varMightBeInUse(varName);
   }
 }
 /* JavaCC - OriginalChecksum=9c860224b121acdc89522ae97010be01 (do not edit this line) */
