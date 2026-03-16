@@ -106,7 +106,10 @@ CI gates enforce policies on PRs. When a gate fails:
    ```
    Then run PIT:
    ```bash
-   cp /home/andrii0lomakin/Projects/ytdb/arcmutate-licence.txt arcmutate-licence.txt
+   # Ensure arcmutate-licence.txt is present at the project root (gitignored).
+   # In CI, this is provided via the ARCMUTATE_LICENCE secret.
+   # Locally, copy it from wherever you store the license file.
+   test -f arcmutate-licence.txt || echo "WARNING: arcmutate-licence.txt not found in project root"
    ./mvnw -pl {module} clean test-compile org.pitest:pitest-maven:mutationCoverage \
      -P mutation-testing -Dpit.git.from=${FORK_POINT}
    ```
@@ -160,7 +163,7 @@ Present to the user:
   gh api "repos/JetBrains/youtrackdb/check-runs/{pitest_check_run_id}/annotations" --paginate
   ```
   Each annotation includes the file path, line number, and mutant description — use these to pinpoint exactly which lines need stronger test coverage. Note: the "Mutation Testing (New Code)" job check run only has generic "Process completed with exit code 1" annotations — always use the `"pitest"` check run for per-line mutant details.
-  To run mutation testing locally, copy the Arcmutate license first: `cp /home/andrii0lomakin/Projects/ytdb/arcmutate-licence.txt {project-root}/arcmutate-licence.txt`.
+  To run mutation testing locally, ensure `arcmutate-licence.txt` is present at the project root (it is gitignored; in CI it is provided via the `ARCMUTATE_LICENCE` secret).
 
 ### Common Patterns
 - **Profile-gated tests**: Some modules exclude heavyweight tests by default and use `ci-integration-tests` profile with `<excludes combine.self="override"/>` to include them. If CI stops activating that profile, those tests silently disappear.
@@ -183,7 +186,8 @@ gh api repos/JetBrains/youtrackdb/issues/{pr}/comments --jq '.[] | select(.body 
 BASE_BRANCH=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null)
 BASE_BRANCH="origin/${BASE_BRANCH:-develop}"
 FORK_POINT=$(git merge-base HEAD "${BASE_BRANCH}")
-cp /home/andrii0lomakin/Projects/ytdb/arcmutate-licence.txt arcmutate-licence.txt
+# Ensure arcmutate-licence.txt is in the project root (see CI Gates section above)
+test -f arcmutate-licence.txt || echo "WARNING: arcmutate-licence.txt not found in project root"
 ./mvnw -pl {module} clean test-compile org.pitest:pitest-maven:mutationCoverage \
   -P mutation-testing -Dpit.git.from=${FORK_POINT}
 ```
