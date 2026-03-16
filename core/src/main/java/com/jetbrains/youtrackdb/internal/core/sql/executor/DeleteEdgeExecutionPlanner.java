@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBatch;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDeleteEdgeStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -15,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -77,12 +77,12 @@ public class DeleteEdgeExecutionPlanner {
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var db = ctx.getDatabaseSession();
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(db)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, db);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, db);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
     }
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     init();
     var result = new DeleteExecutionPlan(ctx);
@@ -138,8 +138,8 @@ public class DeleteEdgeExecutionPlanner {
         && !enableProfiling
         && this.statement.executinPlanCanBeCached(db)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(db) < planningStart) {
-      ExecutionPlanCache.put(this.statement.getOriginalStatement(), result,
+        && YqlExecutionPlanCache.getLastInvalidation(db) < planningStart) {
+      YqlExecutionPlanCache.put(this.statement.getOriginalStatement(), result,
           ctx.getDatabaseSession());
     }
 
@@ -170,7 +170,8 @@ public class DeleteEdgeExecutionPlanner {
               fromAlias, toAlias, targetClass, targetCollection, ctx, profilingEnabled));
     } else if (toAlias != null) {
       result.chain(
-          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCollection, ctx, profilingEnabled));
+          new FetchEdgesToVerticesStep(toAlias, targetClass, targetCollection, ctx,
+              profilingEnabled));
     }
   }
 
@@ -197,7 +198,8 @@ public class DeleteEdgeExecutionPlanner {
       var name = targetCollectionName.getStringValue();
       var collectionId = ctx.getDatabaseSession().getCollectionIdByName(name);
       if (collectionId < 0) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(), "Collection not found: " + name);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Collection not found: " + name);
       }
       result.chain(new FetchFromCollectionExecutionStep(collectionId, ctx, profilingEnabled));
     }

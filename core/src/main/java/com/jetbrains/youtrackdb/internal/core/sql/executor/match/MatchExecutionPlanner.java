@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -42,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -365,7 +365,7 @@ public class MatchExecutionPlanner {
    *                         variables, etc.)
    * @param enableProfiling  when `true`, each step will collect timing/count statistics
    * @param useCache         when `true`, attempts to retrieve/store the plan from/to the
-   *                         {@link ExecutionPlanCache}
+   *                         {@link YqlExecutionPlanCache}
    * @return the assembled execution plan, ready to be {@linkplain InternalExecutionPlan#start()
    *         started}
    */
@@ -376,7 +376,7 @@ public class MatchExecutionPlanner {
 
     // --- Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
@@ -384,7 +384,7 @@ public class MatchExecutionPlanner {
 
     // Record the timestamp so we can avoid caching a stale plan if the schema
     // was modified concurrently during planning.
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
@@ -507,8 +507,8 @@ public class MatchExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      ExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
+        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
     }
 
     return result;

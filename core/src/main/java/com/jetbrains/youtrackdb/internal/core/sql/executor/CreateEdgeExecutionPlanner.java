@@ -3,12 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreateEdgeStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInsertBody;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUpdateItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,7 +26,6 @@ public class CreateEdgeExecutionPlanner {
 
   protected SQLInsertBody body;
 
-
   public CreateEdgeExecutionPlanner(SQLCreateEdgeStatement statement) {
     this.statement = statement;
     this.targetClass =
@@ -43,13 +42,13 @@ public class CreateEdgeExecutionPlanner {
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var session = ctx.getDatabaseSession();
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
       if (plan != null) {
         return (InsertExecutionPlan) plan;
       }
     }
 
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     if (targetClass == null) {
       targetClass = new SQLIdentifier("E");
@@ -91,10 +90,9 @@ public class CreateEdgeExecutionPlanner {
           clazz.getIndexesInternal().stream()
               .filter(Index::isUnique)
               .filter(
-                  x ->
-                      x.getDefinition().getProperties().size() == 2
-                          && x.getDefinition().getProperties().contains("out")
-                          && x.getDefinition().getProperties().contains("in"))
+                  x -> x.getDefinition().getProperties().size() == 2
+                      && x.getDefinition().getProperties().contains("out")
+                      && x.getDefinition().getProperties().contains("in"))
               .map(Index::getName)
               .findFirst()
               .orElse(null);
@@ -124,8 +122,8 @@ public class CreateEdgeExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      ExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
+        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
     }
 
     return result;

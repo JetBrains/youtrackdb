@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
@@ -8,31 +9,26 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingExcepti
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * This class is an LRU cache for already parsed SQL statement executors. It stores itself in the
- * storage as a resource. It also acts an an entry point for the SQL parser.
+ * LRU cache for already parsed YQL/SQL statement executors using Guava Cache. Eliminates TOCTOU
+ * race between cache lookup and parse via atomic {@code cache.get(key, loader)}.
  */
-public class StatementCache {
+public class YqlStatementCache {
 
-  private final Map<String, SQLStatement> map;
-  private final int mapSize;
+  private final int capacity;
+  private final Cache<String, SQLStatement> cache;
 
   /**
-   * @param size the size of the cache
+   * @param size the size of the cache; 0 means cache disabled
    */
-  public StatementCache(int size) {
-    this.mapSize = size;
-    map =
-        new LinkedHashMap<String, SQLStatement>(size) {
-          @Override
-          protected boolean removeEldestEntry(final Map.Entry<String, SQLStatement> eldest) {
-            return super.size() > mapSize;
-          }
-        };
+  public YqlStatementCache(int size) {
+    this.capacity = size;
+    this.cache = size > 0
+        ? CacheBuilder.newBuilder().maximumSize(size).build()
+        : null;
   }
 
   /**
@@ -40,21 +36,18 @@ public class StatementCache {
    * @return true if the corresponding executor is present in the cache
    */
   public boolean contains(String statement) {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+    if (capacity == 0) {
       return false;
     }
-
-    synchronized (map) {
-      return map.containsKey(statement);
-    }
+    return cache.asMap().containsKey(statement);
   }
 
   /**
-   * returns an already parsed SQL executor, taking it from the cache if it exists or creating a new
-   * one (parsing and then putting it into the cache) if it doesn't
+   * Returns an already parsed SQL executor, taking it from the cache if it exists or creating a new
+   * one (parsing and then putting it into the cache) if it doesn't.
    *
    * @param statement the SQL statement
-   * @param session        the current DB instance. If null, cache is ignored and a new executor is
+   * @param session   the current DB instance. If null, cache is ignored and a new executor is
    *                  created through statement parsing
    * @return a statement executor from the cache
    */
@@ -63,13 +56,13 @@ public class StatementCache {
       return parse(statement, session);
     }
 
-    var resource = session.getSharedContext().getStatementCache();
+    var resource = session.getSharedContext().getYqlStatementCache();
     return resource.getCached(statement, session);
   }
 
   /**
-   * returns an already parsed server-level SQL executor, taking it from the cache if it exists or
-   * creating a new one (parsing and then putting it into the cache) if it doesn't
+   * Returns an already parsed server-level SQL executor, taking it from the cache if it exists or
+   * creating a new one (parsing and then putting it into the cache) if it doesn't.
    *
    * @param statement the SQL statement
    * @param db        the current YouTrackDB instance. If null, cache is ignored and a new executor
@@ -82,60 +75,67 @@ public class StatementCache {
   }
 
   /**
+   * Returns the cached statement or parses it atomically (only one thread parses a given key).
+   *
    * @param statement an SQL statement
-   * @param session
-   * @return the corresponding executor, taking it from the internal cache, if it exists
+   * @param session   the database session (used for charset during parsing)
+   * @return the parsed SQL statement
    */
-  public SQLStatement getCached(String statement, DatabaseSessionEmbedded session) {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
+  public @Nonnull SQLStatement getCached(String statement, DatabaseSessionEmbedded session) {
+    if (capacity == 0) {
       return parse(statement, session);
     }
-    SQLStatement result;
-    synchronized (map) {
-      // LRU
-      result = map.remove(statement);
-      if (result != null) {
-        map.put(statement, result);
+
+    try {
+      // Atomic cache.get(key, loader) eliminates TOCTOU race:
+      // only one thread will parse for a given key, others will wait and reuse the result
+      return cache.get(statement, () -> parse(statement, session));
+    } catch (CommandSQLParsingException e) {
+      throw e;
+    } catch (Exception e) {
+      var cause = e.getCause();
+      if (cause instanceof CommandSQLParsingException parsingException) {
+        throw parsingException;
       }
-    }
-    if (result == null) {
-      result = parse(statement, session);
-      synchronized (map) {
-        map.put(statement, result);
+      if (cause instanceof RuntimeException runtimeCause) {
+        throw runtimeCause;
       }
+      throw new RuntimeException("Failed to parse SQL statement: " + statement, e);
     }
-    return result;
   }
 
   /**
-   * parses an SQL statement and returns the corresponding executor
+   * Parses an SQL statement and returns the corresponding executor.
    *
    * @param statement the SQL statement
-   * @param session
+   * @param session   the database session (for charset); may be null
    * @return the corresponding executor
    * @throws CommandSQLParsingException if the input parameter is not a valid SQL statement
    */
-  @Nullable
+  @Nonnull
   protected static SQLStatement parse(String statement, DatabaseSessionEmbedded session)
       throws CommandSQLParsingException {
     try {
       InputStream is;
-      try {
-        is =
-            new ByteArrayInputStream(
-                statement.getBytes(session.getStorage().getCharset()));
-      } catch (UnsupportedEncodingException e2) {
-        LogManager.instance()
-            .warn(
-                StatementCache.class,
-                "Unsupported charset for database "
-                    + session
-                    + " "
-                    + session.getStorage().getCharset());
+      if (session != null) {
+        try {
+          is = new ByteArrayInputStream(
+              statement.getBytes(session.getStorage().getCharset()));
+        } catch (UnsupportedEncodingException e2) {
+          LogManager.instance()
+              .warn(
+                  YqlStatementCache.class,
+                  "Unsupported charset for database "
+                      + session
+                      + " "
+                      + session.getStorage().getCharset());
+          is = new ByteArrayInputStream(statement.getBytes());
+        }
+      } else {
         is = new ByteArrayInputStream(statement.getBytes());
       }
 
-      YouTrackDBSql osql = null;
+      YouTrackDBSql osql;
       if (session == null) {
         osql = new YouTrackDBSql(is);
       } else {
@@ -144,7 +144,7 @@ public class StatementCache {
         } catch (UnsupportedEncodingException e2) {
           LogManager.instance()
               .warn(
-                  StatementCache.class,
+                  YqlStatementCache.class,
                   "Unsupported charset for database "
                       + session
                       + " "
@@ -161,11 +161,12 @@ public class StatementCache {
     } catch (TokenMgrError e2) {
       throwParsingException(e2, statement);
     }
-    return null;
+    // unreachable — throwParsingException always throws
+    throw new AssertionError("unreachable");
   }
 
   /**
-   * parses an SQL statement and returns the corresponding executor
+   * Parses an SQL statement and returns the corresponding executor.
    *
    * @param statement the SQL statement
    * @return the corresponding executor
@@ -178,7 +179,6 @@ public class StatementCache {
       InputStream is = new ByteArrayInputStream(statement.getBytes());
       var osql = new YouTrackDBSql(is);
       var serverStatement = osql.parseServerStatement();
-      //      result.originalStatement = statement;
 
       return serverStatement;
     } catch (ParseException e) {
@@ -198,12 +198,8 @@ public class StatementCache {
   }
 
   public void clear() {
-    if (GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger() == 0) {
-      return;
-    }
-
-    synchronized (map) {
-      map.clear();
+    if (cache != null) {
+      cache.invalidateAll();
     }
   }
 }

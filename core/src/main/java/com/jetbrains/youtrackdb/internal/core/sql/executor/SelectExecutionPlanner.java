@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -45,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SubQueryCollector;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -110,7 +110,7 @@ import javax.annotation.Nullable;
  *      UNWIND, ORDER BY,        |
  *      SKIP, LIMIT, DISTINCT)   |
  *  9. Timeout                   | AccumulatingTimeoutStep
- *  10. Cache plan (optional)    | ExecutionPlanCache.put()
+ *  10. Cache plan (optional)    | YqlExecutionPlanCache.put()
  * </pre>
  *
  * <h2>Projection splitting for aggregation</h2>
@@ -214,7 +214,7 @@ public class SelectExecutionPlanner {
    * @param ctx              command context carrying the database session and input parameters
    * @param enableProfiling  if true, each step wraps its output stream with profiling counters
    * @param useCache         if true, the planner will check / populate the
-   *                         {@link ExecutionPlanCache}
+   *                         {@link YqlExecutionPlanCache}
    * @return a ready-to-execute {@link InternalExecutionPlan}
    */
   public InternalExecutionPlan createExecutionPlan(
@@ -223,7 +223,7 @@ public class SelectExecutionPlanner {
 
     // --- 1. Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
@@ -231,7 +231,7 @@ public class SelectExecutionPlanner {
 
     // Record the timestamp so we can avoid caching a stale plan if the schema
     // was modified concurrently during planning.
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     // --- 2. Copy AST into mutable QueryPlanningInfo ---
     init(ctx);
@@ -252,13 +252,13 @@ public class SelectExecutionPlanner {
     }
 
     // --- 5. Build the step chain in pipeline order ---
-    handleGlobalLet(result, info, ctx, enableProfiling);       // global LET (executed once)
+    handleGlobalLet(result, info, ctx, enableProfiling); // global LET (executed once)
 
     handleFetchFromTarget(result, info, ctx, enableProfiling); // data source
 
-    handleLet(result, info, ctx, enableProfiling);             // per-record LET
+    handleLet(result, info, ctx, enableProfiling); // per-record LET
 
-    handleWhere(result, info, ctx, enableProfiling);           // WHERE filtering
+    handleWhere(result, info, ctx, enableProfiling); // WHERE filtering
 
     handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
 
@@ -272,8 +272,8 @@ public class SelectExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      ExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
+        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
     }
     return result;
   }
@@ -366,8 +366,7 @@ public class SelectExecutionPlanner {
    * Rewrites legacy Lucene-style operators in the WHERE clause to the standard form.
    * Returns the (possibly mutated) WHERE clause, or {@code null} if the input was null.
    */
-  @Nullable
-  private static SQLWhereClause translateLucene(SQLWhereClause whereClause) {
+  @Nullable private static SQLWhereClause translateLucene(SQLWhereClause whereClause) {
     if (whereClause == null) {
       return null;
     }
@@ -592,7 +591,7 @@ public class SelectExecutionPlanner {
       var fields = classIndex.getDefinition().getProperties();
       if (fields.size() == 1
           && fields.getFirst()
-          .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
+              .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
         var expr = binaryCondition.getRight();
         result.chain(
             new CountFromIndexWithKeyStep(
@@ -650,9 +649,9 @@ public class SelectExecutionPlanner {
         || info.projection == null
         || info.aggregateProjection.getItems().size() != 1
         || info.projection.getItems().stream()
-        .filter(x -> !x.getProjectionAliasAsString().startsWith("_$$$ORDER_BY_ALIAS$$$_"))
-        .count()
-        != 1) {
+            .filter(x -> !x.getProjectionAliasAsString().startsWith("_$$$ORDER_BY_ALIAS$$$_"))
+            .count()
+            != 1) {
       return false;
     }
     var item = info.aggregateProjection.getItems().getFirst();
@@ -884,7 +883,7 @@ public class SelectExecutionPlanner {
         var item = iterator.next();
         if (item.getExpression() != null
             && (item.getExpression().isEarlyCalculated(ctx)
-            || isCombinationOfQueries(item.getExpression()))) {
+                || isCombinationOfQueries(item.getExpression()))) {
           iterator.remove();
           addGlobalLet(info, item.getVarName(), item.getExpression());
         } else if (item.getQuery() != null && !item.getQuery().refersToParent()) {
@@ -938,8 +937,7 @@ public class SelectExecutionPlanner {
    *          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  equality prefix for composite index
    * </pre>
    */
-  @Nullable
-  private static List<SQLAndBlock> moveFlattenedEqualitiesLeft(
+  @Nullable private static List<SQLAndBlock> moveFlattenedEqualitiesLeft(
       List<SQLAndBlock> flattenedWhereClause) {
     if (flattenedWhereClause == null) {
       return null;
@@ -999,7 +997,7 @@ public class SelectExecutionPlanner {
         || info.projection == null
         || info.projection.getItems() == null
         || (info.projection.getItems().size() == 1 && info.projection.getItems().getFirst()
-        .isAll())) {
+            .isAll())) {
       return;
     }
 
@@ -1384,9 +1382,9 @@ public class SelectExecutionPlanner {
       var className = target.getIdentifier().getStringValue();
       if (!className.isEmpty() && className.charAt(0) == '$'
           && !ctx.getDatabaseSession()
-          .getMetadata()
-          .getImmutableSchemaSnapshot()
-          .existsClass(className)) {
+              .getMetadata()
+              .getImmutableSchemaSnapshot()
+              .existsClass(className)) {
         handleVariableAsTarget(result, info, ctx, profilingEnabled);
       } else {
         var ridRangeConditions = extractRidRanges(info.flattenedWhereClause, ctx);
@@ -1581,7 +1579,6 @@ public class SelectExecutionPlanner {
       SelectExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
     result.chain(new EmptyDataGeneratorStep(1, ctx, profilingEnabled));
   }
-
 
   /**
    * Handles {@code SELECT FROM metadata:SCHEMA}, {@code metadata:INDEXES},
@@ -1890,7 +1887,7 @@ public class SelectExecutionPlanner {
 
     if (info.orderBy != null
         && handleClassWithIndexForSortOnly(
-        plan, identifier, info, ctx, profilingEnabled)) {
+            plan, identifier, info, ctx, profilingEnabled)) {
       plan.chain(new FilterByClassStep(identifier, ctx, profilingEnabled));
       return;
     }
@@ -2159,8 +2156,7 @@ public class SelectExecutionPlanner {
    * (fallback mode) are silently excluded; conditions that require an index but
    * none exists cause an exception.
    */
-  @Nullable
-  private static List<SQLBinaryCondition> filterIndexedFunctionsWithoutIndex(
+  @Nullable private static List<SQLBinaryCondition> filterIndexedFunctionsWithoutIndex(
       List<SQLBinaryCondition> indexedFunctionConditions,
       SQLFromClause fromClause,
       CommandContext ctx) {
@@ -2211,10 +2207,9 @@ public class SelectExecutionPlanner {
           "Class not found: " + queryTarget);
     }
 
-    for (var idx :
-        clazz.getIndexesInternal().stream()
-            .filter(i -> i.getDefinition() != null)
-            .toList()) {
+    for (var idx : clazz.getIndexesInternal().stream()
+        .filter(i -> i.getDefinition() != null)
+        .toList()) {
       var indexFields = idx.getDefinition().getProperties();
       if (indexFields.size() < info.orderBy.getItems().size()) {
         continue;
@@ -2381,8 +2376,7 @@ public class SelectExecutionPlanner {
    *
    * @return list of steps if successful, {@code null} if any branch cannot be indexed
    */
-  @Nullable
-  private List<ExecutionStepInternal> handleClassAsTargetWithIndexRecursive(
+  @Nullable private List<ExecutionStepInternal> handleClassAsTargetWithIndexRecursive(
       String targetClass,
       Set<String> filterCollections,
       QueryPlanningInfo info,
@@ -2447,15 +2441,13 @@ public class SelectExecutionPlanner {
    *                        for subclass branches this is false
    * @return list of execution steps, or {@code null} if indexes cannot cover all branches
    */
-  @Nullable
-  private List<ExecutionStepInternal> handleClassAsTargetWithIndex(
+  @Nullable private List<ExecutionStepInternal> handleClassAsTargetWithIndex(
       String targetClass,
       Set<String> filterCollections,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled,
-      boolean isHierarchyRoot
-  ) {
+      boolean isHierarchyRoot) {
     if (info.flattenedWhereClause == null || info.flattenedWhereClause.isEmpty()) {
       return null;
     }
@@ -2488,8 +2480,7 @@ public class SelectExecutionPlanner {
         ctx,
         profilingEnabled,
         optimumIndexSearchDescriptors,
-        isHierarchyRoot
-    );
+        isHierarchyRoot);
   }
 
   /**
@@ -2511,8 +2502,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled,
       List<IndexSearchDescriptor> optimumIndexSearchDescriptors,
-      boolean isHierarchyRoot
-  ) {
+      boolean isHierarchyRoot) {
     List<ExecutionStepInternal> result;
     if (optimumIndexSearchDescriptors.size() == 1) {
       var desc = optimumIndexSearchDescriptors.getFirst();
@@ -2589,8 +2579,7 @@ public class SelectExecutionPlanner {
    *
    * @return TRUE if all the order clauses are ASC, FALSE if all are DESC, null otherwise
    */
-  @Nullable
-  private static Boolean getOrderDirection(QueryPlanningInfo info) {
+  @Nullable private static Boolean getOrderDirection(QueryPlanningInfo info) {
     if (info.orderBy == null) {
       return null;
     }
@@ -2677,8 +2666,7 @@ public class SelectExecutionPlanner {
    * @param clazz   the target schema class
    * @return the best index descriptor, or {@code null} if no index can be used
    */
-  @Nullable
-  private static IndexSearchDescriptor findBestIndexFor(
+  @Nullable private static IndexSearchDescriptor findBestIndexFor(
       CommandContext ctx, Set<Index> indexes, SQLAndBlock block, SchemaClass clazz) {
     // get all valid index descriptors
     var descriptors =
@@ -2844,8 +2832,7 @@ public class SelectExecutionPlanner {
    *
    * @return a descriptor, or {@code null} if the index cannot be used for this block
    */
-  @Nullable
-  private static IndexSearchDescriptor buildIndexSearchDescriptor(
+  @Nullable private static IndexSearchDescriptor buildIndexSearchDescriptor(
       CommandContext ctx, Index index, SQLAndBlock block, SchemaClass clazz) {
     var indexProperties = index.getDefinition().getProperties();
 
@@ -2990,8 +2977,7 @@ public class SelectExecutionPlanner {
    *
    * @return a descriptor, or {@code null} if no CONTAINSTEXT match was found
    */
-  @Nullable
-  private static IndexSearchDescriptor buildIndexSearchDescriptorForFulltext(
+  @Nullable private static IndexSearchDescriptor buildIndexSearchDescriptorForFulltext(
       Index index, SQLAndBlock block) {
     var indexFields = index.getDefinition().getProperties();
     var found = false;
@@ -3101,7 +3087,6 @@ public class SelectExecutionPlanner {
     }
     return result;
   }
-
 
   /**
    * Wraps a subquery statement as the FROM target using a {@link SubQueryStep}.
