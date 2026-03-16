@@ -3133,7 +3133,7 @@ public class SelectExecutionPlanner {
   private static void tryPushDownFilterIntoExpand(
       SelectExecutionPlan plan, QueryPlanningInfo info) {
     var steps = plan.steps;
-    if (steps.size() < 2) {
+    if (steps.size() < 2 || info.whereClause == null) {
       return;
     }
 
@@ -3142,12 +3142,7 @@ public class SelectExecutionPlanner {
       if (!(steps.get(i) instanceof SubQueryStep subQueryStep)) {
         continue;
       }
-      if (!(steps.get(i + 1) instanceof FilterStep)) {
-        continue;
-      }
-
-      // Don't push down filters that reference parent scope
-      if (info.whereClause != null && info.whereClause.refersToParent()) {
+      if (!(steps.get(i + 1) instanceof FilterStep filterStep)) {
         continue;
       }
 
@@ -3168,11 +3163,35 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      // Try to extract a @class filter for zero-I/O filtering at the storage level.
-      // When the WHERE is exactly @class = 'X', we resolve it to collection IDs and
-      // skip non-matching vertices without loading them from disk.
-      var classFilter = extractClassFilter(info.whereClause, plan);
-      var pushDownWhere = classFilter != null ? null : info.whereClause;
+      // Try to extract @class = 'X' from the WHERE (even compound AND).
+      // This yields a zero-I/O class filter (collection ID check on the RID)
+      // plus an optional remaining WHERE for the other conditions.
+      it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
+      SQLWhereClause remainingWhere = info.whereClause;
+      var extraction = info.whereClause.extractAndRemoveClassEquality();
+      if (extraction != null) {
+        classFilter = resolveClassToCollectionIds(extraction.className(), plan);
+        if (classFilter != null) {
+          remainingWhere = extraction.remainingWhere();
+        }
+      }
+
+      // Determine what can be pushed down as a generic filter.
+      // Conditions that reference $parent scope must stay as an outer FilterStep.
+      SQLWhereClause pushDownWhere = null;
+      SQLWhereClause outerWhere = null;
+      if (remainingWhere != null) {
+        if (remainingWhere.refersToParent()) {
+          outerWhere = remainingWhere;
+        } else {
+          pushDownWhere = remainingWhere;
+        }
+      }
+
+      // Nothing to push down — keep the plan unchanged
+      if (classFilter == null && pushDownWhere == null) {
+        continue;
+      }
 
       // Replace the ExpandStep with one that includes the push-down filter(s)
       var pushedDown = new ExpandStep(
@@ -3181,13 +3200,21 @@ public class SelectExecutionPlanner {
       pushedDown.setPrevious(expandStep.prev);
       innerPlan.steps.set(expandIndex, pushedDown);
 
-      // Remove the outer FilterStep — its predicate is now inside expand
-      steps.remove(i + 1);
-
-      // Relink the chain: the step after the removed FilterStep (if any)
-      // should now pull from SubQueryStep
-      if (i + 1 < steps.size()) {
-        steps.get(i + 1).setPrevious(subQueryStep);
+      if (outerWhere != null) {
+        // Replace the FilterStep with one that only has the remaining conditions
+        var newFilter = new FilterStep(
+            outerWhere, plan.getContext(), 0, filterStep.isProfilingEnabled());
+        newFilter.setPrevious(filterStep.prev);
+        steps.set(i + 1, newFilter);
+        if (i + 2 < steps.size()) {
+          steps.get(i + 2).setPrevious(newFilter);
+        }
+      } else {
+        // Remove the outer FilterStep entirely — everything was pushed down
+        steps.remove(i + 1);
+        if (i + 1 < steps.size()) {
+          steps.get(i + 1).setPrevious(subQueryStep);
+        }
       }
 
       return; // Only push down once
@@ -3195,21 +3222,11 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * Extracts a class filter from a WHERE clause of the form {@code @class = 'ClassName'}.
-   * Returns the set of collection (cluster) IDs for the class and all its subclasses,
-   * or {@code null} if the WHERE is not a simple class equality predicate.
+   * Resolves a class name to the set of collection (cluster) IDs for that class
+   * and all its subclasses. Returns {@code null} if the class is not found.
    */
-  @Nullable private static it.unimi.dsi.fastutil.ints.IntSet extractClassFilter(
-      @Nullable SQLWhereClause where, SelectExecutionPlan plan) {
-    if (where == null) {
-      return null;
-    }
-
-    var className = where.extractClassEqualityName();
-    if (className == null) {
-      return null;
-    }
-
+  @Nullable private static it.unimi.dsi.fastutil.ints.IntSet resolveClassToCollectionIds(
+      String className, SelectExecutionPlan plan) {
     var ctx = plan.getContext();
     if (ctx == null || ctx.getDatabaseSession() == null) {
       return null;
@@ -3219,7 +3236,6 @@ public class SelectExecutionPlanner {
     if (schemaClass == null) {
       return null;
     }
-
     return com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterator
         .collectionIdsForClass(schemaClass);
   }

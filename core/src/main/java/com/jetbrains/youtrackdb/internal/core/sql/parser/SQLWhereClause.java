@@ -327,59 +327,104 @@ public class SQLWhereClause extends SimpleNode {
    */
   @Nullable
   public String extractClassEqualityName() {
+    var result = extractAndRemoveClassEquality();
+    return result != null ? result.className() : null;
+  }
+
+  /**
+   * Result of extracting a {@code @class = 'X'} condition from a WHERE clause.
+   *
+   * @param className the extracted class name
+   * @param remainingWhere the WHERE clause with the class condition removed,
+   *     or {@code null} if the class condition was the only condition
+   */
+  public record ClassExtractionResult(
+      String className, @Nullable SQLWhereClause remainingWhere) {
+  }
+
+  /**
+   * Extracts a {@code @class = 'ClassName'} condition from this WHERE clause,
+   * handling both simple and compound AND forms:
+   * <ul>
+   *   <li>{@code WHERE @class = 'Post'} → className="Post", remainingWhere=null
+   *   <li>{@code WHERE @class = 'Post' AND x > 5} → className="Post",
+   *       remainingWhere="x > 5"
+   *   <li>{@code WHERE x > 5} → returns null
+   * </ul>
+   *
+   * @return extraction result, or {@code null} if no class equality is found
+   */
+  @Nullable
+  public ClassExtractionResult extractAndRemoveClassEquality() {
     if (baseExpression == null) {
       return null;
     }
 
-    // The parser wraps conditions as:
-    //   SQLOrBlock → SQLAndBlock → SQLNotBlock → condition
-    // Unwrap to find the single binary condition when the structure is trivial
-    // (one OR branch, one AND term, non-negated NOT wrapper).
-    var inner = unwrapSingleCondition(baseExpression);
-    if (!(inner instanceof SQLBinaryCondition cond)) {
-      return null;
-    }
-
-    if (!(cond.operator instanceof SQLEqualsOperator)) {
-      return null;
-    }
-
-    // Try: @class = 'X'
-    var name = tryExtractClassName(cond.left, cond.right);
-    if (name != null) {
-      return name;
-    }
-    // Try reversed: 'X' = @class
-    return tryExtractClassName(cond.right, cond.left);
-  }
-
-  /**
-   * Unwraps trivial wrapper layers (single-child OrBlock, single-child AndBlock,
-   * non-negated NotBlock) to get to the leaf condition. Returns null if the
-   * structure is not a simple single condition.
-   */
-  @Nullable
-  private static SQLBooleanExpression unwrapSingleCondition(
-      SQLBooleanExpression expr) {
+    // Unwrap OrBlock → AndBlock (must be single OR branch)
+    var expr = baseExpression;
     if (expr instanceof SQLOrBlock orBlock) {
       if (orBlock.subBlocks.size() != 1) {
         return null;
       }
       expr = orBlock.subBlocks.getFirst();
     }
-    if (expr instanceof SQLAndBlock andBlock) {
-      if (andBlock.subBlocks.size() != 1) {
-        return null;
-      }
-      expr = andBlock.subBlocks.getFirst();
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return null;
     }
-    if (expr instanceof SQLNotBlock notBlock) {
+
+    // Scan AND terms for @class = 'X'
+    for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
+      var className = tryExtractClassFromTerm(andBlock.subBlocks.get(idx));
+      if (className != null) {
+        if (andBlock.subBlocks.size() == 1) {
+          return new ClassExtractionResult(className, null);
+        }
+        var remaining = buildWhereWithout(andBlock, idx);
+        return new ClassExtractionResult(className, remaining);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Checks if a single AND term (possibly wrapped in a non-negated NotBlock)
+   * is {@code @class = 'X'}. Returns the class name or null.
+   */
+  @Nullable
+  private static String tryExtractClassFromTerm(SQLBooleanExpression term) {
+    if (term instanceof SQLNotBlock notBlock) {
       if (notBlock.negate) {
         return null;
       }
-      expr = notBlock.sub;
+      term = notBlock.sub;
     }
-    return expr;
+    if (!(term instanceof SQLBinaryCondition cond)) {
+      return null;
+    }
+    if (!(cond.operator instanceof SQLEqualsOperator)) {
+      return null;
+    }
+    var name = tryExtractClassName(cond.left, cond.right);
+    return name != null ? name : tryExtractClassName(cond.right, cond.left);
+  }
+
+  /**
+   * Builds a new WHERE clause from the AND block with the term at
+   * {@code skipIdx} removed.
+   */
+  private static SQLWhereClause buildWhereWithout(
+      SQLAndBlock andBlock, int skipIdx) {
+    var newAnd = new SQLAndBlock(-1);
+    for (var i = 0; i < andBlock.subBlocks.size(); i++) {
+      if (i != skipIdx) {
+        newAnd.subBlocks.add(andBlock.subBlocks.get(i));
+      }
+    }
+    var newOr = new SQLOrBlock(-1);
+    newOr.subBlocks.add(newAnd);
+    var where = new SQLWhereClause(-1);
+    where.baseExpression = newOr;
+    return where;
   }
 
   /**

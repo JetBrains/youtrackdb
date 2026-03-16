@@ -5853,6 +5853,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
         (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
             .parse("SELECT FROM V WHERE name = 'Alice'", session);
     Assert.assertNull(stmNoClass.getWhereClause().extractClassEqualityName());
+
+    // Compound AND: @class = 'Post' AND score > 5
+    var stmCompound =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE @class = 'Post' AND score > 5", session);
+    var compoundResult =
+        stmCompound.getWhereClause().extractAndRemoveClassEquality();
+    Assert.assertNotNull("Should extract class from compound AND", compoundResult);
+    Assert.assertEquals("Post", compoundResult.className());
+    Assert.assertNotNull(
+        "Remaining WHERE should contain score > 5",
+        compoundResult.remainingWhere());
+    Assert.assertTrue(
+        compoundResult.remainingWhere().toString().contains("score"));
+
+    // Also extractClassEqualityName() should still work on compound
+    Assert.assertEquals("Post",
+        stmCompound.getWhereClause().extractClassEqualityName());
   }
 
   /**
@@ -5911,6 +5929,73 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(
         "Class filter should be pushed down into EXPAND, plan was:\n" + plan,
         plan.contains("class filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the outer WHERE is compound (@class = 'Post' AND <other>),
+   * the planner extracts the class filter as a zero-I/O collection ID check on
+   * ExpandStep and keeps the remaining condition as an outer FilterStep.
+   * This is the IC10-like pattern: the class filter skips Comment records
+   * without disk I/O, while the remaining predicate is evaluated after loading.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_compoundClassAndProperty() {
+    session.execute("CREATE CLASS PdForum2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdPost2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdComment2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdContainerOf2 EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdForum2 SET name = 'forum1'").close();
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX PdPost2 SET title = 'post" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE PdContainerOf2 FROM (SELECT FROM PdForum2 WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdPost2 WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX PdComment2 SET text = 'comment" + i + "', score = " + (i + 10))
+          .close();
+      session.execute(
+          "CREATE EDGE PdContainerOf2 FROM (SELECT FROM PdForum2 WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdComment2 WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // Compound WHERE: class filter + property filter.
+    // Without push-down: loads all 8 records, filters by class then score.
+    // With push-down: skips 3 comments via collection ID (zero I/O),
+    //   loads 5 posts, filters by score.
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PdContainerOf2')) FROM PdForum2"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'PdPost2' AND score >= 3");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 2 posts with score >= 3 (post3, post4)", 2, items.size());
+    for (var item : items) {
+      Assert.assertEquals("PdPost2", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 3);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be pushed down into EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    // The remaining "score >= 3" should either be a push-down filter or outer FilterStep
+    Assert.assertTrue(
+        "Remaining predicate should be present (push-down or filter), plan was:\n"
+            + plan,
+        plan.contains("score") || plan.contains("FILTER"));
 
     result.close();
     session.commit();
