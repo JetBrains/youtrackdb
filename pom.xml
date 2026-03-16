@@ -1214,6 +1214,11 @@
                 <param>com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBackupTest</param>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.executor.ResultSetTest</param>
                 <param>com.jetbrains.youtrackdb.internal.core.sql.CommandExecutorSQLSelectTest</param>
+                <!-- MatchStatementExecutionHeavyTest creates 1000 vertices with
+                     edges per test method; the heavy setup causes PIT minion
+                     flakiness (testJson2 fails without mutation under PIT's
+                     classloader). Focused unit tests cover the same mutations. -->
+                <param>com.jetbrains.youtrackdb.internal.core.sql.executor.MatchStatementExecutionHeavyTest</param>
               </excludedTestClasses>
               <targetTests>
                 <param>com.jetbrains.youtrackdb.*</param>

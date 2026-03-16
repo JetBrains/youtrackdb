@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPrefetchStep;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -48,54 +47,6 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.execute("CREATE VERTEX MathOp set a = 1, b = 3, c = 2").close();
     session.execute("CREATE VERTEX MathOp set a = 5, b = 3, c = 2").close();
     session.commit();
-  }
-
-  private void initEdgeIndexTest() {
-    session.execute("CREATE class IndexedVertex extends V").close();
-    session.execute("CREATE property IndexedVertex.uid INTEGER").close();
-    session.execute("CREATE index IndexedVertex_uid on IndexedVertex (uid) NOTUNIQUE").close();
-
-    session.execute("CREATE class IndexedEdge extends E").close();
-    session.execute("CREATE property IndexedEdge.out LINK").close();
-    session.execute("CREATE property IndexedEdge.in LINK").close();
-    session.execute("CREATE index IndexedEdge_out_in on IndexedEdge (out, in) NOTUNIQUE").close();
-
-    var nodes = 1000;
-
-    session.executeInTx(
-        transaction -> {
-          for (var i = 0; i < nodes; i++) {
-            var doc = (EntityImpl) session.newVertex("IndexedVertex");
-            doc.setProperty("uid", i);
-
-          }
-        });
-
-    for (var i = 0; i < 100; i++) {
-      var cmd =
-          "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT FROM"
-              + " IndexedVertex WHERE uid > "
-              + (i * nodes / 100)
-              + " and uid <"
-              + ((i + 1) * nodes / 100)
-              + ")";
-
-      session.begin();
-      session.execute(cmd).close();
-      session.commit();
-    }
-
-    //    for (int i = 0; i < 100; i++) {
-    //      String cmd =
-    //          "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid > " + ((i * nodes
-    // / 100) + 1) + " and uid < " + (
-    //              ((i + 1) * nodes / 100) + 1) + ") TO (SELECT FROM IndexedVertex WHERE uid = 1)";
-    //      System.out.println(cmd);
-    //      db.command(new CommandSQL(cmd)).execute();
-    //    }
-
-    //    db.query("select expand(out()) from IndexedVertex where uid = 0").stream().forEach(x->
-    // System.out.println("x = " + x));
   }
 
   private void initOrgChart() {
@@ -1489,29 +1440,6 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   @Test
-  public void testNoPrefetch() {
-    initEdgeIndexTest();
-    var query = "match " + "{class:IndexedVertex, as: one}" + "return $patterns";
-
-    session.begin();
-    var result = session.query(query);
-    printExecutionPlan(result);
-
-    result
-        .getExecutionPlan().getSteps().stream()
-        .filter(y -> y instanceof MatchPrefetchStep)
-        .forEach(prefetchStepFound -> Assert.fail());
-
-    for (var i = 0; i < 1000; i++) {
-      Assert.assertTrue(result.hasNext());
-      result.next();
-    }
-    Assert.assertFalse(result.hasNext());
-    result.close();
-    session.commit();
-  }
-
-  @Test
   public void testCartesianProductLimit() {
     initTriangleTest();
     var query =
@@ -1661,105 +1589,6 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var transaction = session.getActiveTransaction();
     var resultVertex = transaction.loadVertex(identifiable);
     Assert.assertEquals(2, resultVertex.<Object>getProperty("uid"));
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testIndexedEdge() {
-    initEdgeIndexTest();
-    var query =
-        "match "
-            + "{class:IndexedVertex, as: one, where: (uid = 0)}"
-            + ".out('IndexedEdge'){class:IndexedVertex, as: two, where: (uid = 1)}"
-            + "return one, two";
-
-    session.begin();
-    var result = session.query(query);
-    printExecutionPlan(result);
-    Assert.assertTrue(result.hasNext());
-    result.next();
-    Assert.assertFalse(result.hasNext());
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testIndexedEdgeArrows() {
-    initEdgeIndexTest();
-    var query =
-        "match "
-            + "{class:IndexedVertex, as: one, where: (uid = 0)}"
-            + "-IndexedEdge->{class:IndexedVertex, as: two, where: (uid = 1)}"
-            + "return one, two";
-
-    session.begin();
-    var result = session.query(query);
-    Assert.assertTrue(result.hasNext());
-    result.next();
-    Assert.assertFalse(result.hasNext());
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testJson() {
-    initEdgeIndexTest();
-    var query =
-        "match "
-            + "{class:IndexedVertex, as: one, where: (uid = 0)} "
-            + "return {'name':'foo', 'uuid':one.uid}";
-
-    session.begin();
-    var result = session.query(query);
-    Assert.assertTrue(result.hasNext());
-    result.next();
-    Assert.assertFalse(result.hasNext());
-
-    //    EntityImpl doc = result.get(0);
-    //    assertEquals("foo", doc.field("name"));
-    //    assertEquals(0, doc.field("uuid"));
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testJson2() {
-    initEdgeIndexTest();
-    var query =
-        "match "
-            + "{class:IndexedVertex, as: one, where: (uid = 0)} "
-            + "return {'name':'foo', 'sub': {'uuid':one.uid}}";
-
-    session.begin();
-    var result = session.query(query);
-    Assert.assertTrue(result.hasNext());
-    result.next();
-    Assert.assertFalse(result.hasNext());
-    //    EntityImpl doc = result.get(0);
-    //    assertEquals("foo", doc.field("name"));
-    //    assertEquals(0, doc.field("sub.uuid"));
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testJson3() {
-    initEdgeIndexTest();
-    var query =
-        "match "
-            + "{class:IndexedVertex, as: one, where: (uid = 0)} "
-            + "return {'name':'foo', 'sub': [{'uuid':one.uid}]}";
-
-    session.begin();
-    var result = session.query(query);
-    Assert.assertTrue(result.hasNext());
-    result.next();
-    Assert.assertFalse(result.hasNext());
-    //    EntityImpl doc = result.get(0);
-    //    assertEquals("foo", doc.field("name"));
-    //    assertEquals(0, doc.field("sub[0].uuid"));
-
     result.close();
     session.commit();
   }
