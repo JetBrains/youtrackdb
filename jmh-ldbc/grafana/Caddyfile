@@ -1,0 +1,3 @@
+bench.youtrackdb.io {
+	reverse_proxy grafana:3000
+}

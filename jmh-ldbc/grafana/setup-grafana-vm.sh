@@ -37,7 +37,8 @@ ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # Grafana
+ufw allow 80/tcp    # HTTP (Caddy → redirect to HTTPS)
+ufw allow 443/tcp   # HTTPS (Caddy → Grafana)
 ufw allow 8086/tcp  # InfluxDB (token-protected)
 ufw --force enable
 ufw status verbose
