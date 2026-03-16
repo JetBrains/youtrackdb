@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload results artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jmh-results-${{ steps.commit.outputs.short_sha }}-${{ github.run_id }}
           path: results.json
