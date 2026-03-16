@@ -129,6 +129,29 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 - **Test descriptions**: Every test must have a detailed description (in a comment or descriptive method name) explaining what scenario is being tested and what the expected outcome is, so a reviewer can quickly grasp the purpose.
 - **Keep comments in sync**: When modifying code, always update the surrounding comments to match the new behavior. Stale or contradictory comments are worse than no comments.
 
+### Formatting (Spotless)
+
+Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) (`com.diffplug.spotless:spotless-maven-plugin`), which runs the `check` goal automatically during the `process-sources` phase of every build. Builds will fail if formatting violations are found.
+
+- **Formatter**: Eclipse formatter configured in `config/eclipse-formatter.xml`
+- **Ratchet mode**: Only files changed since the `spotless-baseline` git tag are checked — existing code is not reformatted
+- **Import order**: Static imports first (`\#`), then regular imports
+- **Excludes**: Generated code (`**/internal/core/sql/parser/**`, `**/generated-sources/**`, `**/generated-test-sources/**`)
+
+```bash
+# Check formatting (runs automatically during build)
+./mvnw spotless:check
+
+# Auto-fix formatting violations
+./mvnw spotless:apply
+
+# Check/fix for a single module
+./mvnw -pl core spotless:check
+./mvnw -pl core spotless:apply
+```
+
+**After modifying code, always run `./mvnw -pl {module} spotless:apply`** before committing to ensure formatting compliance. If the build fails with a Spotless error, run `spotless:apply` to auto-fix.
+
 ## Testing
 
 ### Test Requirements
