@@ -8,8 +8,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -25,17 +27,20 @@ import javax.annotation.Nullable;
  *   <li>{@link Result} -- passed through as-is</li>
  * </ul>
  *
- * <pre>
- *  SQL:   SELECT expand(friends) FROM Person WHERE name = 'Alice'
+ * <h2>Predicate push-down</h2>
  *
- *  Input:  { friends: [#10:1, #10:2, #10:3] }  (single row with link list)
- *  Output: { @rid: #10:1, name: "Bob",   ... }  (three separate records)
- *          { @rid: #10:2, name: "Carol", ... }
- *          { @rid: #10:3, name: "Dave",  ... }
- * </pre>
- *
- * <p>This is commonly used for graph traversals where outgoing edges return link
- * collections that need to be expanded into individual vertex records.
+ * <p>Two levels of push-down are supported:
+ * <ol>
+ *   <li><b>Class filter ({@code acceptedCollectionIds})</b> — When the outer WHERE
+ *       contains {@code @class = 'ClassName'}, the planner resolves the class to its
+ *       collection (cluster) IDs. During expansion, the collection ID of each target
+ *       RID is checked <em>before</em> loading the record from storage. Vertices
+ *       whose collection ID is not in the accepted set are skipped with zero disk I/O.
+ *   <li><b>Generic filter ({@code pushDownFilter})</b> — Any remaining WHERE predicates
+ *       that cannot be resolved to a class filter are applied <em>after</em> each
+ *       expanded record is loaded. This still avoids flowing non-matching records
+ *       through the rest of the pipeline.
+ * </ol>
  *
  * @see SelectExecutionPlanner#handleExpand
  * @see UnwindStep
@@ -46,23 +51,30 @@ public class ExpandStep extends AbstractExecutionStep {
   final String expandAlias;
 
   /**
-   * Optional WHERE clause pushed down from an outer SELECT. When present, each
-   * expanded element is tested against this filter during iteration — elements
-   * that don't match are discarded immediately without flowing through the rest
-   * of the pipeline. This avoids materializing and processing records that would
-   * be filtered out by the outer WHERE anyway.
+   * Optional WHERE clause pushed down from an outer SELECT. Applied after each
+   * expanded record is loaded — filters out non-matching records before they
+   * flow through the rest of the pipeline.
    */
   @Nullable private final SQLWhereClause pushDownFilter;
 
+  /**
+   * When non-null, only vertices whose collection (cluster) ID is in this set
+   * are loaded from storage. This is resolved from {@code @class = 'X'} predicates
+   * at plan time and avoids disk I/O entirely for non-matching vertices.
+   */
+  @Nullable private final IntSet acceptedCollectionIds;
+
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
-    this(ctx, profilingEnabled, expandAlias, null);
+    this(ctx, profilingEnabled, expandAlias, null, null);
   }
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
-      @Nullable SQLWhereClause pushDownFilter) {
+      @Nullable SQLWhereClause pushDownFilter,
+      @Nullable IntSet acceptedCollectionIds) {
     super(ctx, profilingEnabled);
     this.expandAlias = expandAlias;
     this.pushDownFilter = pushDownFilter;
+    this.acceptedCollectionIds = acceptedCollectionIds;
   }
 
   @Override
@@ -108,12 +120,17 @@ public class ExpandStep extends AbstractExecutionStep {
           throw new CommandExecutionException(db,
               "Cannot expand a record with a non-null alias: " + expandAlias);
         }
+        // For single identifiable, apply class filter via collection ID check
+        if (acceptedCollectionIds != null
+            && !acceptedCollectionIds.contains(
+                identifiable.getIdentity().getCollectionId())) {
+          return ExecutionStream.empty();
+        }
         DBRecord rec;
         try {
           var transaction = db.getActiveTransaction();
           rec = transaction.load(identifiable);
         } catch (RecordNotFoundException rnf) {
-          // Deleted or inaccessible records are silently skipped (dangling links are tolerated).
           return ExecutionStream.empty();
         }
 
@@ -127,6 +144,14 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.iterator(iterator, expandAlias);
       }
       case Iterable<?> iterable -> {
+        // When the iterable is a VertexFromLinkBagIterable (from edge traversal)
+        // and we have a class filter, inject it so that non-matching vertices
+        // are skipped before loading from storage — zero disk I/O for skipped records.
+        if (acceptedCollectionIds != null
+            && iterable instanceof VertexFromLinkBagIterable linkBagIterable) {
+          var filtered = linkBagIterable.withClassFilter(acceptedCollectionIds);
+          return ExecutionStream.iterator(filtered.iterator(), expandAlias);
+        }
         return ExecutionStream.iterator(iterable.iterator(), expandAlias);
       }
       case Map<?, ?> map -> {
@@ -146,6 +171,10 @@ public class ExpandStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     var result = new StringBuilder(spaces + "+ EXPAND");
+    if (acceptedCollectionIds != null) {
+      result.append(" (class filter: ").append(acceptedCollectionIds.size())
+          .append(" collection(s))");
+    }
     if (pushDownFilter != null) {
       result.append(" (push-down filter: ").append(pushDownFilter).append(")");
     }
@@ -164,6 +193,7 @@ public class ExpandStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new ExpandStep(ctx, profilingEnabled, expandAlias,
-        pushDownFilter != null ? pushDownFilter.copy() : null);
+        pushDownFilter != null ? pushDownFilter.copy() : null,
+        acceptedCollectionIds);
   }
 }

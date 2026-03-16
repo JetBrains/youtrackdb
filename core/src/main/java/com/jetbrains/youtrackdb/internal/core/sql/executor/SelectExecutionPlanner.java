@@ -3168,10 +3168,16 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      // Replace the ExpandStep with one that includes the push-down filter
+      // Try to extract a @class filter for zero-I/O filtering at the storage level.
+      // When the WHERE is exactly @class = 'X', we resolve it to collection IDs and
+      // skip non-matching vertices without loading them from disk.
+      var classFilter = extractClassFilter(info.whereClause, plan);
+      var pushDownWhere = classFilter != null ? null : info.whereClause;
+
+      // Replace the ExpandStep with one that includes the push-down filter(s)
       var pushedDown = new ExpandStep(
           innerPlan.getContext(), expandStep.isProfilingEnabled(),
-          expandStep.expandAlias, info.whereClause);
+          expandStep.expandAlias, pushDownWhere, classFilter);
       pushedDown.setPrevious(expandStep.prev);
       innerPlan.steps.set(expandIndex, pushedDown);
 
@@ -3186,6 +3192,36 @@ public class SelectExecutionPlanner {
 
       return; // Only push down once
     }
+  }
+
+  /**
+   * Extracts a class filter from a WHERE clause of the form {@code @class = 'ClassName'}.
+   * Returns the set of collection (cluster) IDs for the class and all its subclasses,
+   * or {@code null} if the WHERE is not a simple class equality predicate.
+   */
+  @Nullable private static it.unimi.dsi.fastutil.ints.IntSet extractClassFilter(
+      @Nullable SQLWhereClause where, SelectExecutionPlan plan) {
+    if (where == null) {
+      return null;
+    }
+
+    var className = where.extractClassEqualityName();
+    if (className == null) {
+      return null;
+    }
+
+    var ctx = plan.getContext();
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = schema.getClass(className);
+    if (schemaClass == null) {
+      return null;
+    }
+
+    return com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterator
+        .collectionIdsForClass(schemaClass);
   }
 
   /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid DESC}. */

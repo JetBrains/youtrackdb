@@ -5831,6 +5831,31 @@ public class SelectStatementExecutionTest extends DbTestBase {
   // ── Predicate push-down into expand() ──
 
   /**
+   * Verifies that extractClassEqualityName() correctly parses {@code @class = 'X'}
+   * from a WHERE clause, both in normal and reversed form.
+   */
+  @Test
+  public void testExtractClassEqualityName() {
+    var stm =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE @class = 'Post'", session);
+    var where = stm.getWhereClause();
+    Assert.assertNotNull("WHERE clause should not be null", where);
+    Assert.assertEquals("Post", where.extractClassEqualityName());
+
+    var stmReversed =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE 'Comment' = @class", session);
+    Assert.assertEquals("Comment",
+        stmReversed.getWhereClause().extractClassEqualityName());
+
+    var stmNoClass =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE name = 'Alice'", session);
+    Assert.assertNull(stmNoClass.getWhereClause().extractClassEqualityName());
+  }
+
+  /**
    * Verifies that a WHERE predicate on a property of expanded records is pushed
    * down into the expand() step. The query expands all edges then filters by
    * a property — the pushed-down filter should appear in the EXPAND step
@@ -5876,11 +5901,16 @@ public class SelectStatementExecutionTest extends DbTestBase {
           item.isEntity() && item.asEntity().getSchemaClassName().equals("PdPost"));
     }
 
-    // Verify push-down: plan should show filter in EXPAND step
+    // Verify that the @class filter was pushed down into EXPAND as a zero-I/O class
+    // filter (checking collection IDs), not just a generic post-expand WHERE.
     var plan = result.getExecutionPlan().prettyPrint(0, 2);
-    Assert.assertTrue(
-        "Filter should be pushed down into EXPAND, plan was:\n" + plan,
+    Assert.assertFalse(
+        "Generic push-down filter should NOT be used for @class — "
+            + "class filter (zero I/O) should be used instead. Plan was:\n" + plan,
         plan.contains("push-down filter"));
+    Assert.assertTrue(
+        "Class filter should be pushed down into EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
 
     result.close();
     session.commit();

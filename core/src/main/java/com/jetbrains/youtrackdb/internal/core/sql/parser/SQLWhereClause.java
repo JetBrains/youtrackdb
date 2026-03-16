@@ -316,5 +316,107 @@ public class SQLWhereClause extends SimpleNode {
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
     return this.baseExpression.findIndex(info, ctx);
   }
+
+  /**
+   * If this WHERE clause is exactly {@code @class = 'ClassName'} (or the reversed
+   * form {@code 'ClassName' = @class}), returns the class name. Otherwise returns null.
+   *
+   * <p>Used by the predicate push-down optimizer to resolve a class filter into
+   * collection (cluster) IDs that can be checked against the RID before loading
+   * the record from storage — zero disk I/O for non-matching vertices.
+   */
+  @Nullable
+  public String extractClassEqualityName() {
+    if (baseExpression == null) {
+      return null;
+    }
+
+    // The parser wraps conditions as:
+    //   SQLOrBlock → SQLAndBlock → SQLNotBlock → condition
+    // Unwrap to find the single binary condition when the structure is trivial
+    // (one OR branch, one AND term, non-negated NOT wrapper).
+    var inner = unwrapSingleCondition(baseExpression);
+    if (!(inner instanceof SQLBinaryCondition cond)) {
+      return null;
+    }
+
+    if (!(cond.operator instanceof SQLEqualsOperator)) {
+      return null;
+    }
+
+    // Try: @class = 'X'
+    var name = tryExtractClassName(cond.left, cond.right);
+    if (name != null) {
+      return name;
+    }
+    // Try reversed: 'X' = @class
+    return tryExtractClassName(cond.right, cond.left);
+  }
+
+  /**
+   * Unwraps trivial wrapper layers (single-child OrBlock, single-child AndBlock,
+   * non-negated NotBlock) to get to the leaf condition. Returns null if the
+   * structure is not a simple single condition.
+   */
+  @Nullable
+  private static SQLBooleanExpression unwrapSingleCondition(
+      SQLBooleanExpression expr) {
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (expr instanceof SQLAndBlock andBlock) {
+      if (andBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = andBlock.subBlocks.getFirst();
+    }
+    if (expr instanceof SQLNotBlock notBlock) {
+      if (notBlock.negate) {
+        return null;
+      }
+      expr = notBlock.sub;
+    }
+    return expr;
+  }
+
+  /**
+   * Checks if {@code attrSide} is a bare {@code @class} record attribute and
+   * {@code valueSide} is a string literal. Returns the unquoted class name or null.
+   */
+  @Nullable
+  private static String tryExtractClassName(SQLExpression attrSide, SQLExpression valueSide) {
+    if (!(attrSide.mathExpression instanceof SQLBaseExpression attrBase)) {
+      return null;
+    }
+    var ident = attrBase.getIdentifier();
+    if (ident == null || ident.getSuffix() == null
+        || ident.getSuffix().recordAttribute == null
+        || attrBase.getModifier() != null) {
+      return null;
+    }
+    if (!"@class".equalsIgnoreCase(
+        ident.getSuffix().recordAttribute.getName())) {
+      return null;
+    }
+
+    if (!(valueSide.mathExpression instanceof SQLBaseExpression valBase)) {
+      return null;
+    }
+    if (valBase.string == null || valBase.getModifier() != null) {
+      return null;
+    }
+
+    // The string literal is stored with surrounding quotes: "\"X\"" or "'X'"
+    var raw = valBase.string;
+    if (raw.length() >= 2
+        && ((raw.startsWith("\"") && raw.endsWith("\""))
+            || (raw.startsWith("'") && raw.endsWith("'")))) {
+      return raw.substring(1, raw.length() - 1);
+    }
+    return raw;
+  }
 }
 /* JavaCC - OriginalChecksum=e8015d01ce1ab2bc337062e9e3f2603e (do not edit this line) */
