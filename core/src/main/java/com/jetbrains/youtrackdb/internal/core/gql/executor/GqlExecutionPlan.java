@@ -75,6 +75,14 @@ public class GqlExecutionPlan {
     return empty();
   }
 
+  /// Returns a human-readable representation of the execution plan (for EXPLAIN / testing).
+  public String prettyPrint(int depth, int indent) {
+    if (sqlPlan != null) {
+      return sqlPlan.prettyPrint(depth, indent);
+    }
+    return "(empty plan)";
+  }
+
   /// Check if this execution plan can be cached.
   @SuppressWarnings("SameReturnValue")
   public static boolean canBeCached() {
