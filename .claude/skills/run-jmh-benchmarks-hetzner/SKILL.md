@@ -85,11 +85,11 @@ ssh root@<IP> 'apt-get install -y -qq python3-pip zstd > /dev/null 2>&1 && \
   pip install --break-system-packages boto3 -q && \
   mkdir -p /root/ytdb/<module>/target/ldbc-dataset/sf0.1 && \
   python3 -c "
-import boto3
+import boto3, os
 s3 = boto3.client(\"s3\",
-    endpoint_url=\"https://nbg1.your-objectstorage.com\",
-    aws_access_key_id=\"8UANVO76X3DS799FAH29\",
-    aws_secret_access_key=\"4XgrWStCpx7QqEKS6f8mOmsdIxW1VjMWSkDTmT2d\")
+    endpoint_url=os.environ[\"S3_ENDPOINT\"],
+    aws_access_key_id=os.environ[\"S3_ACCESS_KEY\"],
+    aws_secret_access_key=os.environ[\"S3_SECRET_KEY\"])
 print(\"Downloading dataset from S3...\")
 s3.download_file(\"bench-cache\", \"ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst\", \"/tmp/dataset.tar.zst\")
 print(\"Downloaded\")
@@ -101,14 +101,16 @@ print(\"Downloaded\")
   echo "Dataset ready" && ls static/ dynamic/'
 ```
 
+**Important**: The command above requires S3 credentials as environment variables on the remote server. Pass them via SSH:
+```bash
+ssh root@<IP> "export S3_ENDPOINT='<endpoint>' S3_ACCESS_KEY='<key>' S3_SECRET_KEY='<secret>' && ..."
+```
+
+Credentials are stored as GitHub secrets: `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`. Retrieve them from GitHub or ask the user.
+
 Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`).
 
-The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format. It is stored in Hetzner Object Storage bucket `bench-cache` at key `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst` (~19 MB).
-
-**S3 credentials** (also stored as GitHub secrets `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`):
-- Endpoint: `https://nbg1.your-objectstorage.com`
-- Access Key: `8UANVO76X3DS799FAH29`
-- Secret Key: `4XgrWStCpx7QqEKS6f8mOmsdIxW1VjMWSkDTmT2d`
+The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format (~19 MB). It is stored in Hetzner Object Storage bucket `bench-cache` at key `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`.
 
 **Avoid** the SURF repository at `repository.surfsara.nl` — it stores files on tape and can take 20+ minutes to stage before the download begins.
 
@@ -249,4 +251,4 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
-- **S3 dataset cache**: The LDBC dataset archive (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB, datagen v1.0.0 CsvCompositeMergeForeign format) is cached in Hetzner Object Storage bucket `bench-cache` at `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`. Endpoint: `https://nbg1.your-objectstorage.com`. Credentials are in GitHub secrets `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT`.
+- **S3 dataset cache**: The LDBC dataset archive (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB, datagen v1.0.0 CsvCompositeMergeForeign format) is cached in Hetzner Object Storage bucket `bench-cache` at `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`. Credentials are stored as GitHub secrets `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them in code or commit them to the repository.
