@@ -100,7 +100,7 @@ jobs:
               sleep 5
             done
             apt-get update -qq
-            apt-get install -y -qq openjdk-21-jdk-headless git zstd sshpass > /dev/null 2>&1
+            apt-get install -y -qq openjdk-21-jdk-headless git zstd > /dev/null 2>&1
             java -version
           '
 
@@ -116,34 +116,6 @@ jobs:
             git config --global user.name "bench"
             cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
           '
-
-      - name: Download LDBC dataset from Storage Box
-        env:
-          STORAGEBOX_USER: ${{ secrets.STORAGEBOX_USER }}
-          STORAGEBOX_PASSWORD: ${{ secrets.STORAGEBOX_PASSWORD }}
-        run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} "
-            set -euo pipefail
-            mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset
-
-            echo 'Downloading dataset from Storage Box...'
-            sshpass -p '${STORAGEBOX_PASSWORD}' scp -o StrictHostKeyChecking=no \
-                '${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:ldbc/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
-                /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst
-            echo 'Downloaded from Storage Box'
-
-            # Extract
-            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset
-            zstd -d dataset.tar.zst -o dataset.tar
-            tar xf dataset.tar
-            rm -f dataset.tar.zst dataset.tar
-            # Move contents to sf0.1/ if needed
-            if [ ! -d sf0.1 ]; then
-              mkdir -p sf0.1
-              mv social_network/* sf0.1/ 2>/dev/null || true
-            fi
-            echo 'Dataset extracted'
-          "
 
       - name: Compile
         run: |
