@@ -24,7 +24,7 @@ Use `$ARGUMENTS` as the URL if provided.
    ```bash
    gh run view --job {job_id} --log-failed
    ```
-6. **Check PR comments for gate details**: CI gates (coverage gate, test count gate, mutation testing) post detailed PR comments with tables explaining exactly what failed. Always fetch these:
+6. **Check PR comments for gate details**: CI gates (coverage gate, test count gate) post detailed PR comments with tables explaining exactly what failed. Always fetch these:
    ```bash
    gh api repos/{owner}/{repo}/issues/{pr_number}/comments --jq '.[] | select(.body | contains("gate")) | .body'
    ```
@@ -34,7 +34,7 @@ Use `$ARGUMENTS` as the URL if provided.
 Not all CI failures are test failures. Identify the category before diving into code:
 
 - **Test failure**: A test assertion or error in a specific test class — go to Step 3.
-- **CI gate failure** (coverage gate, test count gate, mutation testing): A policy check failed, not a test. These require understanding the gate's logic and why the PR's changes triggered it — go to Step 2a.
+- **CI gate failure** (coverage gate, test count gate): A policy check failed, not a test. These require understanding the gate's logic and why the PR's changes triggered it — go to Step 2a.
 - **Build failure**: Compilation error, dependency resolution, etc. — read the build logs.
 - **Infrastructure failure**: Timeout, runner issue, flaky network — may just need a re-run.
 
@@ -47,7 +47,6 @@ CI gates enforce policies on PRs. When a gate fails:
 3. **Determine if the failure is expected or a bug**:
    - **Test Count Gate**: Compare baseline vs current counts per module. A large drop in one module usually means tests were unintentionally excluded by build config changes (profile removal, surefire exclusions, module restructuring). Trace WHY those tests stopped running — don't just bypass the gate with `[no-test-number-check]` unless the user explicitly confirms the drop is intentional.
    - **Coverage Gate**: Check which lines are uncovered and whether existing tests should cover them.
-   - **Mutation Testing**: Check which mutants survived and whether they represent real coverage gaps.
 4. **The fix is often in build configuration, not in test code**: When a PR changes Maven profiles, CI pipeline config, or surefire/failsafe plugin settings, tests may silently stop running. Look for:
    - `<excludes>` blocks in surefire/failsafe that were previously overridden by a profile the PR removed
    - Profile-gated test inclusion (e.g., `combine.self="override"` patterns that clear exclusions)
@@ -93,28 +92,6 @@ CI gates enforce policies on PRs. When a gate fails:
    ```
 3. If the test requires a suite runner (e.g., GremlinProcessRunner, graph provider), note that it cannot be run standalone — verify the code change is correct by inspection and rely on CI.
 4. Run `./mvnw -pl {module} spotless:check` to ensure formatting compliance.
-5. **Run mutation testing** on the changed code to verify that fixes produce a mutation score ≥ 85%. Copy the Arcmutate license if not already present, then run PIT using the `mutation-testing` profile with the `pit.git.from` property to scope mutations to only changed lines (matching CI behavior). **Do NOT run PIT without the profile** — without the `+GIT` feature, PIT mutates the entire target class, which can take 30+ minutes for large classes (e.g., `AtomicOperationsManager`) vs seconds when scoped to the diff.
-
-   First, determine the fork point commit between the current branch and the base branch. If a PR already exists, fetch its base branch; otherwise default to `origin/develop`:
-   ```bash
-   # If PR exists, get the actual base branch
-   BASE_BRANCH=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null)
-   BASE_BRANCH="origin/${BASE_BRANCH:-develop}"
-   # Find the fork point commit (merge-base) — this is more reliable than a branch name
-   # because it pinpoints the exact commit where the current branch diverged
-   FORK_POINT=$(git merge-base HEAD "${BASE_BRANCH}")
-   ```
-   Then run PIT:
-   ```bash
-   # Ensure arcmutate-licence.txt is present at the project root (gitignored).
-   # In CI, this is provided via the ARCMUTATE_LICENCE secret.
-   # Locally, copy it from wherever you store the license file.
-   test -f arcmutate-licence.txt || echo "WARNING: arcmutate-licence.txt not found in project root"
-   ./mvnw -pl {module} clean test-compile org.pitest:pitest-maven:mutationCoverage \
-     -P mutation-testing -Dpit.git.from=${FORK_POINT}
-   ```
-   If you need to target only specific classes (e.g., to speed up the run further), add `-Dpitest.targetClasses=com.jetbrains.youtrackdb.some.ClassName` — but always keep `-P mutation-testing -Dpit.git.from=...` to use the GIT-scoped mutation filter.
-   Review the PIT report (in `{module}/target/pit-reports/`) for surviving mutants. If the mutation score is below 85%, add or strengthen tests to kill surviving mutants before proceeding.
 
 ### Step 7: Code review
 
@@ -155,15 +132,6 @@ Present to the user:
 ### CI Gates
 - **Test Count Gate**: Compares per-module test counts against baseline in git notes (`refs/notes/test-counts`). Fails if any module drops >5%. PR comment contains the per-module comparison table. Bypass with `[no-test-number-check]` in PR title (only for intentional restructuring).
 - **Coverage Gate**: 85% line / 70% branch on changed code. Uses `coverage-gate.py`. PR comment has per-file tables.
-- **Mutation Testing**: 85% mutation score on changed code via PIT/Arcmutate. Survived mutants are posted as **GitHub check run annotations** on a separate check run named `"pitest"` (created by `pitest-github-maven-plugin`), NOT on the "Mutation Testing (New Code)" job itself. Fetch them with:
-  ```bash
-  # Find the "pitest" check run ID (NOT the "Mutation Testing" job)
-  gh api repos/JetBrains/youtrackdb/commits/{head_sha}/check-runs --jq '.check_runs[] | select(.name == "pitest") | .id'
-  # Fetch annotations with surviving mutant details
-  gh api "repos/JetBrains/youtrackdb/check-runs/{pitest_check_run_id}/annotations" --paginate
-  ```
-  Each annotation includes the file path, line number, and mutant description — use these to pinpoint exactly which lines need stronger test coverage. Note: the "Mutation Testing (New Code)" job check run only has generic "Process completed with exit code 1" annotations — always use the `"pitest"` check run for per-line mutant details.
-  To run mutation testing locally, ensure `arcmutate-licence.txt` is present at the project root (it is gitignored; in CI it is provided via the `ARCMUTATE_LICENCE` secret).
 
 ### Common Patterns
 - **Profile-gated tests**: Some modules exclude heavyweight tests by default and use `ci-integration-tests` profile with `<excludes combine.self="override"/>` to include them. If CI stops activating that profile, those tests silently disappear.
@@ -180,14 +148,4 @@ gh api repos/JetBrains/youtrackdb/issues/{pr}/comments --jq '.[] | select(.body 
 
 # Run with disk storage (as CI does)
 ./mvnw -pl {module} clean test -Dyoutrackdb.test.env=ci
-
-# Run mutation testing (scoped to changed lines only, matching CI)
-# Determine fork point commit between current branch and base branch
-BASE_BRANCH=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null)
-BASE_BRANCH="origin/${BASE_BRANCH:-develop}"
-FORK_POINT=$(git merge-base HEAD "${BASE_BRANCH}")
-# Ensure arcmutate-licence.txt is in the project root (see CI Gates section above)
-test -f arcmutate-licence.txt || echo "WARNING: arcmutate-licence.txt not found in project root"
-./mvnw -pl {module} clean test-compile org.pitest:pitest-maven:mutationCoverage \
-  -P mutation-testing -Dpit.git.from=${FORK_POINT}
 ```
