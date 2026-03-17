@@ -303,18 +303,6 @@ public class ExpandStep extends AbstractExecutionStep {
   }
 
   @Nullable private static RidSet intersect(@Nullable RidSet a, @Nullable RidSet b) {
-    if (a == null) {
-      return b;
-    }
-    if (b == null) {
-      return a;
-    }
-    var result = new RidSet();
-    for (var rid : a) {
-      if (b.contains(rid)) {
-        result.add(rid);
-      }
-    }
-    return result;
+    return RidSet.intersect(a, b);
   }
 }

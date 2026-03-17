@@ -152,11 +152,6 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
   @Nonnull
   public static IntSet collectionIdsForClass(
       @Nonnull com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass clazz) {
-    var ids = clazz.getPolymorphicCollectionIds();
-    var set = new IntOpenHashSet(ids.length);
-    for (var id : ids) {
-      set.add(id);
-    }
-    return set;
+    return new IntOpenHashSet(clazz.getPolymorphicCollectionIds());
   }
 }
