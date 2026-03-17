@@ -80,8 +80,12 @@ public class WeakValueHashMapTest {
   @Test
   public void clearShouldSucceedWhileForEachIsInProgress() throws Exception {
     var map = new WeakValueHashMap<TestKey, TestValue>();
+    // Keep strong references to values so GC cannot clear the WeakReferences
+    // before forEach iterates — otherwise the callback may never fire.
+    var strongRefs = new TestValue[100];
     for (int i = 0; i < 100; i++) {
-      map.put(new TestKey("k" + i), new TestValue("v" + i));
+      strongRefs[i] = new TestValue("v" + i);
+      map.put(new TestKey("k" + i), strongRefs[i]);
     }
 
     // Latch to ensure forEach callback is executing when clear() is called
