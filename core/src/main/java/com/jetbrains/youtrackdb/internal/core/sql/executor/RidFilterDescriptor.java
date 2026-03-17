@@ -80,7 +80,8 @@ sealed interface RidFilterDescriptor {
           return null;
         }
         targetEntity = entity;
-      } catch (Exception ignored) {
+      } catch (com.jetbrains.youtrackdb.api.exception.RecordNotFoundException ignored) {
+        // It's expected that the target entity might not be found, so we can safely ignore this.
         return null;
       }
 
