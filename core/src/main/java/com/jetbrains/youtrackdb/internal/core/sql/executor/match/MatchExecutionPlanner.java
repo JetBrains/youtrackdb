@@ -299,6 +299,20 @@ public class MatchExecutionPlanner {
    * @param aliasClasses maps each alias to the schema class name it is constrained to
    */
   public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
+    this(pattern, aliasClasses, Map.of());
+  }
+
+  /**
+   * Creates a planner from a pre-built pattern IR with per-alias WHERE filters.
+   * Intended for GQL front-ends that provide inline property filters
+   * (e.g. {@code MATCH (a:Person {name: 'Karl'})}).
+   *
+   * @param pattern      the pattern graph (nodes and edges)
+   * @param aliasClasses maps each alias to the schema class name it is constrained to
+   * @param aliasFilters per-alias WHERE clauses built from inline property filters
+   */
+  public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters) {
     this.matchExpressions = List.of();
     this.notMatchExpressions = List.of();
     this.returnItems = List.of();
@@ -310,7 +324,7 @@ public class MatchExecutionPlanner {
 
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
-    this.aliasFilters = Map.of();
+    this.aliasFilters = aliasFilters;
     this.aliasRids = Map.of();
   }
 
