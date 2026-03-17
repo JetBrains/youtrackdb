@@ -126,18 +126,11 @@ jobs:
             set -euo pipefail
             mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset
 
-            # Try Storage Box first (same DC, fast)
             echo 'Downloading dataset from Storage Box...'
-            if sshpass -p '${STORAGEBOX_PASSWORD}' scp -o StrictHostKeyChecking=no \
+            sshpass -p '${STORAGEBOX_PASSWORD}' scp -o StrictHostKeyChecking=no \
                 '${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:ldbc/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
-                /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst 2>/dev/null; then
-              echo 'Downloaded from Storage Box'
-            else
-              echo 'Storage Box failed, falling back to R2...'
-              curl -fsSL 'https://pub-383a26ad23fc4ba3abaa2fd1eee40713.r2.dev/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
-                -o /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst
-              echo 'Downloaded from R2'
-            fi
+                /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst
+            echo 'Downloaded from Storage Box'
 
             # Extract
             cd /root/ytdb/jmh-ldbc/target/ldbc-dataset
