@@ -37,7 +37,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 ./mvnw -pl core clean test -Dtest=SomeTestClass#testMethodName
 ```
 
-**JVM memory**: `.mvn/jvm.config` sets `-Xmx1024m` for Maven itself. Tests use `-Xms4096m -Xmx4096m` (configurable via `heapSize` property).
+**JVM memory**: `.mvn/jvm.config` sets `-Xmx8192m` for Maven itself. Tests use `-Xms4096m -Xmx4096m` (configurable via `heapSize` property).
 
 **Important**: Tests require numerous `--add-opens` JVM flags for Java module system compatibility. These are configured in each module's `pom.xml` `<argLine>` property - do not remove them.
 
@@ -185,7 +185,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 
 ### Benchmarks
 - **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command) or `./mvnw -pl jmh-ldbc -am compile exec:exec` (two-step). See `jmh-ldbc/README.md` for full documentation.
-- Legacy JMH benchmarks in `tests/src/main/java/.../benchmarks/`
+- Legacy JMH benchmarks in `tests/src/test/java/.../benchmarks/`
 
 ### Common Test JVM Properties
 Tests configure YouTrackDB-specific system properties in `<argLine>`:
@@ -285,7 +285,7 @@ Runs on `develop` pushes and PRs:
 
 - Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*` v3.8.1). Version is published as a `-<commitSHA>-SNAPSHOT` (e.g. `3.8.1-fccfc5a-SNAPSHOT`); the commit SHA suffix changes with each fork update - check the `gremlin.version` property in the root `pom.xml` for the current value.
 - GraalVM (JavaScript scripting via Gremlin)
-- Jackson 2.20.x (JSON serialization)
+- Jackson 2.21.x (JSON serialization)
 - SLF4J 2.x + Log4j 2.25.x (logging)
 - Guava, fastutil (collections)
 - LZ4 (compression)
