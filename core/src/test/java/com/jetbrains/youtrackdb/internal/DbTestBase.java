@@ -10,8 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.File;
-import java.util.Locale;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -85,7 +85,6 @@ public class DbTestBase {
     return youTrackDB.open(this.databaseName, "admin", "adminpwd", build.build());
   }
 
-
   public static String embeddedDBUrl(Class<?> testClass) {
     return "embedded:" + getBaseDirectoryPathStr(testClass);
   }
@@ -93,9 +92,8 @@ public class DbTestBase {
   public static String getBaseDirectoryPathStr(Class<?> testClass) {
     final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
-    return
-        buildDirectory + File.separator + "databases" + File.separator + testClass
-            .getSimpleName() + "-" + getTestId(testClass);
+    return buildDirectory + File.separator + "databases" + File.separator + testClass
+        .getSimpleName() + "-" + getTestId(testClass);
   }
 
   public static YouTrackDBImpl createYTDBManagerAndDb(String dbName, DatabaseType dbType,
@@ -110,9 +108,8 @@ public class DbTestBase {
   public static Path getBaseDirectoryPath(Class<?> testClass) {
     final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath();
-    return
-        buildDirectory.resolve("databases").resolve(testClass.getSimpleName() +
-            "-" + getTestId(testClass));
+    return buildDirectory.resolve("databases").resolve(testClass.getSimpleName() +
+        "-" + getTestId(testClass));
   }
 
   private static long getTestId(Class<?> testClass) {
@@ -128,7 +125,8 @@ public class DbTestBase {
 
   protected DatabaseType calculateDbType() {
     final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
+        System.getProperty("youtrackdb.test.env",
+            DatabaseType.MEMORY.name().toLowerCase(Locale.ROOT));
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
       return DatabaseType.DISK;
@@ -165,8 +163,11 @@ public class DbTestBase {
 
   @After
   public void afterTest() {
-    dropDatabase();
-    youTrackDB.close();
+    try {
+      dropDatabase();
+    } finally {
+      youTrackDB.close();
+    }
   }
 
   public void dropDatabase() {
