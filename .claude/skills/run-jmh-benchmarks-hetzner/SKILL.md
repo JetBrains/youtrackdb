@@ -76,35 +76,41 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
   cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet'
 ```
 
-### Step 3b: Download dataset from Storage Box (jmh-ldbc only)
+### Step 3b: Download dataset from Hetzner S3 (jmh-ldbc only)
 
-Instead of relying on the LDBC dataset download during benchmark setup (which uses the SURF tape archive and can take 20+ minutes to stage), pre-download the dataset from the Hetzner Storage Box:
+Instead of relying on the LDBC dataset download during benchmark setup (which uses the SURF tape archive and can take 20+ minutes to stage), pre-download the dataset from Hetzner Object Storage (S3):
 
 ```bash
-ssh root@<IP> 'apt-get install -y -qq sshpass > /dev/null 2>&1 && \
-  mkdir -p /root/ytdb/<module>/target/ldbc-dataset/tmp && \
-  sshpass -p "Ldbc#Bench2026" scp -o StrictHostKeyChecking=no \
-    u561694@u561694.your-storagebox.de:social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst \
-    /root/ytdb/<module>/target/ldbc-dataset/tmp/'
+ssh root@<IP> 'apt-get install -y -qq python3-pip zstd > /dev/null 2>&1 && \
+  pip install --break-system-packages boto3 -q && \
+  mkdir -p /root/ytdb/<module>/target/ldbc-dataset/sf0.1 && \
+  python3 -c "
+import boto3, os
+s3 = boto3.client(\"s3\",
+    endpoint_url=os.environ[\"S3_ENDPOINT\"],
+    aws_access_key_id=os.environ[\"S3_ACCESS_KEY\"],
+    aws_secret_access_key=os.environ[\"S3_SECRET_KEY\"])
+print(\"Downloading dataset from S3...\")
+s3.download_file(\"bench-cache\", \"ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst\", \"/tmp/dataset.tar.zst\")
+print(\"Downloaded\")
+" && \
+  cd /root/ytdb/<module>/target/ldbc-dataset/sf0.1 && \
+  zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar && \
+  tar xf /tmp/dataset.tar && \
+  rm -f /tmp/dataset.tar.zst /tmp/dataset.tar && \
+  echo "Dataset ready" && ls static/ dynamic/'
 ```
 
-Then extract and rename:
+**Important**: The command above requires S3 credentials as environment variables on the remote server. Pass them via SSH:
 ```bash
-ssh root@<IP> 'cd /root/ytdb/<module>/target/ldbc-dataset/tmp && \
-  apt-get install -y -qq zstd > /dev/null 2>&1 && \
-  tar --use-compress-program=unzstd -xf social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
-  mv social_network-sf0.1-CsvComposite-LongDateFormatter sf0.1'
+ssh root@<IP> "export S3_ENDPOINT='<endpoint>' S3_ACCESS_KEY='<key>' S3_SECRET_KEY='<secret>' && ..."
 ```
+
+Credentials are stored as GitHub secrets: `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`. Retrieve them from GitHub or ask the user.
 
 Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`).
 
-**Fallback — Cloudflare R2**: If the Storage Box is unavailable, download from Cloudflare R2 instead (fast from Hetzner, ~1s):
-```bash
-ssh root@<IP> 'cd /root/ytdb/<module>/target/ldbc-dataset/tmp && \
-  curl -sLO https://datasets.ldbcouncil.org/snb-interactive-v1/social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
-  tar --use-compress-program=unzstd -xf social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst && \
-  mv social_network-sf0.1-CsvComposite-LongDateFormatter sf0.1'
-```
+The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format (~19 MB). It is stored in Hetzner Object Storage bucket `bench-cache` at key `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`.
 
 **Avoid** the SURF repository at `repository.surfsara.nl` — it stores files on tape and can take 20+ minutes to stage before the download begins.
 
@@ -235,7 +241,7 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 | Need real-time output | Use tmux + tee (already in the command above) |
 | Wild/inconsistent ops/s in MT benchmarks | Dataset not pre-loaded. Run Step 4b first. The first fork loads the DB during warmup; MT threads see partially loaded data. |
 | `apt-get` lock on fresh server | Wait 30s for `unattended-upgrades` to finish, then retry. |
-| SURF tape staging takes 20+ minutes | Use Storage Box (Step 3b) or Cloudflare R2 URL instead. |
+| SURF tape staging takes 20+ minutes | Use Hetzner S3 (Step 3b) instead. |
 
 ## Notes
 
@@ -245,4 +251,4 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
-- **Storage Box**: A Hetzner Storage Box at `u561694.your-storagebox.de` (username: `u561694`, password: `Ldbc#Bench2026`) caches the LDBC dataset archive (`social_network-sf0.1-CsvComposite-LongDateFormatter.tar.zst`). This avoids the slow SURF tape staging. Access via SCP using `sshpass`. The Cloudflare R2 mirror at `https://datasets.ldbcouncil.org/snb-interactive-v1/` is a fast alternative (~1s from Hetzner).
+- **S3 dataset cache**: The LDBC dataset archive (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB, datagen v1.0.0 CsvCompositeMergeForeign format) is cached in Hetzner Object Storage bucket `bench-cache` at `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`. Credentials are stored as GitHub secrets `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them in code or commit them to the repository.

@@ -24,7 +24,7 @@ env:
   SERVER_TYPE: ccx33
   SERVER_IMAGE: ubuntu-24.04
   SERVER_LOCATION: fsn1
-  SSH_KEY_NAME: github-actions-orchestrator
+  SSH_KEY_NAME: bench-key
 
 jobs:
   benchmark:
@@ -45,6 +45,14 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
           echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
       - name: Install hcloud CLI
         run: |
@@ -92,7 +100,7 @@ jobs:
               sleep 5
             done
             apt-get update -qq
-            apt-get install -y -qq openjdk-21-jdk-headless git zstd sshpass > /dev/null 2>&1
+            apt-get install -y -qq openjdk-21-jdk-headless git zstd > /dev/null 2>&1
             java -version
           '
 
@@ -109,39 +117,36 @@ jobs:
             cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
           '
 
-      - name: Download LDBC dataset from Storage Box
+      - name: Download LDBC dataset from S3
         env:
-          STORAGEBOX_USER: ${{ secrets.STORAGEBOX_USER }}
-          STORAGEBOX_PASSWORD: ${{ secrets.STORAGEBOX_PASSWORD }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} "
             set -euo pipefail
-            mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset
+            apt-get install -y -qq python3-pip > /dev/null 2>&1
+            pip install --break-system-packages boto3 -q
 
-            # Try Storage Box first (same DC, fast)
-            echo 'Downloading dataset from Storage Box...'
-            if sshpass -p '${STORAGEBOX_PASSWORD}' scp -o StrictHostKeyChecking=no \
-                '${STORAGEBOX_USER}@${STORAGEBOX_USER}.your-storagebox.de:ldbc/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
-                /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst 2>/dev/null; then
-              echo 'Downloaded from Storage Box'
-            else
-              echo 'Storage Box failed, falling back to R2...'
-              curl -fsSL 'https://pub-383a26ad23fc4ba3abaa2fd1eee40713.r2.dev/social_network-csv_composite-longdateformatter-sf0.1.tar.zst' \
-                -o /root/ytdb/jmh-ldbc/target/ldbc-dataset/dataset.tar.zst
-              echo 'Downloaded from R2'
-            fi
+            python3 -c \"
+import boto3, os
+s3 = boto3.client('s3',
+    endpoint_url='${S3_ENDPOINT}',
+    aws_access_key_id='${AWS_ACCESS_KEY_ID}',
+    aws_secret_access_key='${AWS_SECRET_ACCESS_KEY}')
+os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
+print('Downloading dataset from S3...')
+s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
+    '/tmp/dataset.tar.zst')
+print('Downloaded from S3')
+\"
 
-            # Extract
-            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset
-            zstd -d dataset.tar.zst -o dataset.tar
-            tar xf dataset.tar
-            rm -f dataset.tar.zst dataset.tar
-            # Move contents to sf0.1/ if needed
-            if [ ! -d sf0.1 ]; then
-              mkdir -p sf0.1
-              mv social_network/* sf0.1/ 2>/dev/null || true
-            fi
+            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1
+            zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
+            tar xf /tmp/dataset.tar
+            rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
             echo 'Dataset extracted'
+            ls -la static/ dynamic/
           "
 
       - name: Compile
