@@ -24,7 +24,7 @@ env:
   SERVER_TYPE: ccx33
   SERVER_IMAGE: ubuntu-24.04
   SERVER_LOCATION: fsn1
-  SSH_KEY_NAME: github-actions-orchestrator
+  SSH_KEY_NAME: bench-key
 
 jobs:
   benchmark:
@@ -45,6 +45,14 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
           echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
       - name: Install hcloud CLI
         run: |
