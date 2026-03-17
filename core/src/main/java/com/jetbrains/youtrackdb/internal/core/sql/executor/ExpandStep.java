@@ -33,13 +33,18 @@ import javax.annotation.Nullable;
  *
  * <h2>Predicate push-down</h2>
  *
- * <p>Three levels of push-down are supported (cheapest to most expensive):
+ * <p>Four levels of push-down are supported (cheapest to most expensive):
  * <ol>
  *   <li><b>Class filter ({@code acceptedCollectionIds})</b> — When the outer WHERE
  *       contains {@code @class = 'ClassName'}, the planner resolves the class to its
  *       collection (cluster) IDs. During expansion, the collection ID of each target
  *       RID is checked <em>before</em> loading the record from storage. Vertices
  *       whose collection ID is not in the accepted set are skipped with zero disk I/O.
+ *   <li><b>RID filter ({@code ridFilterDescriptor})</b> — When the outer WHERE
+ *       contains {@code @rid = <expr>} or {@code out/in('EdgeClass').@rid = <expr>},
+ *       the descriptor is resolved at execution time to a {@link RidSet}. Non-matching
+ *       RIDs are skipped without disk I/O. This supports {@code $parent} references
+ *       because resolution happens at execution time.
  *   <li><b>Index pre-filter ({@code indexDescriptor})</b> — When the target class is
  *       known and the remaining WHERE references an indexed property, the index is
  *       queried at execution time to build a {@link RidSet}. Non-matching RIDs are
@@ -71,6 +76,14 @@ public class ExpandStep extends AbstractExecutionStep {
   @Nullable private final IntSet acceptedCollectionIds;
 
   /**
+   * When non-null, resolved at execution time to a {@link RidSet} that
+   * pre-filters expanded records. Supports {@code @rid = <expr>} and
+   * {@code out/in('EdgeClass').@rid = <expr>} patterns, including
+   * {@code $parent} references.
+   */
+  @Nullable private final RidFilterDescriptor ridFilterDescriptor;
+
+  /**
    * When non-null, describes an index lookup to pre-filter expanded records.
    * At execution time, the index is queried to build a {@link RidSet}; during
    * iteration, RIDs not in the set are skipped without loading from storage.
@@ -80,23 +93,25 @@ public class ExpandStep extends AbstractExecutionStep {
   private static final int INDEX_RIDSET_SIZE_CAP = 100_000;
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias) {
-    this(ctx, profilingEnabled, expandAlias, null, null, null);
+    this(ctx, profilingEnabled, expandAlias, null, null, null, null);
   }
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
       @Nullable SQLWhereClause pushDownFilter,
       @Nullable IntSet acceptedCollectionIds) {
-    this(ctx, profilingEnabled, expandAlias, pushDownFilter, acceptedCollectionIds, null);
+    this(ctx, profilingEnabled, expandAlias, pushDownFilter, acceptedCollectionIds, null, null);
   }
 
   public ExpandStep(CommandContext ctx, boolean profilingEnabled, String expandAlias,
       @Nullable SQLWhereClause pushDownFilter,
       @Nullable IntSet acceptedCollectionIds,
+      @Nullable RidFilterDescriptor ridFilterDescriptor,
       @Nullable IndexSearchDescriptor indexDescriptor) {
     super(ctx, profilingEnabled);
     this.expandAlias = expandAlias;
     this.pushDownFilter = pushDownFilter;
     this.acceptedCollectionIds = acceptedCollectionIds;
+    this.ridFilterDescriptor = ridFilterDescriptor;
     this.indexDescriptor = indexDescriptor;
   }
 
@@ -107,15 +122,19 @@ public class ExpandStep extends AbstractExecutionStep {
           "Cannot expand without a target");
     }
 
+    @Nullable RidSet ridFilterSet = null;
+    if (ridFilterDescriptor != null) {
+      ridFilterSet = ridFilterDescriptor.resolve(ctx);
+    }
     @Nullable RidSet indexRidSet = null;
     if (indexDescriptor != null) {
       indexRidSet = resolveIndexToRidSet(indexDescriptor, ctx);
     }
+    final var combinedRidSet = intersect(ridFilterSet, indexRidSet);
 
-    final var ridSet = indexRidSet;
     var resultSet = prev.start(ctx);
     var expanded = resultSet.flatMap(
-        (result, fmCtx) -> nextResults(result, fmCtx, ridSet));
+        (result, fmCtx) -> nextResults(result, fmCtx, combinedRidSet));
     if (pushDownFilter != null) {
       expanded = expanded.filter(
           (result, filterCtx) -> pushDownFilter.matchesFilters(result, filterCtx) ? result : null);
@@ -210,6 +229,13 @@ public class ExpandStep extends AbstractExecutionStep {
       result.append(" (class filter: ").append(acceptedCollectionIds.size())
           .append(" collection(s))");
     }
+    if (ridFilterDescriptor instanceof RidFilterDescriptor.DirectRid) {
+      result.append(" (rid filter: direct)");
+    } else if (ridFilterDescriptor instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
+      result.append(" (rid filter: ")
+          .append(lookup.traversalDirection()).append("('")
+          .append(lookup.edgeClassName()).append("'))");
+    }
     if (indexDescriptor != null) {
       result.append(" (index pre-filter: ")
           .append(indexDescriptor.getIndex().getName()).append(")");
@@ -234,6 +260,7 @@ public class ExpandStep extends AbstractExecutionStep {
     return new ExpandStep(ctx, profilingEnabled, expandAlias,
         pushDownFilter != null ? pushDownFilter.copy() : null,
         acceptedCollectionIds,
+        ridFilterDescriptor,
         indexDescriptor);
   }
 
@@ -277,5 +304,21 @@ public class ExpandStep extends AbstractExecutionStep {
       }
     }
     return exceeded ? null : ridSet;
+  }
+
+  @Nullable private static RidSet intersect(@Nullable RidSet a, @Nullable RidSet b) {
+    if (a == null) {
+      return b;
+    }
+    if (b == null) {
+      return a;
+    }
+    var result = new RidSet();
+    for (var rid : a) {
+      if (b.contains(rid)) {
+        result.add(rid);
+      }
+    }
+    return result;
   }
 }

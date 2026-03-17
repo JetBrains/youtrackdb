@@ -3161,44 +3161,70 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      // Extract @class = 'X' from the WHERE (even compound AND).
+      // Step 1: Extract @class = 'X' from the WHERE
       it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
       String className = null;
       SQLWhereClause remainingWhere = info.whereClause;
-      var extraction = info.whereClause.extractAndRemoveClassEquality();
-      if (extraction != null) {
-        classFilter = resolveClassToCollectionIds(extraction.className(), plan);
+      var classExtraction = info.whereClause.extractAndRemoveClassEquality();
+      if (classExtraction != null) {
+        classFilter = resolveClassToCollectionIds(classExtraction.className(), plan);
         if (classFilter != null) {
-          className = extraction.className();
-          remainingWhere = extraction.remainingWhere();
+          className = classExtraction.className();
+          remainingWhere = classExtraction.remainingWhere();
         }
       }
 
-      // Conditions referencing $parent scope must stay as an outer FilterStep.
+      // Step 2: Extract out/in('EdgeClass').@rid = <expr>
+      RidFilterDescriptor ridFilter = null;
+      if (remainingWhere != null) {
+        var edgeExtraction = remainingWhere.extractAndRemoveEdgeRidLookup();
+        if (edgeExtraction != null) {
+          ridFilter = new RidFilterDescriptor.EdgeRidLookup(
+              edgeExtraction.edgeClassName(),
+              edgeExtraction.traversalDirection(),
+              edgeExtraction.targetRidExpression());
+          remainingWhere = edgeExtraction.remainingWhere();
+        }
+      }
+
+      // Step 3: Extract @rid = <expr>
+      if (ridFilter == null && remainingWhere != null) {
+        var ridExtraction = remainingWhere.extractAndRemoveRidEquality();
+        if (ridExtraction != null) {
+          ridFilter = new RidFilterDescriptor.DirectRid(ridExtraction.ridExpression());
+          remainingWhere = ridExtraction.remainingWhere();
+        }
+      }
+
+      // Step 4: Split remaining by $parent reference
       SQLWhereClause pushDownWhere = null;
       SQLWhereClause outerWhere = null;
       if (remainingWhere != null) {
-        if (remainingWhere.refersToParent()) {
-          outerWhere = remainingWhere;
+        var parentSplit = remainingWhere.splitByParentReference();
+        if (parentSplit != null) {
+          outerWhere = parentSplit.parentReferencing();
+          pushDownWhere = parentSplit.nonParentReferencing();
         } else {
           pushDownWhere = remainingWhere;
         }
       }
 
-      // Try to find an index for the push-down filter (Case B optimization).
+      // Step 5: Try to find an index for the push-down filter
       IndexSearchDescriptor indexDescriptor = null;
       if (pushDownWhere != null && className != null) {
         indexDescriptor = tryBuildExpandIndexDescriptor(
             pushDownWhere, className, plan.getContext());
       }
 
-      if (classFilter == null && pushDownWhere == null && indexDescriptor == null) {
+      if (classFilter == null && ridFilter == null
+          && pushDownWhere == null && indexDescriptor == null) {
         continue;
       }
 
       var pushedDown = new ExpandStep(
           innerPlan.getContext(), expandStep.isProfilingEnabled(),
-          expandStep.expandAlias, pushDownWhere, classFilter, indexDescriptor);
+          expandStep.expandAlias, pushDownWhere, classFilter,
+          ridFilter, indexDescriptor);
       pushedDown.setPrevious(expandStep.prev);
       innerPlan.steps.set(expandIndex, pushedDown);
 

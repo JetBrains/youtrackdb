@@ -490,6 +490,116 @@ public class PatternTest extends ParserTestAbstract {
     }
   }
 
+  // --- Case A: RID extraction unit tests ---
+
+  private SQLWhereClause parseWhere(String whereBody) throws ParseException {
+    var sql = "SELECT FROM V WHERE " + whereBody;
+    var parser = getParserFor(sql);
+    var stm = (SQLSelectStatement) parser.parse();
+    return stm.getWhereClause();
+  }
+
+  /** @rid = #23:1 → extracted, no remaining */
+  @Test
+  public void testExtractRidEquality_simple() throws ParseException {
+    var where = parseWhere("@rid = #23:1");
+    var result = where.extractAndRemoveRidEquality();
+    assertNotNull("Should extract @rid equality", result);
+    assertNotNull(result.ridExpression());
+    assertNull("No remaining conditions expected", result.remainingWhere());
+  }
+
+  /** @rid = #23:1 AND name = 'x' → extracted, remaining = name = 'x' */
+  @Test
+  public void testExtractRidEquality_compound() throws ParseException {
+    var where = parseWhere("@rid = #23:1 AND name = 'x'");
+    var result = where.extractAndRemoveRidEquality();
+    assertNotNull("Should extract @rid equality from compound", result);
+    assertNotNull(result.ridExpression());
+    assertNotNull("Should have remaining WHERE", result.remainingWhere());
+  }
+
+  /** name = 'x' → null (no @rid equality) */
+  @Test
+  public void testExtractRidEquality_noRid() throws ParseException {
+    var where = parseWhere("name = 'x'");
+    var result = where.extractAndRemoveRidEquality();
+    assertNull("Should return null when no @rid equality", result);
+  }
+
+  /** out('HAS_CREATOR').@rid = #10:5 → extracted edge lookup */
+  @Test
+  public void testExtractEdgeRidLookup_simple() throws ParseException {
+    var where = parseWhere("out('HAS_CREATOR').@rid = #10:5");
+    var result = where.extractAndRemoveEdgeRidLookup();
+    assertNotNull("Should extract edge RID lookup", result);
+    assertEquals("HAS_CREATOR", result.edgeClassName());
+    assertEquals("out", result.traversalDirection());
+    assertNotNull(result.targetRidExpression());
+    assertNull("No remaining conditions expected", result.remainingWhere());
+  }
+
+  /** in('KNOWS').@rid = #10:5 → extracted with direction=in */
+  @Test
+  public void testExtractEdgeRidLookup_inDirection() throws ParseException {
+    var where = parseWhere("in('KNOWS').@rid = #10:5");
+    var result = where.extractAndRemoveEdgeRidLookup();
+    assertNotNull("Should extract edge RID lookup for IN", result);
+    assertEquals("KNOWS", result.edgeClassName());
+    assertEquals("in", result.traversalDirection());
+  }
+
+  /** out('HAS_CREATOR').@rid = #10:5 AND score > 3 → extracted, remaining */
+  @Test
+  public void testExtractEdgeRidLookup_compound() throws ParseException {
+    var where = parseWhere("out('HAS_CREATOR').@rid = #10:5 AND score > 3");
+    var result = where.extractAndRemoveEdgeRidLookup();
+    assertNotNull("Should extract from compound", result);
+    assertEquals("HAS_CREATOR", result.edgeClassName());
+    assertNotNull("Should have remaining WHERE", result.remainingWhere());
+  }
+
+  /** name = 'x' → null (no edge RID lookup) */
+  @Test
+  public void testExtractEdgeRidLookup_noMatch() throws ParseException {
+    var where = parseWhere("name = 'x'");
+    var result = where.extractAndRemoveEdgeRidLookup();
+    assertNull("Should return null when no edge RID lookup", result);
+  }
+
+  /** a > 5 AND out('X').@rid = $parent.$current.@rid → splits correctly */
+  @Test
+  public void testSplitByParentReference_mixed() throws ParseException {
+    var where = parseWhere("a > 5 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByParentReference();
+    assertNotNull("Should split parent-referencing clause", result);
+    assertNotNull("Should have parent-referencing part", result.parentReferencing());
+    assertNotNull("Should have non-parent part", result.nonParentReferencing());
+  }
+
+  /** a > 5 → null (no $parent reference, no split needed) */
+  @Test
+  public void testSplitByParentReference_noParent() throws ParseException {
+    var where = parseWhere("a > 5");
+    var result = where.splitByParentReference();
+    assertNull("Should return null when no $parent reference", result);
+  }
+
+  /**
+   * out('X').@rid = $parent.$current.@rid → parentReferencing = whole clause,
+   * nonParentReferencing = null
+   */
+  @Test
+  public void testSplitByParentReference_allParent() throws ParseException {
+    var where = parseWhere("out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByParentReference();
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have parent-referencing part", result.parentReferencing());
+    assertNull(
+        "Should have null non-parent part when all conditions reference $parent",
+        result.nonParentReferencing());
+  }
+
   private CommandContext getContext() {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);

@@ -7588,4 +7588,277 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Case A1: Direct RID filter push-down. When the outer WHERE is
+   * {@code @rid = <value>}, the planner should push a DirectRid
+   * descriptor into ExpandStep for zero-I/O pre-filtering.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_directRidFilter() {
+    session.execute("CREATE CLASS DRForum EXTENDS V").close();
+    session.execute("CREATE CLASS DRPost EXTENDS V").close();
+    session.execute("CREATE CLASS DRContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DRForum SET name = 'forum1'").close();
+    RID targetRid = null;
+    for (var i = 0; i < 5; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX DRPost SET title = 'post" + i + "'");
+      var created = rs.next();
+      if (i == 2) {
+        targetRid = created.getIdentity();
+      }
+      rs.close();
+      session.execute(
+          "CREATE EDGE DRContainerOf FROM (SELECT FROM DRForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM DRPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('DRContainerOf')) FROM DRForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @rid = " + targetRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return exactly 1 vertex", 1, items.size());
+    Assert.assertEquals(targetRid, items.getFirst().getIdentity());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "RID filter should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: direct"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A3: Reverse edge lookup push-down. When the outer WHERE is
+   * {@code out('EdgeClass').@rid = <value>}, the planner should push an
+   * EdgeRidLookup descriptor into ExpandStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_reverseEdgeLookup() {
+    session.execute("CREATE CLASS RLForum EXTENDS V").close();
+    session.execute("CREATE CLASS RLPost EXTENDS V").close();
+    session.execute("CREATE CLASS RLPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RLContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS RLHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX RLForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX RLPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX RLPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE RLContainerOf FROM (SELECT FROM RLForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM RLPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    // Only post0 and post3 belong to alice
+    session.execute(
+        "CREATE EDGE RLHasCreator FROM (SELECT FROM RLPost WHERE title = 'post0')"
+            + " TO (SELECT FROM RLPerson WHERE name = 'alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE RLHasCreator FROM (SELECT FROM RLPost WHERE title = 'post3')"
+            + " TO (SELECT FROM RLPerson WHERE name = 'alice')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('RLContainerOf')) FROM RLForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE out('RLHasCreator').@rid = " + personRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by alice", 2, items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Edge RID lookup should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('RLHasCreator')"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A3 combined with additional filter: reverse edge lookup with
+   * a remaining predicate that stays as a push-down filter.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_reverseEdgeLookupWithOtherFilter() {
+    session.execute("CREATE CLASS RLOForum EXTENDS V").close();
+    session.execute("CREATE CLASS RLOPost EXTENDS V").close();
+    session.execute("CREATE CLASS RLOPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RLOContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS RLOHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX RLOForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX RLOPerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX RLOPost SET title = 'post" + i + "', score = " + (i + 1)).close();
+      session.execute(
+          "CREATE EDGE RLOContainerOf FROM (SELECT FROM RLOForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM RLOPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    // post1 (score=2) and post3 (score=4) belong to bob
+    session.execute(
+        "CREATE EDGE RLOHasCreator FROM (SELECT FROM RLOPost WHERE title = 'post1')"
+            + " TO (SELECT FROM RLOPerson WHERE name = 'bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE RLOHasCreator FROM (SELECT FROM RLOPost WHERE title = 'post3')"
+            + " TO (SELECT FROM RLOPerson WHERE name = 'bob')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('RLOContainerOf')) FROM RLOForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE out('RLOHasCreator').@rid = " + personRid
+            + " AND score >= 2");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by bob with score>=2", 2, items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Edge RID lookup should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('RLOHasCreator')"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A2: Partial $parent push-down. When the outer WHERE mixes
+   * $parent-referencing and non-$parent conditions, the non-$parent part
+   * is pushed down while the $parent part stays as an outer FilterStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_partialParentPushDown() {
+    session.execute("CREATE CLASS PPForum EXTENDS V").close();
+    session.execute("CREATE CLASS PPPost EXTENDS V").close();
+    session.execute("CREATE CLASS PPContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS PPHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PPForum SET name = 'forum1'").close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX PPPost SET title = 'post" + i + "', score = " + (i + 1)).close();
+      session.execute(
+          "CREATE EDGE PPContainerOf FROM (SELECT FROM PPForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PPPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // This query uses a LET to simulate $parent: score > 3 is non-$parent,
+    // so it should be pushed down.
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PPContainerOf')) FROM PPForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE score > 3");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return posts with score > 3: post3(4), post4(5)", 2,
+        items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Push-down filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("push-down filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case C + Case A3 combined: class filter AND edge RID lookup.
+   * Both should be pushed into ExpandStep independently.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_classFilterAndEdgeLookup() {
+    session.execute("CREATE CLASS CEForum EXTENDS V").close();
+    session.execute("CREATE CLASS CEPost EXTENDS V").close();
+    session.execute("CREATE CLASS CEComment EXTENDS V").close();
+    session.execute("CREATE CLASS CEPerson EXTENDS V").close();
+    session.execute("CREATE CLASS CEContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS CEHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CEForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX CEPerson SET name = 'carol'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CEPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CEContainerOf FROM (SELECT FROM CEForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM CEPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX CEComment SET text = 'comment" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CEContainerOf FROM (SELECT FROM CEForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM CEComment WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    // post0 and post2 belong to carol
+    session.execute(
+        "CREATE EDGE CEHasCreator FROM (SELECT FROM CEPost WHERE title = 'post0')"
+            + " TO (SELECT FROM CEPerson WHERE name = 'carol')")
+        .close();
+    session.execute(
+        "CREATE EDGE CEHasCreator FROM (SELECT FROM CEPost WHERE title = 'post2')"
+            + " TO (SELECT FROM CEPerson WHERE name = 'carol')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('CEContainerOf')) FROM CEForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'CEPost' AND out('CEHasCreator').@rid = " + personRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by carol (not comments)", 2, items.size());
+    for (var item : items) {
+      Assert.assertEquals("CEPost", item.asEntity().getSchemaClassName());
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Edge RID lookup should be in EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('CEHasCreator')"));
+
+    result.close();
+    session.commit();
+  }
 }

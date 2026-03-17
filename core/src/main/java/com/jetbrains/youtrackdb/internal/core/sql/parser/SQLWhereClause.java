@@ -428,6 +428,328 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
+   * Result of splitting a WHERE clause by {@code $parent} references.
+   *
+   * @param parentReferencing conditions that reference {@code $parent},
+   *     or {@code null} if none do
+   * @param nonParentReferencing conditions that do not reference {@code $parent},
+   *     or {@code null} if all conditions reference {@code $parent}
+   */
+  public record ParentSplitResult(
+      @Nullable SQLWhereClause parentReferencing,
+      @Nullable SQLWhereClause nonParentReferencing) {
+  }
+
+  /**
+   * Splits this WHERE clause into conditions that reference {@code $parent} and
+   * conditions that do not. Only works on single-OR-branch AND blocks.
+   *
+   * <ul>
+   *   <li>{@code WHERE a > 5 AND out('X').@rid = $parent.$current.@rid}
+   *       → nonParent="a > 5", parent="out('X').@rid = $parent.$current.@rid"
+   *   <li>{@code WHERE a > 5} → returns null (no $parent references, no split needed)
+   *   <li>{@code WHERE out('X').@rid = $parent.$current.@rid} → nonParent=null,
+   *       parent=the whole clause
+   * </ul>
+   *
+   * @return split result, or {@code null} if the clause does not reference
+   *     {@code $parent} at all (the caller should use the clause as-is for push-down)
+   */
+  @Nullable
+  public ParentSplitResult splitByParentReference() {
+    if (baseExpression == null || !baseExpression.refersToParent()) {
+      return null;
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return new ParentSplitResult(this, null);
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return new ParentSplitResult(this, null);
+    }
+    if (andBlock.subBlocks.size() < 2) {
+      return new ParentSplitResult(this, null);
+    }
+
+    List<Integer> parentIndices = new ArrayList<>();
+    List<Integer> nonParentIndices = new ArrayList<>();
+    for (var i = 0; i < andBlock.subBlocks.size(); i++) {
+      if (andBlock.subBlocks.get(i).refersToParent()) {
+        parentIndices.add(i);
+      } else {
+        nonParentIndices.add(i);
+      }
+    }
+
+    if (nonParentIndices.isEmpty()) {
+      return new ParentSplitResult(this, null);
+    }
+
+    var parentWhere = parentIndices.isEmpty()
+        ? null : buildWhereWith(andBlock, parentIndices);
+    var nonParentWhere = buildWhereWith(andBlock, nonParentIndices);
+    return new ParentSplitResult(parentWhere, nonParentWhere);
+  }
+
+  /**
+   * Builds a new WHERE clause from the AND block containing only the terms
+   * at the specified indices.
+   */
+  private static SQLWhereClause buildWhereWith(
+      SQLAndBlock andBlock, List<Integer> indices) {
+    var newAnd = new SQLAndBlock(-1);
+    for (var idx : indices) {
+      newAnd.subBlocks.add(andBlock.subBlocks.get(idx));
+    }
+    var newOr = new SQLOrBlock(-1);
+    newOr.subBlocks.add(newAnd);
+    var where = new SQLWhereClause(-1);
+    where.baseExpression = newOr;
+    return where;
+  }
+
+  /**
+   * Result of extracting a {@code @rid = <expr>} condition from a WHERE clause.
+   *
+   * @param ridExpression the value-side expression (literal, parameter, etc.)
+   * @param remainingWhere the WHERE clause with the RID condition removed,
+   *     or {@code null} if the RID condition was the only condition
+   */
+  public record RidExtractionResult(
+      SQLExpression ridExpression, @Nullable SQLWhereClause remainingWhere) {
+  }
+
+  /**
+   * Extracts a {@code @rid = <expr>} condition from this WHERE clause,
+   * handling both simple and compound AND forms:
+   * <ul>
+   *   <li>{@code WHERE @rid = #23:1} → ridExpression="#23:1", remainingWhere=null
+   *   <li>{@code WHERE @rid = :param AND x > 5} → ridExpression=":param",
+   *       remainingWhere="x > 5"
+   *   <li>{@code WHERE x > 5} → returns null
+   * </ul>
+   *
+   * @return extraction result, or {@code null} if no RID equality is found
+   */
+  @Nullable
+  public RidExtractionResult extractAndRemoveRidEquality() {
+    if (baseExpression == null) {
+      return null;
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return null;
+    }
+
+    for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
+      var ridExpr = tryExtractRidFromTerm(andBlock.subBlocks.get(idx));
+      if (ridExpr != null) {
+        if (andBlock.subBlocks.size() == 1) {
+          return new RidExtractionResult(ridExpr, null);
+        }
+        var remaining = buildWhereWithout(andBlock, idx);
+        return new RidExtractionResult(ridExpr, remaining);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Checks if a single AND term (possibly wrapped in a non-negated NotBlock)
+   * is {@code @rid = <expr>}. Returns the value-side expression or null.
+   */
+  @Nullable
+  private static SQLExpression tryExtractRidFromTerm(SQLBooleanExpression term) {
+    if (term instanceof SQLNotBlock notBlock) {
+      if (notBlock.negate) {
+        return null;
+      }
+      term = notBlock.sub;
+    }
+    if (!(term instanceof SQLBinaryCondition cond)) {
+      return null;
+    }
+    if (!(cond.operator instanceof SQLEqualsOperator)) {
+      return null;
+    }
+    var result = tryExtractRidValue(cond.left, cond.right);
+    return result != null ? result : tryExtractRidValue(cond.right, cond.left);
+  }
+
+  /**
+   * Checks if {@code attrSide} is a bare {@code @rid} record attribute.
+   * Returns the {@code valueSide} expression if so, or null.
+   */
+  @Nullable
+  private static SQLExpression tryExtractRidValue(
+      SQLExpression attrSide, SQLExpression valueSide) {
+    if (!(attrSide.mathExpression instanceof SQLBaseExpression attrBase)) {
+      return null;
+    }
+    var ident = attrBase.getIdentifier();
+    if (ident == null || ident.getSuffix() == null
+        || ident.getSuffix().recordAttribute == null
+        || attrBase.getModifier() != null) {
+      return null;
+    }
+    if (!"@rid".equalsIgnoreCase(
+        ident.getSuffix().recordAttribute.getName())) {
+      return null;
+    }
+    return valueSide;
+  }
+
+  /**
+   * Result of extracting an {@code out/in('EdgeClass').@rid = <expr>} condition.
+   *
+   * @param edgeClassName the edge class name (e.g. "HAS_CREATOR")
+   * @param traversalDirection the direction of the original traversal (OUT or IN)
+   * @param targetRidExpression the expression for the target RID (literal,
+   *     parameter, or $parent reference)
+   * @param remainingWhere the WHERE with the edge-RID condition removed,
+   *     or {@code null} if it was the only condition
+   */
+  public record EdgeRidLookupExtractionResult(
+      String edgeClassName,
+      String traversalDirection,
+      SQLExpression targetRidExpression,
+      @Nullable SQLWhereClause remainingWhere) {
+  }
+
+  /**
+   * Extracts an {@code out/in('EdgeClass').@rid = <expr>} condition from this
+   * WHERE clause. Recognizes the AST pattern where a graph function call
+   * ({@code out} or {@code in}) with a single string parameter is followed by
+   * a {@code .@rid} suffix, compared via equality.
+   *
+   * @return extraction result, or {@code null} if no matching condition is found
+   */
+  @Nullable
+  public EdgeRidLookupExtractionResult extractAndRemoveEdgeRidLookup() {
+    if (baseExpression == null) {
+      return null;
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return null;
+    }
+
+    for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
+      var info = tryExtractEdgeRidFromTerm(andBlock.subBlocks.get(idx));
+      if (info != null) {
+        SQLWhereClause remaining = andBlock.subBlocks.size() == 1
+            ? null : buildWhereWithout(andBlock, idx);
+        return new EdgeRidLookupExtractionResult(
+            info.edgeClassName, info.direction, info.targetRidExpr, remaining);
+      }
+    }
+    return null;
+  }
+
+  private record EdgeRidTermInfo(
+      String edgeClassName, String direction, SQLExpression targetRidExpr) {
+  }
+
+  @Nullable
+  private static EdgeRidTermInfo tryExtractEdgeRidFromTerm(SQLBooleanExpression term) {
+    if (term instanceof SQLNotBlock notBlock) {
+      if (notBlock.negate) {
+        return null;
+      }
+      term = notBlock.sub;
+    }
+    if (!(term instanceof SQLBinaryCondition cond)) {
+      return null;
+    }
+    if (!(cond.operator instanceof SQLEqualsOperator)) {
+      return null;
+    }
+    var info = tryExtractEdgeRidSide(cond.left, cond.right);
+    return info != null ? info : tryExtractEdgeRidSide(cond.right, cond.left);
+  }
+
+  /**
+   * Checks if {@code methodSide} is {@code out/in('EdgeClass').@rid} and
+   * returns the edge class name, direction, and value expression.
+   */
+  @Nullable
+  private static EdgeRidTermInfo tryExtractEdgeRidSide(
+      SQLExpression methodSide, SQLExpression valueSide) {
+    if (!(methodSide.mathExpression instanceof SQLBaseExpression baseExpr)) {
+      return null;
+    }
+    var ident = baseExpr.getIdentifier();
+    if (ident == null || ident.getLevelZero() == null) {
+      return null;
+    }
+    var funcCall = ident.getLevelZero().getFunctionCall();
+    if (funcCall == null) {
+      return null;
+    }
+    var funcName = funcCall.getName().getStringValue();
+    if (!"out".equalsIgnoreCase(funcName) && !"in".equalsIgnoreCase(funcName)) {
+      return null;
+    }
+    if (funcCall.getParams().size() != 1) {
+      return null;
+    }
+
+    var edgeClassName = extractStringLiteral(funcCall.getParams().getFirst());
+    if (edgeClassName == null) {
+      return null;
+    }
+
+    var modifier = baseExpr.getModifier();
+    if (modifier == null || modifier.suffix == null
+        || modifier.suffix.recordAttribute == null) {
+      return null;
+    }
+    if (!"@rid".equalsIgnoreCase(modifier.suffix.recordAttribute.getName())) {
+      return null;
+    }
+    if (modifier.next != null) {
+      return null;
+    }
+
+    return new EdgeRidTermInfo(edgeClassName, funcName.toLowerCase(), valueSide);
+  }
+
+  @Nullable
+  private static String extractStringLiteral(SQLExpression expr) {
+    if (!(expr.mathExpression instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    if (base.string == null || base.getModifier() != null) {
+      return null;
+    }
+    var raw = base.string;
+    if (raw.length() >= 2
+        && ((raw.startsWith("\"") && raw.endsWith("\""))
+            || (raw.startsWith("'") && raw.endsWith("'")))) {
+      return raw.substring(1, raw.length() - 1);
+    }
+    return raw;
+  }
+
+  /**
    * Checks if {@code attrSide} is a bare {@code @class} record attribute and
    * {@code valueSide} is a string literal. Returns the unquoted class name or null.
    */
