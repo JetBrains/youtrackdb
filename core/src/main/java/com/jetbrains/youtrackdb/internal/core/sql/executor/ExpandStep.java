@@ -272,11 +272,7 @@ public class ExpandStep extends AbstractExecutionStep {
   @Nullable private static RidSet resolveIndexToRidSet(
       IndexSearchDescriptor desc, CommandContext ctx) {
     List<Stream<RawPair<Object, RID>>> streams;
-    try {
-      streams = FetchFromIndexStep.init(desc, true, ctx);
-    } catch (Exception ignored) {
-      return null;
-    }
+    streams = FetchFromIndexStep.init(desc, true, ctx);
     if (streams.isEmpty()) {
       return null;
     }
