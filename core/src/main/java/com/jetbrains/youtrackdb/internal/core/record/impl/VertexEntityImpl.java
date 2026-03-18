@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -214,8 +213,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to) {
-    return (StatefulEdge) addEdge(to, EdgeInternal.CLASS_NAME);
+  public Edge addStateFulEdge(Vertex to) {
+    return addEdge(to, EdgeInternal.CLASS_NAME);
   }
 
   @Override
@@ -227,7 +226,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to, String label) {
+  public Edge addStateFulEdge(Vertex to, String label) {
     checkForBinding();
     return session.newStatefulEdge(this, to, label == null ? EdgeInternal.CLASS_NAME : label);
   }
@@ -251,7 +250,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to, SchemaClass label) {
+  public Edge addStateFulEdge(Vertex to, SchemaClass label) {
     final String className;
 
     if (label != null) {
@@ -790,8 +789,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       Direction direction) {
     var className = edge.getSchemaClassName();
     Identifiable edgeId;
-    if (edge instanceof StatefulEdge statefulEdge) {
-      edgeId = statefulEdge.getIdentity();
+    if (edge instanceof Edge edgeRecord) {
+      edgeId = edgeRecord.getIdentity();
     } else {
       edgeId = null;
     }

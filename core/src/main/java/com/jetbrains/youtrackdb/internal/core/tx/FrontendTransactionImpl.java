@@ -22,9 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
-import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
-import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
@@ -34,7 +31,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -206,22 +202,18 @@ public class FrontendTransactionImpl implements
 
   @Override
   public Map<RID, RID> commitInternal() {
-    return commitInternalImpl(null, null, null);
+    return commitInternal(false);
   }
 
+  /**
+   * The transaction is reentrant. If {@code begin()} has been called several times, the actual
+   * commit happens only after the same amount of {@code commit()} calls
+   *
+   * @param force commit transaction even
+   * @return Map between generated rids of new records and ones generated during records commit.
+   */
   @Override
-  public Map<RID, RID> monitoredCommitInternal(
-      @Nonnull TransactionMetricsListener listener,
-      @Nonnull QueryMonitoringMode mode,
-      @Nonnull String trackingId) {
-    return commitInternalImpl(listener, mode, trackingId);
-  }
-
-  private Map<RID, RID> commitInternalImpl(
-      @Nullable TransactionMetricsListener listener,
-      @Nullable QueryMonitoringMode mode,
-      @Nullable String trackingId) {
-
+  public Map<RID, RID> commitInternal(final boolean force) {
     assertOnOwningThread();
     checkTransactionValid();
 
@@ -229,13 +221,18 @@ public class FrontendTransactionImpl implements
       throw new TransactionException(session.getDatabaseName(),
           "Invalid value of tx counter: " + txStartCounter);
     }
-    if (txStartCounter == 1) {
+    if (force) {
       preProcessRecordsAndExecuteCallCallbacks();
+      txStartCounter = 0;
+    } else {
+      if (txStartCounter == 1) {
+        preProcessRecordsAndExecuteCallCallbacks();
+      }
+      txStartCounter--;
     }
-    txStartCounter--;
 
     if (txStartCounter == 0) {
-      return doCommit(listener, mode, trackingId);
+      return doCommit();
     } else {
       if (txStartCounter < 0) {
         throw new TransactionException(session,
@@ -630,11 +627,7 @@ public class FrontendTransactionImpl implements
 
   }
 
-  private Map<RID, RID> doCommit(
-      @Nullable TransactionMetricsListener metricsListener,
-      @Nullable QueryMonitoringMode metricsMode,
-      @Nullable String metricsTrackingId) {
-
+  private Map<RID, RID> doCommit() {
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
       if (status == TXSTATUS.ROLLBACKING) {
         rollbackInternal();
@@ -644,37 +637,11 @@ public class FrontendTransactionImpl implements
           "Given transaction was rolled back, and thus cannot be committed.");
     }
 
-    var monitorWriteCommit = metricsListener != null && isWriteTransaction();
-
-    final long commitStartMillis;
-    final long commitStartNanos;
-    if (monitorWriteCommit) {
-      assert metricsMode != null && metricsTrackingId != null;
-
-      if (metricsMode == QueryMonitoringMode.LIGHTWEIGHT) {
-        var ticker = YouTrackDBEnginesManager.instance().getTicker();
-        commitStartMillis = ticker.approximateCurrentTimeMillis();
-        commitStartNanos = ticker.approximateNanoTime();
-      } else {
-        commitStartMillis = System.currentTimeMillis();
-        commitStartNanos = System.nanoTime();
-      }
-    } else {
-      commitStartMillis = 0;
-      commitStartNanos = 0;
-    }
-
     var result = new HashMap<RID, RID>(originalChangedRecordIdMap.size());
     try {
       status = TXSTATUS.COMMITTING;
       if (isWriteTransaction()) {
         session.internalCommit(this);
-
-        if (monitorWriteCommit) {
-          notifyMetricsListener(metricsListener, metricsMode, metricsTrackingId,
-              commitStartMillis, commitStartNanos, null);
-        }
-
         session.transactionMeters()
             .writeTransactions()
             .record();
@@ -689,10 +656,6 @@ public class FrontendTransactionImpl implements
 
     } catch (Exception e) {
       rollbackInternal();
-      if (monitorWriteCommit) {
-        notifyMetricsListener(metricsListener, metricsMode, metricsTrackingId,
-            commitStartMillis, commitStartNanos, e);
-      }
       throw e;
     }
 
@@ -705,33 +668,6 @@ public class FrontendTransactionImpl implements
         : "atomicOperation must be null after close";
 
     return result;
-  }
-
-  /// Notifies the metrics listener about a completed commit attempt. If `cause` is null,
-  /// the commit succeeded and [TransactionMetricsListener#writeTransactionCommitted] is called;
-  /// otherwise [TransactionMetricsListener#writeTransactionFailed] is called with the cause.
-  private void notifyMetricsListener(
-      TransactionMetricsListener listener, QueryMonitoringMode mode,
-      String trackingId, long commitStartMillis, long commitStartNanos,
-      @Nullable Exception cause) {
-    final long durationNanos;
-    if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
-      durationNanos = YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime()
-          - commitStartNanos;
-    } else {
-      durationNanos = System.nanoTime() - commitStartNanos;
-    }
-    try {
-      TransactionMetricsListener.TransactionDetails details = () -> trackingId;
-      if (cause == null) {
-        listener.writeTransactionCommitted(details, commitStartMillis, durationNanos);
-      } else {
-        listener.writeTransactionFailed(details, commitStartMillis, durationNanos, cause);
-      }
-    } catch (Exception e) {
-      LogManager.instance().error(this,
-          "Error in TransactionMetricsListener callback", e);
-    }
   }
 
   @Override
@@ -1485,13 +1421,13 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+  public Edge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     checkIfActive();
     return session.loadEdge(id);
   }
 
   @Nullable @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     checkIfActive();
     try {
       return session.loadEdge(id);
@@ -1502,10 +1438,10 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+  public Edge loadEdge(@Nonnull Identifiable id)
       throws DatabaseException, RecordNotFoundException {
     checkIfActive();
-    if (id instanceof StatefulEdge edge) {
+    if (id instanceof Edge edge) {
       if (edge.isNotBound(session)) {
         return loadEdge(edge.getIdentity());
       }
@@ -1519,9 +1455,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
-    if (id instanceof StatefulEdge edge) {
+    if (id instanceof Edge edge) {
       if (edge.isNotBound(session)) {
         return loadEdgeOrNull(edge.getIdentity());
       }
@@ -1653,13 +1589,13 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     checkIfActive();
     return session.newStatefulEdge(from, to, type);
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
     checkIfActive();
     return session.newStatefulEdge(from, to, type);
   }
@@ -1689,7 +1625,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newStatefulEdge(Vertex from, Vertex to) {
     checkIfActive();
     return session.newStatefulEdge(from, to);
   }

@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -735,7 +734,7 @@ public class TransactionTest {
         var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
         try {
           var txReader = dbReader.begin();
-          StatefulEdge e = txReader.loadEdge(edgeRid);
+          Edge e = txReader.loadEdge(edgeRid);
           Assert.assertEquals(
               "Reader should see the original 'since' value",
               2020, (int) e.getProperty("since"));
@@ -745,7 +744,7 @@ public class TransactionTest {
 
           // Re-read after the writer committed: snapshot isolation must preserve old value
           dbReader.getLocalCache().clear();
-          StatefulEdge eAfter = txReader.loadEdge(edgeRid);
+          Edge eAfter = txReader.loadEdge(edgeRid);
           Assert.assertEquals(
               "Snapshot isolation: reader must still see since=2020",
               2020, (int) eAfter.getProperty("since"));
@@ -763,7 +762,7 @@ public class TransactionTest {
 
     // Main thread: update the edge property and commit
     var txWriter = db.begin();
-    StatefulEdge eWriter = txWriter.loadEdge(edgeRid);
+    Edge eWriter = txWriter.loadEdge(edgeRid);
     eWriter.setProperty("since", 2024);
     txWriter.commit();
     db.getLocalCache().clear();
@@ -773,7 +772,7 @@ public class TransactionTest {
 
     // After both transactions complete, a new reader must see the updated value
     var txVerify = db.begin();
-    StatefulEdge eFinal = txVerify.loadEdge(edgeRid);
+    Edge eFinal = txVerify.loadEdge(edgeRid);
     Assert.assertEquals(
         "After commit, new readers must see since=2024",
         2024, (int) eFinal.getProperty("since"));
@@ -1638,7 +1637,7 @@ public class TransactionTest {
         var db1 = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
         try {
           var tx1 = db1.begin();
-          StatefulEdge e1 = tx1.loadEdge(edgeRid);
+          Edge e1 = tx1.loadEdge(edgeRid);
           e1.setProperty("weight", 10);
 
           readerStarted.countDown();
@@ -1661,7 +1660,7 @@ public class TransactionTest {
 
     awaitOrFail(readerStarted);
     var tx2 = db.begin();
-    StatefulEdge e2 = tx2.loadEdge(edgeRid);
+    Edge e2 = tx2.loadEdge(edgeRid);
     e2.setProperty("weight", 20);
     tx2.commit();
     writerCommitted.countDown();
@@ -1672,7 +1671,7 @@ public class TransactionTest {
 
     // Verify the winning update
     var txVerify = db.begin();
-    StatefulEdge eFinal = txVerify.loadEdge(edgeRid);
+    Edge eFinal = txVerify.loadEdge(edgeRid);
     Assert.assertEquals(20, (int) eFinal.getProperty("weight"));
     txVerify.commit();
   }
@@ -2629,7 +2628,7 @@ public class TransactionTest {
                   vw.setProperty("val", rng.nextInt(10000));
                 } else {
                   var idx = rng.nextInt(edgeRids.size());
-                  StatefulEdge ew = txW.loadEdge(edgeRids.get(idx));
+                  Edge ew = txW.loadEdge(edgeRids.get(idx));
                   ew.setProperty("label", "updated-" + rng.nextInt(100));
                 }
                 txW.commit();

@@ -332,10 +332,10 @@ public interface Entity extends DBRecord, Result {
 
   @Nonnull
   @Override
-  StatefulEdge asStatefulEdge();
+  Edge asStatefulEdge();
 
   @Nullable @Override
-  StatefulEdge asStatefulEdgeOrNull();
+  Edge asStatefulEdgeOrNull();
 
   @Nonnull
   @Override

@@ -59,7 +59,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook.TYPE;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -1063,7 +1062,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return edge;
   }
 
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -1077,7 +1076,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           type + " is an abstract class and can not be used for creation of regular edge");
     }
 
-    return (StatefulEdge) addEdgeInternal(from, to, type);
+    return (Edge) addEdgeInternal(from, to, type);
   }
 
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
@@ -2915,7 +2914,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newVertex(type.getName());
   }
 
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
       return newStatefulEdge(from, to, "E");
@@ -4437,10 +4436,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nonnull
-  public StatefulEdge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
+  public Edge loadEdge(RID id) throws DatabaseException, RecordNotFoundException {
     var record = load(id);
 
-    if (record instanceof StatefulEdge edge) {
+    if (record instanceof Edge edge) {
       return edge;
     }
 
@@ -4466,7 +4465,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newVertex("V");
   }
 
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newStatefulEdge(Vertex from, Vertex to) {
     return newStatefulEdge(from, to, "E");
   }
 

@@ -127,8 +127,7 @@ public interface Vertex extends Entity {
    * @return the created edge
    * @see Schema#createEdgeClass(String)
    */
-  StatefulEdge addStateFulEdge(Vertex to);
-
+  Edge addStateFulEdge(Vertex to);
 
   /**
    * Adds an edge between the current vertex and the specified vertex. If label of this edge is
@@ -152,7 +151,7 @@ public interface Vertex extends Entity {
    * @return the created edge
    * @see Schema#createEdgeClass(String)
    */
-  StatefulEdge addStateFulEdge(Vertex to, String label);
+  Edge addStateFulEdge(Vertex to, String label);
 
   /**
    * Adds a lightweight edge (one that does not require associated record) between the current
@@ -188,7 +187,7 @@ public interface Vertex extends Entity {
    * @param label the label of the edge
    * @return the created edge
    */
-  StatefulEdge addStateFulEdge(Vertex to, SchemaClass label);
+  Edge addStateFulEdge(Vertex to, SchemaClass label);
 
   /**
    * Adds a lightweight edge (one that does not require associated record) between the current
@@ -235,7 +234,6 @@ public interface Vertex extends Entity {
    */
   @Override
   void delete();
-
 
   /**
    * Returns the name of the field used to store the link to the edge record.

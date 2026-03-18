@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
@@ -164,7 +163,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     return elements(
         tx.getDatabaseSession(),
         SchemaClass.EDGE_CLASS_NAME,
-        entity -> new YTDBStatefulEdgeImpl(this, (StatefulEdge) entity.asEdge()),
+        entity -> new YTDBStatefulEdgeImpl(this, entity.asEdge()),
         edgeIds);
   }
 

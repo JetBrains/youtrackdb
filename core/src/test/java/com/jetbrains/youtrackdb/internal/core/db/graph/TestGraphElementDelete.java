@@ -12,8 +12,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import org.junit.After;
 import org.junit.Assert;
@@ -71,7 +71,7 @@ public class TestGraphElementDelete {
     tx.commit();
 
     tx = session.begin();
-    tx.delete(tx.<StatefulEdge>load(edge));
+    tx.delete(tx.<Edge>load(edge));
     tx.commit();
 
     tx = session.begin();

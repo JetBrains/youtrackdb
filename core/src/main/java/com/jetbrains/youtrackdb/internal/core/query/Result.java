@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -232,11 +231,11 @@ public interface Result extends BasicResult {
   @Nullable Edge asEdgeOrNull();
 
   @Nonnull
-  default StatefulEdge asStatefulEdge() {
+  default Edge asStatefulEdge() {
     return asEntity().asStatefulEdge();
   }
 
-  @Nullable default StatefulEdge asStatefulEdgeOrNull() {
+  @Nullable default Edge asStatefulEdgeOrNull() {
     var entity = asEntityOrNull();
     if (entity == null) {
       return null;

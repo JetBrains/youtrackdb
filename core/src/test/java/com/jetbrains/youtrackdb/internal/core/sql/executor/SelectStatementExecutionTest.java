@@ -14,7 +14,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -5197,7 +5196,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5256,7 +5255,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5301,7 +5300,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5361,7 +5360,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5405,7 +5404,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5449,7 +5448,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
@@ -5500,7 +5499,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);

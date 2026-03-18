@@ -143,7 +143,7 @@ public interface DBRecord extends Identifiable, Element {
   Blob asBlob();
 
   @Nonnull
-  StatefulEdge asStatefulEdge();
+  Edge asStatefulEdge();
 
   @Nonnull
   Vertex asVertex();
@@ -152,7 +152,7 @@ public interface DBRecord extends Identifiable, Element {
 
   @Nullable Blob asBlobOrNull();
 
-  @Nullable StatefulEdge asStatefulEdgeOrNull();
+  @Nullable Edge asStatefulEdgeOrNull();
 
   @Nullable Vertex asVertexOrNull();
 }

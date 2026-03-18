@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.NoSuchElementException;
 import javax.annotation.Nullable;
@@ -57,7 +56,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
         result =
             new YTDBVertexImpl(graph, entity.asVertex());
       } else if (entity.isEdge()) {
-        result = new YTDBStatefulEdgeImpl(graph, (StatefulEdge) entity.asEdge());
+        result = new YTDBStatefulEdgeImpl(graph, entity.asEdge());
       }
     }
 

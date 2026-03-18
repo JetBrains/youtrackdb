@@ -20,8 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
-import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
@@ -31,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -82,14 +79,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Map<RID, RID> monitoredCommitInternal(
-      @Nonnull TransactionMetricsListener listener,
-      @Nonnull QueryMonitoringMode mode,
-      @Nonnull String trackingId) {
-    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
-  }
-
-  @Override
   public int getEntryCount() {
     return 0;
   }
@@ -129,7 +118,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+  public Edge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -191,12 +180,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -221,7 +210,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newStatefulEdge(Vertex from, Vertex to) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -236,6 +225,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Map<RID, RID> commitInternal(boolean force) {
+    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
   @Override
@@ -504,20 +498,20 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Nullable @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+  public Edge loadEdge(@Nonnull Identifiable id)
       throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

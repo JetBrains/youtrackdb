@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
@@ -76,7 +75,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var graph = getGraph();
     return elements(
         YTDBGraph::edges,
-        result -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) result.asEdge()));
+        result -> new YTDBStatefulEdgeImpl(graph, result.asEdge()));
   }
 
   /**

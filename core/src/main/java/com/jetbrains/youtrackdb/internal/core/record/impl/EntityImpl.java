@@ -44,7 +44,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -215,9 +214,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   @Nonnull
-  public StatefulEdge asStatefulEdge() {
+  public Edge asStatefulEdge() {
     checkForBinding();
-    if (this instanceof StatefulEdge edge) {
+    if (this instanceof Edge edge) {
       return edge;
     }
 
@@ -225,9 +224,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable public StatefulEdge asStatefulEdgeOrNull() {
+  @Nullable public Edge asStatefulEdgeOrNull() {
     checkForBinding();
-    if (this instanceof StatefulEdge edge) {
+    if (this instanceof Edge edge) {
       return edge;
     }
 

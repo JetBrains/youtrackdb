@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
@@ -32,8 +31,7 @@ public final class GremlinResultMapper {
     return switch (value) {
       case null -> null;
       case Vertex vertex -> new YTDBVertexImpl(graph, vertex);
-      case StatefulEdge edge -> new YTDBStatefulEdgeImpl(graph, edge);
-      case Edge edge -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) edge);
+      case Edge edge -> new YTDBStatefulEdgeImpl(graph, edge);
       case Entity entity -> mapEntity(graph, entity);
       case Identifiable identifiable -> wrapRid(graph, schema, identifiable.getIdentity());
       case Result result -> mapResult(graph, schema, result);
@@ -61,7 +59,7 @@ public final class GremlinResultMapper {
     if (entity.isVertex()) {
       return new YTDBVertexImpl(graph, entity.asVertex());
     } else if (entity.isEdge()) {
-      return new YTDBStatefulEdgeImpl(graph, (StatefulEdge) entity.asEdge());
+      return new YTDBStatefulEdgeImpl(graph, entity.asEdge());
     }
 
     throw new IllegalStateException(

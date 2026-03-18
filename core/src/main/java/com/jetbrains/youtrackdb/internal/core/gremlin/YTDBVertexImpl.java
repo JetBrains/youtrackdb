@@ -6,7 +6,6 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import java.util.Iterator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -99,7 +98,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
                 .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
                 .iterator())
             .filter(e -> e != null && e.getFrom() != null && e.getTo() != null)
-            .map(e -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) e));
+            .map(e -> new YTDBStatefulEdgeImpl(graph, e));
 
     return edgeStream.collect(Collectors.toList()).iterator();
   }

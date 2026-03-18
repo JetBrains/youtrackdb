@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -310,11 +309,11 @@ public interface ResultSet extends BasicResultSet<Result> {
    * the isEdge() method returns true). IMPORTANT: the stream consumes the result set!
    */
   @Nonnull
-  default Stream<StatefulEdge> statefulEdgeStream() {
+  default Stream<Edge> statefulEdgeStream() {
     return StreamSupport.stream(
-        new Spliterator<StatefulEdge>() {
+        new Spliterator<Edge>() {
           @Override
-          public boolean tryAdvance(Consumer<? super StatefulEdge> action) {
+          public boolean tryAdvance(Consumer<? super Edge> action) {
             while (hasNext()) {
               var nextElem = next();
               if (nextElem != null) {
@@ -326,7 +325,7 @@ public interface ResultSet extends BasicResultSet<Result> {
           }
 
           @Nullable @Override
-          public Spliterator<StatefulEdge> trySplit() {
+          public Spliterator<Edge> trySplit() {
             return null;
           }
 
@@ -344,12 +343,12 @@ public interface ResultSet extends BasicResultSet<Result> {
         .onClose(this::close);
   }
 
-  default void forEachStatefulEdge(@Nonnull Consumer<? super StatefulEdge> action) {
+  default void forEachStatefulEdge(@Nonnull Consumer<? super Edge> action) {
     statefulEdgeStream().forEach(action);
   }
 
   @Nonnull
-  default List<StatefulEdge> toStatefulEdgeList() {
+  default List<Edge> toStatefulEdgeList() {
     return statefulEdgeStream().toList();
   }
 

@@ -22,8 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -191,7 +191,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   @Nonnull
   @Override
-  public StatefulEdge asStatefulEdge() {
+  public Edge asStatefulEdge() {
     throw new IllegalStateException("Blob is not a StatefulEdge");
   }
 
@@ -212,7 +212,7 @@ public class RecordBytes extends RecordAbstract implements Blob {
   }
 
   @Nullable @Override
-  public StatefulEdge asStatefulEdgeOrNull() {
+  public Edge asStatefulEdgeOrNull() {
     return null;
   }
 

@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -58,14 +57,12 @@ public interface Transaction {
   @Nonnull
   Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Entity loadEntityOrNull(RID id) throws DatabaseException;
+  @Nullable Entity loadEntityOrNull(RID id) throws DatabaseException;
 
   @Nonnull
   Entity loadEntity(Identifiable identifiable) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException;
+  @Nullable Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException;
 
   /**
    * Loads a vertex by its id, throws an exception if record is not a vertex or does not exist.
@@ -78,14 +75,12 @@ public interface Transaction {
   @Nonnull
   Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Vertex loadVertexOrNull(RID id) throws RecordNotFoundException;
+  @Nullable Vertex loadVertexOrNull(RID id) throws RecordNotFoundException;
 
   @Nonnull
   Vertex loadVertex(Identifiable identifiable) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException;
+  @Nullable Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException;
 
   /**
    * Loads an edge by its id, throws an exception if record is not an edge or does not exist.
@@ -96,16 +91,14 @@ public interface Transaction {
    * @throws RecordNotFoundException if the record does not exist
    */
   @Nonnull
-  StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
+  Edge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException;
+  @Nullable Edge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException;
 
   @Nonnull
-  StatefulEdge loadEdge(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
+  Edge loadEdge(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException;
+  @Nullable Edge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**
    * Loads a blob by its id, throws an exception if record is not a blob or does not exist.
@@ -118,14 +111,12 @@ public interface Transaction {
   @Nonnull
   Blob loadBlob(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
+  @Nullable Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException;
 
   @Nonnull
   Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException;
 
-  @Nullable
-  Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException;
+  @Nullable Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException;
 
   /**
    * Create a new instance of a blob containing the given bytes.
@@ -135,14 +126,12 @@ public interface Transaction {
    */
   Blob newBlob(@Nonnull byte[] bytes);
 
-
   /**
    * Create a new empty instance of a blob.
    *
    * @return the Blob instance.
    */
   Blob newBlob();
-
 
   Entity newEntity(final String className);
 
@@ -169,7 +158,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
+  Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
 
   /**
    * Creates a new Edge
@@ -179,7 +168,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
+  Edge newStatefulEdge(Vertex from, Vertex to, String type);
 
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
@@ -231,7 +220,7 @@ public interface Transaction {
    * @param to   the endpoint vertex
    * @return the edge
    */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to);
+  Edge newStatefulEdge(Vertex from, Vertex to);
 
   /**
    * Loads the record by the Record ID.
@@ -251,16 +240,14 @@ public interface Transaction {
    * @param recordId The unique record id of the entity to load.
    * @return The loaded entity or <code>null</code> if entity does not exist.
    */
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET loadOrNull(RID recordId);
 
   @Nonnull
   @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET load(Identifiable identifiable);
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET extends DBRecord> RET loadOrNull(Identifiable identifiable);
 
   /**
@@ -293,8 +280,7 @@ public interface Transaction {
    * persistent RIDs assigned to records during commit or <code>null</code> if transaction is not
    * the highest level transaction and changes are not commited yet as a result.
    */
-  @Nullable
-  Map<RID, RID> commit() throws TransactionException;
+  @Nullable Map<RID, RID> commit() throws TransactionException;
 
   /**
    * Aborts the current running transaction. All the pending changed entities will be restored in
@@ -418,7 +404,6 @@ public interface Transaction {
   ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException;
 
-
   default ResultSet computeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return computeScript("sql", script, args);
@@ -443,7 +428,6 @@ public interface Transaction {
       throws CommandExecutionException, CommandScriptException {
     executeScript("gremlin", script, args);
   }
-
 
   /**
    * Execute a script of a specified query language The result set has to be closed after usage
@@ -494,7 +478,6 @@ public interface Transaction {
       throws CommandExecutionException, CommandScriptException {
     executeScript("gremlin", script, args);
   }
-
 
   default <T> EmbeddedList<T> newEmbeddedList() {
     return getDatabaseSession().newEmbeddedList();
