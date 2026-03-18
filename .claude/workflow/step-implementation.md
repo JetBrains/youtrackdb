@@ -22,42 +22,6 @@ has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
 
 ---
 
-## Phase B Resume — Incomplete Step Recovery
-
-When resuming Phase B (mid-phase checkpoint or session restart), the next
-`[ ]` step may have been **partially completed** in the previous session —
-code committed but episode not yet written. This happens when a session ends
-between sub-step 3 (code commit) and sub-step 5 (episode commit), e.g., due
-to context window exhaustion or an unexpected session termination.
-
-**Detection:** After identifying the next `[ ]` step, check for orphan
-commits — implementation commits that exist after the last episoded step
-but have no corresponding episode in the step file:
-
-1. Find the last `[x]` step's episode commit (or the base commit if no
-   steps are complete) by scanning `git log --oneline {base_commit}..HEAD`.
-2. If there are commits after that point that are NOT step file/episode
-   updates (i.e., they are code implementation or review fix commits):
-   - The previous session committed code for this step but didn't write
-     the episode.
-   - **Resume from the appropriate sub-step** by checking commit messages
-     (see `commit-conventions.md` for the patterns):
-     - If any orphan commit message contains `Review fix:` → the code
-       review loop already ran. Skip directly to episode production
-       (sub-step 5).
-     - If no `Review fix:` commits exist → run the code review loop
-       (sub-step 4).
-   - Write the episode, mark the step `[x]`, update the Progress count,
-     and commit the episode.
-   - Then proceed to the next `[ ]` step normally.
-3. If no orphan commits exist: implement the step from scratch.
-
-**Why this matters:** Without this check, the agent would attempt to
-re-implement code that is already committed, potentially creating
-duplicate or conflicting changes.
-
----
-
 ## Step Completion Gate
 
 **A step is not complete until all six sub-steps below are done.** Do NOT
@@ -87,11 +51,7 @@ For each step in the step file, execute sub-steps 1–6 **in order, to
 completion**, before moving to the next step:
 
 1. **Implement the code** with defensive assertions generously (without
-   performance penalty). **If you encounter a design decision** — a choice
-   between alternatives that affects architecture, API shape, data
-   structures, or behavioral semantics beyond what the plan prescribes —
-   **pause and ask the user for guidance** before proceeding (see
-   workflow.md §Design decision escalation).
+   performance penalty).
 2. **Write tests**, ensure all tests pass, ensure 85% line / 70% branch
    coverage using JaCoCo (triggered by `coverage` Maven profile). Run clean
    phase for each Maven command. **Wait for test results before proceeding.**
@@ -100,8 +60,7 @@ completion**, before moving to the next step:
    commit message conventions (see `CLAUDE.md`).
 4. **Code review loop** (up to 3 iterations, within your context):
    a. Spawn a **code-reviewer sub-agent** (fresh sub-agent each iteration).
-   b. If findings are returned, fix them, commit fixes (using the
-      `Review fix:` prefix — see `commit-conventions.md`), and re-submit.
+   b. If findings are returned, fix them, commit fixes, and re-submit.
    c. Repeat until approved OR **max 3 iterations** reached.
    d. If max iterations reached, note remaining findings in the episode.
 5. **Produce the step episode** — a structured record of what happened
@@ -117,14 +76,7 @@ completion**, before moving to the next step:
    Alert the user only if impact is detected (see workflow.md §Cross-Track
    Impact Monitoring for the full escalation process).
 
-**→ GATE: Step is now complete.**
-
-**Before proceeding to the next step**, check whether a context window
-monitor warning (`CONTEXT WINDOW MONITOR — WARNING` or `CRITICAL`) has
-been received during this session. If yes: do NOT start the next step.
-Instead, save all work and ask the user for a session refresh (see
-workflow.md §Context Window Monitoring). If no warning was received,
-proceed to the next step.
+**→ GATE: Step is now complete. Proceed to the next step.**
 
 ---
 
@@ -161,56 +113,11 @@ architectural problems, coverage cannot be met):
 4. Decide: **retry** with a different approach, or **split** the step into
    smaller pieces that can succeed independently
 
-### Retry representation in the step file
-
-When retrying a failed step, keep the `[!]` entry in place and insert a
-new `[ ]` step immediately after it with a modified description indicating
-the different approach:
-
-```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ...
-  > **Why it failed:** ...
-  > **Impact on remaining steps:** ...
-  > **Key files:** ...
-
-- [ ] Step: Add histogram header to leaf page (retry: use page extension API)
-```
-
-This preserves the full failure history inline and makes the two-failure
-rule trivially detectable on resume.
-
-When **splitting** a failed step, keep the `[!]` entry and insert multiple
-new `[ ]` steps after it:
-
-```markdown
-- [!] Step: Add histogram header and serialization
-  > **What was attempted:** ...
-  > **Why it failed:** ...
-
-- [ ] Step: Add histogram header struct (split from failed step above)
-- [ ] Step: Add histogram serialization (split from failed step above)
-```
-
-Update the **Progress** section's step count to reflect the new total
-(e.g., `(2/6 complete)` if a 5-step track gained one retry step).
-
 ---
 
 ## Two-Failure Rule
 
-The two-failure rule triggers when two consecutive `[!]` entries exist
-for the same logical step (the retry also failed):
-
-```markdown
-- [!] Step: Add histogram header to leaf page
-  > **What was attempted:** ... (first attempt)
-
-- [!] Step: Add histogram header to leaf page (retry: use page extension API)
-  > **What was attempted:** ... (second attempt)
-```
-
-When this happens — whether during a session or detected on resume:
+If the same step fails twice (original attempt + one retry):
 
 - **Stop.** Do not attempt a third time.
 - Present both failed episodes to the user with:
@@ -220,11 +127,6 @@ When this happens — whether during a session or detected on resume:
     issue
 - The user decides: retry with specific guidance, adjust the approach, skip
   the step, or escalate.
-
-**On resume:** When scanning the step list and encountering a `[!]` entry
-followed by another `[!]` for the same step (with `(retry:` in the
-description), this is a two-failure situation. Present both failed
-episodes to the user before proceeding.
 
 See workflow.md §Failure Handling for the broader failure handling context
 and track-level escalation rules.

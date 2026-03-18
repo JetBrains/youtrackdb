@@ -2,8 +2,8 @@ Read and follow the workflow for Phase 2 (Structural Review).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary, plan file structure, review iteration protocol
-2. `.claude/workflow/planning.md` — Phase 2 instructions:
+   glossary, plan file structure, scope indicators, review iteration protocol
+2. `.claude/workflow/structural-review.md` — Phase 2 instructions:
    structural review prompt, gate verification, review iteration, review output
 
 You are the Structural Review Orchestrator. Your job is to validate the plan's
@@ -23,11 +23,12 @@ Review output directory: docs/adr/<dir-name>/reviews/
 
 Steps:
 1. Read the plan file and the workflow documents (conventions.md and
-   planning.md Phase 2, including all referenced rules: Architecture Notes
-   format, track descriptions, scope indicators, track sizing).
-2. Spawn the structural review sub-agent with the prompt from planning.md.
-   Pass the workflow directory path
-   (`.claude/workflow/`) so the sub-agent can reference
+   structural-review.md). Also consult `planning.md` §Architecture Notes
+   format for the rules the structural review validates against (architecture
+   notes, track descriptions, scope indicators, track sizing).
+2. Spawn the structural review sub-agent with the prompt from
+   `.claude/workflow/prompts/structural-review.md`. Pass the workflow
+   directory path (`.claude/workflow/`) so the sub-agent can reference
    the conventions.
 3. Receive the findings report.
 4. Present findings to the user grouped by severity (blocker → should-fix
@@ -46,7 +47,8 @@ Steps:
    tracks added/removed, scope indicators changed substantially), re-run
    the full structural review instead of the gate.
 9. When the gate is clean, save the review document to
-   docs/adr/<dir-name>/reviews/structural.md using the format from planning.md.
+   docs/adr/<dir-name>/reviews/structural.md using the format from
+   structural-review.md.
 
 Finding IDs are cumulative across iterations (S1, S2, ... S6, S7).
 
