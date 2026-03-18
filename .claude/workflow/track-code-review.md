@@ -27,8 +27,13 @@ finding the parent of the first step's commit via git log.
 1. If the sub-agent returns findings that need fixes:
    - Apply fixes as **additional commits** (never amend prior commits)
    - Run tests to verify fixes don't break anything
+   - **Update the Progress section** to record the completed iteration
+     (e.g., `- [ ] Track-level code review (1/3 iterations)`) and commit
+     this update together with the fix commits. This ensures the iteration
+     count survives session interruptions.
    - Spawn a fresh sub-agent to verify (gate check)
-2. Max 3 iterations
+2. Max 3 iterations **total across sessions** — on resume, read the
+   iteration count from the Progress section to determine how many remain.
 3. If blockers persist after 3 iterations, note them — they'll be presented
    to the user during track review (workflow.md §Track Completion Protocol)
 4. When the review passes (or max iterations reached), mark

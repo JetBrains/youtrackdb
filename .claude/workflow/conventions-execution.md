@@ -81,8 +81,9 @@ the resume state:
 | Progress section | Resume action |
 |---|---|
 | `Review + decomposition` is `[ ]` | Reviews completed section may show partial progress — re-run only missing reviews, then decompose |
-| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for incomplete step recovery) |
-| All steps `[x]`, `Track-level code review` is `[ ]` | Run Phase C (track-level code review) |
+| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step, skipping any `[!]` (failed) steps before it (see step-implementation.md §Phase B Resume for incomplete step recovery and §Step Failure for retry handling) |
+| Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows the `[!]` — if yes, resume from the retry step. If the last `[!]` has no retry step after it, the previous session was interrupted before deciding retry/split — present the failed episode to the user and ask how to proceed |
+| All steps `[x]`, `Track-level code review` is `[ ]` or shows partial iterations | Run Phase C (track-level code review), starting from iteration 1 if `[ ]`, or continuing from the recorded iteration if partial |
 | All phases `[x]` | Track completion pending — compile track episode, present to user for approval, write to plan file only after approval (see workflow.md §Track Completion Protocol) |
 
 **Incomplete step recovery (Phase B resume):** When resuming at a `[ ]`
@@ -129,7 +130,9 @@ agent updates it at each phase transition:
 - Mark `Review + decomposition` as `[x]` when the step file is first written
 - Update `Step implementation` count as each step completes (e.g.,
   `(3/5 complete)`); mark `[x]` when all steps are done
-- Mark `Track-level code review` as `[x]` when the review passes
+- Update `Track-level code review` iteration count as each review
+  iteration completes (e.g., `(1/3 iterations)`); mark `[x]` when the
+  review passes or max iterations are reached
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once
