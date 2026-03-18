@@ -51,7 +51,11 @@ For each step in the step file, execute sub-steps 1–6 **in order, to
 completion**, before moving to the next step:
 
 1. **Implement the code** with defensive assertions generously (without
-   performance penalty).
+   performance penalty). **If you encounter a design decision** — a choice
+   between alternatives that affects architecture, API shape, data
+   structures, or behavioral semantics beyond what the plan prescribes —
+   **pause and ask the user for guidance** before proceeding (see
+   workflow.md §Design decision escalation).
 2. **Write tests**, ensure all tests pass, ensure 85% line / 70% branch
    coverage using JaCoCo (triggered by `coverage` Maven profile). Run clean
    phase for each Maven command. **Wait for test results before proceeding.**
@@ -76,7 +80,14 @@ completion**, before moving to the next step:
    Alert the user only if impact is detected (see workflow.md §Cross-Track
    Impact Monitoring for the full escalation process).
 
-**→ GATE: Step is now complete. Proceed to the next step.**
+**→ GATE: Step is now complete.**
+
+**Before proceeding to the next step**, check whether a context window
+monitor warning (`CONTEXT WINDOW MONITOR — WARNING` or `CRITICAL`) has
+been received during this session. If yes: do NOT start the next step.
+Instead, save all work and ask the user for a session refresh (see
+workflow.md §Context Window Monitoring). If no warning was received,
+proceed to the next step.
 
 ---
 
