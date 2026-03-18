@@ -136,31 +136,35 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} "
+          SERVER_IP="${{ steps.server.outputs.ip }}"
+
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            'apt-get install -y -qq python3-pip > /dev/null 2>&1 && pip install --break-system-packages boto3 -q'
+
+          # Pipe the download script over SSH stdin to avoid YAML indentation issues
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
+          print('Downloading dataset from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
+              '/tmp/dataset.tar.zst')
+          print('Downloaded from S3')
+          PYEOF
+
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
             set -euo pipefail
-            apt-get install -y -qq python3-pip > /dev/null 2>&1
-            pip install --break-system-packages boto3 -q
-
-            python3 -c \"
-import boto3, os
-s3 = boto3.client('s3',
-    endpoint_url='${S3_ENDPOINT}',
-    aws_access_key_id='${AWS_ACCESS_KEY_ID}',
-    aws_secret_access_key='${AWS_SECRET_ACCESS_KEY}')
-os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
-print('Downloading dataset from S3...')
-s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
-    '/tmp/dataset.tar.zst')
-print('Downloaded from S3')
-\"
-
             cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1
             zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
             tar xf /tmp/dataset.tar
             rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
-            echo 'Dataset extracted'
+            echo "Dataset extracted"
             ls -la static/ dynamic/
-          "
+          '
 
       - name: Compile
         run: |
