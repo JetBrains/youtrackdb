@@ -221,6 +221,8 @@ graph TD
   > `createLightweightEdgeClass()` method still exists (removed in Track 5).
   >
   > **Step file:** `tracks/track-1.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: Merge StatefulEdge into Edge
   > Collapse `StatefulEdge` into `Edge`. Move `StatefulEdge`-specific methods
