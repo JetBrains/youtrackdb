@@ -5,6 +5,9 @@
 - [ ] Step implementation (0/1 complete)
 - [ ] Track-level code review
 
+## Base commit
+`b1ef7073df`
+
 ## Reviews completed
 - [x] Technical — no blockers, two should-fix findings accepted (see reviews/track-1-technical.md)
 
