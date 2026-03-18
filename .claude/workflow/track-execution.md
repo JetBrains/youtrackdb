@@ -299,15 +299,37 @@ Implement steps sequentially, one at a time, within the same session context.
 You retain full context from Phase A (review findings, codebase knowledge,
 decomposition rationale).
 
+### Step Completion Gate
+
+**A step is not complete until all six sub-steps below are done.** Do NOT
+begin implementing the next step until the current step's episode is
+committed and cross-track impact is assessed. This is a hard gate, not a
+guideline.
+
+**Why this matters:** Skipping the gate — even for steps that "feel
+mechanical" — defeats the workflow's purpose. Code review catches issues
+early (before they propagate to later steps). Episodes record discoveries
+that inform remaining steps. Cross-track checks catch assumption failures
+before they compound. Batching these activities across steps loses all
+three benefits.
+
+**Prohibited patterns:**
+- Starting Step N+1 code before Step N's episode is committed
+- Batching code reviews across multiple steps
+- Batching episodes across multiple steps ("retroactive" episodes)
+- Running tests in the background and continuing to the next step
+  without waiting for results
+
 ### Per-Step Workflow
 
-For each step in the step file:
+For each step in the step file, execute sub-steps 1–6 **in order, to
+completion**, before moving to the next step:
 
 1. **Implement the code** with defensive assertions generously (without
    performance penalty).
 2. **Write tests**, ensure all tests pass, ensure 85% line / 70% branch
    coverage using JaCoCo (triggered by `coverage` Maven profile). Run clean
-   phase for each Maven command.
+   phase for each Maven command. **Wait for test results before proceeding.**
 3. **Stage and commit** the code changes. You know exactly which files you
    modified, so stage them explicitly (no `git add -A`). Follow the project's
    commit message conventions (see `CLAUDE.md`).
@@ -325,6 +347,8 @@ For each step in the step file:
 6. **Cross-track impact check** — quick self-assessment against the plan
    (see workflow.md §Cross-Track Impact Monitoring). Alert the user only if
    impact is detected.
+
+**→ GATE: Step is now complete. Proceed to the next step.**
 
 ### Episode Production
 
