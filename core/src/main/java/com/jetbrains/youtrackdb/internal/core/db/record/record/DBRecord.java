@@ -128,14 +128,11 @@ public interface DBRecord extends Identifiable, Element {
    * @return Returns session to which given record is bound or <code>null</code> if record is
    * unloaded.
    */
-  @Nullable
-  DatabaseSessionEmbedded getBoundedToSession();
+  @Nullable DatabaseSessionEmbedded getBoundedToSession();
 
   boolean isBlob();
 
   boolean isEntity();
-
-  boolean isStatefulEdge();
 
   boolean isVertex();
 
@@ -151,15 +148,11 @@ public interface DBRecord extends Identifiable, Element {
   @Nonnull
   Vertex asVertex();
 
-  @Nullable
-  Entity asEntityOrNull();
+  @Nullable Entity asEntityOrNull();
 
-  @Nullable
-  Blob asBlobOrNull();
+  @Nullable Blob asBlobOrNull();
 
-  @Nullable
-  StatefulEdge asStatefulEdgeOrNull();
+  @Nullable StatefulEdge asStatefulEdgeOrNull();
 
-  @Nullable
-  Vertex asVertexOrNull();
+  @Nullable Vertex asVertexOrNull();
 }

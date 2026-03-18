@@ -431,7 +431,7 @@ public class MatchStepUnitTest extends DbTestBase {
     node.alias = "v";
 
     // Track whether the previous step was drained
-    var drained = new boolean[]{false};
+    var drained = new boolean[] {false};
     var prevStep = new AbstractExecutionStep(ctx, false) {
       @Override
       public ExecutionStream internalStart(CommandContext ctx) {
@@ -1199,9 +1199,9 @@ public class MatchStepUnitTest extends DbTestBase {
           var row = new ResultInternal(session);
           var resultVal = new ResultInternal(session);
           resultVal.setProperty("x", 1);
-          row.setProperty("resultProp", resultVal);     // Result → emitted
-          row.setProperty("identProp", vertex);          // Identifiable → wrapped & emitted
-          row.setProperty("primitiveProp", "ignored");   // Primitive → skipped
+          row.setProperty("resultProp", resultVal); // Result → emitted
+          row.setProperty("identProp", vertex); // Identifiable → wrapped & emitted
+          row.setProperty("primitiveProp", "ignored"); // Primitive → skipped
           return ExecutionStream.singleton(row);
         }
 
@@ -2842,9 +2842,9 @@ public class MatchStepUnitTest extends DbTestBase {
 
     var row = new MatchResultRow(session, parent, "b", "Bob");
 
-    assertTrue(row.hasProperty("b"));   // new alias
-    assertTrue(row.hasProperty("a"));   // parent property
-    assertFalse(row.hasProperty("z"));  // does not exist
+    assertTrue(row.hasProperty("b")); // new alias
+    assertTrue(row.hasProperty("a")); // parent property
+    assertFalse(row.hasProperty("z")); // does not exist
 
     // Add a local content property
     row.setProperty("extra", "val");
@@ -3330,11 +3330,6 @@ public class MatchStepUnitTest extends DbTestBase {
     @Override
     public Edge asEdgeOrNull() {
       return null;
-    }
-
-    @Override
-    public boolean isStatefulEdge() {
-      return false;
     }
 
     @Override

@@ -159,36 +159,6 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-  @Nonnull
-  default <R> R findFirstStateFullEdge(@Nonnull Function<Edge, R> function) {
-    try {
-      if (hasNext()) {
-        return function.apply(next().asStatefulEdge());
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
-  @Nullable default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
-    try {
-      if (hasNext()) {
-        var edge = next().asStatefulEdgeOrNull();
-        if (edge != null) {
-          return function.apply(edge);
-        }
-
-        return null;
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
   /**
    * Returns the result set as a stream of elements (filters only the results that are elements -
    * where the isEntity() method returns true). IMPORTANT: the stream consumes the result set!

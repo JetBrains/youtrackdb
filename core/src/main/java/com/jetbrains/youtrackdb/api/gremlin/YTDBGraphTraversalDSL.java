@@ -56,7 +56,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .select("result");
   }
 
-  default GraphTraversal<S, Vertex> addStateFullEdgeClass(String className) {
+  default GraphTraversal<S, Vertex> addEdgeClass(String className) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result").addE(superClass).to(
         __.V().hasLabel(YTDBSchemaClass.LABEL)

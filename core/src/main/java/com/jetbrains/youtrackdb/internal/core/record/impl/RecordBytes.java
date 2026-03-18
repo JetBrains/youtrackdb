@@ -45,7 +45,7 @@ import javax.annotation.Nullable;
  */
 public class RecordBytes extends RecordAbstract implements Blob {
 
-  private static final byte[] EMPTY_SOURCE = new byte[]{};
+  private static final byte[] EMPTY_SOURCE = new byte[] {};
 
   public RecordBytes(RecordIdInternal recordId, final DatabaseSessionEmbedded iDatabase,
       final byte[] iSource) {
@@ -173,11 +173,6 @@ public class RecordBytes extends RecordAbstract implements Blob {
   }
 
   @Override
-  public boolean isStatefulEdge() {
-    return false;
-  }
-
-  @Override
   public boolean isVertex() {
     return false;
   }
@@ -206,26 +201,22 @@ public class RecordBytes extends RecordAbstract implements Blob {
     throw new IllegalStateException("Blob is not a Vertex");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity asEntityOrNull() {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob asBlobOrNull() {
     return this;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public StatefulEdge asStatefulEdgeOrNull() {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex asVertexOrNull() {
     return null;
   }

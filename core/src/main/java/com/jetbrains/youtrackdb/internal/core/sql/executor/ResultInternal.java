@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -984,28 +983,6 @@ public class ResultInternal implements Result, BasicResultInternal {
         return false;
       }
       case Edge edge -> {
-        return true;
-      }
-      default -> {
-        checkSessionForRecords();
-
-        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
-        var cls = schemaSnapshot.getClassByCollectionId(
-            identifiable.getIdentity().getCollectionId());
-
-        return cls != null && !cls.isAbstract() && cls.isEdgeType();
-      }
-    }
-  }
-
-  @Override
-  public boolean isStatefulEdge() {
-    assert checkSession();
-    switch (identifiable) {
-      case null -> {
-        return false;
-      }
-      case StatefulEdge statefulEdge -> {
         return true;
       }
       default -> {

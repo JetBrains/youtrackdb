@@ -112,13 +112,4 @@ public class ResultSetTest extends DbTestBase {
     }
   }
 
-  /** Verify findFirstSateFullEdgeOrNull throws NoSuchElementException on empty result set. */
-  @Test(expected = NoSuchElementException.class)
-  public void testFindFirstStateFullEdgeOrNullThrowsOnEmpty() {
-    session.createVertexClass("EmptySFEdgeTestV");
-    session.createEdgeClass("EmptySFEdgeTestE");
-    try (var rs = session.query("SELECT FROM EmptySFEdgeTestE")) {
-      rs.findFirstSateFullEdgeOrNull(e -> null);
-    }
-  }
 }

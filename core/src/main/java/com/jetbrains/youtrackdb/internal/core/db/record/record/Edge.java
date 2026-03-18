@@ -56,16 +56,14 @@ public interface Edge extends Element, Relation<Vertex> {
    * @return the vertex that this edge originates from
    */
   @Override
-  @Nullable
-  Vertex getFrom();
+  @Nullable Vertex getFrom();
 
   /**
    * Retrieves the identifiable object from where this edge originates.
    *
    * @return the identifiable object from where this edge originates
    */
-  @Nullable
-  Identifiable getFromLink();
+  @Nullable Identifiable getFromLink();
 
   /**
    * Retrieves the vertex that this edge connects to.
@@ -73,16 +71,14 @@ public interface Edge extends Element, Relation<Vertex> {
    * @return the vertex that this edge connects to
    */
   @Override
-  @Nullable
-  Vertex getTo();
+  @Nullable Vertex getTo();
 
   /**
    * Retrieves the identifiable object from where the edge connects to.
    *
    * @return the identifiable object from where the edge connects to
    */
-  @Nullable
-  Identifiable getToLink();
+  @Nullable Identifiable getToLink();
 
   /**
    * Checks if the edge is lightweight.
@@ -93,23 +89,13 @@ public interface Edge extends Element, Relation<Vertex> {
   boolean isLightweight();
 
   /**
-   * Checks if the edge is stateful.
-   *
-   * @return true if the edge is stateful, false otherwise.
-   */
-  default boolean isStateful() {
-    return !isLightweight();
-  }
-
-  /**
    * Retrieves the vertex connected to this edge in the specified direction.
    *
    * @param dir the direction of the edge (IN or OUT)
    * @return the vertex connected to this edge in the specified direction, or null if no vertex is
    * connected
    */
-  @Nullable
-  default Vertex getVertex(@Nonnull Direction dir) {
+  @Nullable default Vertex getVertex(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getTo();
     } else if (dir == Direction.OUT) {
@@ -126,8 +112,7 @@ public interface Edge extends Element, Relation<Vertex> {
    * @return the identifiable object of the vertex connected to this edge in the specified
    * direction, or null if no vertex is connected
    */
-  @Nullable
-  default Identifiable getVertexLink(@Nonnull Direction dir) {
+  @Nullable default Identifiable getVertexLink(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getToLink();
     } else if (dir == Direction.OUT) {
@@ -170,8 +155,7 @@ public interface Edge extends Element, Relation<Vertex> {
    * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
    * null is returned.
    */
-  @Nullable
-  StatefulEdge asStatefulEdgeOrNull();
+  @Nullable StatefulEdge asStatefulEdgeOrNull();
 
   /**
    * Deletes the edge from the graph.

@@ -30,8 +30,7 @@ public interface Result extends BasicResult {
    * @return the property value. Null if the property is not defined.
    * @throws DatabaseException if the property is not an Entity.
    */
-  @Nullable
-  Entity getEntity(@Nonnull String name);
+  @Nullable Entity getEntity(@Nonnull String name);
 
   /**
    * Returns the property value as a vertex. If the property is a link, it will be loaded and
@@ -41,8 +40,7 @@ public interface Result extends BasicResult {
    * @return the property value as a vertex
    * @throws DatabaseException if the property is not a vertex
    */
-  @Nullable
-  default Vertex getVertex(@Nonnull String propertyName) {
+  @Nullable default Vertex getVertex(@Nonnull String propertyName) {
     var entity = getEntity(propertyName);
     if (entity == null) {
       return null;
@@ -50,7 +48,6 @@ public interface Result extends BasicResult {
 
     return entity.asVertex();
   }
-
 
   /**
    * Returns the property value as an Edge. If the property is a link, it will be loaded and
@@ -60,8 +57,7 @@ public interface Result extends BasicResult {
    * @return the property value as an Edge
    * @throws DatabaseException if the property is not an Edge
    */
-  @Nullable
-  default Edge getEdge(@Nonnull String propertyName) {
+  @Nullable default Edge getEdge(@Nonnull String propertyName) {
     var entity = getEntity(propertyName);
     if (entity == null) {
       return null;
@@ -76,16 +72,13 @@ public interface Result extends BasicResult {
    * @param name the property name
    * @return the property value. Null if the property is not defined or if it's not an Blob
    */
-  @Nullable
-  Blob getBlob(@Nonnull String name);
+  @Nullable Blob getBlob(@Nonnull String name);
 
-  @Nullable
-  @Override
+  @Nullable @Override
   Result getResult(@Nonnull String name);
 
   @Override
-  @Nullable
-  default <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
+  @Nullable default <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedList(name);
     }
@@ -105,8 +98,7 @@ public interface Result extends BasicResult {
   }
 
   @Override
-  @Nullable
-  default LinkList getLinkList(@Nonnull String name) {
+  @Nullable default LinkList getLinkList(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkList(name);
     }
@@ -125,10 +117,8 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a link list type, but " + value.getClass().getName());
   }
 
-
   @Override
-  @Nullable
-  default <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
+  @Nullable default <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedSet(name);
     }
@@ -148,8 +138,7 @@ public interface Result extends BasicResult {
   }
 
   @Override
-  @Nullable
-  default LinkSet getLinkSet(@Nonnull String name) {
+  @Nullable default LinkSet getLinkSet(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkSet(name);
     }
@@ -168,8 +157,7 @@ public interface Result extends BasicResult {
   }
 
   @Override
-  @Nullable
-  default <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
+  @Nullable default <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getEmbeddedMap(name);
     }
@@ -189,8 +177,7 @@ public interface Result extends BasicResult {
   }
 
   @Override
-  @Nullable
-  default LinkMap getLinkMap(@Nonnull String name) {
+  @Nullable default LinkMap getLinkMap(@Nonnull String name) {
     if (isEntity()) {
       return asEntity().getLinkMap(name);
     }
@@ -208,14 +195,12 @@ public interface Result extends BasicResult {
         "Property " + name + " is not a link map type, but " + value.getClass().getName());
   }
 
-
   boolean isEntity();
 
   @Nonnull
   Entity asEntity();
 
-  @Nullable
-  Entity asEntityOrNull();
+  @Nullable Entity asEntityOrNull();
 
   boolean isVertex();
 
@@ -224,8 +209,7 @@ public interface Result extends BasicResult {
     return asEntity().asVertex();
   }
 
-  @Nullable
-  default Vertex asVertexOrNull() {
+  @Nullable default Vertex asVertexOrNull() {
     var entity = asEntityOrNull();
 
     if (entity == null) {
@@ -238,26 +222,21 @@ public interface Result extends BasicResult {
 
   Relation<?> asRelation();
 
-  @Nullable
-  Relation<?> asRelationOrNull();
+  @Nullable Relation<?> asRelationOrNull();
 
   boolean isEdge();
 
   @Nonnull
   Edge asEdge();
 
-  @Nullable
-  Edge asEdgeOrNull();
-
-  boolean isStatefulEdge();
+  @Nullable Edge asEdgeOrNull();
 
   @Nonnull
   default StatefulEdge asStatefulEdge() {
     return asEntity().asStatefulEdge();
   }
 
-  @Nullable
-  default StatefulEdge asStatefulEdgeOrNull() {
+  @Nullable default StatefulEdge asStatefulEdgeOrNull() {
     var entity = asEntityOrNull();
     if (entity == null) {
       return null;
@@ -271,20 +250,17 @@ public interface Result extends BasicResult {
   @Nonnull
   Blob asBlob();
 
-  @Nullable
-  Blob asBlobOrNull();
+  @Nullable Blob asBlobOrNull();
 
   @Nonnull
   DBRecord asRecord();
 
-  @Nullable
-  DBRecord asRecordOrNull();
+  @Nullable DBRecord asRecordOrNull();
 
   @Nonnull
   Identifiable asIdentifiable();
 
-  @Nullable
-  Identifiable asIdentifiableOrNull();
+  @Nullable Identifiable asIdentifiableOrNull();
 
   @Nonnull
   @Override

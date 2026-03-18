@@ -250,21 +250,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public boolean isStatefulEdge() {
-    checkForBinding();
-    if (this instanceof Edge) {
-      return true;
-    }
-
-    SchemaClass type = this.getImmutableSchemaClass(session);
-    if (type == null) {
-      return false;
-    }
-
-    return type.isEdgeType();
-  }
-
-  @Override
   public boolean isEdge() {
     checkForBinding();
     if (this instanceof Edge) {

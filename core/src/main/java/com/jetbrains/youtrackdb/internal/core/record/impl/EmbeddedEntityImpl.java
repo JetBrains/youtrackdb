@@ -36,8 +36,7 @@ public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
     this.owner = new WeakReference<>(iOwner);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
 
     if (propertyValue instanceof Identifiable && !(propertyValue instanceof EmbeddedEntity)) {
@@ -53,11 +52,6 @@ public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
 
   @Override
   public boolean isVertex() {
-    return false;
-  }
-
-  @Override
-  public boolean isStatefulEdge() {
     return false;
   }
 
