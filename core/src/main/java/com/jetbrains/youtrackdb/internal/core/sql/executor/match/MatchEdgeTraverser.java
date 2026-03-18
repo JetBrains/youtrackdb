@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -587,7 +586,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * Converts a raw traversal result into a uniform {@link ExecutionStream}.
    * <p>
    * The raw return value from a graph method (e.g. `out()`, `in()`, `executeReverse()`)
-   * may be a single {@link Identifiable}, a {@link ResultInternal}, a {@link Relation},
+   * may be a single {@link Identifiable}, a {@link ResultInternal},
    * an {@link Iterable}, or `null`. Each case is normalized into a stream. Any other
    * return type is silently treated as empty — the candidate is simply not traversed.
    *
@@ -602,8 +601,6 @@ public class MatchEdgeTraverser implements ExecutionStream {
       case ResultInternal resultInternal -> ExecutionStream.singleton(resultInternal);
       case Identifiable identifiable -> ExecutionStream.singleton(
           new ResultInternal(session, identifiable));
-      case Relation<?> relation -> ExecutionStream.singleton(
-          new ResultInternal(session, relation));
       case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
       default -> ExecutionStream.empty();
     };

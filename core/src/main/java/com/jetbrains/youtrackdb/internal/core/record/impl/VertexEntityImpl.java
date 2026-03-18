@@ -7,10 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -325,15 +323,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public byte getRecordType() {
     return RECORD_TYPE;
-  }
-
-  @Override
-  protected Iterable<Relation<Entity>> getBidirectionalLinksInternal(
-      Direction direction, String... linkNames) {
-    //noinspection unchecked,rawtypes
-    return IterableUtils.chainedIterable(
-        super.getBidirectionalLinksInternal(direction, linkNames),
-        (Iterable) getEdgesInternal(direction, linkNames));
   }
 
   /**

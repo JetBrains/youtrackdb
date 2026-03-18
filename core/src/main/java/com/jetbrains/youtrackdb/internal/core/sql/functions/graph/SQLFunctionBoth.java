@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.Collection;
 import javax.annotation.Nullable;
@@ -25,15 +24,7 @@ public class SQLFunctionBoth extends SQLFunctionMove implements SQLGraphNavigati
     return v2v(graph, record, Direction.BOTH, labels);
   }
 
-  @Override
-  protected Object move(DatabaseSessionEmbedded db,
-      Relation<?> bidirectionalLink, String[] labels) {
-    throw new UnsupportedOperationException(
-        "Function 'both' is not supported for bidirectional links");
-  }
-
-  @Nullable
-  @Override
+  @Nullable @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {

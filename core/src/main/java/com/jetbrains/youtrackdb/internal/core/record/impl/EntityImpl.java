@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -37,13 +36,11 @@ import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -95,7 +92,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.collections4.IterableUtils;
 
 /**
  * Entity representation to handle values dynamically. Can be used in schema-less, schema-mixed and
@@ -3653,114 +3649,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForProperties();
     return properties == null ? new HashSet<>() : properties.entrySet();
-  }
-
-  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
-    checkForBinding();
-    if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getEntities(Direction.OUT, linkNames),
-          getEntities(Direction.IN, linkNames));
-    } else {
-      var links = getBidirectionalLinksInternal(direction, linkNames);
-      return new BidirectionalLinksIterable<>(links, direction);
-    }
-  }
-
-  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(
-      Direction direction, String... linkNames) {
-    checkForBinding();
-    if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getBidirectionalLinks(Direction.OUT, linkNames),
-          getBidirectionalLinks(Direction.IN, linkNames));
-    } else {
-      return getBidirectionalLinksInternal(direction, linkNames);
-    }
-  }
-
-  protected Iterable<? extends Relation<Entity>> getBidirectionalLinksInternal(
-      Direction direction, String... linkNames) {
-    if (linkNames == null || linkNames.length == 0) {
-      var propertyNames = getPropertyNames();
-      var linkCandidates = new ArrayList<String>(propertyNames.size());
-
-      for (var propertyName : propertyNames) {
-        var propertyType = getPropertyTypeInternal(propertyName);
-        if (propertyType != null && propertyType.isLink()) {
-          linkCandidates.add(propertyName);
-        }
-      }
-
-      linkNames = linkCandidates.toArray(new String[0]);
-    }
-    var iterables = new ArrayList<Iterable<LightweightRelationImpl<Entity>>>(
-        linkNames.length);
-    Object fieldValue;
-
-    for (var linkName : linkNames) {
-      if (!isPropertyAccessible(linkName)) {
-        return Collections.emptyList();
-      }
-
-      String propertyName;
-      if (direction == Direction.OUT) {
-        propertyName = linkName;
-      } else {
-        propertyName = OPPOSITE_LINK_CONTAINER_PREFIX + linkName;
-      }
-
-      fieldValue = getPropertyInternal(propertyName);
-      if (fieldValue != null) {
-        switch (fieldValue) {
-          case Identifiable identifiable -> {
-            if (identifiable instanceof Entity entity && entity.isEmbedded()) {
-              throw new IllegalArgumentException("Embedded entities are not supported");
-            }
-            var coll = Collections.singleton(identifiable);
-            iterables.add(
-                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
-                    session,
-                    coll, 1, coll));
-          }
-          case EntityLinkSetImpl set -> iterables.add(
-              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  set, -1, set));
-          case EntityLinkListImpl list -> iterables.add(
-              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  list, -1, list));
-          case LinkBag bag -> {
-            Iterable<RID> ridIterable =
-                () -> bag.stream().map(RidPair::primaryRid).iterator();
-            iterables.add(
-                new EntityRelationsIterable(
-                    this, new Pair<>(direction, linkName), linkNames, session,
-                    ridIterable, bag.size(), bag));
-          }
-          case EntityLinkMapIml map -> {
-            var values = map.values();
-            iterables.add(
-                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
-                    session,
-                    values, -1, values));
-          }
-
-          default -> {
-            throw new IllegalArgumentException(
-                "Unsupported property type: " + getPropertyType(propertyName));
-          }
-        }
-      }
-    }
-
-    if (iterables.size() == 1) {
-      return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    //noinspection unchecked
-    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
   public List<Entry<String, EntityEntry>> getFilteredEntries() {

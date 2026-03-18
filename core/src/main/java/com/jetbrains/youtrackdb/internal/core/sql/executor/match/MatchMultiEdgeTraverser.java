@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -169,11 +168,6 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       if (matchesCondition(res, filter, iCommandContext)) {
         rightSide.add(res);
       }
-    } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
-      var res = new ResultInternal(db, bidirectionalLink);
-      if (matchesCondition(res, filter, iCommandContext)) {
-        rightSide.add(res);
-      }
     } else if (nextSteps instanceof ResultInternal resultInternal) {
       if (matchesCondition(resultInternal, filter, iCommandContext)) {
         rightSide.add(resultInternal);
@@ -227,8 +221,6 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
       return resultInternal;
     } else if (x instanceof Identifiable identifiable) {
       return new ResultInternal(session, identifiable);
-    } else if (x instanceof Relation<?> bidirectionalLink) {
-      return new ResultInternal(session, bidirectionalLink);
     }
     throw new CommandExecutionException(session, "Cannot execute traversal on " + x);
   }

@@ -436,13 +436,6 @@ public class ResultInternal implements Result, BasicResultInternal {
 
         return mapCopy;
       }
-      case Relation<?> biLink -> {
-        if (biLink.isLightweight()) {
-          return biLink;
-        } else {
-          return convertPropertyValue(biLink.asEntity());
-        }
-      }
       default -> {
         throw new CommandExecutionException(
             "Invalid property value for Result: " + value + " - " + value.getClass().getName());
@@ -1316,9 +1309,6 @@ public class ResultInternal implements Result, BasicResultInternal {
               "Alias '" + alias + "' is not supported for identifiable values");
         }
         return new ResultInternal(session, identifiable);
-      }
-      case Relation<?> bidirectionalLink -> {
-        return new ResultInternal(session, bidirectionalLink);
       }
       case Map<?, ?> map -> {
         if (alias != null) {

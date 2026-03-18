@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFiltered;
 
@@ -55,9 +54,6 @@ public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
         argument -> {
           if (argument instanceof Identifiable identifiable) {
             return move(context.getDatabaseSession(), identifiable, labels, possibleResults);
-          }
-          if (argument instanceof Relation<?> bidirectionalLink) {
-            return move(context.getDatabaseSession(), bidirectionalLink, labels);
           }
           throw new IllegalArgumentException(
               "Unsupported argument type: " + argument.getClass().getName());
