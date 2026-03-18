@@ -182,7 +182,7 @@ graph TD
 
 ## Checklist
 
-- [ ] Track 1: Migrate call sites to unified edge API
+- [x] Track 1: Migrate call sites to unified edge API
   > Migrate all call sites from `isStatefulEdge()`/`asStatefulEdge()`/
   > `isStateful()` to `isEdge()`/`asEdge()` API. Give `EntityImpl.isEdge()`
   > and `ResultInternal.isEdge()` standalone implementations so they stop
@@ -201,6 +201,26 @@ graph TD
   >
   > **Scope:** ~3-4 steps covering call site migration, EdgeImpl deletion
   > with bridge fixes, dead method removal, ResultSet typo renames
+  >
+  > **Track episode:**
+  > Migrated all call sites from `isStatefulEdge()`/`isStateful()` to
+  > `isEdge()` across 4 steps. Deleted `EdgeImpl` (lightweight edge
+  > implementation) and unified `addEdgeInternal()` to always create
+  > record-based edges. Removed dead `isStatefulEdge()`/`isStateful()`
+  > from all interfaces. Renamed `addStateFullEdgeClass()` typo in
+  > Gremlin DSL.
+  >
+  > Key discovery: `Edge` interface does not extend `Entity`/`Identifiable`,
+  > so ~9 call sites must retain `asStatefulEdge()` casts until Track 2
+  > merges `StatefulEdge` into `Edge`. This is expected and does not affect
+  > Track 2's approach — it confirms the merge is necessary.
+  >
+  > Abstract edge classes (from `createLightweightEdgeClass()`) cannot have
+  > storage collections, so `newLightweightEdge()` now rejects abstract
+  > classes and delegates to `addEdgeInternal()` for concrete classes. The
+  > `createLightweightEdgeClass()` method still exists (removed in Track 5).
+  >
+  > **Step file:** `tracks/track-1.md` (4 steps, 0 failed)
 
 - [ ] Track 2: Merge StatefulEdge into Edge
   > Collapse `StatefulEdge` into `Edge`. Move `StatefulEdge`-specific methods
