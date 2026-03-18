@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -69,21 +69,47 @@
   > until Track 2 merges StatefulEdge into Edge. After Track 2, all these casts
   > can be removed.
 
-- [ ] Step 3: Delete `EdgeImpl` and bridge lightweight edge creation/iteration paths
-  > Delete `EdgeImpl.java` (lightweight edge implementation).
+- [x] Step 3: Delete `EdgeImpl` and unify edge creation to always be record-based
+  > **What was done:** Deleted `EdgeImpl.java`. Unified `addEdgeInternal()` to
+  > always create record-based edges via `newStatefulEdgeInternal()`, removing
+  > the `createLightweightEdge` branching and `isRegular` parameter. Bridged
+  > `newLightweightEdgeInternal()` with throw (dead code). Added abstract class
+  > rejection in `newLightweightEdge()`. Bridged `EdgeIterator` vertex branch
+  > with `IllegalStateException` guard for legacy LinkBag entries. Simplified
+  > `CreateEdgesStep` to always return `UpdatableResult`. Fixed
+  > `VertexEntityImpl.addEdge()` to route all edges through `newStatefulEdge()`
+  > instead of routing abstract classes to `newLightweightEdge()`.
   >
-  > Bridge `EdgeIterator.createBidirectionalLink()` vertex branch (lines 71-87):
-  > replace `new EdgeImpl(...)` with `throw new IllegalStateException("Legacy
-  > lightweight edges are no longer supported")`.
+  > **What was discovered:** Abstract edge classes (created via
+  > `createLightweightEdgeClass()`) cannot have storage collections, so
+  > redirecting lightweight creation through the stateful path requires
+  > concrete edge classes. Tests using `createLightweightEdgeClass()` had to
+  > be migrated to `createEdgeClass()`. The composite unique index behavior
+  > changed: with record-based edges, each edge has a unique RID, so
+  > `(type, out_Link)` composite indexes no longer conflict when two vertices
+  > link to the same target.
   >
-  > Bridge `DatabaseSessionEmbedded.newLightweightEdgeInternal()` (line 3408):
-  > replace body with throw. This covers all transitive callers:
-  > `newLightweightEdge()`, `addEdgeInternal()` lightweight path,
-  > `VertexEntityImpl.addLightWeightEdge()`, `SQLUpdateItem`, and
-  > `FrontendTransactionImpl`/`FrontendTransactionNoTx` delegates.
+  > **What changed from the plan:** Step scope expanded beyond the planned 3
+  > files. Test migrations were necessary to keep the build green:
+  > `DoubleSidedEdgeLinkBagTest` (assertions for unified RidPair pattern),
+  > `LightWeightEdgesTest`, `UniqueIndexTest`, `EntityTransactionalValidationTest`,
+  > `CreateLightWeightEdgesSQLTest`, and `DbImportExportTest` (in tests module).
+  > LINKBAG property types in validation tests changed from vertex class to
+  > edge class to match the new storage model.
   >
-  > **Files:** `EdgeImpl.java` (deleted), `EdgeIterator.java` (modified),
-  > `DatabaseSessionEmbedded.java` (modified)
+  > **Key files:** `EdgeImpl.java` (deleted), `DatabaseSessionEmbedded.java`
+  > (modified), `EdgeIterator.java` (modified), `CreateEdgesStep.java` (modified),
+  > `VertexEntityImpl.java` (modified), `DoubleSidedEdgeLinkBagTest.java`
+  > (modified), `LightWeightEdgesTest.java` (modified), `UniqueIndexTest.java`
+  > (modified), `EntityTransactionalValidationTest.java` (modified),
+  > `CreateLightWeightEdgesSQLTest.java` (modified), `DbImportExportTest.java`
+  > (modified)
+  >
+  > **Critical context:** `createLightweightEdgeClass()` still exists and creates
+  > abstract edge classes, but these can no longer be used for edge creation.
+  > Track 5 will remove it. `newLightweightEdge()` now rejects abstract classes
+  > but accepts concrete classes (delegates to addEdgeInternal). It is
+  > effectively equivalent to `newStatefulEdge()` for non-abstract classes.
 
 - [ ] Step 4: Remove dead `isStatefulEdge()`/`isStateful()` definitions and rename typo methods
   > Remove `isStatefulEdge()` from interfaces: `DBRecord`, `Entity`, `Result`.
