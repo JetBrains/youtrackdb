@@ -210,7 +210,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    return getVertices(direction, types.toArray(new String[]{}));
+    return getVertices(direction, types.toArray(new String[] {}));
   }
 
   @Override
@@ -221,19 +221,9 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public Edge addEdge(Vertex to, String type) {
     checkForBinding();
-    if (type == null) {
-      return session.newStatefulEdge(this, to, EdgeInternal.CLASS_NAME);
-    }
-
-    var schemaClass = session.getClass(type);
-    if (schemaClass == null) {
-      throw new IllegalArgumentException("Schema class for label " + type + " not found");
-    }
-    if (schemaClass.isAbstract()) {
-      return session.newLightweightEdge(this, to, type);
-    }
-
-    return session.newStatefulEdge(this, to, schemaClass);
+    // After edge unification, all edges are record-based — route everything
+    // through newStatefulEdge(). Abstract edge classes are rejected there.
+    return session.newStatefulEdge(this, to, type == null ? EdgeInternal.CLASS_NAME : type);
   }
 
   @Override
@@ -295,9 +285,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         types.add(t.getName());
       }
     }
-    return getEdges(direction, types.toArray(new String[]{}));
+    return getEdges(direction, types.toArray(new String[] {}));
   }
-
 
   @Override
   public Iterable<Edge> getEdges(Direction direction) {
@@ -305,9 +294,9 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var prefixes =
         switch (direction) {
-          case IN -> new String[]{DIRECTION_IN_PREFIX};
-          case OUT -> new String[]{DIRECTION_OUT_PREFIX};
-          case BOTH -> new String[]{DIRECTION_IN_PREFIX, DIRECTION_OUT_PREFIX};
+          case IN -> new String[] {DIRECTION_IN_PREFIX};
+          case OUT -> new String[] {DIRECTION_OUT_PREFIX};
+          case BOTH -> new String[] {DIRECTION_IN_PREFIX, DIRECTION_OUT_PREFIX};
         };
 
     Set<String> candidateClasses = new HashSet<>();
@@ -324,7 +313,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    return getEdges(direction, candidateClasses.toArray(new String[]{}));
+    return getEdges(direction, candidateClasses.toArray(new String[] {}));
   }
 
   @Override
@@ -372,7 +361,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           schema, direction, EdgeType.BOTH, labels);
 
       if (toLoadPropertyNames != null) {
-        deserializeProperties(toLoadPropertyNames.toArray(new String[]{}));
+        deserializeProperties(toLoadPropertyNames.toArray(new String[] {}));
         propertyNames = toLoadPropertyNames;
       }
     }
@@ -451,8 +440,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   ///
   /// As each label is represented by a class and the class may have subclasses, those subclasses
   /// are also considered and added to the list of possible edge labels.
-  @Nullable
-  public static List<String> getAllPossibleEdgePropertyNames(
+  @Nullable public static List<String> getAllPossibleEdgePropertyNames(
       Schema schema, final Direction direction, EdgeType edgeType,
       String... labels) {
     if (labels == null) {
@@ -509,8 +497,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return result;
   }
 
-  @Nullable
-  public static Pair<Direction, String> getConnection(
+  @Nullable public static Pair<Direction, String> getConnection(
       final Schema schema,
       final Direction direction,
       final String fieldName,
@@ -636,8 +623,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  @Nullable
-  private static String[] resolveAliases(Schema schema, String[] labels) {
+  @Nullable private static String[] resolveAliases(Schema schema, String[] labels) {
     if (labels == null) {
       return null;
     }
@@ -658,7 +644,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     return label;
   }
-
 
   private static void removeVertexLink(
       EntityImpl vertex,
@@ -727,7 +712,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       case null -> {
         if (propType == PropertyType.LINKLIST
             || (prop != null
-            && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
+                && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(primaryIdentifiable);
           out = coll;
@@ -846,9 +831,9 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       ((Collection<?>) edgeProp).remove(edgeId);
     } else if (edgeProp instanceof LinkBag linkBag) {
       linkBag.remove(edgeId.getIdentity());
-    } else if (
-        (edgeProp instanceof Identifiable identifiable && identifiable.getIdentity().equals(edgeId))
-            || edge.isLightweight()) {
+    } else if ((edgeProp instanceof Identifiable identifiable
+        && identifiable.getIdentity().equals(edgeId))
+        || edge.isLightweight()) {
       vertex.removePropertyInternal(edgeField);
     } else {
       LogManager.instance()
@@ -868,8 +853,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   public enum EdgeType {
-    LIGHTWEIGHT,
-    STATEFUL,
-    BOTH
+    LIGHTWEIGHT, STATEFUL, BOTH
   }
 }
