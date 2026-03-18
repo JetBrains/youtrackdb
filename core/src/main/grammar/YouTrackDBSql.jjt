@@ -2671,7 +2671,7 @@ SQLBinaryCompareOperator CompareOperator():
 {  SQLBinaryCompareOperator result;}
 {
 (
-		result = EqualsOperator()
+		result = EqualsCompareOperator()
       | result = LtOperator()
       | result = GtOperator()
       | result = NeOperator()
