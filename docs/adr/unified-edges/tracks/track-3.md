@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -78,29 +78,30 @@
   > `SQLFunctionShortestPath.java` (modified),
   > `MatchStepUnitTest.java` (modified)
 
-- [ ] Step 3: Inline RelationsIteratorAbstract into EdgeIterator, RelationsIterable into EdgeIterable
-  > Make EdgeIterator and EdgeIterable standalone classes that no longer
-  > depend on the Relations* abstract hierarchy.
+- [x] Step 3: Inline RelationsIteratorAbstract into EdgeIterator, RelationsIterable into EdgeIterable
+  > **What was done:** Inlined all fields and methods from
+  > `RelationsIteratorAbstract` into `EdgeIterator` (hasNext loop,
+  > next(), size/sizeable, resettable, edge loading). Inlined
+  > `RelationsIterable` scaffolding into `EdgeIterable` (size/sizeable).
+  > Removed `extends` clauses from both. Simplified constructors by
+  > removing unused parameters (sourceVertex, connection, labels).
+  > Updated all `new EdgeIterable(...)` call sites in VertexEntityImpl.
   >
-  > **EdgeIterator:**
-  > - Copy filtering/iteration logic from `RelationsIteratorAbstract`
-  >   (hasNext loop, null-skipping, label filtering via isLabeled())
-  > - Replace generic `<E extends Entity, L extends Relation<E>>` with
-  >   concrete `Vertex`/`EdgeInternal` types
-  > - Preserve: lazy hasNext/next pattern, RecordNotFoundException
-  >   handling (log and skip), MultiCollectionIterator compatibility
-  >   (Resettable, Sizeable interfaces)
-  > - Remove extends clause
+  > **What was discovered:** The `filter()` method in
+  > `RelationsIteratorAbstract` (label filtering via `isLabeled()`) was
+  > dead code — never called within the class or externally. The
+  > `sourceVertex`, `connection`, and `labels` fields inherited from
+  > the abstract parents were also unused in EdgeIterator/EdgeIterable
+  > (only used by the already-deleted EntityRelationsIterator and the
+  > dead `filter()` method).
   >
-  > **EdgeIterable:**
-  > - Copy iterable scaffolding from `RelationsIterable` (sourceEntity,
-  >   connection, labels, identifiables fields)
-  > - Replace generic types with concrete types
-  > - Remove extends clause
+  > **What changed from the plan:** Removed unused fields/parameters
+  > (sourceVertex, connection, labels) from EdgeIterator and EdgeIterable
+  > rather than carrying them forward. This simplified the constructor
+  > signatures. The dead `filter()` method was not carried forward.
   >
-  > After this step, RelationsIteratorAbstract and RelationsIterable are
-  > only referenced by EntityRelationsIterator/EntityRelationsIterable
-  > (dead code since Step 1).
+  > **Key files:** `EdgeIterator.java` (modified), `EdgeIterable.java`
+  > (modified), `VertexEntityImpl.java` (modified)
 
 - [ ] Step 4: Remove Relation<Vertex> from Edge/EdgeInternal hierarchy; delete Relation and all dependent types
   > Final atomic deletion of the Relation type hierarchy and all types
