@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -76,20 +76,26 @@
   > SelectStatementExecutionTest.java, TestGraphElementDelete.java
   > (all modified)
 
-- [ ] Step 4: Delete `StatefulEdge.java` and remove `asStatefulEdge()`/`asStatefulEdgeOrNull()`
-  > Delete `StatefulEdge.java` — it is now an empty bridge interface
-  > (all its contract is on `Edge`).
+- [x] Step 4: Delete `StatefulEdge.java` and remove `asStatefulEdge()`/`asStatefulEdgeOrNull()`
+  > **What was done:** Deleted `StatefulEdge.java`. Removed
+  > `asStatefulEdge()`/`asStatefulEdgeOrNull()` from DBRecord, Entity,
+  > Result, EntityImpl, RecordBytes. Added `isEdge()`/`asEdge()`/
+  > `asEdgeOrNull()` to DBRecord (replacing the removed methods — these
+  > were previously only on Entity/Result, but DBRecord needs them for
+  > `tx.load().asEdge()` pattern). Added implementations to RecordBytes.
+  > Removed `implements StatefulEdge` from StatefullEdgeEntityImpl.
+  > Replaced 15 `asStatefulEdge()` call sites across 12 files. Removed
+  > duplicate `statefulEdgeStream()`/`forEachStatefulEdge()`/
+  > `toStatefulEdgeList()` from ResultSet (code review fix).
   >
-  > Remove `asStatefulEdge()`/`asStatefulEdgeOrNull()` from all
-  > interfaces and implementations:
-  > - `Edge.java` (declaration)
-  > - `Entity.java` (declaration)
-  > - `Result.java` / `DBRecord.java` (if declared)
-  > - `EntityImpl.java` (implementation)
-  > - `ResultInternal.java` (implementation)
-  > - `UpdatableResult.java` (implementation)
-  > - `RecordBytes.java`, `EmbeddedEntityImpl.java` (implementations)
+  > **What was discovered:** `DBRecord` lacked `isEdge()`/`asEdge()`/
+  > `asEdgeOrNull()` — they were only on Entity and Result. Removing
+  > `asStatefulEdge()` from DBRecord exposed this gap since
+  > `tx.load(rid).asEdge()` uses the DBRecord interface.
   >
-  > Replace any remaining callers of `asStatefulEdge()` with `asEdge()`.
-  > Remove `StatefullEdgeEntityImpl`'s `implements StatefulEdge` (replace
-  > with `implements Edge` — already an Edge via EntityImpl, but verify).
+  > **Key files:** `StatefulEdge.java` (deleted), `DBRecord.java` (modified),
+  > `Entity.java` (modified), `Result.java` (modified), `ResultSet.java`
+  > (modified), `EntityImpl.java` (modified), `RecordBytes.java` (modified),
+  > `StatefullEdgeEntityImpl.java` (modified), `CastToEdgeStep.java`
+  > (modified), `CreateEdgesStep.java` (modified), `SQLFunctionAstar.java`
+  > (modified), `SQLFunctionShortestPath.java` (modified), plus 7 more files
