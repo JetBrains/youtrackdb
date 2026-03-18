@@ -307,7 +307,6 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
       var edges1 = srcVertex.getEdges(direction, types);
       var edges2 = srcVertex.getEdges(direction, types);
       //noinspection unchecked,rawtypes
-      //noinspection unchecked
       return new RawPair<>(new BidirectionalLinksIterable((Iterable) edges1, direction), edges2);
     }
   }
