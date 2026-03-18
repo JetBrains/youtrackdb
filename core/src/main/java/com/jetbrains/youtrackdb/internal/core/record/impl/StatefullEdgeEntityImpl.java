@@ -30,8 +30,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     super(database, rid);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex getFrom() {
     var result = getPropertyInternal(DIRECTION_OUT);
     if (!(result instanceof Entity v)) {
@@ -74,9 +73,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return getVertex(dir);
   }
 
-
-  @Nullable
-  @Override
+  @Nullable @Override
   public Identifiable getFromLink() {
     var db = getSession();
     var schema = db.getMetadata().getImmutableSchemaSnapshot();
@@ -94,8 +91,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex getTo() {
     var result = getPropertyInternal(DIRECTION_IN);
     if (!(result instanceof Entity v)) {
@@ -109,8 +105,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return v.asVertex();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Identifiable getToLink() {
     checkForBinding();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
@@ -125,11 +120,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     return null;
-  }
-
-  @Override
-  public boolean isLightweight() {
-    return false;
   }
 
   @Nonnull
@@ -155,8 +145,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     super.validatePropertyName(propertyName, allowMetadata);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String fieldName) {
     EdgeInternal.checkPropertyName(fieldName);
 

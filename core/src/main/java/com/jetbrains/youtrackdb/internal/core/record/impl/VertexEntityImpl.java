@@ -822,18 +822,17 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       edgeId = oppositeVertexId;
     }
 
-    removeEdgeLinkFromProperty(vertex, edge, edgeField, edgeId, edgeProp);
+    removeEdgeLinkFromProperty(vertex, edgeField, edgeId, edgeProp);
   }
 
   private static void removeEdgeLinkFromProperty(
-      EntityImpl vertex, Edge edge, String edgeField, Identifiable edgeId, Object edgeProp) {
+      EntityImpl vertex, String edgeField, Identifiable edgeId, Object edgeProp) {
     if (edgeProp instanceof Collection) {
       ((Collection<?>) edgeProp).remove(edgeId);
     } else if (edgeProp instanceof LinkBag linkBag) {
       linkBag.remove(edgeId.getIdentity());
-    } else if ((edgeProp instanceof Identifiable identifiable
-        && identifiable.getIdentity().equals(edgeId))
-        || edge.isLightweight()) {
+    } else if (edgeProp instanceof Identifiable identifiable
+        && identifiable.getIdentity().equals(edgeId)) {
       vertex.removePropertyInternal(edgeField);
     } else {
       LogManager.instance()

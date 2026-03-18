@@ -118,11 +118,7 @@ public class ResultInternal implements Result, BasicResultInternal {
       case null -> null;
 
       case Edge edge -> {
-        if (edge.isLightweight()) {
-          yield edge.toMap();
-        } else {
-          yield edge.asStatefulEdge().getIdentity();
-        }
+        yield edge.getIdentity();
       }
       case Blob blob -> blob.toStream();
 

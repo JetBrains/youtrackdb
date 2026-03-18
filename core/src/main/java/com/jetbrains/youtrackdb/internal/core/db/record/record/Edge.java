@@ -85,12 +85,14 @@ public interface Edge extends Entity, Relation<Vertex> {
   @Nullable Identifiable getToLink();
 
   /**
-   * Checks if the edge is lightweight.
-   *
-   * @return true if the edge is lightweight, false otherwise.
+   * Edges are never lightweight after unification — all edges have records. Returns false always.
+   * Kept as a default to satisfy {@link Relation#isLightweight()} until Relation is deleted
+   * (Track 3).
    */
   @Override
-  boolean isLightweight();
+  default boolean isLightweight() {
+    return false;
+  }
 
   /**
    * Retrieves the vertex connected to this edge in the specified direction.
