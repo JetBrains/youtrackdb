@@ -22,6 +22,40 @@ has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
 
 ---
 
+## Phase B Resume — Incomplete Step Recovery
+
+When resuming Phase B (mid-phase checkpoint or session restart), the next
+`[ ]` step may have been **partially completed** in the previous session —
+code committed but episode not yet written. This happens when a session ends
+between sub-step 3 (code commit) and sub-step 5 (episode commit), e.g., due
+to context window exhaustion or an unexpected session termination.
+
+**Detection:** After identifying the next `[ ]` step, check for orphan
+commits — implementation commits that exist after the last episoded step
+but have no corresponding episode in the step file:
+
+1. Find the last `[x]` step's episode commit (or the base commit if no
+   steps are complete) by scanning `git log --oneline {base_commit}..HEAD`.
+2. If there are commits after that point that are NOT step file/episode
+   updates (i.e., they are code implementation or review fix commits):
+   - The previous session committed code for this step but didn't write
+     the episode.
+   - **Resume from the appropriate sub-step:**
+     - Run the code review loop (sub-step 4) if no review fix commits
+       exist for this step.
+     - If review fix commits already exist, skip directly to episode
+       production (sub-step 5).
+   - Write the episode, mark the step `[x]`, update the Progress count,
+     and commit the episode.
+   - Then proceed to the next `[ ]` step normally.
+3. If no orphan commits exist: implement the step from scratch.
+
+**Why this matters:** Without this check, the agent would attempt to
+re-implement code that is already committed, potentially creating
+duplicate or conflicting changes.
+
+---
+
 ## Step Completion Gate
 
 **A step is not complete until all six sub-steps below are done.** Do NOT
