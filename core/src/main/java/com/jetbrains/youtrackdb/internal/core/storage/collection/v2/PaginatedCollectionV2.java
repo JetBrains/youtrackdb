@@ -51,9 +51,12 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -218,6 +221,26 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private final FreeSpaceMap freeSpaceMap;
 
+  /**
+   * Durable bit set that tracks which data pages contain at least one stale record's start
+   * chunk. Set when {@link #keepPreviousRecordVersion} preserves a record version; cleared by
+   * the records GC after processing the page. Used to avoid full collection scans during GC.
+   */
+  private final CollectionDirtyPageBitSet dirtyPageBitSet;
+
+  /**
+   * Approximate count of dead records in this collection whose snapshot index entries have
+   * been evicted but whose physical record data has not yet been reclaimed by the records GC.
+   *
+   * <p>Incremented during {@link AbstractStorage#evictStaleSnapshotEntries} when a snapshot
+   * entry for this collection is evicted. Decremented (clamped to zero) after the records GC
+   * reclaims dead records. Starts at 0 on restart — pre-restart dead records are not counted,
+   * but the GC can still reclaim them; the counter may briefly go negative without the clamp.
+   *
+   * <p>Used by the GC trigger condition to decide whether a GC pass is worthwhile.
+   */
+  private final AtomicLong deadRecordCount = new AtomicLong();
+
   /** Human-readable storage name, used in exception messages and logging. */
   private final String storageName;
 
@@ -244,6 +267,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         DEF_EXTENSION,
         CollectionPositionMap.DEF_EXTENSION,
         FreeSpaceMap.DEF_EXTENSION,
+        CollectionDirtyPageBitSet.DEF_EXTENSION,
         storage);
   }
 
@@ -252,6 +276,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final String dataExtension,
       final String cpmExtension,
       final String fsmExtension,
+      final String dpbExtension,
       final AbstractStorage storage) {
     super(storage, name, dataExtension, name + dataExtension);
 
@@ -259,8 +284,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
         cpmExtension);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
+    dirtyPageBitSet = new CollectionDirtyPageBitSet(
+        storage, name, dpbExtension, getFullName());
     storageName = storage.getName();
-
   }
 
   @Override
@@ -328,6 +354,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
+            dirtyPageBitSet.create(atomicOperation);
           } finally {
             releaseExclusiveLock();
           }
@@ -354,14 +381,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             if (freeSpaceMap.exists(atomicOperation)) {
               freeSpaceMap.open(atomicOperation);
             } else {
-              final var additionalArgs2 = new Object[]{getName(), storageName};
+              final var additionalArgs2 = new Object[] {getName(), storageName};
               LogManager.instance()
                   .info(
                       this,
                       "Free space map is absent inside of %s collection of storage %s . Information"
                           + " about free space present inside of each page will be recovered.",
                       additionalArgs2);
-              final var additionalArgs1 = new Object[]{getName(), storageName};
+              final var additionalArgs1 = new Object[] {getName(), storageName};
               LogManager.instance()
                   .info(
                       this,
@@ -381,7 +408,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
                   final var additionalArgs =
-                      new Object[]{
+                      new Object[] {
                           pageIndex + 1, filledUpTo, 100L * (pageIndex + 1) / filledUpTo, getName()
                       };
                   LogManager.instance()
@@ -392,9 +419,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 }
               }
 
-              final var additionalArgs = new Object[]{getName()};
+              final var additionalArgs = new Object[] {getName()};
               LogManager.instance()
                   .info(this, "Page scan for collection %s " + "is completed.", additionalArgs);
+            }
+
+            if (dirtyPageBitSet.exists(atomicOperation)) {
+              dirtyPageBitSet.open(atomicOperation);
+            } else {
+              dirtyPageBitSet.create(atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -416,6 +449,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       }
       readCache.closeFile(fileId, flush, writeCache);
       collectionPositionMap.close(flush);
+      dirtyPageBitSet.close(flush);
     } finally {
       releaseExclusiveLock();
     }
@@ -431,6 +465,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             deleteFile(atomicOperation, fileId);
             collectionPositionMap.delete(atomicOperation);
             freeSpaceMap.delete(atomicOperation);
+            dirtyPageBitSet.delete(atomicOperation);
           } finally {
             releaseExclusiveLock();
           }
@@ -442,8 +477,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return systemCollection;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public String encryption() {
     acquireSharedLock();
     try {
@@ -540,7 +574,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 throw BaseException.wrapException(
                     new PaginatedCollectionException(storageName,
                         "Can not store the record",
-                        this), e, storageName);
+                        this),
+                    e, storageName);
               }
             });
 
@@ -687,7 +722,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       freeSpaceMap.updatePageFreeSpace(atomicOperation, nextPageIndex, maxRecordSize);
     }
 
-    return new int[]{nextPageIndex, nextPageOffset, 0};
+    return new int[] {nextPageIndex, nextPageOffset, 0};
   }
 
   /// Builds a single chunk of a serialized record entry. The chunk layout is:
@@ -951,7 +986,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           } else {
             throw new PaginatedCollectionException(storageName,
                 "Content of record " + new RecordId(id, collectionPosition)
-                    + " was broken", this);
+                    + " was broken",
+                this);
           }
         }
 
@@ -962,7 +998,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         if (firstEntry
             && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
-            == 0) {
+                == 0) {
           throw new RecordNotFoundException(storageName,
               new RecordId(id, collectionPosition));
         }
@@ -1029,7 +1065,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           } else {
             throw new PaginatedCollectionException(storageName,
                 "Content of record " + new RecordId(id, collectionPosition)
-                    + " was broken", this);
+                    + " was broken",
+                this);
           }
         }
 
@@ -1040,7 +1077,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         if (firstEntry
             && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
-            == 0) {
+                == 0) {
           throw new RecordNotFoundException(storageName,
               new RecordId(id, collectionPosition));
         }
@@ -1093,7 +1130,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // Extract the actual record content that follows the metadata header.
     assert fullContentPosition + readContentSize <= fullContent.length
         : "Content size " + readContentSize + " exceeds assembled data length "
-        + fullContent.length + " at offset " + fullContentPosition;
+            + fullContent.length + " at offset " + fullContentPosition;
     var recordContent =
         Arrays.copyOfRange(fullContent, fullContentPosition, fullContentPosition + readContentSize);
 
@@ -1134,8 +1171,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   ///    reads and writes — e.g., storage configuration creates records then reads them
   ///    back. {@code snapshot.isEntryVisible()} returns false for these versions because
   ///    {@code commitTs >= maxActiveOperationTs}.
-  @Nullable
-  private PositionEntry findHistoricalPositionEntry(long collectionPosition,
+  @Nullable private PositionEntry findHistoricalPositionEntry(long collectionPosition,
       long currentOperationTs, @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation) {
 
@@ -1284,7 +1320,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 throw BaseException.wrapException(
                     new PaginatedCollectionException(storageName,
                         "Can not update record with rid "
-                            + new RecordId(id, collectionPosition), this),
+                            + new RecordId(id, collectionPosition),
+                        this),
                     e, storageName);
               }
             });
@@ -1345,8 +1382,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       // Assert monotonicity: new versions must always be greater than old ones.
       assert oldRecordVersion < newRecordVersion
           : "Record version must increase monotonically. "
-          + "Collection: " + id + ", position: " + collectionPosition
-          + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
+              + "Collection: " + id + ", position: " + collectionPosition
+              + ", oldVersion: " + oldRecordVersion + ", newVersion: " + newRecordVersion;
 
       // Store the old version's physical location in the snapshot index.
       var snapshotKey = new SnapshotKey(id, collectionPosition, oldRecordVersion);
@@ -1356,6 +1393,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       // transactions that started before newRecordVersion have completed.
       var visibilityKey = new VisibilityKey(newRecordVersion, id, collectionPosition);
       atomicOperation.putVisibilityEntry(visibilityKey, snapshotKey);
+
+      // Mark the start-chunk page as containing a stale record version, so the records
+      // GC knows to scan this page. The position map entry always points to the start
+      // chunk, so positionEntry.getPageIndex() is the correct page to mark.
+      var pageIndex = positionEntry.getPageIndex();
+      assert pageIndex <= Integer.MAX_VALUE
+          : "Page index exceeds dirty page bit set capacity: " + pageIndex;
+      dirtyPageBitSet.set((int) pageIndex, atomicOperation);
     }
   }
 
@@ -1410,8 +1455,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return 0;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
       AtomicOperation atomicOperation)
       throws IOException {
@@ -1483,7 +1527,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         var snapshot = atomicOperation.getAtomicOperationsSnapshot();
         var commitTs = atomicOperation.getCommitTsUnsafe();
 
-        var count = new long[]{0};
+        var count = new long[] {0};
         // Single pass over all position map entries (FILLED and REMOVED).
         // FILLED entries are counted when their version is visible.
         // REMOVED entries (tombstones) are counted only when the deletion
@@ -1505,7 +1549,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                 // REMOVED: skip positions deleted by the current transaction
                 if (commitTs >= 0
                     && atomicOperation.containsVisibilityEntry(
-                    new VisibilityKey(commitTs, id, position))) {
+                        new VisibilityKey(commitTs, id, position))) {
                   return;
                 }
 
@@ -1531,7 +1575,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
               "Error during retrieval of size of '"
-                  + getName() + "' collection", this),
+                  + getName() + "' collection",
+              this),
           ioe, storageName);
     }
   }
@@ -1539,6 +1584,266 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Override
   public long getApproximateRecordsCount() {
     return approximateRecordsCount;
+  }
+
+  /**
+   * Increments the dead record counter by one. Called from snapshot index eviction when a
+   * snapshot entry for this collection is removed.
+   */
+  public void incrementDeadRecordCount() {
+    deadRecordCount.incrementAndGet();
+  }
+
+  /**
+   * Returns the current dead record count. Primarily for testing and monitoring.
+   */
+  public long getDeadRecordCount() {
+    return deadRecordCount.get();
+  }
+
+  /**
+   * Returns whether this collection has accumulated enough dead records to justify a GC pass.
+   *
+   * <p>The trigger condition is:
+   * <pre>
+   *   deadRecords &gt; minThreshold + scaleFactor * approximateRecordsCount
+   * </pre>
+   * where {@code minThreshold} avoids thrashing on small collections and {@code scaleFactor}
+   * scales the threshold with collection size.
+   *
+   * @param minThreshold minimum dead record count before GC is considered
+   * @param scaleFactor  fraction of collection size added to the threshold
+   * @return {@code true} if the GC trigger condition is met
+   */
+  public boolean isGcTriggered(int minThreshold, float scaleFactor) {
+    long deadRecords = deadRecordCount.get();
+    long threshold = minThreshold + (long) ((double) scaleFactor * approximateRecordsCount);
+    return deadRecords > threshold;
+  }
+
+  /**
+   * Reclaims dead records from this collection's data pages.
+   *
+   * <p>Iterates over pages marked in the {@link #dirtyPageBitSet} and, for each start-chunk
+   * record on those pages, checks whether the record is stale:
+   * <ol>
+   *   <li>The position map no longer points to this page/slot (the record has been superseded
+   *       or deleted).</li>
+   *   <li>The snapshot index no longer contains an entry for this record version (no active
+   *       transaction can observe it).</li>
+   * </ol>
+   * If both conditions hold, the record's entire chunk chain is deleted (start chunk plus all
+   * continuation chunks) within a single atomic operation per dirty page.
+   *
+   * <p>After processing a page, the dirty bit is cleared only if no stale start chunks
+   * remain. This prevents losing track of pages that still need processing.
+   *
+   * <p>I/O errors on individual pages are caught, logged, and skipped — the GC continues
+   * with the next dirty page. The method does not throw checked exceptions.
+   *
+   * @param snapshotIndex the shared snapshot index from the storage, used to check whether
+   *                      any active transaction still references a record version
+   * @return the total number of records reclaimed across all dirty pages
+   */
+  public long collectDeadRecords(
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex) {
+    var pageIndex = -1;
+    var totalReclaimed = 0L;
+
+    while (true) {
+      final var searchFrom = pageIndex + 1;
+      // [0] = nextPageIndex (-1 = done), [1] = reclaimedInPage.
+      // Initialized to [-1, 0] so that an exception causes the loop to break.
+      final var result = new int[] {-1, 0};
+      try {
+        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+          executeInsideComponentOperation(atomicOperation, operation -> {
+            var nextPageIndex = dirtyPageBitSet.nextSetBit(searchFrom, operation);
+            result[0] = nextPageIndex;
+
+            if (nextPageIndex == -1) {
+              return;
+            }
+
+            result[1] = processDirtyPage(
+                nextPageIndex, snapshotIndex, operation);
+          });
+        });
+      } catch (Exception e) {
+        // Log and continue with the next page. A failure on one page should not
+        // prevent GC from processing other pages. The atomic operation is rolled
+        // back by executeInsideAtomicOperation before the exception propagates.
+        LogManager.instance().error(
+            this,
+            "Error during records GC on collection '%s' in storage '%s'"
+                + " at page %d, skipping page",
+            e, getName(), storageName, searchFrom);
+        // Skip past the failing page to avoid an infinite retry loop.
+        result[0] = searchFrom;
+      }
+
+      pageIndex = result[0];
+      if (pageIndex == -1) {
+        break;
+      }
+
+      totalReclaimed += result[1];
+    }
+
+    // Subtract reclaimed records from the counter in one shot, clamped to zero.
+    // The clamp handles the post-restart case where GC deletes pre-restart dead
+    // records that were never counted (counter started at 0 on restart).
+    if (totalReclaimed > 0) {
+      final var reclaimed = totalReclaimed;
+      deadRecordCount.updateAndGet(current -> Math.max(0, current - reclaimed));
+    }
+
+    return totalReclaimed;
+  }
+
+  /**
+   * Processes a single dirty page, deleting all stale start-chunk records found on it.
+   *
+   * <p>Must be called within an atomic operation and inside the collection's component
+   * operation (exclusive lock held). This serializes against concurrent
+   * {@link #keepPreviousRecordVersion} calls that may set dirty bits on the same page.
+   *
+   * @param pageIndex     the data page index to process
+   * @param snapshotIndex the shared snapshot index
+   * @param atomicOperation the current atomic operation context
+   * @return the number of records reclaimed on this page
+   */
+  private int processDirtyPage(
+      int pageIndex,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
+      AtomicOperation atomicOperation) throws IOException {
+    final var touchedContinuationPages = new LinkedHashSet<CacheEntry>();
+    try {
+      var anyStaleRemaining = false;
+      var deletedAny = false;
+      var reclaimedInPage = 0;
+
+      try (final var cacheEntry =
+          loadPageForWrite(atomicOperation, fileId, pageIndex, true)) {
+        final var page = new CollectionPage(cacheEntry);
+        final var slotsCount = page.getPageIndexesLength();
+
+        for (var recordPosition = 0; recordPosition < slotsCount;
+            recordPosition++) {
+          if (page.isDeleted(recordPosition)) {
+            continue;
+          }
+
+          // Only process start chunks. Continuation chunks on this page belong
+          // to records whose start chunks live on other pages; they will be
+          // cleaned when those pages are processed.
+          if (!page.isFirstRecordChunk(recordPosition)) {
+            continue;
+          }
+
+          var recordVersion = page.getRecordVersion(recordPosition);
+          var collectionPos =
+              page.readCollectionPositionFromRecord(recordPosition);
+
+          // Check whether this record version is the current live version.
+          var currentEntry =
+              collectionPositionMap.get(collectionPos, atomicOperation);
+
+          if (currentEntry != null
+              && currentEntry.getPageIndex() == pageIndex
+              && currentEntry.getRecordPosition() == recordPosition) {
+            // This is the live version — skip.
+            continue;
+          }
+
+          // Check whether the snapshot index still holds an entry for this
+          // record version. If it does, some active transaction may still
+          // need to read this version — skip it for now.
+          var snapshotKey =
+              new SnapshotKey(id, collectionPos, recordVersion);
+          if (snapshotIndex.containsKey(snapshotKey)) {
+            anyStaleRemaining = true;
+            continue;
+          }
+
+          // Safe to reclaim: delete the entire record across all pages in
+          // the chunk chain.
+          deleteRecordChunks(page, recordPosition, atomicOperation,
+              touchedContinuationPages);
+          reclaimedInPage++;
+          deletedAny = true;
+        }
+
+        if (!anyStaleRemaining) {
+          dirtyPageBitSet.clear(pageIndex, atomicOperation);
+        }
+
+        // Compact the start-chunk page and update the free space map so the
+        // allocator can reuse the reclaimed space.
+        if (deletedAny) {
+          page.doDefragmentation();
+          freeSpaceMap.updatePageFreeSpace(
+              atomicOperation, pageIndex, page.getMaxRecordSize());
+        }
+      }
+
+      // Defragment continuation pages and update their free space maps.
+      if (deletedAny) {
+        for (var contEntry : touchedContinuationPages) {
+          final var contPage = new CollectionPage(contEntry);
+          contPage.doDefragmentation();
+          freeSpaceMap.updatePageFreeSpace(
+              atomicOperation, (int) contEntry.getPageIndex(),
+              contPage.getMaxRecordSize());
+        }
+      }
+
+      return reclaimedInPage;
+    } finally {
+      for (var contEntry : touchedContinuationPages) {
+        contEntry.close();
+      }
+    }
+  }
+
+  /**
+   * Deletes all chunks of a record starting from the given start chunk, following the
+   * {@code nextPagePointer} chain to delete every continuation chunk on its respective page.
+   *
+   * <p>The next-page pointer is read <em>before</em> deleting each chunk so the chain can
+   * still be traversed. Continuation pages are added to {@code touchedContinuationPages} so
+   * the caller can defragment them in a single batched pass.
+   *
+   * @param startPage                the page containing the start chunk
+   * @param recordPosition           the pointer-array slot of the start chunk
+   * @param atomicOperation          the current atomic operation context
+   * @param touchedContinuationPages accumulator for continuation page cache entries that
+   *                                 need defragmentation; entries are added but not closed
+   */
+  private void deleteRecordChunks(
+      CollectionPage startPage, int recordPosition,
+      AtomicOperation atomicOperation,
+      LinkedHashSet<CacheEntry> touchedContinuationPages) throws IOException {
+    var currentPage = startPage;
+    var currentPosition = recordPosition;
+
+    while (true) {
+      // Read the forward pointer before deleting this chunk's data.
+      var nextPagePointer = currentPage.getNextPagePointer(currentPosition);
+      currentPage.deleteRecord(currentPosition, true);
+
+      if (nextPagePointer == -1) {
+        break;
+      }
+
+      var nextPageIndex = getPageIndex(nextPagePointer);
+      var nextRecordPosition = getRecordPosition(nextPagePointer);
+      var contCacheEntry =
+          loadPageForWrite(atomicOperation, fileId, nextPageIndex, true);
+      touchedContinuationPages.add(contCacheEntry);
+      currentPage = new CollectionPage(contCacheEntry);
+      currentPosition = nextRecordPosition;
+    }
   }
 
   @Override
@@ -1577,6 +1882,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     atomicOperationsManager.readUnderLock(this, () -> {
       writeCache.flush(fileId);
       collectionPositionMap.flush();
+      dirtyPageBitSet.flush();
       return null;
     });
   }
@@ -1666,8 +1972,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         metrics.classMetric(CoreMetrics.RECORD_READ_RATE, storageName, name),
         metrics.classMetric(CoreMetrics.RECORD_UPDATE_RATE, storageName, name),
         metrics.classMetric(CoreMetrics.RECORD_DELETE_RATE, storageName, name),
-        metrics.classMetric(CoreMetrics.RECORD_CONFLICT_RATE, storageName, name)
-    );
+        metrics.classMetric(CoreMetrics.RECORD_CONFLICT_RATE, storageName, name));
     this.id = id;
   }
 
@@ -1678,6 +1983,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       writeCache.renameFile(fileId, newName + getExtension());
       collectionPositionMap.rename(newName);
       freeSpaceMap.rename(newName);
+      dirtyPageBitSet.rename(newName);
 
       setName(newName);
     } catch (IOException e) {
@@ -1901,18 +2207,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return "disk collection: " + getName();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CollectionBrowsePage nextPage(
       long prevPagePosition,
       final boolean forwards,
       AtomicOperation atomicOperation) throws IOException {
     final long effectivePrevPagePosition = prevPagePosition < 0 ? -1 : prevPagePosition;
     return atomicOperationsManager.executeReadOperation(this, () -> {
-      final var nextPositions = forwards ?
-          collectionPositionMap.higherPositionsEntries(
-              effectivePrevPagePosition, atomicOperation) :
-          collectionPositionMap.lowerPositionsEntriesReversed(
+      final var nextPositions = forwards ? collectionPositionMap.higherPositionsEntries(
+          effectivePrevPagePosition, atomicOperation)
+          : collectionPositionMap.lowerPositionsEntriesReversed(
               effectivePrevPagePosition, atomicOperation);
 
       if (nextPositions.length > 0) {

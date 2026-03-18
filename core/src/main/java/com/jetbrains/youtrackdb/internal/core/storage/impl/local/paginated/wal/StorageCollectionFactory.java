@@ -62,12 +62,14 @@ public final class StorageCollectionFactory {
       final AbstractStorage storage,
       final String dataExtension,
       final String cpmExtension,
-      final String fsmExtension) {
+      final String fsmExtension,
+      final String dpbExtension) {
     if (binaryVersion != 3) {
       throw new IllegalStateException(
           "Binary version " + binaryVersion
               + " of collection is not supported, only version 3 is supported");
     }
-    return new PaginatedCollectionV2(name, dataExtension, cpmExtension, fsmExtension, storage);
+    return new PaginatedCollectionV2(
+        name, dataExtension, cpmExtension, fsmExtension, dpbExtension, storage);
   }
 }

@@ -162,7 +162,7 @@ final class StaleTransactionMonitor implements Runnable {
     int staleTxCount = 0;
 
     long currentSnapshotSize = snapshotIndexSize.get();
-    long lwm = AbstractStorage.computeGlobalLowWaterMark(tsMins);
+    long lwm = AbstractStorage.computeGlobalLowWaterMark(tsMins, Long.MAX_VALUE);
     long currentTs = idGen.getLastId();
     long lwmLag = (lwm == Long.MAX_VALUE) ? 0 : currentTs - lwm;
 

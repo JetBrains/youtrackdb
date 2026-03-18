@@ -104,6 +104,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollec
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -2034,16 +2035,6 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
-              try {
-                cleanupSnapshotIndex();
-              } catch (final RuntimeException e) {
-                // Cleanup is best-effort — its failure must never mask a successful commit.
-                // The commit is already durable (WAL flushed, pages applied). If cleanup
-                // throws, stale snapshot entries simply accumulate until the next successful
-                // cleanup pass.
-                LogManager.instance()
-                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
-              }
             }
           }
         } finally {
@@ -3877,6 +3868,12 @@ public abstract class AbstractStorage
    * <p>The reset uses an opaque write ({@link TsMinHolder#setTsMinOpaque}) instead of a
    * volatile write: no {@code StoreLoad} barrier is needed because the owning thread has no
    * subsequent loads that depend on the reset being globally visible immediately.
+   *
+   * <p>When the last transaction on the thread closes ({@code activeTxCount} reaches 0),
+   * this method also triggers snapshot index cleanup. This ensures stale snapshot entries
+   * are evicted after both read and write transactions, not just write commits. The cleanup
+   * is best-effort: it uses {@code tryLock()} internally, so it never blocks, and any
+   * failure is logged but does not propagate — it must not mask transaction close errors.
    */
   public void resetTsMin() {
     var holder = tsMinThreadLocal.get();
@@ -3896,6 +3893,15 @@ public abstract class AbstractStorage
       // could see stale tsMin but cleared txStartTimeNanos.
       holder.clearDiagnostics();
       holder.setTsMinOpaque(Long.MAX_VALUE);
+      try {
+        cleanupSnapshotIndex();
+      } catch (final RuntimeException e) {
+        // Cleanup is best-effort — its failure must never mask a successful transaction
+        // close. Stale snapshot entries simply accumulate until the next successful
+        // cleanup pass.
+        LogManager.instance()
+            .warn(this, "Snapshot index cleanup failed during resetTsMin", e);
+      }
     }
   }
 
@@ -5433,21 +5439,22 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Evicts stale snapshot index entries whose {@code recordTs} is below the global low-water-mark
-   * (the minimum {@code tsMin} across all active transactions). This prevents unbounded growth of
-   * the shared snapshot index under update-heavy workloads.
+   * Attempts to evict stale snapshot index entries if the index exceeds the configured threshold.
+   * Called from {@link #resetTsMin()} at the end of every storage transaction (both read and
+   * write), ensuring prompt cleanup even in read-heavy workloads where write commits are
+   * infrequent.
    *
-   * <p>Uses {@code tryLock} so only one thread cleans at a time — other committing threads skip
-   * cleanup if the lock is already held (no point blocking; the cleaning thread will handle it).
-   * The threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
+   * <p>Uses {@code tryLock} so only one thread cleans at a time — other threads skip cleanup
+   * if the lock is already held (no point blocking; the cleaning thread will handle it). The
+   * threshold is re-checked under the lock (double-checked pattern) to avoid redundant work
    * if another thread already cleaned enough entries.
    *
    * <p>Uses {@link #snapshotIndexSize} (an {@code AtomicLong} counter) instead of
    * {@code ConcurrentSkipListMap.size()} for the threshold check. The latter is O(n) — it
-   * traverses the entire map — and calling it on every commit causes resource exhaustion
-   * under sustained heavy concurrent load (e.g., 30-minute soak tests with 10+ threads).
-   * The counter is incremented during {@code flushSnapshotBuffers()} and decremented during
-   * {@code evictStaleSnapshotEntries()}, providing an O(1) approximate size check.
+   * traverses the entire map — and calling it on every transaction close causes resource
+   * exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests with 10+
+   * threads). The counter is incremented during {@code flushSnapshotBuffers()} and decremented
+   * during {@code evictStaleSnapshotEntries()}, providing an O(1) approximate size check.
    */
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
@@ -5464,21 +5471,79 @@ public abstract class AbstractStorage
       }
       evictStaleSnapshotEntries(
           computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex,
-          snapshotIndexSize);
+          snapshotIndexSize, collections);
     } finally {
       snapshotCleanupLock.unlock();
     }
   }
 
   /**
+   * Periodic records GC task entry point. Performs two duties:
+   * <ol>
+   *   <li>Opportunistically cleans the snapshot/visibility indexes (same work as
+   *       {@link #cleanupSnapshotIndex()}, using {@code tryLock()} — if another thread is
+   *       already cleaning, this step is skipped).</li>
+   *   <li>Iterates over all collections in the storage and reclaims dead records from those
+   *       that exceed the GC trigger threshold.</li>
+   * </ol>
+   *
+   * <p>Called by the periodic scheduled task ({@code PeriodicRecordsGc}) on the
+   * {@code fuzzyCheckpointExecutor}. The method is safe to call concurrently — snapshot
+   * cleanup uses {@code tryLock()}, and the per-collection GC is serialized by the
+   * collection's component lock inside {@code collectDeadRecords()}.
+   */
+  public void periodicRecordsGc() {
+    if (status != STATUS.OPEN) {
+      return;
+    }
+
+    // Step 1: Opportunistically clean snapshot/visibility indexes.
+    try {
+      cleanupSnapshotIndex();
+    } catch (Exception e) {
+      LogManager.instance().error(this, "Error during snapshot index cleanup"
+          + " in periodic records GC for storage '%s'", e, name);
+    }
+
+    // Step 2: Reclaim dead records from collections that exceed the threshold.
+    var contextConfig = configuration.getContextConfiguration();
+    int minThreshold = contextConfig
+        .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD);
+    float scaleFactor = contextConfig
+        .getValueAsFloat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR);
+
+    for (var collection : collections) {
+      if (status != STATUS.OPEN) {
+        return;
+      }
+      if (collection instanceof PaginatedCollectionV2 pc
+          && pc.isGcTriggered(minThreshold, scaleFactor)) {
+        try {
+          pc.collectDeadRecords(sharedSnapshotIndex);
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error during records GC"
+              + " for collection '%s' in storage '%s'", e, pc.getName(), name);
+        }
+      }
+    }
+  }
+
+  /**
    * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
    * below the given low-water-mark. Extracted as a static method for direct unit testing (same
-   * pattern as {@link #computeGlobalLowWaterMark(Set)}).
+   * pattern as {@link #computeGlobalLowWaterMark(Set, long)}).
    *
-   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted.
-   *     {@code Long.MAX_VALUE} means "no active transactions" — nothing is evicted (safety net;
-   *     in practice lwm is never MAX_VALUE during cleanup because the committing thread's tsMin
-   *     is still set — {@code resetTsMin()} runs later in {@code FrontendTransactionImpl.close()}).
+   * <p>The {@code lwm} parameter is always a concrete upper bound — either an active
+   * transaction's snapshot timestamp or {@code idGen.getLastId()} when no transactions are
+   * active. It is never {@code Long.MAX_VALUE} in normal operation because
+   * {@link #computeGlobalLowWaterMark()} falls back to {@code idGen.getLastId()} when all
+   * threads are idle.
+   *
+   * <p>Delegates to
+   * {@link #evictStaleSnapshotEntries(long, ConcurrentSkipListMap, ConcurrentSkipListMap,
+   * AtomicLong, List)} with a {@code null} collections list (no dead record counting).
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
    * @param snapshotIndex the shared snapshot index to remove stale entries from
    * @param visibilityIdx the visibility index to scan and remove stale entries from
    * @param sizeCounter   approximate size counter to decrement for each evicted snapshot entry
@@ -5488,9 +5553,31 @@ public abstract class AbstractStorage
       ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
       ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
       @Nonnull AtomicLong sizeCounter) {
-    if (lwm == Long.MAX_VALUE) {
-      return;
-    }
+    evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIdx, sizeCounter, null);
+  }
+
+  /**
+   * Core eviction logic: removes all visibility/snapshot entries with {@code recordTs} strictly
+   * below the given low-water-mark, and optionally increments per-collection dead record
+   * counters.
+   *
+   * <p>When {@code collections} is non-null, each evicted snapshot entry increments the
+   * {@link PaginatedCollectionV2#deadRecordCount} of the corresponding collection (looked up
+   * by {@link SnapshotKey#componentId()}). This feeds the records GC trigger condition.
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
+   * @param snapshotIndex the shared snapshot index to remove stale entries from
+   * @param visibilityIdx the visibility index to scan and remove stale entries from
+   * @param sizeCounter   approximate size counter to decrement for each evicted snapshot entry
+   * @param collections   storage collections indexed by collection id; nullable for unit tests
+   *                      or callers that do not need dead record counting
+   */
+  static void evictStaleSnapshotEntries(
+      long lwm,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshotIndex,
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIdx,
+      @Nonnull AtomicLong sizeCounter,
+      @Nullable List<StorageCollection> collections) {
     // Sentinel key: (lwm, MIN, MIN) is the smallest possible key with recordTs==lwm,
     // so headMap(exclusive) captures everything with recordTs < lwm.
     var staleEntries = visibilityIdx.headMap(
@@ -5498,8 +5585,20 @@ public abstract class AbstractStorage
     var iterator = staleEntries.entrySet().iterator();
     while (iterator.hasNext()) {
       var entry = iterator.next();
-      if (snapshotIndex.remove(entry.getValue()) != null) {
+      var snapshotKey = entry.getValue();
+      if (snapshotIndex.remove(snapshotKey) != null) {
         sizeCounter.decrementAndGet();
+        // Increment the per-collection dead record counter so the records GC
+        // trigger condition can detect when enough dead records have accumulated.
+        if (collections != null) {
+          int id = snapshotKey.componentId();
+          if (id >= 0 && id < collections.size()) {
+            var coll = collections.get(id);
+            if (coll instanceof PaginatedCollectionV2 pc) {
+              pc.incrementDeadRecordCount();
+            }
+          }
+        }
       }
       iterator.remove();
     }
@@ -5537,8 +5636,21 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Computes the global low-water-mark. Reads {@code idGen.getLastId()} <b>before</b> scanning
+   * {@code tsMins} so that any transaction starting after the read has {@code tsMin >= fallback},
+   * eliminating the race where a new transaction's {@code tsMin} is lower than the fallback.
+   *
+   * @return the minimum active {@code tsMin}, or {@code idGen.getLastId()} when no transactions
+   *     are active. Never returns {@code Long.MAX_VALUE}.
+   */
   public long computeGlobalLowWaterMark() {
-    return computeGlobalLowWaterMark(tsMins);
+    // Read the fallback BEFORE scanning tsMins. Because idGen is monotonic
+    // and every new transaction sets tsMin >= idGen.getLastId() at its start
+    // time, any transaction that begins after this read will have
+    // tsMin >= fallbackLwm.
+    long fallbackLwm = idGen.getLastId();
+    return computeGlobalLowWaterMark(tsMins, fallbackLwm);
   }
 
   public ConcurrentSkipListMap<SnapshotKey, PositionEntry> getSharedSnapshotIndex() {
@@ -5559,9 +5671,19 @@ public abstract class AbstractStorage
    * represent idle threads (no active transaction) and are effectively ignored since any real
    * timestamp will be smaller.
    *
-   * <p>If no holders are registered (or all are idle), returns {@code Long.MAX_VALUE}.
+   * <p>When no holders are registered or all are idle (minimum is {@code Long.MAX_VALUE}), falls
+   * back to {@code currentId}. This ensures that when no transactions are active, the LWM equals
+   * the latest generated operation id — all committed record versions have
+   * {@code version <= currentId}, and any transaction starting after the caller read
+   * {@code currentId} has {@code tsMin >= currentId}, so stale versions with
+   * {@code V_new <= currentId} are unreachable.
+   *
+   * @param tsMins the set of per-thread {@link TsMinHolder} instances
+   * @param currentId fallback value when all holders are idle; typically
+   *     {@code idGen.getLastId()} read <b>before</b> scanning {@code tsMins}
+   * @return the minimum active timestamp, or {@code currentId} when no transactions are active
    */
-  static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins) {
+  static long computeGlobalLowWaterMark(Set<TsMinHolder> tsMins, long currentId) {
     long min = Long.MAX_VALUE;
     // Weakly-consistent iteration over the Guava concurrent weak-key set.
     // No explicit synchronization needed — stale or missing entries are
@@ -5571,6 +5693,9 @@ public abstract class AbstractStorage
       if (ts < min) {
         min = ts;
       }
+    }
+    if (min == Long.MAX_VALUE) {
+      min = currentId;
     }
     return min;
   }

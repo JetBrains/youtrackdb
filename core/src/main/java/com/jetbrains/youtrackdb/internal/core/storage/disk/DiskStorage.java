@@ -139,7 +139,6 @@ public class DiskStorage extends AbstractStorage {
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
-
   private static final ThreadLocal<Cipher> CIPHER =
       ThreadLocal.withInitial(DiskStorage::getCipherInstance);
 
@@ -189,7 +188,6 @@ public class DiskStorage extends AbstractStorage {
   private static final String CONF_UTF_8_ENTRY_NAME = "database_utf8.ocf";
   private static final int UUID_LENGTH = 36;
 
-
   private static final String ENCRYPTION_IV = "encryption.iv";
 
   protected static final long IV_SEED = 234120934;
@@ -237,6 +235,7 @@ public class DiskStorage extends AbstractStorage {
   private final ClosableLinkedContainer<Long, File> files;
 
   private Future<?> fuzzyCheckpointTask;
+  private Future<?> recordsGcTask;
 
   private final long walMaxSegSize;
   private final long doubleWriteLogMaxSegSize;
@@ -298,7 +297,7 @@ public class DiskStorage extends AbstractStorage {
       synch();
     }
 
-    final var additionalArgs = new Object[]{getURL(), YouTrackDBConstants.getVersion()};
+    final var additionalArgs = new Object[] {getURL(), YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .info(this, "Storage '%s' is created under YouTrackDB distribution : %s", additionalArgs);
   }
@@ -503,6 +502,9 @@ public class DiskStorage extends AbstractStorage {
     if (fuzzyCheckpointTask != null) {
       fuzzyCheckpointTask.cancel(false);
     }
+    if (recordsGcTask != null) {
+      recordsGcTask.cancel(false);
+    }
 
     return params;
   }
@@ -620,7 +622,6 @@ public class DiskStorage extends AbstractStorage {
     return startupMetadata.getOpenedAtVersion();
   }
 
-
   @Override
   protected void initIv() throws IOException {
     try (final var ivFile =
@@ -693,6 +694,15 @@ public class DiskStorage extends AbstractStorage {
                 GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL),
             TimeUnit.SECONDS);
 
+    int gcInterval = Math.max(1, contextConfiguration.getValueAsInteger(
+        GlobalConfiguration.STORAGE_COLLECTION_GC_PAUSE_INTERVAL));
+    recordsGcTask =
+        YouTrackDBEnginesManager.instance().getFuzzyCheckpointExecutor().scheduleWithFixedDelay(
+            new PeriodicRecordsGc(this),
+            gcInterval,
+            gcInterval,
+            TimeUnit.SECONDS);
+
     final var configWalPath =
         contextConfiguration.getValueAsString(GlobalConfiguration.WAL_LOCATION);
     final Path walPath;
@@ -735,10 +745,9 @@ public class DiskStorage extends AbstractStorage {
     final var diskCacheSize =
         contextConfiguration.getValueAsLong(GlobalConfiguration.DISK_CACHE_SIZE) * 1024 * 1024;
     final var writeCacheSize =
-        (long)
-            (contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_WRITE_CACHE_PART)
-                / 100.0
-                * diskCacheSize);
+        (long) (contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_WRITE_CACHE_PART)
+            / 100.0
+            * diskCacheSize);
 
     final DoubleWriteLog doubleWriteLog;
     if (contextConfiguration.getValueAsBoolean(
@@ -816,8 +825,8 @@ public class DiskStorage extends AbstractStorage {
   public String fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier, Consumer<String> ibuFileRemover) {
     var dbUuidString = uuid.toString();
-    var ibuFilesIterator = IteratorUtils.filter(ibuFilesSupplier.get(), fileName ->
-        fileName.startsWith(dbUuidString) && fileName.endsWith(IBU_EXTENSION));
+    var ibuFilesIterator = IteratorUtils.filter(ibuFilesSupplier.get(),
+        fileName -> fileName.startsWith(dbUuidString) && fileName.endsWith(IBU_EXTENSION));
     var ibuFiles = IteratorUtils.list(ibuFilesIterator);
 
     for (var ibuFile : ibuFiles) {
@@ -830,8 +839,7 @@ public class DiskStorage extends AbstractStorage {
         }, ibuOutputStreamSupplier,
         ibuFileName -> {
           throw new UnsupportedOperationException("File " + ibuFileName + " does not exist.");
-        }
-    );
+        });
   }
 
   @Override
@@ -871,7 +879,7 @@ public class DiskStorage extends AbstractStorage {
           lockChannel.force(true);
 
           var minimalBackupTime = TimeUnit.SECONDS.convert(configuration.getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL),
+              .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL),
               TimeUnit.MILLISECONDS);
           Thread.sleep(minimalBackupTime);
         }
@@ -890,7 +898,7 @@ public class DiskStorage extends AbstractStorage {
         return newIbuFileName;
       } catch (OverlappingFileLockException ofle) {
         LogManager.instance().error(this, "Can not lock file '%s'."
-                + " File likely already locked by another process that performs database backup.",
+            + " File likely already locked by another process that performs database backup.",
             ofle, fileLockPath, ofle);
         throw ofle;
       } catch (InterruptedException e) {
@@ -1023,8 +1031,7 @@ public class DiskStorage extends AbstractStorage {
     return uuid + "-" + strDate + "-" + backupNumber + "-" + name + IBU_EXTENSION;
   }
 
-  @Nullable
-  protected static BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName,
+  @Nullable protected static BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName,
       String storageName,
       @Nullable UUID dbUUID,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream)
@@ -1054,7 +1061,8 @@ public class DiskStorage extends AbstractStorage {
               if (r == -1) {
                 LogManager.instance().warn(DiskStorage.class, storageName,
                     "Size of the file %s is less than needed to store information about metadata. "
-                        + "Size should be at least %d but real size is %d.", ibuFileName,
+                        + "Size should be at least %d but real size is %d.",
+                    ibuFileName,
                     IBU_METADATA_SIZE, read);
                 return null;
               }
@@ -1203,7 +1211,8 @@ public class DiskStorage extends AbstractStorage {
         LogManager.instance()
             .warn(DiskStorage.class, storageName,
                 "Sequence number of the file %s stored in metadata %s does not match DB "
-                    + "sequence number %s.", ibuFileName, sequenceNumber, metadataSequenceNumber);
+                    + "sequence number %s.",
+                ibuFileName, sequenceNumber, metadataSequenceNumber);
         return null;
       }
 
@@ -1456,7 +1465,7 @@ public class DiskStorage extends AbstractStorage {
           var strFileName = fileName.toString();
           return strFileName.endsWith(IBU_EXTENSION) && (expectedUUID == null
               || strFileName.startsWith(
-              expectedUUID));
+                  expectedUUID));
         }).map(path -> path.getFileName().toString()).toList().iterator();
       } catch (IOException e) {
         throw BaseException.wrapException(new DatabaseException(name,
@@ -1613,7 +1622,6 @@ public class DiskStorage extends AbstractStorage {
             tmpDirectory.toAbsolutePath());
       }
 
-
     } catch (IOException e) {
       throw BaseException.wrapException(
           new StorageException(name, "Error during restore from backup"), e, name);
@@ -1645,15 +1653,13 @@ public class DiskStorage extends AbstractStorage {
     if (CollectionBasedStorageConfiguration.exists(writeCache)) {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .load(contextConfiguration, atomicOperation));
+          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
+              .load(contextConfiguration, atomicOperation));
     } else {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation ->
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .load(contextConfiguration, atomicOperation));
+          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
+              .load(contextConfiguration, atomicOperation));
     }
 
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
@@ -1700,8 +1706,7 @@ public class DiskStorage extends AbstractStorage {
     byte[] encryptionIv = null;
     byte[] walIv = null;
 
-    entryLoop:
-    while ((zipEntry = zipInputStream.getNextEntry()) != null) {
+    entryLoop : while ((zipEntry = zipInputStream.getNextEntry()) != null) {
       switch (zipEntry.getName()) {
         case IV_NAME -> {
           walIv = restoreIv(zipInputStream);
@@ -1945,11 +1950,11 @@ public class DiskStorage extends AbstractStorage {
   }
 
   protected record BackupMetadata(int backupFormatVersion,
-                                  UUID databaseId,
-                                  int sequenceNumber,
-                                  LogSequenceNumber startLsn,
-                                  LogSequenceNumber endLsn,
-                                  long lastTxId) {
+      UUID databaseId,
+      int sequenceNumber,
+      LogSequenceNumber startLsn,
+      LogSequenceNumber endLsn,
+      long lastTxId) {
 
   }
 
@@ -1976,7 +1981,7 @@ public class DiskStorage extends AbstractStorage {
 
     @Override
     public void write(int b) throws IOException {
-      xxHash64.update(new byte[]{(byte) b}, 0, 1);
+      xxHash64.update(new byte[] {(byte) b}, 0, 1);
       super.write(b);
     }
 
@@ -2008,7 +2013,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private record IBULocalFileNamesSupplier(Path backupDirectory, String databaseName,
-                                           String dbUUID) implements Supplier<Iterator<String>> {
+      String dbUUID) implements Supplier<Iterator<String>> {
 
     @Override
     public Iterator<String> get() {
@@ -2023,14 +2028,14 @@ public class DiskStorage extends AbstractStorage {
         }).map(path -> path.getFileName().toString()).toList().iterator();
       } catch (IOException e) {
         throw BaseException.wrapException(new DatabaseException(databaseName,
-                "Can not list backup unit files in directory '" + backupDirectory + "'"), e,
+            "Can not list backup unit files in directory '" + backupDirectory + "'"), e,
             databaseName);
       }
     }
   }
 
   private record IBULocalFileInputStreamSupplier(Path backupDirectory,
-                                                 String databaseName) implements
+      String databaseName) implements
       Function<String, InputStream> {
 
     @Override
@@ -2047,7 +2052,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private record IBULocalFileOutputStreamSupplier(Path backupDirectory,
-                                                  String databaseName) implements
+      String databaseName) implements
       Function<String, OutputStream> {
 
     @Override

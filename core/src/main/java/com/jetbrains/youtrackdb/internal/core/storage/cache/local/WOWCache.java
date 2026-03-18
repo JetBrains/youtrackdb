@@ -3477,9 +3477,7 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = writeCachePages.get(pageKey);
         final var pageLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          if (!pagePointer.tryAcquireSharedLock()) {
-            continue;
-          }
+          pagePointer.acquireSharedLock();
           try {
             final var buffer = pagePointer.getBuffer();
 

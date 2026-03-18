@@ -353,12 +353,17 @@ public class AtomicOperationsManager {
         }
       } catch (Exception e) {
         if (lock.validate(stamp)) {
-          // Real error, not caused by concurrent modification
           throwAsIOOrRuntime(e);
         }
         // Concurrent modification caused the exception — fall through to a single
         // bounded retry under the blocking read lock. If the error is genuine, it
         // will re-surface on the retry.
+      } catch (AssertionError e) {
+        if (lock.validate(stamp)) {
+          throw e;
+        }
+        // Concurrent modification during optimistic read caused inconsistent data
+        // that triggered an assertion. Fall through to retry under read lock.
       }
     }
 

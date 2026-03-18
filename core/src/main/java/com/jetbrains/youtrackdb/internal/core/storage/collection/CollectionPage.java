@@ -216,8 +216,7 @@ public final class CollectionPage extends DurablePage {
    *
    * @return position and size of the hole.
    */
-  @Nullable
-  private int[] findHole(int requestedSize, int freePosition) {
+  @Nullable private int[] findHole(int requestedSize, int freePosition) {
     var currentPosition = freePosition;
 
     var holeSize = 0;
@@ -239,14 +238,14 @@ public final class CollectionPage extends DurablePage {
         if (holeSize >= requestedSize) {
           if (holeSize > requestedSize) {
             if (holeSize - requestedSize > Integer.BYTES) {
-              return new int[]{initialHolePosition, holeSize};
+              return new int[] {initialHolePosition, holeSize};
             } else {
               currentPosition += Math.abs(size);
               continue;
             }
           }
 
-          return new int[]{initialHolePosition, holeSize};
+          return new int[] {initialHolePosition, holeSize};
         }
       } else {
         holeSize = 0;
@@ -329,8 +328,7 @@ public final class CollectionPage extends DurablePage {
 
   }
 
-  @Nullable
-  private RawPairIntegerBoolean findFirstEmptySlot(
+  @Nullable private RawPairIntegerBoolean findFirstEmptySlot(
       long recordVersion,
       int entryPosition,
       int indexesLength,
@@ -476,8 +474,7 @@ public final class CollectionPage extends DurablePage {
     return getFreeSpace() - entrySize >= 0;
   }
 
-  @Nullable
-  public byte[] deleteRecord(int position, boolean preserveFreeListPointer) {
+  @Nullable public byte[] deleteRecord(int position, boolean preserveFreeListPointer) {
     var indexesLength = getPageIndexesLength();
     if (position >= indexesLength) {
       return null;
@@ -622,8 +619,7 @@ public final class CollectionPage extends DurablePage {
     setLongValue(PREV_PAGE_OFFSET, prevPage);
   }
 
-  @Nullable
-  public byte[] getRecordBinaryValue(final int recordPosition, final int offset, final int size) {
+  @Nullable public byte[] getRecordBinaryValue(final int recordPosition, final int offset, final int size) {
     assert isPositionInsideInterval(recordPosition);
 
     final var entryPointer = getPointer(recordPosition);
@@ -661,6 +657,82 @@ public final class CollectionPage extends DurablePage {
     }
   }
 
+  /**
+   * Returns whether the record at the given position is a first (entry-point) chunk
+   * of a multi-chunk record. Continuation chunks return {@code false}.
+   *
+   * <p>The first-record flag is a single byte at offset {@code bytesLength - 9} within
+   * the record bytes (1 byte before the 8-byte next-page pointer at the end of the chunk).
+   * A value of {@code 1} marks an entry-point chunk; {@code 0} marks a continuation chunk.
+   *
+   * <p><strong>Precondition:</strong> the record must not be deleted
+   * ({@link #isDeleted(int)} returns {@code false}).
+   *
+   * @param recordPosition the pointer-array slot index
+   * @return {@code true} if this is an entry-point chunk
+   */
+  public boolean isFirstRecordChunk(final int recordPosition) {
+    assert !isDeleted(recordPosition)
+        : "Record at position " + recordPosition + " is deleted";
+    return getRecordByteValue(
+        recordPosition,
+        -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE) == 1;
+  }
+
+  /**
+   * Reads the collection position embedded in the metadata header of a start chunk.
+   *
+   * <p>Must only be called on entry-point chunks where {@link #isFirstRecordChunk(int)}
+   * returns {@code true}; calling on a continuation chunk yields undefined results.
+   *
+   * <p>The collection position is an 8-byte {@code long} at offset 5 within the record
+   * bytes, after {@code recordType} (1 byte) and {@code contentSize} (4 bytes):
+   * <pre>{@code
+   * [recordType: 1B][contentSize: 4B][collectionPosition: 8B][actual content ...]
+   * }</pre>
+   *
+   * <p><strong>Precondition:</strong> the record must not be deleted.
+   *
+   * @param recordPosition the pointer-array slot index
+   * @return the collection position stored in the record metadata
+   */
+  public long readCollectionPositionFromRecord(final int recordPosition) {
+    assert !isDeleted(recordPosition)
+        : "Record at position " + recordPosition + " is deleted";
+    assert isFirstRecordChunk(recordPosition)
+        : "Record at position " + recordPosition + " is not an entry-point chunk";
+    final var entryPosition = getPointerValuePosition(recordPosition);
+    // Skip per-entry header (3 * INT_SIZE: entrySize + entryIndex + bytesLength)
+    // + recordType (1B) + contentSize (4B).
+    return getLongValue(
+        entryPosition + 3 * IntegerSerializer.INT_SIZE
+            + ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE);
+  }
+
+  /**
+   * Reads the next-page pointer from the end of a record chunk. The pointer is
+   * a packed 8-byte value containing the page index and record position of the
+   * next chunk in the chain, or {@code -1} if this is the last chunk.
+   *
+   * <p><strong>Precondition:</strong> the record must not be deleted.
+   *
+   * @param recordPosition the pointer-array slot index
+   * @return the packed next-page pointer, or {@code -1} for the last chunk
+   */
+  public long getNextPagePointer(final int recordPosition) {
+    assert !isDeleted(recordPosition)
+        : "Record at position " + recordPosition + " is deleted";
+    final var entryPosition = getPointerValuePosition(recordPosition);
+    final var recordSize = getRecordEntryBytesLength(entryPosition);
+    assert recordSize >= LongSerializer.LONG_SIZE + ByteSerializer.BYTE_SIZE
+        : "Record bytes length " + recordSize
+            + " too small for next-page pointer";
+    // nextPagePointer is the last 8 bytes of the record bytes.
+    return getLongValue(
+        entryPosition + 3 * IntegerSerializer.INT_SIZE
+            + recordSize - LongSerializer.LONG_SIZE);
+  }
+
   private boolean insideRecordBounds(
       final int entryPosition, final int offset, final int contentSize) {
     final var recordSize = getRecordEntryBytesLength(entryPosition);
@@ -680,7 +752,7 @@ public final class CollectionPage extends DurablePage {
     return recordPosition < indexesLength;
   }
 
-  private void doDefragmentation() {
+  public void doDefragmentation() {
     final var recordsCount = getRecordsCount();
     final var freePosition = getFreePosition();
 
@@ -736,7 +808,7 @@ public final class CollectionPage extends DurablePage {
 
       if (mergedDataSize > 0
           && (entryKind == ENTRY_KIND_HOLE
-          || i == 0)) { // move consecutive merged data segments in one go
+              || i == 0)) { // move consecutive merged data segments in one go
         moveData(lastDataPosition, lastDataPosition + shift, mergedDataSize);
         mergedDataSize = 0;
       }

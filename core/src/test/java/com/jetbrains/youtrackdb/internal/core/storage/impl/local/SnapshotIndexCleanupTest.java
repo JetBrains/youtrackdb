@@ -1,16 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -25,7 +30,7 @@ import org.junit.Test;
 /**
  * Tests for the snapshot index cleanup logic in {@link AbstractStorage}, including the static
  * {@link AbstractStorage#evictStaleSnapshotEntries} method and the integration with
- * {@code cleanupSnapshotIndex()} called during commit.
+ * {@code cleanupSnapshotIndex()} called from {@code resetTsMin()} at transaction close.
  */
 public class SnapshotIndexCleanupTest {
 
@@ -57,7 +62,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(20L, 1, 200L), sk2);
 
     // lwm = 15: entries with recordTs < 15 (i.e., recordTs=10) should be evicted
-    AbstractStorage.evictStaleSnapshotEntries(15L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(15L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).doesNotContainKey(sk1);
     assertThat(snapshotIndex).containsKey(sk2);
@@ -72,7 +78,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
     // lwm = 10: entry with recordTs=10 should be PRESERVED (headMap is exclusive)
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).containsKey(sk);
     assertThat(visibilityIndex).hasSize(1);
@@ -84,7 +91,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(20L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).containsKey(sk);
     assertThat(visibilityIndex).hasSize(1);
@@ -103,7 +111,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(skAbove, new PositionEntry(11L, 0, 11L));
     visibilityIndex.put(new VisibilityKey(100L, 1, 11L), skAbove);
 
-    AbstractStorage.evictStaleSnapshotEntries(50L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(50L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(snapshotIndex).containsKey(skAbove);
@@ -113,20 +122,26 @@ public class SnapshotIndexCleanupTest {
   // --- evictStaleSnapshotEntries: no-op cases ---
 
   @Test
-  public void testEvictNoOpWhenLwmIsMaxValue() {
+  public void testEvictWithLwmMaxValueEvictsAllEntries() {
+    // After the LWM fallback change, computeGlobalLowWaterMark() never returns
+    // Long.MAX_VALUE. But even if Long.MAX_VALUE is passed directly, eviction
+    // now proceeds (the old Long.MAX_VALUE guard was removed). All entries with
+    // recordTs < Long.MAX_VALUE are evicted.
     var sk = new SnapshotKey(1, 100L, 5L);
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(Long.MAX_VALUE, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(
+        Long.MAX_VALUE, snapshotIndex, visibilityIndex, new AtomicLong());
 
-    assertThat(snapshotIndex).hasSize(1);
-    assertThat(visibilityIndex).hasSize(1);
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(visibilityIndex).isEmpty();
   }
 
   @Test
   public void testEvictNoOpOnEmptyIndexes() {
-    AbstractStorage.evictStaleSnapshotEntries(100L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(100L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
@@ -138,7 +153,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(50L, 1, 100L), sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(visibilityIndex).hasSize(1);
@@ -161,7 +177,8 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(30L, 3, 300L), sk3);
 
     // lwm = 25: evict entries with recordTs=10 and recordTs=20; keep recordTs=30
-    AbstractStorage.evictStaleSnapshotEntries(25L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(25L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(snapshotIndex).hasSize(1);
     assertThat(snapshotIndex).containsKey(sk3);
@@ -178,7 +195,8 @@ public class SnapshotIndexCleanupTest {
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(vk, sk);
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // Both maps must be empty — entry was removed from both
     assertThat(snapshotIndex).isEmpty();
@@ -194,13 +212,14 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
     // snapshotIndex is empty — no corresponding entry
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     assertThat(visibilityIndex).isEmpty();
     assertThat(snapshotIndex).isEmpty();
   }
 
-  // --- Integration: cleanupSnapshotIndex via commit ---
+  // --- Integration: cleanupSnapshotIndex via transaction close (resetTsMin) ---
 
   @Test
   public void testCommitTriggersCleanupWhenThresholdExceeded() {
@@ -211,7 +230,7 @@ public class SnapshotIndexCleanupTest {
       var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
       var storage = (AbstractStorage) session.getStorage();
 
-      // Set a very low cleanup threshold to trigger cleanup on next commit
+      // Set a very low cleanup threshold to trigger cleanup on next transaction close
       storage.getContextConfiguration()
           .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
 
@@ -221,21 +240,73 @@ public class SnapshotIndexCleanupTest {
       assertThat(initialSnapshotSize).isGreaterThan(1);
       assertThat(initialVisibilitySize).isGreaterThan(1);
 
-      // Perform a write to trigger a commit (which calls cleanupSnapshotIndex).
-      // Schema changes are non-transactional, so use a record insert instead.
+      // Perform a write to trigger a commit. cleanupSnapshotIndex() is called from
+      // resetTsMin() during transaction close (after commit). The committing thread's
+      // tsMin has been reset to Long.MAX_VALUE by the time cleanup runs, but
+      // computeGlobalLowWaterMark() falls back to idGen.getLastId() when all threads
+      // are idle, so eviction still proceeds correctly.
       session.command("CREATE CLASS TestCleanup");
       session.begin();
       session.command("INSERT INTO TestCleanup SET name = 'test'");
       session.commit();
 
       // After commit with threshold=1, cleanup should have run and evicted stale
-      // entries. The committing thread's tsMin is still set during cleanup (resetTsMin
-      // runs later in close()), so lwm != MAX_VALUE and eviction occurs. Entries from
-      // db init whose recordTs < lwm are removed.
+      // entries. Entries from db init whose recordTs < lwm are removed.
       assertThat(storage.getSharedSnapshotIndex().size())
           .isLessThan(initialSnapshotSize);
       assertThat(storage.getVisibilityIndex().size())
           .isLessThan(initialVisibilitySize);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testReadOnlyTransactionTriggersCleanup() {
+    // Verifies that read-only transactions also trigger snapshot index cleanup
+    // via resetTsMin(). Before the move to resetTsMin(), cleanup only ran on
+    // write commits, so stale entries accumulated in read-heavy workloads.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set a very low cleanup threshold to trigger cleanup on next transaction close
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
+
+      // First, create some stale snapshot entries via a write transaction.
+      session.command("CREATE CLASS TestReadCleanup");
+      session.begin();
+      session.command("INSERT INTO TestReadCleanup SET name = 'v1'");
+      session.commit();
+
+      // Update the record to create a stale snapshot entry for the old version
+      session.begin();
+      session.command("UPDATE TestReadCleanup SET name = 'v2'");
+      session.commit();
+
+      int snapshotSizeAfterWrites = storage.getSharedSnapshotIndex().size();
+      int visibilitySizeAfterWrites = storage.getVisibilityIndex().size();
+
+      // Now perform a read-only transaction. When it closes, resetTsMin()
+      // triggers cleanupSnapshotIndex() which should evict stale entries.
+      session.begin();
+      session.query("SELECT FROM TestReadCleanup").close();
+      session.commit();
+
+      // After the read-only transaction close, cleanup should have evicted
+      // stale entries (those whose recordTs < lwm).
+      assertThat(storage.getSharedSnapshotIndex().size())
+          .isLessThanOrEqualTo(snapshotSizeAfterWrites);
+      assertThat(storage.getVisibilityIndex().size())
+          .isLessThanOrEqualTo(visibilitySizeAfterWrites);
 
       session.close();
     } finally {
@@ -321,12 +392,14 @@ public class SnapshotIndexCleanupTest {
     visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
 
     // First eviction removes the entry
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
 
     // Second eviction is a no-op (no entries to evict)
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
   }
@@ -360,10 +433,11 @@ public class SnapshotIndexCleanupTest {
   }
 
   @Test
-  public void testCommitSkipsCleanupWhenLockHeld() throws InterruptedException {
+  public void testTransactionCloseSkipsCleanupWhenLockHeld() throws InterruptedException {
     // Exercises the tryLock failure branch inside the real cleanupSnapshotIndex():
     // a background thread holds the snapshotCleanupLock while the main thread
-    // commits. Since tryLock is not re-entrant across threads, cleanup is skipped.
+    // closes a transaction (via resetTsMin). Since tryLock is not re-entrant across
+    // threads, cleanup is skipped.
     YouTrackDBImpl youTrackDB = null;
     try {
       youTrackDB = DbTestBase.createYTDBManagerAndDb(
@@ -376,7 +450,7 @@ public class SnapshotIndexCleanupTest {
           .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 1);
 
       // Hold the cleanup lock from a background thread (tryLock is NOT re-entrant
-      // across threads, so the committing main thread's tryLock will fail)
+      // across threads, so the main thread's tryLock in resetTsMin will fail)
       var lockAcquired = new CountDownLatch(1);
       var releaseSignal = new CountDownLatch(1);
       var bgThread = new Thread(() -> {
@@ -396,7 +470,8 @@ public class SnapshotIndexCleanupTest {
       try {
         int sizeBefore = storage.getSharedSnapshotIndex().size();
 
-        // Perform a commit — cleanupSnapshotIndex will try tryLock and skip
+        // Perform a commit — cleanupSnapshotIndex (called from resetTsMin during
+        // transaction close) will try tryLock and skip
         session.command("CREATE CLASS TestLock");
         session.begin();
         session.command("INSERT INTO TestLock SET name = 'test'");
@@ -430,7 +505,8 @@ public class SnapshotIndexCleanupTest {
       visibilityIndex.put(new VisibilityKey((long) i, 1, (long) i), sk);
     }
 
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // Entries with recordTs 0..499 evicted, entries 500..999 preserved
     assertThat(snapshotIndex).hasSize(count - (int) lwm);
@@ -487,7 +563,8 @@ public class SnapshotIndexCleanupTest {
 
     // Evictor: start together with reader, then evict entries below lwm
     barrier.await(5, TimeUnit.SECONDS);
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     evictionDone.set(true);
 
     readerThread.join(10_000);
@@ -532,7 +609,8 @@ public class SnapshotIndexCleanupTest {
     readerThread.start();
 
     barrier.await(5, TimeUnit.SECONDS);
-    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(lwm, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     readerThread.join(10_000);
     assertThat(readerThread.isAlive()).isFalse();
@@ -631,7 +709,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 1: lwm=10 removes entries 0..9
-    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(10L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).hasSize(20);
     assertThat(visibilityIndex).hasSize(20);
     for (int i = 0; i < 10; i++) {
@@ -644,7 +723,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 2: lwm=20 removes entries 10..19
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).hasSize(10);
     assertThat(visibilityIndex).hasSize(10);
     for (int i = 10; i < 20; i++) {
@@ -657,7 +737,8 @@ public class SnapshotIndexCleanupTest {
     }
 
     // Round 3: lwm=30 removes entries 20..29
-    AbstractStorage.evictStaleSnapshotEntries(30L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(30L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
     assertThat(snapshotIndex).isEmpty();
     assertThat(visibilityIndex).isEmpty();
   }
@@ -686,7 +767,8 @@ public class SnapshotIndexCleanupTest {
     // Entry at lwm boundary
     visibilityIndex.put(new VisibilityKey(20L, 4, 400L), skAtLwm);
 
-    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex, new AtomicLong());
+    AbstractStorage.evictStaleSnapshotEntries(20L, snapshotIndex, visibilityIndex,
+        new AtomicLong());
 
     // All three entries with recordTs=10 should be evicted
     assertThat(snapshotIndex).doesNotContainKey(sk1);
@@ -727,5 +809,493 @@ public class SnapshotIndexCleanupTest {
     assertThat(snapshotIndex).containsKey(skAtBoundary);
     assertThat(snapshotIndex).hasSize(1);
     assertThat(visibilityIndex).hasSize(1);
+  }
+
+  // --- Dead record counter: increment during eviction ---
+
+  @Test
+  public void testEvictIncrementsDeadRecordCounterForCollection() {
+    // Verify that evicting snapshot entries increments the per-collection dead record
+    // counter via the full integration path (commit → resetTsMin → cleanupSnapshotIndex
+    // → evictStaleSnapshotEntries with collections list).
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set threshold to 0 so eviction runs on every transaction close regardless
+      // of snapshot index size.
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+      // Create a class and insert records
+      session.command("CREATE CLASS TestDeadCounter");
+      session.begin();
+      session.command("INSERT INTO TestDeadCounter SET name = 'v1'");
+      session.commit();
+
+      // Update the record multiple times to create stale snapshot entries.
+      // Each update creates a visibility entry with recordTs = commit timestamp.
+      // Eviction requires recordTs < lwm, so a subsequent commit is needed to
+      // advance lwm past the previous entry's recordTs.
+      for (int i = 2; i <= 5; i++) {
+        session.begin();
+        session.command("UPDATE TestDeadCounter SET name = 'v" + i + "'");
+        session.commit();
+      }
+
+      // Sum dead record counts across ALL collections of the TestDeadCounter class.
+      // A class may be backed by multiple physical collections (e.g., testdeadcounter,
+      // testdeadcounter_1, ...), and records can go to any of them.
+      var collectionIds = session.getClass("TestDeadCounter").getCollectionIds();
+      long totalDead = 0;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            totalDead += pc.getDeadRecordCount();
+          }
+        }
+      }
+
+      // After 4 updates, at least some snapshot entries should have been evicted
+      // and incremented the dead record counter.
+      assertThat(totalDead)
+          .as("dead record counter should be incremented by eviction")
+          .isGreaterThan(0);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testEvictWithNullCollectionsDoesNotFail() {
+    // The 4-parameter overload passes null collections — verify no NPE.
+    var sk = new SnapshotKey(1, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk);
+
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(visibilityIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithNullCollectionsEvictsMultipleEntries() {
+    // Tests the 5-parameter static method with null collections list and multiple
+    // entries across different components. Eviction should proceed normally and
+    // decrement the size counter, but skip dead record counting.
+    var sk1 = new SnapshotKey(1, 100L, 5L);
+    var sk2 = new SnapshotKey(2, 200L, 8L);
+    snapshotIndex.put(sk1, new PositionEntry(1L, 0, 5L));
+    snapshotIndex.put(sk2, new PositionEntry(2L, 0, 8L));
+    visibilityIndex.put(new VisibilityKey(10L, 1, 100L), sk1);
+    visibilityIndex.put(new VisibilityKey(15L, 2, 200L), sk2);
+
+    var sizeCounter = new AtomicLong(2);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, null);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithOutOfBoundsComponentIdDoesNotFail() {
+    // Snapshot entry with componentId larger than collections list size.
+    // Should be evicted normally without dead record counting.
+    var sk = new SnapshotKey(999, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, 999, 100L), sk);
+
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, collections);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  @Test
+  public void testEvictWithNegativeComponentIdDoesNotFail() {
+    // Snapshot entry with negative componentId. Should be evicted without counting.
+    var sk = new SnapshotKey(-1, 100L, 5L);
+    snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
+    visibilityIndex.put(new VisibilityKey(10L, -1, 100L), sk);
+
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    var sizeCounter = new AtomicLong(1);
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, snapshotIndex, visibilityIndex, sizeCounter, collections);
+
+    assertThat(snapshotIndex).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  // --- GC trigger condition ---
+
+  @Test
+  public void testGcTriggerConditionNotMetWhenNoDeadRecords() {
+    // A fresh collection with no dead records should not trigger GC.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestGcTrigger");
+      session.begin();
+      session.command("INSERT INTO TestGcTrigger SET name = 'v1'");
+      session.commit();
+
+      // Find any collection of this class
+      var collectionIds = session.getClass("TestGcTrigger").getCollectionIds();
+      PaginatedCollectionV2 collection = null;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            collection = pc;
+            break;
+          }
+        }
+        if (collection != null) {
+          break;
+        }
+      }
+      assertThat(collection).isNotNull();
+
+      // With default thresholds (minThreshold=1000, scaleFactor=0.1), a collection
+      // with a few records and 0 dead records should not trigger GC.
+      assertThat(collection.isGcTriggered(1_000, 0.1f)).isFalse();
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  @Test
+  public void testGcTriggerConditionMetWhenThresholdExceeded() {
+    // Verify that the trigger fires when enough dead records accumulate.
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      // Set threshold to 0 so eviction runs on every transaction close
+      storage.getContextConfiguration()
+          .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+      session.command("CREATE CLASS TestGcTrigger2");
+
+      // Insert and update multiple records to accumulate dead record counts
+      for (int i = 0; i < 10; i++) {
+        session.begin();
+        session.command("INSERT INTO TestGcTrigger2 SET name = 'v" + i + "'");
+        session.commit();
+      }
+      // Update all records to create stale versions
+      for (int i = 0; i < 5; i++) {
+        session.begin();
+        session.command("UPDATE TestGcTrigger2 SET name = 'updated" + i + "'");
+        session.commit();
+      }
+
+      // Sum dead record counts across all collections of the class
+      var collectionIds = session.getClass("TestGcTrigger2").getCollectionIds();
+      long totalDead = 0;
+      PaginatedCollectionV2 collectionWithDead = null;
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            totalDead += pc.getDeadRecordCount();
+            if (pc.getDeadRecordCount() > 0) {
+              collectionWithDead = pc;
+            }
+          }
+        }
+      }
+
+      // At least some dead records should have been counted
+      assertThat(collectionWithDead)
+          .as("at least one collection should have dead records after updates")
+          .isNotNull();
+
+      // With minThreshold=0 and scaleFactor=0, any dead record triggers GC
+      assertThat(collectionWithDead.isGcTriggered(0, 0.0f)).isTrue();
+
+      // With very high threshold, it should not trigger even with dead records
+      assertThat(collectionWithDead.isGcTriggered(1_000_000, 0.0f)).isFalse();
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // --- Dead record counter: direct unit tests for eviction with collections ---
+
+  // Exercises lines 5589, 5595, 5597: eviction with a non-null collections list
+  // containing a PaginatedCollectionV2 at the correct index. Verifies that eviction
+  // increments the dead record counter only when snapshotIndex.remove() returns non-null.
+  @Test
+  public void testEvictIncrementsCounterForMatchingCollection() {
+    // Create a real database to get a real PaginatedCollectionV2 instance
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestCounterDirect");
+      session.begin();
+      session.command("INSERT INTO TestCounterDirect SET name = 'v1'");
+      session.commit();
+
+      // Find a PaginatedCollectionV2 for this class
+      PaginatedCollectionV2 targetCollection = null;
+      int targetId = -1;
+      var collectionIds = session.getClass("TestCounterDirect").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            targetId = cid;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+      assertThat(targetCollection.getDeadRecordCount()).isEqualTo(0);
+
+      // Build a collections list matching the storage layout (indexed by collection ID).
+      // The internal list in AbstractStorage is indexed by collection ID, with nulls
+      // for unused slots. We need at least targetId+1 slots.
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      for (int i = 0; i <= targetId; i++) {
+        collections.add(null);
+      }
+      collections.set(targetId, targetCollection);
+
+      // Create snapshot + visibility entries with componentId matching the collection
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      var sk = new SnapshotKey(targetId, 100L, 5L);
+      localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+      localVisibility.put(new VisibilityKey(10L, targetId, 100L), sk);
+
+      var sizeCounter = new AtomicLong(1);
+
+      // Evict: should remove the entry and increment the collection's dead record counter
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localSnapshot).isEmpty();
+      assertThat(sizeCounter.get()).isEqualTo(0);
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("dead record counter should be incremented for the matching collection")
+          .isEqualTo(1);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // Exercises line 5589: verifies that the dead record counter is NOT incremented when
+  // snapshotIndex.remove() returns null (orphaned visibility entry).
+  @Test
+  public void testEvictDoesNotIncrementCounterForOrphanedVisibilityEntry() {
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestOrphanCounter");
+      session.begin();
+      session.command("INSERT INTO TestOrphanCounter SET name = 'v1'");
+      session.commit();
+
+      PaginatedCollectionV2 targetCollection = null;
+      int targetId = -1;
+      var collectionIds = session.getClass("TestOrphanCounter").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            targetId = cid;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      for (int i = 0; i <= targetId; i++) {
+        collections.add(null);
+      }
+      collections.set(targetId, targetCollection);
+
+      // Create only a visibility entry with no matching snapshot entry (orphaned)
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      var sk = new SnapshotKey(targetId, 100L, 5L);
+      // No entry in localSnapshot — the remove() will return null
+      localVisibility.put(new VisibilityKey(10L, targetId, 100L), sk);
+
+      long countBefore = targetCollection.getDeadRecordCount();
+      var sizeCounter = new AtomicLong(0);
+
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localVisibility).isEmpty();
+      // Counter should NOT be incremented (snapshotIndex.remove returned null)
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("counter should not increment for orphaned visibility entries")
+          .isEqualTo(countBefore);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // Exercises lines 5595, 5597: verifies that a non-PaginatedCollectionV2 collection
+  // in the list does not cause dead record counting (instanceof check).
+  @Test
+  public void testEvictSkipsNonPaginatedCollectionV2InList() {
+    // Use a mock StorageCollection that is NOT a PaginatedCollectionV2
+    var mockCollection = mock(StorageCollection.class);
+    List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+    collections.add(mockCollection); // index 0
+
+    var sk = new SnapshotKey(0, 100L, 5L);
+    var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+    var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+    localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+    localVisibility.put(new VisibilityKey(10L, 0, 100L), sk);
+
+    var sizeCounter = new AtomicLong(1);
+
+    // Should evict without error and NOT increment any counter
+    AbstractStorage.evictStaleSnapshotEntries(
+        20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+    assertThat(localSnapshot).isEmpty();
+    assertThat(sizeCounter.get()).isEqualTo(0);
+  }
+
+  // --- Boundary: componentId == 0 ---
+
+  // Exercises the boundary condition at AbstractStorage line 5595: `id >= 0 && id < size`.
+  // The mutant changes `>=` to `>`, which would skip componentId=0. This test places a
+  // PaginatedCollectionV2 at index 0 in the collections list and verifies its dead record
+  // counter is incremented when an entry with componentId=0 is evicted.
+  @Test
+  public void testEvictIncrementsCounterForComponentIdZero() {
+    YouTrackDBImpl youTrackDB = null;
+    try {
+      youTrackDB = DbTestBase.createYTDBManagerAndDb(
+          "test", DatabaseType.MEMORY, getClass());
+      var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var storage = (AbstractStorage) session.getStorage();
+
+      session.command("CREATE CLASS TestIdZero");
+      session.begin();
+      session.command("INSERT INTO TestIdZero SET name = 'v1'");
+      session.commit();
+
+      // Find any PaginatedCollectionV2 for this class
+      PaginatedCollectionV2 targetCollection = null;
+      var collectionIds = session.getClass("TestIdZero").getCollectionIds();
+      for (int cid : collectionIds) {
+        for (var coll : storage.getCollectionInstances()) {
+          if (coll.getId() == cid && coll instanceof PaginatedCollectionV2 pc) {
+            targetCollection = pc;
+            break;
+          }
+        }
+        if (targetCollection != null) {
+          break;
+        }
+      }
+      assertThat(targetCollection).isNotNull();
+
+      // Place the collection at index 0, regardless of its real ID.
+      // The snapshot entry uses componentId=0 to match this position.
+      List<StorageCollection> collections = new CopyOnWriteArrayList<>();
+      collections.add(targetCollection); // index 0
+
+      var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
+      var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
+
+      // componentId = 0 targets the collection at index 0
+      var sk = new SnapshotKey(0, 100L, 5L);
+      localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
+      localVisibility.put(new VisibilityKey(10L, 0, 100L), sk);
+
+      long countBefore = targetCollection.getDeadRecordCount();
+      var sizeCounter = new AtomicLong(1);
+
+      AbstractStorage.evictStaleSnapshotEntries(
+          20L, localSnapshot, localVisibility, sizeCounter, collections);
+
+      assertThat(localSnapshot).isEmpty();
+      assertThat(sizeCounter.get()).isEqualTo(0);
+      // With `id >= 0`: counter is incremented. With `id > 0` (mutant): skipped.
+      assertThat(targetCollection.getDeadRecordCount())
+          .as("dead record counter must be incremented for componentId=0")
+          .isEqualTo(countBefore + 1);
+
+      session.close();
+    } finally {
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
+    }
+  }
+
+  // --- GlobalConfiguration: GC parameters ---
+
+  @Test
+  public void testGcConfigParameterDefaults() {
+    // Verify the default values for the new GC configuration parameters.
+    assertThat(GlobalConfiguration.STORAGE_COLLECTION_GC_MIN_THRESHOLD
+        .getValueAsInteger()).isEqualTo(1_000);
+    assertThat(GlobalConfiguration.STORAGE_COLLECTION_GC_SCALE_FACTOR
+        .getValueAsFloat()).isEqualTo(0.1f);
   }
 }
