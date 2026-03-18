@@ -175,4 +175,25 @@ public interface Edge extends Entity, Relation<Vertex> {
   default Entity asEntity() {
     return this;
   }
+
+  /**
+   * Edges are relations (they connect two vertices). Overrides Entity's default which returns
+   * false.
+   */
+  @Override
+  default boolean isRelation() {
+    return true;
+  }
+
+  @Nonnull
+  @Override
+  default Relation<?> asRelation() {
+    return this;
+  }
+
+  @Nonnull
+  @Override
+  default Relation<?> asRelationOrNull() {
+    return this;
+  }
 }
