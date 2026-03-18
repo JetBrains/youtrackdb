@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -52,7 +51,6 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   @Nullable protected Identifiable identifiable;
   @Nullable protected DatabaseSessionEmbedded session;
-  @Nullable protected Relation<?> relation;
 
   public ResultInternal(@Nullable DatabaseSessionEmbedded session) {
     content = new HashMap<>();
@@ -94,16 +92,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   public ResultInternal(@Nullable DatabaseSessionEmbedded session, @Nonnull Identifiable ident) {
     setIdentifiable(ident);
     this.session = session;
-  }
-
-  public ResultInternal(@Nullable DatabaseSessionEmbedded session,
-      @Nonnull Relation<?> relation) {
-    this.session = session;
-    if (relation.isLightweight()) {
-      this.relation = relation;
-    } else {
-      setIdentifiable(relation.asEntity());
-    }
   }
 
   public void refreshNonPersistentRid() {
@@ -207,10 +195,6 @@ public class ResultInternal implements Result, BasicResultInternal {
       if (identifiable != null) {
         throw new IllegalStateException("Impossible to mutate result set containing entity");
       }
-      if (relation != null) {
-        throw new IllegalStateException(
-            "Impossible to mutate result set containing lightweight edge");
-      }
       throw new IllegalStateException("Impossible to mutate result set");
     }
 
@@ -284,9 +268,6 @@ public class ResultInternal implements Result, BasicResultInternal {
         }
         if (result.isEdge()) {
           return convertPropertyValue(result.asEdge());
-        }
-        if (result.isRelation()) {
-          return result.asRelation();
         }
 
         return result;
@@ -635,10 +616,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public @Nonnull Result detach() {
     assert checkSession();
-    if (relation != null) {
-      throw new DatabaseException("Cannot detach lightweight edge");
-    }
-
     var detached = new ResultInternal(null);
     for (var prop : getPropertyNames()) {
       detached.setProperty(prop, toMapValue(getProperty(prop), false));
@@ -897,7 +874,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
 
-    this.relation = null;
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
       content = new HashMap<>();
       this.identifiable = null;
@@ -920,22 +896,10 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
-  public void setRelation(Relation<?> relation) {
-    assert checkSession();
-
-    this.identifiable = null;
-    this.relation = relation;
-    this.content = null;
-  }
-
   @Nonnull
   @Override
   public Map<String, Object> toMap() {
     assert checkSession();
-
-    if (relation != null) {
-      return relation.toMap();
-    }
 
     if (isEntity()) {
       return asEntity().toMap();
@@ -951,20 +915,10 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Override
-  public boolean isRelation() {
-    assert checkSession();
-    return relation != null || isEdge();
-  }
-
-  @Override
   public boolean isEdge() {
     assert checkSession();
     if (content != null) {
       return false;
-    }
-
-    if (relation instanceof Edge) {
-      return true;
     }
 
     switch (identifiable) {
@@ -1013,10 +967,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Edge asEdge() {
     assert checkSession();
-    if (relation instanceof Edge edge) {
-      return edge;
-    }
-
     if (identifiable instanceof Edge edge) {
       return edge;
     }
@@ -1032,10 +982,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   public Edge asEdgeOrNull() {
     assert checkSession();
 
-    if (relation instanceof Edge edge) {
-      return edge;
-    }
-
     if (identifiable instanceof Edge edge) {
       return edge;
     }
@@ -1048,42 +994,8 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Override
-  @Nonnull
-  public Relation<?> asRelation() {
-    assert checkSession();
-    if (relation != null) {
-      return relation;
-    }
-
-    if (isEdge()) {
-      return asEntity().asEdge();
-    }
-
-    throw new DatabaseException("Result is not an relation");
-  }
-
-  @Override
-  @Nullable public Relation<?> asRelationOrNull() {
-    assert checkSession();
-
-    if (relation != null) {
-      return relation;
-    }
-
-    if (isEdge()) {
-      return asEntity().asEdgeOrNull();
-    }
-
-    return null;
-  }
-
-  @Override
   public @Nonnull String toJSON() {
     assert checkSession();
-
-    if (relation != null) {
-      return relation.toJSON();
-    }
 
     if (isEntity()) {
       var entity = asEntity();
@@ -1213,9 +1125,6 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (identifiable != null) {
       return "identifiable:" + identifiable;
     }
-    if (relation != null) {
-      return "relation:" + relation.toJSON();
-    }
     var sb = new StringBuilder("content:{\n");
     for (var prop : getPropertyNames()) {
       sb.append(prop).append(": ").append((Object) getProperty(prop)).append('\n');
@@ -1232,17 +1141,14 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (!(obj instanceof Result other)) {
       return false;
     }
-    if (other.isIdentifiable() || other.isRelation()) {
+    if (other.isIdentifiable()) {
       if (identifiable != null) {
         var otherIdentity = other.getIdentity();
         return otherIdentity != null && identifiable.getIdentity().equals(otherIdentity);
       }
-      if (relation != null) {
-        return Objects.equals(relation, other.isRelation() ? other.asRelation() : null);
-      }
       return false;
     }
-    if (identifiable != null || relation != null) {
+    if (identifiable != null) {
       return false;
     }
     // Projection-to-projection comparison using virtual methods so
@@ -1262,9 +1168,6 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   @Override
   public int hashCode() {
-    if (relation != null) {
-      return relation.hashCode();
-    }
     if (identifiable != null) {
       return identifiable.hashCode();
     }

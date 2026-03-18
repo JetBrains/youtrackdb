@@ -402,9 +402,7 @@ public class SQLEngine {
     } else if (current instanceof Identifiable) {
       return function.apply(current);
     } else if (current instanceof Result result) {
-      if (result.isRelation()) {
-        return function.apply(result.asRelation());
-      } else if (result.isEntity()) {
+      if (result.isEntity()) {
         return function.apply(result.asEntity());
       }
       return null;

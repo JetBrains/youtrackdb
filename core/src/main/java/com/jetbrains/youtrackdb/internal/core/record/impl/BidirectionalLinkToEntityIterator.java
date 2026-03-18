@@ -1,16 +1,16 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.Iterator;
 
-public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iterator<T> {
+public class BidirectionalLinkToEntityIterator implements Iterator<Vertex> {
 
-  private final Iterator<? extends Relation<T>> linksIterator;
+  private final Iterator<? extends Edge> linksIterator;
   private final Direction direction;
 
-  public BidirectionalLinkToEntityIterator(Iterator<? extends Relation<T>> iterator,
+  public BidirectionalLinkToEntityIterator(Iterator<? extends Edge> iterator,
       Direction direction) {
     if (direction == Direction.BOTH) {
       throw new IllegalArgumentException(
@@ -26,7 +26,7 @@ public class BidirectionalLinkToEntityIterator<T extends Entity> implements Iter
   }
 
   @Override
-  public T next() {
+  public Vertex next() {
     var edge = linksIterator.next();
     return switch (direction) {
       case OUT -> edge.getTo();

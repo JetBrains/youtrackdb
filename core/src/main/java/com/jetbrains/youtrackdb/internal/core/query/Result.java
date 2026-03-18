@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -216,12 +215,6 @@ public interface Result extends BasicResult {
     }
     return entity.asVertexOrNull();
   }
-
-  boolean isRelation();
-
-  Relation<?> asRelation();
-
-  @Nullable Relation<?> asRelationOrNull();
 
   boolean isEdge();
 

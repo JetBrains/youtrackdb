@@ -18,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -3299,21 +3298,6 @@ public class MatchStepUnitTest extends DbTestBase {
     @Override
     public boolean isVertex() {
       return false;
-    }
-
-    @Override
-    public boolean isRelation() {
-      return false;
-    }
-
-    @Override
-    public Relation<?> asRelation() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Relation<?> asRelationOrNull() {
-      return null;
     }
 
     @Override

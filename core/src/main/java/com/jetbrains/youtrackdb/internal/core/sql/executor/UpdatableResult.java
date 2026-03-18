@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -171,12 +170,6 @@ public class UpdatableResult extends ResultInternal {
       var transaction = session.getActiveTransaction();
       this.identifiable = transaction.loadEntity(identifiable);
     }
-  }
-
-  @Override
-  public void setRelation(Relation<?> relation) {
-    assert checkSession();
-    throw new UnsupportedOperationException();
   }
 
   @Nonnull

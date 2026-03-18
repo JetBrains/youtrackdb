@@ -169,17 +169,17 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
             var coll = Collections.singleton(identifiable);
             var edges = new EdgeIterable(
                 this, connection, labels, session, coll, 1, coll);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkSetImpl set -> {
             var edges = new EdgeIterable(
                 this, connection, labels, session, set, -1, set);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkListImpl list -> {
             var edges = new EdgeIterable(
                 this, connection, labels, session, list, -1, list);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           default -> throw new IllegalArgumentException(
               "Unsupported property type: " + getPropertyType(fieldName));
