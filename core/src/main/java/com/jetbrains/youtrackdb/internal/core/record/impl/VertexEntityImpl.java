@@ -788,38 +788,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   private static void removeLinkFromEdge(EntityImpl vertex, Edge edge,
       Direction direction) {
     var className = edge.getSchemaClassName();
-    Identifiable edgeId;
-    if (edge instanceof Edge edgeRecord) {
-      edgeId = edgeRecord.getIdentity();
-    } else {
-      edgeId = null;
-    }
+    var edgeId = edge.getIdentity();
 
     removeLinkFromEdge(
-        vertex, edge, Vertex.getEdgeLinkFieldName(direction, className), edgeId, direction);
+        vertex, Vertex.getEdgeLinkFieldName(direction, className), edgeId);
   }
 
   private static void removeLinkFromEdge(
-      EntityImpl vertex, Edge edge, String edgeField, Identifiable edgeId,
-      Direction direction) {
+      EntityImpl vertex, String edgeField, Identifiable edgeId) {
     var edgeProp = vertex.getPropertyInternal(edgeField);
-    RID oppositeVertexId = null;
-    if (direction == Direction.IN) {
-      var fromIdentifiable = edge.getFromLink();
-      if (fromIdentifiable != null) {
-        oppositeVertexId = fromIdentifiable.getIdentity();
-      }
-    } else {
-      var toIdentifiable = edge.getToLink();
-      if (toIdentifiable != null) {
-        oppositeVertexId = toIdentifiable.getIdentity();
-      }
-    }
-
-    if (edgeId == null) {
-      // lightweight edge
-      edgeId = oppositeVertexId;
-    }
 
     removeEdgeLinkFromProperty(vertex, edgeField, edgeId, edgeProp);
   }
