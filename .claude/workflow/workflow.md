@@ -576,6 +576,8 @@ For other workflow components, see:
   scope indicators, review iteration protocol
 - **`conventions-execution.md`** — execution-specific: episodes, commit
   format, code review, complexity tiers, decomposition rules
+- **`commit-conventions.md`** — commit message type prefixes for session
+  resume (review fix, episode, step file updates)
 - **`track-review.md`** — Phase A: review + decomposition
 - **`step-implementation.md`** — Phase B: step implementation
 - **`track-code-review.md`** — Phase C: track-level code review

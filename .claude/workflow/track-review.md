@@ -28,12 +28,16 @@ After Phase C, the next session runs the Track Completion Protocol
 
 1. **Assess track complexity** to determine which reviews to run
 2. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
-   as warranted). After each review completes, update the **Reviews
-   completed** section in the step file (create the step file early with
-   just the Progress and Reviews sections if it doesn't exist yet).
-3. **Write review files** to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
-4. **Decompose scope indicators** into concrete steps
-5. **Write the step file** to `docs/adr/<dir-name>/tracks/track-N.md` with
+   as warranted). After each review completes:
+   - Write the review file to `docs/adr/<dir-name>/reviews/track-N-<type>.md`
+   - Update the **Reviews completed** section in the step file (create the
+     step file early with just the Progress and Reviews sections if it
+     doesn't exist yet)
+   - **Commit the review file and step file update together.** This ensures
+     partial review progress survives session interruptions — the next
+     session can skip completed reviews and only re-run missing ones.
+3. **Decompose scope indicators** into concrete steps
+4. **Write the step file** to `docs/adr/<dir-name>/tracks/track-N.md` with
    all steps as `[ ]` items. Mark `Review + decomposition` as `[x]` in the
    Progress section. Commit the step file.
 

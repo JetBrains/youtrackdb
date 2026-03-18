@@ -40,11 +40,13 @@ but have no corresponding episode in the step file:
    updates (i.e., they are code implementation or review fix commits):
    - The previous session committed code for this step but didn't write
      the episode.
-   - **Resume from the appropriate sub-step:**
-     - Run the code review loop (sub-step 4) if no review fix commits
-       exist for this step.
-     - If review fix commits already exist, skip directly to episode
-       production (sub-step 5).
+   - **Resume from the appropriate sub-step** by checking commit messages
+     (see `commit-conventions.md` for the patterns):
+     - If any orphan commit message contains `Review fix:` → the code
+       review loop already ran. Skip directly to episode production
+       (sub-step 5).
+     - If no `Review fix:` commits exist → run the code review loop
+       (sub-step 4).
    - Write the episode, mark the step `[x]`, update the Progress count,
      and commit the episode.
    - Then proceed to the next `[ ]` step normally.
@@ -98,7 +100,8 @@ completion**, before moving to the next step:
    commit message conventions (see `CLAUDE.md`).
 4. **Code review loop** (up to 3 iterations, within your context):
    a. Spawn a **code-reviewer sub-agent** (fresh sub-agent each iteration).
-   b. If findings are returned, fix them, commit fixes, and re-submit.
+   b. If findings are returned, fix them, commit fixes (using the
+      `Review fix:` prefix — see `commit-conventions.md`), and re-submit.
    c. Repeat until approved OR **max 3 iterations** reached.
    d. If max iterations reached, note remaining findings in the episode.
 5. **Produce the step episode** — a structured record of what happened
@@ -158,11 +161,56 @@ architectural problems, coverage cannot be met):
 4. Decide: **retry** with a different approach, or **split** the step into
    smaller pieces that can succeed independently
 
+### Retry representation in the step file
+
+When retrying a failed step, keep the `[!]` entry in place and insert a
+new `[ ]` step immediately after it with a modified description indicating
+the different approach:
+
+```markdown
+- [!] Step: Add histogram header to leaf page
+  > **What was attempted:** ...
+  > **Why it failed:** ...
+  > **Impact on remaining steps:** ...
+  > **Key files:** ...
+
+- [ ] Step: Add histogram header to leaf page (retry: use page extension API)
+```
+
+This preserves the full failure history inline and makes the two-failure
+rule trivially detectable on resume.
+
+When **splitting** a failed step, keep the `[!]` entry and insert multiple
+new `[ ]` steps after it:
+
+```markdown
+- [!] Step: Add histogram header and serialization
+  > **What was attempted:** ...
+  > **Why it failed:** ...
+
+- [ ] Step: Add histogram header struct (split from failed step above)
+- [ ] Step: Add histogram serialization (split from failed step above)
+```
+
+Update the **Progress** section's step count to reflect the new total
+(e.g., `(2/6 complete)` if a 5-step track gained one retry step).
+
 ---
 
 ## Two-Failure Rule
 
-If the same step fails twice (original attempt + one retry):
+The two-failure rule triggers when two consecutive `[!]` entries exist
+for the same logical step (the retry also failed):
+
+```markdown
+- [!] Step: Add histogram header to leaf page
+  > **What was attempted:** ... (first attempt)
+
+- [!] Step: Add histogram header to leaf page (retry: use page extension API)
+  > **What was attempted:** ... (second attempt)
+```
+
+When this happens — whether during a session or detected on resume:
 
 - **Stop.** Do not attempt a third time.
 - Present both failed episodes to the user with:
@@ -172,6 +220,11 @@ If the same step fails twice (original attempt + one retry):
     issue
 - The user decides: retry with specific guidance, adjust the approach, skip
   the step, or escalate.
+
+**On resume:** When scanning the step list and encountering a `[!]` entry
+followed by another `[!]` for the same step (with `(retry:` in the
+description), this is a two-failure situation. Present both failed
+episodes to the user before proceeding.
 
 See workflow.md §Failure Handling for the broader failure handling context
 and track-level escalation rules.
