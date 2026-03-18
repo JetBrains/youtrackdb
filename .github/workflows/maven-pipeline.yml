@@ -10,7 +10,10 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only cancel in-progress runs for PRs and merge queue, not for develop pushes.
+  # On develop, cancelling a running build when a non-buildable commit (e.g. docs)
+  # arrives would skip testing the buildable commits from the cancelled run.
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
