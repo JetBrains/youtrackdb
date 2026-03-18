@@ -1,7 +1,9 @@
 /* IC10: Friend recommendation.
-   Find friends-of-friends born in a date range, score by common interests. */
+   Find friends-of-friends born in a date range, score by common interests.
+   Uses conditional aggregation — sum(if(...)) — to compute the positive
+   and negative tag-match scores in a single scan instead of two subqueries. */
 SELECT personId, firstName, lastName,
-  ($posScore[0].cnt - $negScore[0].cnt) as commonInterestScore,
+  $scores[0].commonInterestScore as commonInterestScore,
   gender, birthday, cityName
 FROM (
   MATCH {class: Person, as: start, where: (id = :personId)}
@@ -18,19 +20,14 @@ FROM (
     fof as fofVertex,
     start as startVertex
 )
-LET $posScore = (
-  SELECT count(*) as cnt FROM (
+LET $scores = (
+  SELECT
+    sum(if(set(out('HAS_TAG').name) CONTAINSANY $parent.$current.startVertex.out('HAS_INTEREST').name, 1, -1))
+    as commonInterestScore
+  FROM (
     SELECT expand(in('HAS_CREATOR')) FROM Person
     WHERE @rid = $parent.$current.fofVertex
   ) WHERE @class = 'Post'
-    AND set(out('HAS_TAG').name) CONTAINSANY $parent.$current.startVertex.out('HAS_INTEREST').name
-),
-$negScore = (
-  SELECT count(*) as cnt FROM (
-    SELECT expand(in('HAS_CREATOR')) FROM Person
-    WHERE @rid = $parent.$current.fofVertex
-  ) WHERE @class = 'Post'
-    AND NOT (set(out('HAS_TAG').name) CONTAINSANY $parent.$current.startVertex.out('HAS_INTEREST').name)
 )
 WHERE (
   (:wrap = true AND (birthday.format('MMdd', 'UTC') >= :startMd OR birthday.format('MMdd', 'UTC') < :endMd))
