@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -52,32 +52,31 @@
   > `LinkBasedMatchStatementExecutionTest.java` (deleted),
   > `LinkBasedMatchStatementExecutionNewTest.java` (deleted)
 
-- [ ] Step 2: Reparameterize BidirectionalLinksIterable/BidirectionalLinkToEntityIterator from Relation<T> to Edge; remove ResultInternal.relation field and isRelation()/asRelation() from all interfaces
-  > Now that no code dispatches on Relation<?> at runtime (Step 1), remove
-  > the remaining Relation-typed API surface.
+- [x] Step 2: Reparameterize BidirectionalLinksIterable/BidirectionalLinkToEntityIterator from Relation<T> to Edge; remove ResultInternal.relation field and isRelation()/asRelation() from all interfaces
+  > **What was done:** Reparameterized `BidirectionalLinksIterable` and
+  > `BidirectionalLinkToEntityIterator` from generic `Relation<T>` to
+  > concrete `Edge`/`Vertex` types (removed generic type parameter entirely).
+  > Deleted `ResultInternal.relation` field, `Relation<?>` constructor,
+  > `setRelation()`, and cleaned up all `relation != null` checks in 11
+  > methods. Removed `isRelation()`/`asRelation()`/`asRelationOrNull()`
+  > from `Result`, `Entity`, `Edge`, `ResultInternal`, `UpdatableResult`,
+  > and `MatchStepUnitTest` test mock. Removed `isRelation()` dispatch
+  > from `SQLEngine.foreachRecord()`.
   >
-  > **BidirectionalLinks reparameterization:**
-  > - `BidirectionalLinksIterable`: change generic bound from
-  >   `Iterable<? extends Relation<T>>` to `Iterable<? extends Edge>`
-  > - `BidirectionalLinkToEntityIterator`: change from
-  >   `Iterator<? extends Relation<T>>` to `Iterator<? extends Edge>`
-  > - Update callers: `VertexEntityImpl` (lines 174, 179, 184),
-  >   `SQLFunctionShortestPath` (line 310), `SQLProjectionItem`
-  >   (lines 155-166) — all already pass Edge iterables, so changes
-  >   are minimal type adjustments
+  > **What was discovered:** `DBRecord`, `EntityImpl`, `RecordBytes`, and
+  > `EmbeddedEntityImpl` had no overrides of isRelation/asRelation — they
+  > inherited defaults from `Entity`, so only `Entity`'s defaults needed
+  > removal. `UpdatableResult` had a `setRelation()` override (throwing
+  > UnsupportedOperationException) that needed deletion.
   >
-  > **ResultInternal.relation field removal:**
-  > - Delete `relation` field, `Relation<?>` constructor, `setRelation()`
-  > - Clean up all `relation != null` checks in: `equals()`, `detach()`,
-  >   `toMap()`, `toJSON()`, `toString()`, `setIdentifiable()`
-  >
-  > **isRelation()/asRelation()/asRelationOrNull() removal from interfaces:**
-  > - Remove from: `Result`, `Entity`, `DBRecord`, `Edge`,
-  >   `ResultInternal`, `EntityImpl`, `RecordBytes`, `EmbeddedEntityImpl`,
-  >   `UpdatableResult`
-  > - Note: `Edge.isRelation()` default (returns true) and
-  >   `Edge.asRelation()`/`asRelationOrNull()` defaults (return this) are
-  >   removed — no callers remain after Step 1
+  > **Key files:** `BidirectionalLinksIterable.java` (modified),
+  > `BidirectionalLinkToEntityIterator.java` (modified),
+  > `ResultInternal.java` (modified), `Result.java` (modified),
+  > `Entity.java` (modified), `Edge.java` (modified),
+  > `SQLEngine.java` (modified), `UpdatableResult.java` (modified),
+  > `VertexEntityImpl.java` (modified),
+  > `SQLFunctionShortestPath.java` (modified),
+  > `MatchStepUnitTest.java` (modified)
 
 - [ ] Step 3: Inline RelationsIteratorAbstract into EdgeIterator, RelationsIterable into EdgeIterable
   > Make EdgeIterator and EdgeIterable standalone classes that no longer
