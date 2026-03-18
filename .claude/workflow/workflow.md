@@ -11,27 +11,11 @@ are used only for self-contained review tasks (technical/risk/adversarial
 reviews, code review, track-level code review) where fresh perspective or
 parallel execution is valuable.
 
-### Terminology: Phases 1/2/3 vs Phases A/B/C
-
-The overall workflow has three stages:
-- **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan
-- **Phase 2 (Structural Review)**: `/review-plan` — validate plan structure
-- **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-
-Within Phase 3, each track goes through three sub-phases:
-- **Phase A**: Review + Decomposition (`track-review.md`)
-- **Phase B**: Step Implementation (`step-implementation.md`)
-- **Phase C**: Track-Level Code Review (`track-code-review.md`)
-
-**Each session handles exactly one sub-phase of one track.** After completing
-a sub-phase, the session ends and the user re-runs `/execute-tracks` to
-start the next sub-phase with fresh context. This prevents context
-dilution — review context doesn't clutter implementation, and implementation
-context doesn't bias the code review.
-
-Between sessions, the step file's **Progress** section and step episodes
-bridge context. The user clears the session and re-runs `/execute-tracks`
-at every phase boundary.
+**Session boundaries replace agent boundaries.** Within a session, you have
+full context from reading the plan through implementing steps. Between
+sessions, episodic memories (step episodes in step files, track episodes in
+the plan file) bridge context. The user clears the session and re-runs
+`/execute-tracks` at natural boundaries.
 
 ---
 
@@ -40,46 +24,35 @@ at every phase boundary.
 ```mermaid
 flowchart TD
     START["/execute-tracks"]
-    READ["Read plan file\n+ step file\nIdentify state"]
+    READ["Read plan file\nIdentify state"]
 
     START --> READ
 
     READ -->|"Track just completed\n(no strategy refresh yet)"| SR["Strategy Refresh\n(CONTINUE / ADJUST / ESCALATE)"]
-    READ -->|"Fresh start"| PA["Phase A: Review +\nDecomposition"]
-    READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
-    READ -->|"All steps done,\ncode review incomplete"| PC["Phase C: Track-Level\nCode Review"]
-    READ -->|"All phases done,\nplan not updated"| TC["Track Completion\nProtocol"]
+    READ -->|"Fresh start or\nmid-track resume"| EXEC["Execute track\n(review → steps → code review)"]
 
-    SR -->|CONTINUE / ADJUST| PA
+    SR -->|CONTINUE / ADJUST| EXEC
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
 
-    REPLAN -->|"Revised plan"| END_S["Session ends"]
-    REPLAN -->|"Plan fundamentally broken"| EXIT_P1["Advise: restart\nfrom /create-plan"]
+    REPLAN -->|"Revised plan"| EXEC
+    REPLAN -->|"Plan fundamentally broken"| EXIT_P1["Advise: restart from /create-plan"]
 
-    PA --> END_A["Session ends\n(Phase A complete)"]
-    PB --> END_B["Session ends\n(Phase B complete)"]
-    PC --> END_C["Session ends\n(Phase C complete)"]
+    EXEC --> PRESENT["Present track results\nUser reviews"]
 
-    TC --> PRESENT["Present track results\nUser reviews"]
-    PRESENT -->|Approved| END_TRACK["Session ends\n(track complete)"]
-    PRESENT -->|"Fixes needed"| FIX["Apply fixes"] --> PRESENT
-    PRESENT -->|"Fundamental rework"| REPLAN
+    PRESENT -->|Approved| END_SESSION["Session ends\n(user clears context)"]
+    PRESENT -->|"Fixes needed"| FIX["Apply fixes\nRe-review if substantial"]
+    PRESENT -->|"Fundamental rework"| SR_ESCALATE["Trigger ESCALATE"]
 
-    END_A -->|"Next session"| START
-    END_B -->|"Next session"| START
-    END_C -->|"Next session"| START
-    END_TRACK -->|"Next session"| START
+    FIX --> PRESENT
+    SR_ESCALATE --> REPLAN
+
+    END_SESSION -->|"Next session"| START
 ```
 
-Each session handles **one phase of one track**. Phase boundaries are
-mandatory session boundaries — the user clears context and re-runs
-`/execute-tracks` after each phase completes. This keeps each session
-focused: review context doesn't dilute implementation, and implementation
-context doesn't bias code review.
-
-Strategy refresh for a just-completed track happens at the **start of the
-next session**, not the end of the current one — this gives fresh
-perspective on cross-track impact.
+Each session handles **one track** (or resumes an incomplete one). Strategy
+refresh for the just-completed track happens at the **start of the next
+session**, not the end of the current one — this gives fresh perspective on
+cross-track impact.
 
 ---
 
@@ -98,29 +71,21 @@ perspective on cross-track impact.
    **State A — Track just completed (needs strategy refresh):**
    The last `[x]` track has a track episode but no `**Strategy refresh:**`
    line. Perform strategy refresh first (see Strategy Refresh below), then
-   proceed to Phase A of the next track.
+   proceed to the next track.
 
-   **State B — Fresh start on next track:**
+   **State B — Fresh start:**
    All `[x]` tracks have strategy refresh lines (or no tracks are completed
-   yet). The next `[ ]` track has no step file. Begin Phase A (review +
-   decomposition). **This session handles Phase A only** — end the session
-   after writing the step file.
+   yet). The next `[ ]` track has no step file. Begin track execution from
+   Phase A.
 
    **State C — Mid-track resume (step file exists):**
    A `[ ]` track has a step file. Read the **Progress** section in the step
-   file to determine the exact resume point. **Each resume handles exactly
-   one phase:**
-   - `Review + decomposition` is `[ ]` → resume Phase A (check **Reviews
-     completed** section, re-run only missing reviews, then decompose steps).
-     End session after Phase A completes.
-   - `Review + decomposition` is `[x]`, steps incomplete → run Phase B
-     (step implementation). End session after Phase B completes (all steps
-     done, or mid-track checkpoint reached).
-   - All steps `[x]`, `Track-level code review` is `[ ]` → run Phase C
-     (track-level code review). End session after Phase C completes.
-   - All phases `[x]` → enter Track Completion Protocol: compile track
-     episode, present results to user, write to plan file only after
-     user approval.
+   file to determine the exact resume point:
+   - `Review + decomposition` incomplete → check **Reviews completed**
+     section, re-run only missing reviews, then decompose steps
+   - Steps partially complete → resume from the next `[ ]` step
+   - All steps complete, `Track-level code review` incomplete → run Phase C
+   - All phases complete → write track episode to plan file, mark `[x]`
 
 4. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why
@@ -175,27 +140,19 @@ completed a track (State A above).
      next track. Adjustments must be small and targeted.
 
      **ADJUST must NOT modify Decision Records.** Decision Records are
-     immutable during normal execution — they can only be revised via
-     ESCALATE, which triggers inline replanning and structural review
-     of the revised plan (see Inline Replanning below). If a discovery
-     invalidates a Decision Record, that is an automatic ESCALATE.
+     immutable once execution starts (Architecture Notes rule 2). If a
+     discovery invalidates a Decision Record, that is an automatic ESCALATE.
 
    - **ESCALATE** — accumulated discoveries have fundamentally changed the
      picture. Enter inline replanning (see Inline Replanning below).
 
 5. **Write the `**Strategy refresh:**` line** to the plan file under the
-   completed track's block (see conventions-execution.md §After strategy refresh for
+   completed track's block (see conventions.md §After strategy refresh for
    format). For CONTINUE, a one-liner suffices. For ADJUST, include a brief
    summary of what was adjusted. ESCALATE does not write a strategy refresh
    line — it triggers replanning which restructures the plan directly.
 
-6. **Proceed** to Phase A of the next track in the same session.
-
-   **Note:** Strategy refresh + Phase A share a single session — this is
-   the only exception to mandatory phase boundaries. Strategy refresh is
-   lightweight (no code reading, no implementation) and its output directly
-   informs Phase A decomposition. After Phase A completes, end the session
-   as usual.
+6. **Proceed** to execute the next track in the same session.
 
 ---
 
@@ -236,129 +193,23 @@ Continue to the next step. No user notification needed.
 
 ### When to end a session
 
-Phase boundaries are **mandatory** session boundaries. Each session handles
-exactly one phase:
+- **After track completion** — always. Present results to user, get approval,
+  then the session ends. Strategy refresh happens in the next session.
 
-- **After Phase A (review + decomposition)** — step file is written and
-  committed with all steps as `[ ]` and `Review + decomposition` marked
-  `[x]`. Session ends. Next session starts Phase B.
-
-- **After Phase B (step implementation)** — all steps are implemented,
-  tested, committed, and have episodes. `Step implementation` is marked
-  `[x]`. Session ends. Next session starts Phase C.
-
-- **After Phase C (track-level code review)** — review is complete,
-  `Track-level code review` is marked `[x]`. Session ends. Next session
-  writes the track episode and presents results to the user.
-
-- **After track completion** — user approved, track episode written and
-  track marked `[x]` (single commit after approval). Session ends. Strategy
-  refresh happens in the next session. If session is interrupted before
-  user approval, the next session re-enters the Track Completion Protocol
-  (all phases `[x]` in step file, track still `[ ]` in plan file).
-
-- **Mid-Phase B checkpoint** — if you've completed 5+ steps and the track
-  has more steps remaining, suggest ending the session. The step file with
-  episodes provides full continuity. The next session resumes Phase B from
-  the next incomplete step.
+- **Mid-track checkpoint** — if you've completed 5+ steps and the track has
+  more steps remaining, suggest ending the session. The step file with
+  episodes provides full continuity. This is a suggestion, not a hard rule —
+  if the remaining work is small, finishing in the same session is fine.
 
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
-
-- **Context window warning** — if a context monitor hook emits a
-  `CONTEXT WINDOW MONITOR — WARNING` or `CONTEXT WINDOW MONITOR — CRITICAL`
-  message, finish the current unit of work, save progress, and end the
-  session. See §Context Window Monitoring below for phase-specific behavior.
-
-### Why mandatory phase boundaries
-
-Each phase has a distinct cognitive mode:
-- **Phase A** is exploratory — reading code, validating assumptions,
-  planning steps. The codebase knowledge is useful but the "reviewer
-  mindset" context is not helpful during implementation.
-- **Phase B** is productive — writing code, running tests, iterating on
-  fixes. The accumulated implementation detail would bias the code reviewer.
-- **Phase C** is evaluative — reviewing the full diff with fresh eyes,
-  catching systematic issues. Fresh context is essential for objective review.
-
-Mixing phases in one session dilutes focus and carries stale context
-forward. Episodes bridge what matters across sessions; everything else is
-deliberately shed.
-
-### Context Window Monitoring
-
-A context monitor hook runs constantly and may inject warning messages
-into the conversation at any point during any phase. These messages
-indicate that the context window is running low and the session should
-end soon to avoid degraded output quality. In practice, alerts are most
-likely during Phase B (step implementation) due to its heavy tool use.
-
-**WARNING level** — the message looks like:
-```
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  CONTEXT WINDOW MONITOR — WARNING (XX% used)
-  Tokens: XXXK / XXXK
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-```
-
-**CRITICAL level** — the message looks like:
-```
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-   CONTEXT WINDOW MONITOR — CRITICAL (XX% used)
-   Tokens: XXXK / XXXK
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
-
-**Required behavior on either level:**
-
-1. **Finish the current unit of work** — do not leave work half-done:
-   - **Phase A:** finish the current review or decomposition activity,
-     write results to the step/review file.
-   - **Phase B:** complete all 6 sub-steps of the current step (implement,
-     test, commit, code review, episode, cross-track check).
-   - **Phase C:** if a code review iteration is in progress, finish it and
-     record the outcome.
-2. **Do NOT start the next unit of work.** No next step (Phase B), no
-   next review iteration (Phase C), no further decomposition (Phase A).
-3. **Save all work:**
-   - Ensure all progress is written to the step/review files and committed
-   - Update the **Progress** section in the step file to reflect current
-     state
-   - Commit the step file update
-4. **Ask the user for a session refresh:**
-   - Inform them of current progress and what remains
-   - Instruct: "Context window is running low. Please clear the session
-     and re-run `/execute-tracks` to continue with fresh context."
-
-This is **mandatory** — the agent must not continue to the next unit of
-work after receiving a context window warning.
-
-### What persists across phase boundaries
-
-The step file bridges context between sessions:
-- **Progress section** — which sub-phases are complete
-- **Reviews completed** — which reviews ran and their outcomes
-- **Step episodes** — what was discovered and implemented
-- **Review files** — full review findings in `reviews/track-N-*.md`
-- **Base commit + git log** — when resuming Phase B, orphan commits
-  (code committed but no episode) are detected by comparing git log
-  against step episodes (see step-implementation.md §Phase B Resume)
-
-Deliberately NOT carried forward (shed with the session):
-- Implementation context (variable names, debugging history, workaround
-  decisions) — Phase C needs fresh eyes for objective review
-- Reviewer context (exploration notes, plan assumption reasoning) —
-  Phase B needs focus on the code, not planning rationale
-- Code review context (step-level review findings, fix iterations) —
-  Phase C does systematic cross-step review, not localized fixes
 
 ### What to do before ending a session
 
 - Ensure all code changes are committed
 - Ensure all step episodes are written to the step file and committed
-- Update the **Progress** section in the step file to reflect the
-  current phase completion state
-- Commit the step file update
+- If the track is complete: compile the track episode and write it to the
+  plan file
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -370,55 +221,24 @@ User interaction is minimal and happens at specific points:
 
 | When | What you present | What the user decides |
 |---|---|---|
-| **Session start** | Auto-resume decision (which track, which phase) | Confirm or override |
+| **Session start** | Auto-resume decision (which track, where in it) | Confirm or override |
 | **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
-| **Phase complete** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete** | Track episode, step episodes, git log of commits | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
-| **Design decision needed** | What the decision is, alternatives considered, trade-offs, recommendation | Choose an alternative or provide guidance |
 
 ### What does NOT involve the user
 
-Everything within a phase session is fully autonomous **except design
-decisions**:
+Everything within normal track execution is fully autonomous:
 
-- Phase A: track reviews (as sub-agents), step decomposition
-- Phase B: step implementation, testing, coverage, step-level code review
-  iterations (up to 3 per step), episode production, within-track adaptation
-- Phase C: track-level code review (up to 3 iterations)
+- Track reviews (technical, risk, adversarial) — run as sub-agents
+- Step decomposition from scope indicators
+- Step implementation, testing, and coverage verification
+- Step-level code review iterations (up to 3 per step)
+- Track-level code review (up to 3 iterations)
+- Episode production after each step
+- Within-track adaptation when a step episode affects upcoming steps
 - Cross-track impact checks (unless impact is detected)
-
-### Design decision escalation
-
-During step implementation (Phase B), the agent may encounter situations
-where the code requires a **design decision** — a choice between
-alternatives that affects architecture, public API shape, data structures,
-algorithms, or behavioral semantics beyond what the plan specifies.
-
-**When to pause and ask the user:**
-- The plan does not prescribe the specific approach and multiple valid
-  alternatives exist with different trade-offs
-- The choice affects public API surface or behavioral contracts
-- The decision has implications beyond the current step or track
-- The implementation reveals that the planned approach has multiple
-  viable interpretations
-- A new abstraction, interface, or data structure needs to be introduced
-  that wasn't anticipated in the plan
-
-**How to present the decision:**
-1. Describe the context — what you're implementing and where the decision
-   point arose
-2. List the alternatives (at least 2) with concrete trade-offs for each
-3. State your recommendation with rationale
-4. Wait for user guidance before proceeding
-
-**What is NOT a design decision** (handle autonomously):
-- Mechanical code changes with one obvious approach
-- Naming choices that follow existing codebase conventions
-- Test structure and test case selection
-- Code review fix iterations
-- Implementation details fully prescribed by the plan or Decision Records
 
 ---
 
@@ -430,7 +250,7 @@ If a step fails (tests won't pass, coverage can't be met, wrong API
 assumption):
 
 1. Revert uncommitted changes
-2. Produce a failed episode (see conventions-execution.md §2.2)
+2. Produce a failed episode (see conventions.md §1.3)
 3. Write the failed episode to the step file and commit it
 4. Decide: **retry** with a different approach, or **split** the step
 
@@ -502,7 +322,7 @@ Decision Record revisions follow this format:
 ```
 
 **4. Review** — spawn a sub-agent to validate the revised plan using the
-structural review protocol from Phase 2 (see structural-review.md). The sub-agent
+structural review protocol from Phase 2 (see planning.md). The sub-agent
 receives the full plan file including both completed track episodes and the
 proposed revisions.
 
@@ -528,22 +348,7 @@ After track-level code review passes (or max iterations):
    The track episode is a strategic summary — what was built, key
    discoveries, plan deviations with cross-track impact.
 
-2. **Present track results to the user** (do NOT write to plan file yet):
-   - Track episode (compiled but not yet persisted)
-   - All step episodes from the step file
-   - Git log of track commits
-   - Any unresolved track-level code review findings
-
-3. **Wait for user response:**
-   - **Approved** — proceed to step 4.
-   - **Fixes needed** — apply the user's specific fixes as additional
-     commits. Re-run track-level code review if fixes are substantial.
-     Re-compile the track episode if fixes changed outcomes.
-     Present updated results and wait again.
-   - **Fundamental rework** — trigger ESCALATE.
-
-4. **Write the track episode and mark `[x]`** in the plan file (single
-   commit, only after user approval):
+2. **Write the track episode** to the plan file:
 
    ```markdown
    - [x] Track N: <title>
@@ -555,15 +360,20 @@ After track-level code review passes (or max iterations):
      > **Step file:** `tracks/track-N.md` (M steps, K failed)
    ```
 
-5. **Session ends.** Strategy refresh happens next session.
+3. **Mark the track as `[x]`** in the plan file.
 
-**Why deferred write:** Writing the track episode and marking `[x]` before
-user approval creates a state that cannot be reliably resumed — if the
-session ends between marking `[x]` and receiving approval, the next session
-detects the track as complete (State A: strategy refresh needed) and skips
-user review entirely. By deferring the plan file write, an interrupted
-session simply re-enters the Track Completion Protocol on resume (all
-phases `[x]` in the step file, track still `[ ]` in the plan file).
+4. **Present track results to the user:**
+   - Track episode
+   - All step episodes from the step file
+   - Git log of track commits
+   - Any unresolved track-level code review findings
+
+5. **Wait for user response:**
+   - **Approved** — session ends. Strategy refresh happens next session.
+   - **Fixes needed** — apply the user's specific fixes as additional
+     commits. Re-run track-level code review if fixes are substantial.
+     Present updated results.
+   - **Fundamental rework** — trigger ESCALATE.
 
 ---
 
@@ -573,13 +383,7 @@ This document defines the session lifecycle and cross-track coordination.
 For other workflow components, see:
 
 - **`conventions.md`** — shared formats, glossary, plan file structure,
-  scope indicators, review iteration protocol
-- **`conventions-execution.md`** — execution-specific: episodes, commit
-  format, code review, complexity tiers, decomposition rules
-- **`commit-conventions.md`** — commit message type prefixes for session
-  resume (review fix, episode, step file updates)
-- **`track-review.md`** — Phase A: review + decomposition
-- **`step-implementation.md`** — Phase B: step implementation
-- **`track-code-review.md`** — Phase C: track-level code review
-- **`planning.md`** — Phase 1 (planning)
-- **`structural-review.md`** — Phase 2 (structural review)
+  episode formats, commit conventions, complexity tiers, review protocols
+- **`track-execution.md`** — how to execute a track: review, step
+  implementation, track-level code review, episode production
+- **`planning.md`** — Phase 1 (planning) and Phase 2 (structural review)
