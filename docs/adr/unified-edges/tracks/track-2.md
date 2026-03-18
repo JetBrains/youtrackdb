@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -36,23 +36,23 @@
   > `ScriptTransformerImpl.java` (modified), `FetchEdgesFromToVerticesStep.java`
   > (modified), `FetchEdgesToVerticesStep.java` (modified)
 
-- [ ] Step 2: Remove `isLightweight()` from `Edge` and all call sites
-  > Make `isLightweight()` a default method returning `false` on `Edge`
-  > (overrides `Relation.isLightweight()`). Remove the `isLightweight()`
-  > override in `StatefullEdgeEntityImpl`. Remove all call sites that
-  > branch on `isLightweight()`:
-  > - `VertexEntityImpl.removeEdgeLinkFromProperty()` — dead branch
-  >   (always false after unification)
-  > - `LightweightRelationImpl.equals()` — checks `isLightweight()` on
-  >   the other relation
-  > - Test assertions: `DbImportExportTest`, any other tests asserting
-  >   `isLightweight() == false`
+- [x] Step 2: Remove `isLightweight()` from `Edge` and all call sites
+  > **What was done:** Made `isLightweight()` a default returning false on
+  > Edge. Removed override from StatefullEdgeEntityImpl. Removed dead
+  > `|| edge.isLightweight()` branch in VertexEntityImpl (also dropped
+  > now-unused `edge` parameter). Simplified ResultInternal.toMapValue()
+  > to use `edge.getIdentity()` directly (Edge extends Entity extends
+  > Identifiable). Removed test assertions in DbImportExportTest.
   >
-  > Remove the `isLightweight()` declaration from `Edge` interface (keep
-  > the default returning false so `Relation.isLightweight()` is satisfied
-  > — `Relation` deletion is Track 3).
+  > **What was discovered:** `LightweightRelationImpl.equals()` calls
+  > `isLightweight()` on a `Relation<?>`, not an `Edge` — correctly left
+  > untouched. Also, `VertexEntityImpl.removeLinkFromEdge()` still has
+  > a dead `instanceof StatefulEdge` branch and stale "lightweight edge"
+  > comment that will be cleaned up in Track 4/5.
   >
-  > This must precede `StatefulEdge` deletion per plan constraint.
+  > **Key files:** `Edge.java` (modified), `StatefullEdgeEntityImpl.java`
+  > (modified), `VertexEntityImpl.java` (modified), `ResultInternal.java`
+  > (modified), `DbImportExportTest.java` (modified)
 
 - [ ] Step 3: Replace all `StatefulEdge` type references with `Edge`
   > Mechanical replacement of `StatefulEdge` with `Edge` across the
