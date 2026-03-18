@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/1 complete)
+- [x] Step implementation (1/1 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,21 +12,21 @@
 - [x] Technical — no blockers, two should-fix findings accepted (see reviews/track-1-technical.md)
 
 ## Steps
-- [ ] Step 1: Remove null branches and add @Nonnull annotations
-  > Remove `if (atomicOperation == null)` branches in 5 DurableComponent
-  > methods: `loadPageForRead()`, `releasePageFromRead()`, `getFilledUpTo()`,
-  > `openFile()`, `isFileExists()`. Replace with `assert atomicOperation != null`
-  > (consistent with existing write-method pattern in the same class).
+- [x] Step 1: Remove null branches and add @Nonnull annotations
+  > **What was done:** Removed 5 `if (atomicOperation == null)` dead-code
+  > branches in `DurableComponent` read methods (`getFilledUpTo`,
+  > `loadPageForRead`, `releasePageFromRead`, `openFile`, `isFileExists`),
+  > replacing them with `assert atomicOperation != null` — consistent with
+  > the existing write-method pattern. Added `@Nonnull` annotations to all
+  > `AtomicOperation` parameters across 8 public interfaces:
+  > `CellBTreeSingleValue`, `BaseIndexEngine`, `IndexEngine`,
+  > `V1IndexEngine`, `SingleValueIndexEngine`, `MultiValueIndexEngine`,
+  > `CellBTreeMultiValue`, `StorageCollection`.
   >
-  > Additionally, add `@Nonnull` annotations to all `AtomicOperation` parameters
-  > on public interface methods (`CellBTreeSingleValue`, `IndexEngine`, and
-  > other DurableComponent subclass public methods) that currently lack them.
-  > This makes the non-null invariant machine-checkable (review finding T1).
-  >
-  > Files to modify:
-  > - `DurableComponent.java` — remove 5 null branches, add assertions
-  > - `CellBTreeSingleValue.java` — add @Nonnull to atomicOperation params
-  > - Other public interfaces/subclasses with missing @Nonnull annotations
-  >
-  > Tests: Existing test suite covers all these methods (no null is ever passed).
-  > Run `./mvnw -pl core clean test` to verify no regressions.
+  > **Key files:** `DurableComponent.java` (modified),
+  > `CellBTreeSingleValue.java` (modified), `BaseIndexEngine.java` (modified),
+  > `IndexEngine.java` (modified), `V1IndexEngine.java` (modified),
+  > `SingleValueIndexEngine.java` (modified),
+  > `MultiValueIndexEngine.java` (modified),
+  > `CellBTreeMultiValue.java` (modified),
+  > `StorageCollection.java` (modified)
