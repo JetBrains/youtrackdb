@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,34 +14,43 @@
 
 ## Steps
 
-- [ ] Step 1: Remove Relation<?> dispatch from SQL functions, MATCH traversers, and ResultInternal; delete EntityImpl entity-traversal methods
-  > Remove all runtime Relation<?> dispatch and dead code paths. This makes
-  > Relation a compile-time-only dependency (type hierarchy), with no runtime
-  > usage remaining.
+- [x] Step 1: Remove Relation<?> dispatch from SQL functions, MATCH traversers, and ResultInternal; delete EntityImpl entity-traversal methods
+  > **What was done:** Removed all runtime `Relation<?>` dispatch from
+  > `SQLFunctionMove` (abstract method + 9 subclass overrides + execute
+  > dispatch), `SQLFunctionMoveFiltered`, 3 MATCH traversers, and 2
+  > `ResultInternal` switch arms. Deleted `e2v(Relation)` overload.
+  > Simplified `v2v()` and `v2e()` to return null for plain entities.
+  > Deleted `EntityImpl.getEntities()`/`getBidirectionalLinks()`/
+  > `getBidirectionalLinksInternal()` and cascading overrides in
+  > `VertexEntityImpl` and `StatefullEdgeEntityImpl`. Deleted dead
+  > `EntityRelationsIterable`/`EntityRelationsIterator` (review fix).
+  > Deleted `LinkBasedMatchStatementExecutionTest` and
+  > `LinkBasedMatchStatementExecutionNewTest` (tested removed functionality).
   >
-  > **SQL functions:**
-  > - `SQLFunctionMove.execute()`: remove `instanceof Relation<?>` dispatch
-  >   branch and `move(db, Relation<?>, labels)` overload
-  > - `SQLFunctionMove.e2v(Relation<?>, Direction)`: delete dead overload
-  > - `SQLFunctionMove.v2v()`: remove call to `rec.getEntities()`, return
-  >   null for non-vertex, non-edge entities
-  > - `SQLFunctionMove.v2e()`: remove call to `rec.getBidirectionalLinks()`,
-  >   return null for non-vertex, non-edge entities
+  > **What was discovered:** `MatchReverseEdgeTraverser` and
+  > `MatchFieldTraverser` had no direct Relation refs — they delegate to
+  > parent `MatchEdgeTraverser`. `SQLEngine.foreachRecord()` still has an
+  > `isRelation()` dispatch path — deferred to Step 2 when `isRelation()`
+  > is removed from interfaces.
   >
-  > **MATCH traversers:**
-  > - `MatchEdgeTraverser.toExecutionStream()`: remove `case Relation<?>`
-  > - `OptionalMatchEdgeTraverser.computeNext()`: remove `isRelation()` branch
-  > - Audit other MATCH traversers (`MatchMultiEdgeTraverser`,
-  >   `MatchReverseEdgeTraverser`, `MatchFieldTraverser`) for Relation refs
+  > **What changed from the plan:** `EntityRelationsIterable` and
+  > `EntityRelationsIterator` were deleted in this step (review fix) rather
+  > than waiting for Step 4. Step 4's deletion list is reduced accordingly.
   >
-  > **ResultInternal dispatch:**
-  > - `ResultInternal.convertPropertyValue()`: remove `case Relation<?>` arm
-  > - `ResultInternal.toResultInternal()`: remove `case Relation<?>` arm
-  >
-  > **EntityImpl:**
-  > - Delete `getEntities()`, `getBidirectionalLinks()`,
-  >   `getBidirectionalLinksInternal()` — only called from SQLFunctionMove
-  >   (updated above)
+  > **Key files:** `SQLFunctionMove.java` (modified), `SQLFunctionIn.java`
+  > (modified), `SQLFunctionOut.java` (modified), `SQLFunctionBoth.java`
+  > (modified), `SQLFunctionInE.java` (modified), `SQLFunctionOutE.java`
+  > (modified), `SQLFunctionBothE.java` (modified), `SQLFunctionInV.java`
+  > (modified), `SQLFunctionOutV.java` (modified), `SQLFunctionBothV.java`
+  > (modified), `SQLFunctionMoveFiltered.java` (modified),
+  > `MatchEdgeTraverser.java` (modified), `MatchMultiEdgeTraverser.java`
+  > (modified), `OptionalMatchEdgeTraverser.java` (modified),
+  > `ResultInternal.java` (modified), `EntityImpl.java` (modified),
+  > `VertexEntityImpl.java` (modified), `StatefullEdgeEntityImpl.java`
+  > (modified), `EntityRelationsIterable.java` (deleted),
+  > `EntityRelationsIterator.java` (deleted),
+  > `LinkBasedMatchStatementExecutionTest.java` (deleted),
+  > `LinkBasedMatchStatementExecutionNewTest.java` (deleted)
 
 - [ ] Step 2: Reparameterize BidirectionalLinksIterable/BidirectionalLinkToEntityIterator from Relation<T> to Edge; remove ResultInternal.relation field and isRelation()/asRelation() from all interfaces
   > Now that no code dispatches on Relation<?> at runtime (Step 1), remove
