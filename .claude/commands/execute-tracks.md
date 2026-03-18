@@ -2,23 +2,15 @@ Read and follow the workflow for Phase 3 (Execution).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary, plan file structure, scope indicators, review iteration protocol
-2. `.claude/workflow/conventions-execution.md` — execution-specific:
-   episode formats, commit format, code review, complexity tiers,
-   checklist decomposition rules, session state detection, step file content
-3. `.claude/workflow/workflow.md` — session lifecycle,
+   glossary, plan file structure, episode formats, complexity tiers,
+   checklist decomposition rules, review iteration protocol
+2. `.claude/workflow/workflow.md` — session lifecycle,
    startup protocol (auto-resume), strategy refresh, cross-track impact
    monitoring, session boundary rules, failure handling, inline replanning
    (ESCALATE), track completion protocol
-
-After determining which phase to execute, load the phase-specific document:
-- Phase A: `.claude/workflow/track-review.md`
-- Phase B: `.claude/workflow/step-implementation.md`
-- Phase C: `.claude/workflow/track-code-review.md`
-
-Do NOT load phase documents you won't use this session. Prompt files
-(in `.claude/workflow/prompts/`) are read only when spawning the specific
-sub-agent that needs them — do not pre-load them into the main session.
+3. `.claude/workflow/track-execution.md` — track execution
+   within a session: review + decomposition (Phase A), step implementation
+   (Phase B), track-level code review (Phase C), episode production
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -33,38 +25,28 @@ Follow the startup protocol in `workflow.md`:
    `[~]` skipped).
 3. Determine session state and auto-resume:
    - **State A** (track just completed, needs strategy refresh): perform
-     strategy refresh, then proceed to Phase A of the next track.
+     strategy refresh, then proceed to next track.
    - **State B** (fresh start): identify first uncompleted track, begin
-     Phase A (review + decomposition).
-   - **State C** (mid-track resume): read step file Progress section,
-     resume the next incomplete phase:
-     - `Review + decomposition` incomplete → resume Phase A
-     - Steps incomplete → run Phase B (check for orphan commits from
-       interrupted steps — see step-implementation.md §Phase B Resume)
-     - Steps done, code review incomplete → run Phase C
-     - All phases done → compile track episode, present to user, write
-       to plan file only after user approval
+     execution.
+   - **State C** (mid-track resume): read step file, report progress, resume
+     from next incomplete step.
 4. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
-5. Load the phase-specific workflow document and execute that phase only.
-6. After the phase completes, end the session. Instruct the user to clear
-   context and re-run `/execute-tracks` for the next phase.
-
-Each session handles exactly ONE PHASE of one track:
-- Phase A → end session
-- Phase B → end session (or mid-phase checkpoint if 5+ steps done)
-- Phase C → end session
-- Track completion → end session after user approval
+5. Execute the track following `track-execution.md`:
+   Phase A (review + decomposition) → Phase B (step implementation) →
+   Phase C (track-level code review).
+6. After track completion, present results to the user (workflow.md §Track
+   Completion Protocol). End session after user approval.
+7. Strategy refresh for this track happens at the start of the NEXT session.
 
 User interaction happens at specific points:
 - Session start: auto-resume decision (confirm or override)
 - Strategy refresh: accept recommendation or override
-- Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
 - Track complete: approve, request fixes, or request rework
 - Step failure (2nd attempt): retry, adjust, or escalate
 
-Everything within a phase executes autonomously: Phase A runs reviews (as
-sub-agents) and decomposes steps; Phase B implements steps with code review
-iterations (code-reviewer sub-agent) and episode production; Phase C runs
-track-level code review (sub-agent).
+Everything within a track executes autonomously: track reviews (as
+sub-agents), step decomposition, step implementation, code review iterations
+(code-reviewer sub-agent), track-level code review (sub-agent), episode
+production, and within-track adaptation.
