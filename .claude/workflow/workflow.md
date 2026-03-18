@@ -261,6 +261,11 @@ exactly one phase:
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
 
+- **Context window warning** — if a context monitor hook emits a
+  `CONTEXT WINDOW MONITOR — WARNING` or `CONTEXT WINDOW MONITOR — CRITICAL`
+  message, finish the current unit of work, save progress, and end the
+  session. See §Context Window Monitoring below for phase-specific behavior.
+
 ### Why mandatory phase boundaries
 
 Each phase has a distinct cognitive mode:
@@ -275,6 +280,54 @@ Each phase has a distinct cognitive mode:
 Mixing phases in one session dilutes focus and carries stale context
 forward. Episodes bridge what matters across sessions; everything else is
 deliberately shed.
+
+### Context Window Monitoring
+
+A context monitor hook runs constantly and may inject warning messages
+into the conversation at any point during any phase. These messages
+indicate that the context window is running low and the session should
+end soon to avoid degraded output quality. In practice, alerts are most
+likely during Phase B (step implementation) due to its heavy tool use.
+
+**WARNING level** — the message looks like:
+```
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  CONTEXT WINDOW MONITOR — WARNING (XX% used)
+  Tokens: XXXK / XXXK
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+```
+
+**CRITICAL level** — the message looks like:
+```
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+   CONTEXT WINDOW MONITOR — CRITICAL (XX% used)
+   Tokens: XXXK / XXXK
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+**Required behavior on either level:**
+
+1. **Finish the current unit of work** — do not leave work half-done:
+   - **Phase A:** finish the current review or decomposition activity,
+     write results to the step/review file.
+   - **Phase B:** complete all 6 sub-steps of the current step (implement,
+     test, commit, code review, episode, cross-track check).
+   - **Phase C:** if a code review iteration is in progress, finish it and
+     record the outcome.
+2. **Do NOT start the next unit of work.** No next step (Phase B), no
+   next review iteration (Phase C), no further decomposition (Phase A).
+3. **Save all work:**
+   - Ensure all progress is written to the step/review files and committed
+   - Update the **Progress** section in the step file to reflect current
+     state
+   - Commit the step file update
+4. **Ask the user for a session refresh:**
+   - Inform them of current progress and what remains
+   - Instruct: "Context window is running low. Please clear the session
+     and re-run `/execute-tracks` to continue with fresh context."
+
+This is **mandatory** — the agent must not continue to the next unit of
+work after receiving a context window warning.
 
 ### What persists across phase boundaries
 
@@ -316,16 +369,49 @@ User interaction is minimal and happens at specific points:
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete** | Track episode, step episodes, git log of commits | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
+| **Design decision needed** | What the decision is, alternatives considered, trade-offs, recommendation | Choose an alternative or provide guidance |
 
 ### What does NOT involve the user
 
-Everything within a phase session is fully autonomous:
+Everything within a phase session is fully autonomous **except design
+decisions**:
 
 - Phase A: track reviews (as sub-agents), step decomposition
 - Phase B: step implementation, testing, coverage, step-level code review
   iterations (up to 3 per step), episode production, within-track adaptation
 - Phase C: track-level code review (up to 3 iterations)
 - Cross-track impact checks (unless impact is detected)
+
+### Design decision escalation
+
+During step implementation (Phase B), the agent may encounter situations
+where the code requires a **design decision** — a choice between
+alternatives that affects architecture, public API shape, data structures,
+algorithms, or behavioral semantics beyond what the plan specifies.
+
+**When to pause and ask the user:**
+- The plan does not prescribe the specific approach and multiple valid
+  alternatives exist with different trade-offs
+- The choice affects public API surface or behavioral contracts
+- The decision has implications beyond the current step or track
+- The implementation reveals that the planned approach has multiple
+  viable interpretations
+- A new abstraction, interface, or data structure needs to be introduced
+  that wasn't anticipated in the plan
+
+**How to present the decision:**
+1. Describe the context — what you're implementing and where the decision
+   point arose
+2. List the alternatives (at least 2) with concrete trade-offs for each
+3. State your recommendation with rationale
+4. Wait for user guidance before proceeding
+
+**What is NOT a design decision** (handle autonomously):
+- Mechanical code changes with one obvious approach
+- Naming choices that follow existing codebase conventions
+- Test structure and test case selection
+- Code review fix iterations
+- Implementation details fully prescribed by the plan or Decision Records
 
 ---
 
