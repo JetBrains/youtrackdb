@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
+import javax.annotation.Nonnull;
 
 public interface SingleValueIndexEngine extends V1IndexEngine {
 
@@ -14,12 +15,12 @@ public interface SingleValueIndexEngine extends V1IndexEngine {
    *     operation (IGNORE).
    */
   boolean validatedPut(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       Object key,
       RID value,
       IndexEngineValidator<Object, RID> validator);
 
-  boolean remove(AtomicOperation atomicOperation, Object key) throws IOException;
+  boolean remove(@Nonnull AtomicOperation atomicOperation, Object key) throws IOException;
 
   @Override
   default boolean isMultiValue() {

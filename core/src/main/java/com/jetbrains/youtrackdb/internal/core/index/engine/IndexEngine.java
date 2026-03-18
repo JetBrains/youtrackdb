@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
+import javax.annotation.Nonnull;
 
 /**
  * Engine interface for index implementations that support key-value storage operations.
@@ -38,14 +39,15 @@ public interface IndexEngine extends BaseIndexEngine {
 
   Object get(DatabaseSessionEmbedded db, Object key);
 
-  void put(DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
+  void put(DatabaseSessionEmbedded db, @Nonnull AtomicOperation atomicOperation, Object key,
       Object value) throws IOException;
 
-  void update(DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
+  void update(DatabaseSessionEmbedded db, @Nonnull AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater)
       throws IOException;
 
-  boolean remove(Storage storage, AtomicOperation atomicOperation, Object key) throws IOException;
+  boolean remove(Storage storage, @Nonnull AtomicOperation atomicOperation, Object key)
+      throws IOException;
 
   /**
    * Puts the given value under the given key into this index engine. Validates the operation using
@@ -60,7 +62,7 @@ public interface IndexEngine extends BaseIndexEngine {
    * @see IndexEngineValidator#validate(Object, Object, Object)
    */
   boolean validatedPut(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       Object key,
       RID value,
       IndexEngineValidator<Object, RID> validator)

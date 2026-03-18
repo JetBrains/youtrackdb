@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface BaseIndexEngine {
@@ -19,13 +20,13 @@ public interface BaseIndexEngine {
 
   void flush();
 
-  void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException;
+  void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) throws IOException;
 
-  void load(IndexEngineData data, AtomicOperation atomicOperation);
+  void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation);
 
-  void delete(AtomicOperation atomicOperation) throws IOException;
+  void delete(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
-  void clear(Storage storage, AtomicOperation atomicOperation) throws IOException;
+  void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   void close();
 
@@ -35,30 +36,30 @@ public interface BaseIndexEngine {
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> iterateEntriesMinor(
       final Object toKey,
       final boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation);
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<Object, RID>> descStream(IndexEngineValuesTransformer valuesTransformer,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
-  Stream<Object> keyStream(AtomicOperation atomicOperation);
+  Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation);
 
   long size(Storage storage, IndexEngineValuesTransformer transformer,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
   int getEngineAPIVersion();
 
@@ -68,7 +69,7 @@ public interface BaseIndexEngine {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * index engine.
    */
-  boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
+  boolean acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
 
   /**
    * Returns per-index statistics for cost-based query optimization.

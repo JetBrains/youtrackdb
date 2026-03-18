@@ -119,9 +119,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   }
 
   protected long getFilledUpTo(final AtomicOperation atomicOperation, final long fileId) {
-    if (atomicOperation == null) {
-      return writeCache.getFilledUpTo(fileId);
-    }
+    assert atomicOperation != null;
     return atomicOperation.filledUpTo(fileId);
   }
 
@@ -147,9 +145,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected CacheEntry loadPageForRead(
       final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
-    if (atomicOperation == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
-    }
+    assert atomicOperation != null;
     return atomicOperation.loadPageForRead(fileId, pageIndex);
   }
 
@@ -167,11 +163,8 @@ public abstract class DurableComponent extends SharedResourceAbstract {
 
   protected void releasePageFromRead(
       final AtomicOperation atomicOperation, final CacheEntry cacheEntry) {
-    if (atomicOperation == null) {
-      readCache.releaseFromRead(cacheEntry);
-    } else {
-      atomicOperation.releasePageFromRead(cacheEntry);
-    }
+    assert atomicOperation != null;
+    atomicOperation.releasePageFromRead(cacheEntry);
   }
 
   protected long addFile(final AtomicOperation atomicOperation, final String fileName)
@@ -182,9 +175,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
 
   protected long openFile(final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
-    if (atomicOperation == null) {
-      return writeCache.loadFile(fileName);
-    }
+    assert atomicOperation != null;
     return atomicOperation.loadFile(fileName);
   }
 
@@ -195,9 +186,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   }
 
   protected boolean isFileExists(final AtomicOperation atomicOperation, final String fileName) {
-    if (atomicOperation == null) {
-      return writeCache.exists(fileName);
-    }
+    assert atomicOperation != null;
     return atomicOperation.isFileExists(fileName);
   }
 

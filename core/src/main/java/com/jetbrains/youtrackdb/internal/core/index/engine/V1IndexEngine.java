@@ -3,14 +3,15 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 
 public interface V1IndexEngine extends BaseIndexEngine {
 
   int API_VERSION = 1;
 
-  boolean put(AtomicOperation atomicOperation, Object key, RID value);
+  boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value);
 
-  Stream<RID> get(Object key, AtomicOperation atomicOperation);
+  Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation);
 
   @Override
   default int getEngineAPIVersion() {

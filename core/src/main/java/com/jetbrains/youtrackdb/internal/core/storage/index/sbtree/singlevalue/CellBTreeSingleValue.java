@@ -14,7 +14,7 @@ import javax.annotation.Nullable;
 public interface CellBTreeSingleValue<K> {
 
   void create(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       BinarySerializer<K> keySerializer,
       PropertyTypeInternal[] keyTypes,
       int keySize)
@@ -22,7 +22,7 @@ public interface CellBTreeSingleValue<K> {
 
   @Nullable RID get(K key, @Nonnull AtomicOperation atomicOperation);
 
-  boolean put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
+  boolean put(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
   /**
    * Puts a key-value pair after consulting the validator.
@@ -31,41 +31,41 @@ public interface CellBTreeSingleValue<K> {
    *     {@code -1} if the validator rejected the operation (IGNORE).
    */
   int validatedPut(
-      AtomicOperation atomicOperation, K key, RID value,
+      @Nonnull AtomicOperation atomicOperation, K key, RID value,
       IndexEngineValidator<K, RID> validator)
       throws IOException;
 
   void close();
 
-  void delete(AtomicOperation atomicOperation) throws IOException;
+  void delete(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
   void load(
       String name,
       int keySize,
       PropertyTypeInternal[] keyTypes,
-      BinarySerializer<K> keySerializer, AtomicOperation atomicOperation);
+      BinarySerializer<K> keySerializer, @Nonnull AtomicOperation atomicOperation);
 
-  long size(AtomicOperation atomicOperation);
+  long size(@Nonnull AtomicOperation atomicOperation);
 
-  @Nullable RID remove(AtomicOperation atomicOperation, K key) throws IOException;
+  @Nullable RID remove(@Nonnull AtomicOperation atomicOperation, K key) throws IOException;
 
   Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
-  @Nullable K firstKey(AtomicOperation atomicOperation);
+  @Nullable K firstKey(@Nonnull AtomicOperation atomicOperation);
 
-  @Nullable K lastKey(AtomicOperation atomicOperation);
+  @Nullable K lastKey(@Nonnull AtomicOperation atomicOperation);
 
-  Stream<K> keyStream(AtomicOperation atomicOperation);
+  Stream<K> keyStream(@Nonnull AtomicOperation atomicOperation);
 
-  Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation);
+  Stream<RawPair<K, RID>> allEntries(@Nonnull AtomicOperation atomicOperation);
 
   Stream<RawPair<K, RID>> iterateEntriesBetween(
       K keyFrom, boolean fromInclusive, K keyTo, boolean toInclusive, boolean ascSortOrder,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
   void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
 }
