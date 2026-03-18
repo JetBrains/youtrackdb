@@ -5109,7 +5109,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           "select from TestIndexWithEdgesFunctionsEdge where inV() = :inV and outV() = :outV",
           Map.of("outV", rids[0], "inV", rids[1]))) {
 
-        var resList = rs.toStatefulEdgeList();
+        var resList = rs.toEdgeList();
         Assert.assertEquals(1, resList.size());
         Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
 
@@ -5168,7 +5168,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
           "select from TestInVOutVFunctionsWithoutIndexEdge where inV() = :inV and outV() = :outV",
           Map.of("outV", rids[0], "inV", rids[1]))) {
 
-        var resList = rs.toStatefulEdgeList();
+        var resList = rs.toEdgeList();
         Assert.assertEquals(1, resList.size());
         Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
       }

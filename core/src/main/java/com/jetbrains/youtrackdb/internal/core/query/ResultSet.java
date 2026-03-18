@@ -304,54 +304,6 @@ public interface ResultSet extends BasicResultSet<Result> {
     return ridStream().toList();
   }
 
-  /**
-   * Returns the result set as a stream of edges (filters only the results that are edges - where
-   * the isEdge() method returns true). IMPORTANT: the stream consumes the result set!
-   */
-  @Nonnull
-  default Stream<Edge> statefulEdgeStream() {
-    return StreamSupport.stream(
-        new Spliterator<Edge>() {
-          @Override
-          public boolean tryAdvance(Consumer<? super Edge> action) {
-            while (hasNext()) {
-              var nextElem = next();
-              if (nextElem != null) {
-                action.accept(nextElem.asEdge());
-                return true;
-              }
-            }
-            return false;
-          }
-
-          @Nullable @Override
-          public Spliterator<Edge> trySplit() {
-            return null;
-          }
-
-          @Override
-          public long estimateSize() {
-            return Long.MAX_VALUE;
-          }
-
-          @Override
-          public int characteristics() {
-            return ORDERED;
-          }
-        },
-        false)
-        .onClose(this::close);
-  }
-
-  default void forEachStatefulEdge(@Nonnull Consumer<? super Edge> action) {
-    statefulEdgeStream().forEach(action);
-  }
-
-  @Nonnull
-  default List<Edge> toStatefulEdgeList() {
-    return statefulEdgeStream().toList();
-  }
-
   @Nonnull
   default Stream<Edge> edgeStream() {
     return StreamSupport.stream(
