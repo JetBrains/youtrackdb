@@ -260,6 +260,8 @@ graph TD
   > `statefulEdge` methods from `ResultSet`).
   >
   > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 3: Delete Relation hierarchy
   > Eliminate the entire `Relation` type hierarchy and everything that depends
