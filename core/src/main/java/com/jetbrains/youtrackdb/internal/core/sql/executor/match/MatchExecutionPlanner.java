@@ -19,9 +19,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -657,6 +659,11 @@ public class MatchExecutionPlanner {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
         }
+      }
+
+      optimizeScheduleWithIntersections(sortedEdges, context);
+
+      for (var edge : sortedEdges) {
         addStepsFor(plan, edge, context, first, profilingEnabled);
         first = false;
       }
@@ -1185,6 +1192,148 @@ public class MatchExecutionPlanner {
       return raw;
     }
     return null;
+  }
+
+  /**
+   * Post-scheduling optimization pass: detects back-reference and index-based
+   * pre-filter opportunities and attaches {@link RidFilterDescriptor}s
+   * to the appropriate edges.
+   *
+   * <p><b>Back-reference detection</b>: when edge_j's target filter contains
+   * {@code @rid = $matched.X.@rid}, the intermediate node (edge_j's source)
+   * must be in {@code X.reverse(edge_j)}. A {@link
+   * RidFilterDescriptor.EdgeRidLookup} is attached to the preceding edge
+   * (edge_i) that produces the intermediate node, so that edge_i's traversal
+   * results are intersected with the pre-computed RidSet.
+   *
+   * <p><b>Index pre-filter detection</b>: when an edge's target node has an
+   * indexable condition that does not reference {@code $matched}, a {@link
+   * RidFilterDescriptor.IndexLookup} is attached to the edge.
+   */
+  private void optimizeScheduleWithIntersections(
+      List<EdgeTraversal> schedule, CommandContext ctx) {
+    // Build a map: target alias → edge index, so we can find the producing edge
+    Map<String, Integer> targetAliasToEdgeIndex = new HashMap<>();
+    for (var i = 0; i < schedule.size(); i++) {
+      var et = schedule.get(i);
+      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (targetAlias != null) {
+        targetAliasToEdgeIndex.put(targetAlias, i);
+      }
+    }
+
+    for (var j = 0; j < schedule.size(); j++) {
+      var edgeJ = schedule.get(j);
+      var targetAliasJ = edgeJ.out ? edgeJ.edge.in.alias : edgeJ.edge.out.alias;
+      if (targetAliasJ == null) {
+        continue;
+      }
+
+      var targetFilter = aliasFilters.get(targetAliasJ);
+      if (targetFilter == null) {
+        continue;
+      }
+
+      // --- Back-reference detection ---
+      // Check if target filter contains @rid = $matched.X.@rid
+      // Uses findRidEquality() (non-destructive) instead of
+      // extractAndRemoveRidEquality() to avoid mutating the filter.
+      var ridExpr = targetFilter.findRidEquality();
+      if (ridExpr != null) {
+        var involvedAliases = ridExpr.getMatchPatternInvolvedAliases();
+        if (involvedAliases != null && !involvedAliases.isEmpty()) {
+          var edgeClass = getEdgeClassName(edgeJ);
+          var edgeDirection = getEdgeDirection(edgeJ);
+
+          if (edgeClass != null && edgeDirection != null) {
+            var sourceAliasJ = edgeJ.out
+                ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
+            var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
+            if (producingEdgeIdx != null) {
+              var edgeI = schedule.get(producingEdgeIdx);
+              if (edgeI.getIntersectionDescriptor() == null) {
+                edgeI.setIntersectionDescriptor(
+                    new RidFilterDescriptor.EdgeRidLookup(
+                        edgeClass, edgeDirection, ridExpr));
+              }
+            }
+          }
+          continue;
+        }
+      }
+
+      // --- Index pre-filter detection ---
+      var targetClass = aliasClasses.get(targetAliasJ);
+      if (targetClass == null) {
+        continue;
+      }
+
+      // Split the filter: only the non-$matched part can use an index.
+      SQLWhereClause indexableFilter = targetFilter;
+      var matchedSplit = targetFilter.splitByMatchedReference();
+      if (matchedSplit != null) {
+        indexableFilter = matchedSplit.nonMatchedReferencing();
+      }
+      if (indexableFilter == null) {
+        continue;
+      }
+
+      var indexDesc = TraversalPreFilterHelper.findIndexForFilter(
+          indexableFilter, targetClass, ctx);
+      if (indexDesc != null && edgeJ.getIntersectionDescriptor() == null) {
+        edgeJ.setIntersectionDescriptor(
+            new RidFilterDescriptor.IndexLookup(indexDesc));
+      }
+    }
+  }
+
+  /**
+   * Returns the edge class name from an {@link EdgeTraversal}'s path item
+   * method, or {@code null} if none is specified.
+   */
+  @Nullable private static String getEdgeClassName(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null) {
+      return null;
+    }
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      return null;
+    }
+    var expr = params.getFirst();
+    if (!(expr.getMathExpression() instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    if (base.getModifier() != null) {
+      return null;
+    }
+    var value = base.execute((Result) null, new BasicCommandContext());
+    if (value instanceof String s && !s.isEmpty()) {
+      return s;
+    }
+    return null;
+  }
+
+  /**
+   * Returns the traversal direction ({@code "out"} or {@code "in"}) for the
+   * given edge traversal, considering the scheduled direction.
+   */
+  @Nullable private static String getEdgeDirection(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null || method.getMethodName() == null) {
+      return null;
+    }
+    var syntacticDirection = method.getMethodName().getStringValue()
+        .toLowerCase(Locale.ROOT);
+    if (et.out) {
+      return syntacticDirection;
+    }
+    // Reverse: flip out↔in
+    return switch (syntacticDirection) {
+      case "out" -> "in";
+      case "in" -> "out";
+      default -> syntacticDirection;
+    };
   }
 
   /**

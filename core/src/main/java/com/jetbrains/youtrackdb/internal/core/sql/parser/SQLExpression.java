@@ -661,7 +661,7 @@ public class SQLExpression extends SimpleNode {
    * pattern
    */
   @Nullable
-  List<String> getMatchPatternInvolvedAliases() {
+  public List<String> getMatchPatternInvolvedAliases() {
     if (mathExpression != null) {
       return mathExpression.getMatchPatternInvolvedAliases();
     }

@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import javax.annotation.Nullable;
 
 /**
  * A scheduled traversal of a single {@link PatternEdge} in a specific direction.
@@ -54,6 +56,14 @@ public class EdgeTraversal {
   private SQLWhereClause leftFilter;
 
   /**
+   * Pre-filter descriptor for adjacency list intersection. When set, the
+   * traverser resolves this descriptor at runtime to produce a {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet} that is
+   * applied to the edge traversal results, skipping vertices not in the set.
+   */
+  @Nullable private RidFilterDescriptor intersectionDescriptor;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -87,6 +97,15 @@ public class EdgeTraversal {
     return leftFilter;
   }
 
+  @Nullable public RidFilterDescriptor getIntersectionDescriptor() {
+    return intersectionDescriptor;
+  }
+
+  public void setIntersectionDescriptor(
+      @Nullable RidFilterDescriptor intersectionDescriptor) {
+    this.intersectionDescriptor = intersectionDescriptor;
+  }
+
   @Override
   public String toString() {
     return edge.toString();
@@ -105,6 +124,7 @@ public class EdgeTraversal {
     if (leftRid != null) {
       copy.leftRid = leftRid.copy();
     }
+    copy.intersectionDescriptor = intersectionDescriptor;
     return copy;
   }
 }

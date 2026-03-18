@@ -260,6 +260,9 @@ public class SelectExecutionPlanner {
 
     handleWhere(result, info, ctx, enableProfiling); // WHERE filtering
 
+    // --- 5b. Predicate push-down: move outer WHERE into expand() ---
+    tryPushDownFilterIntoExpand(result, info);
+
     handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
 
     // --- 6. Append timeout enforcement step if configured ---
@@ -2669,7 +2672,7 @@ public class SelectExecutionPlanner {
    * @param clazz   the target schema class
    * @return the best index descriptor, or {@code null} if no index can be used
    */
-  @Nullable private static IndexSearchDescriptor findBestIndexFor(
+  @Nullable public static IndexSearchDescriptor findBestIndexFor(
       CommandContext ctx, Set<Index> indexes, SQLAndBlock block, SchemaClass clazz) {
     // get all valid index descriptors
     var descriptors =
@@ -3107,6 +3110,174 @@ public class SelectExecutionPlanner {
     var subExecutionPlan =
         subQuery.createExecutionPlan(subCtx, profilingEnabled);
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));
+  }
+
+  /**
+   * Attempts to push the outer WHERE filter down into a subquery's expand() step.
+   *
+   * <p>Detects the pattern:
+   * <pre>
+   *   SELECT FROM (SELECT expand(...) FROM ...) WHERE &lt;predicate&gt;
+   * </pre>
+   * and moves the predicate into the ExpandStep so it filters during iteration
+   * rather than after all elements are materialized. This avoids loading records
+   * that would be discarded by the outer WHERE.
+   *
+   * <p>The push-down is only applied when:
+   * <ul>
+   *   <li>The plan chain is: SubQueryStep → FilterStep</li>
+   *   <li>The subquery plan contains an ExpandStep as its last step</li>
+   *   <li>The WHERE clause does not reference parent scope ({@code $parent})</li>
+   * </ul>
+   */
+  private void tryPushDownFilterIntoExpand(
+      SelectExecutionPlan plan, QueryPlanningInfo info) {
+    var steps = plan.steps;
+    if (steps.size() < 2 || info.whereClause == null) {
+      return;
+    }
+
+    for (var i = 0; i < steps.size() - 1; i++) {
+      if (!(steps.get(i) instanceof SubQueryStep subQueryStep)) {
+        continue;
+      }
+      if (!(steps.get(i + 1) instanceof FilterStep filterStep)) {
+        continue;
+      }
+
+      if (!(subQueryStep.subExecutionPlan instanceof SelectExecutionPlan innerPlan)) {
+        continue;
+      }
+
+      ExpandStep expandStep = null;
+      int expandIndex = -1;
+      for (var j = 0; j < innerPlan.steps.size(); j++) {
+        if (innerPlan.steps.get(j) instanceof ExpandStep es) {
+          expandStep = es;
+          expandIndex = j;
+        }
+      }
+      if (expandStep == null) {
+        continue;
+      }
+
+      // Step 1: Extract @class = 'X' from the WHERE
+      it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
+      String className = null;
+      SQLWhereClause remainingWhere = info.whereClause;
+      var classExtraction = info.whereClause.extractAndRemoveClassEquality();
+      if (classExtraction != null) {
+        classFilter = resolveClassToCollectionIds(classExtraction.className(), plan);
+        if (classFilter != null) {
+          className = classExtraction.className();
+          remainingWhere = classExtraction.remainingWhere();
+        }
+      }
+
+      // Step 2: Extract out/in('EdgeClass').@rid = <expr>
+      RidFilterDescriptor ridFilter = null;
+      if (remainingWhere != null) {
+        var edgeExtraction = remainingWhere.extractAndRemoveEdgeRidLookup();
+        if (edgeExtraction != null) {
+          ridFilter = new RidFilterDescriptor.EdgeRidLookup(
+              edgeExtraction.edgeClassName(),
+              edgeExtraction.traversalDirection(),
+              edgeExtraction.targetRidExpression());
+          remainingWhere = edgeExtraction.remainingWhere();
+        }
+      }
+
+      // Step 3: Extract @rid = <expr>
+      if (ridFilter == null && remainingWhere != null) {
+        var ridExtraction = remainingWhere.extractAndRemoveRidEquality();
+        if (ridExtraction != null) {
+          ridFilter = new RidFilterDescriptor.DirectRid(ridExtraction.ridExpression());
+          remainingWhere = ridExtraction.remainingWhere();
+        }
+      }
+
+      // Step 4: Split remaining by $parent reference
+      SQLWhereClause pushDownWhere = null;
+      SQLWhereClause outerWhere = null;
+      if (remainingWhere != null) {
+        var parentSplit = remainingWhere.splitByParentReference();
+        if (parentSplit != null) {
+          outerWhere = parentSplit.parentReferencing();
+          pushDownWhere = parentSplit.nonParentReferencing();
+        } else {
+          pushDownWhere = remainingWhere;
+        }
+      }
+
+      // Step 5: Try to find an index for the push-down filter
+      IndexSearchDescriptor indexDescriptor = null;
+      if (pushDownWhere != null && className != null) {
+        indexDescriptor = tryBuildExpandIndexDescriptor(
+            pushDownWhere, className, plan.getContext());
+      }
+
+      if (classFilter == null && ridFilter == null
+          && pushDownWhere == null && indexDescriptor == null) {
+        continue;
+      }
+
+      var pushedDown = new ExpandStep(
+          innerPlan.getContext(), expandStep.isProfilingEnabled(),
+          expandStep.expandAlias, pushDownWhere, classFilter,
+          ridFilter, indexDescriptor);
+      pushedDown.setPrevious(expandStep.prev);
+      innerPlan.steps.set(expandIndex, pushedDown);
+
+      if (outerWhere != null) {
+        var newFilter = new FilterStep(
+            outerWhere, plan.getContext(), 0, filterStep.isProfilingEnabled());
+        newFilter.setPrevious(filterStep.prev);
+        steps.set(i + 1, newFilter);
+        if (i + 2 < steps.size()) {
+          steps.get(i + 2).setPrevious(newFilter);
+        }
+      } else {
+        steps.remove(i + 1);
+        if (i + 1 < steps.size()) {
+          steps.get(i + 1).setPrevious(subQueryStep);
+        }
+      }
+
+      return;
+    }
+  }
+
+  /**
+   * Attempts to build an {@link IndexSearchDescriptor} for the push-down filter
+   * by looking up indexes on the target class. Only single-OR-branch WHERE clauses
+   * are considered (multi-branch OR is too complex for this optimization).
+   *
+   * @param pushDownWhere the WHERE clause to analyze (must not reference $parent)
+   * @param className     the target class name (from an extracted @class filter)
+   * @param ctx           command context
+   * @return an index descriptor, or {@code null} if no suitable index exists
+   */
+  @Nullable private IndexSearchDescriptor tryBuildExpandIndexDescriptor(
+      SQLWhereClause pushDownWhere, String className, CommandContext ctx) {
+    return TraversalPreFilterHelper.findIndexForFilter(pushDownWhere, className, ctx);
+  }
+
+  /**
+   * Resolves a class name to the set of collection (cluster) IDs for that class
+   * and all its subclasses. Returns {@code null} if the class is not found.
+   */
+  @Nullable private static it.unimi.dsi.fastutil.ints.IntSet resolveClassToCollectionIds(
+      String className, SelectExecutionPlan plan) {
+    var ctx = plan.getContext();
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = schema.getClass(className);
+    if (schemaClass == null) {
+      return null;
+    }
+    return TraversalPreFilterHelper.collectionIdsForClass(schemaClass);
   }
 
   /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid DESC}. */

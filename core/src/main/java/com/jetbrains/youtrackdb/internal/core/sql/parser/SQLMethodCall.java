@@ -272,6 +272,14 @@ public class SQLMethodCall extends SimpleNode {
     throw new UnsupportedOperationException("Invalid reverse traversal: " + methodName);
   }
 
+  public SQLIdentifier getMethodName() {
+    return methodName;
+  }
+
+  public List<SQLExpression> getParams() {
+    return params;
+  }
+
   public boolean needsAliases(Set<String> aliases) {
     for (var param : params) {
       if (param.needsAliases(aliases)) {

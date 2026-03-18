@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -69,14 +70,19 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
   /**
    * Calls `executeReverse()` on the path item's method instead of `execute()`,
    * effectively walking the edge in the opposite direction (e.g. `out()` becomes an
-   * incoming traversal).
+   * incoming traversal). Applies the pre-filter from {@link #currentPreFilterRids}
+   * when present.
    */
   @Override
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
-
     assert startingPoint != null : "starting point must not be null";
     var qR = this.item.getMethod().executeReverse(startingPoint, iCommandContext);
+
+    if (currentPreFilterRids != null && qR instanceof VertexFromLinkBagIterable vfli) {
+      qR = vfli.withRidFilter(currentPreFilterRids);
+    }
+
     return toExecutionStream(qR, iCommandContext.getDatabaseSession());
   }
 
