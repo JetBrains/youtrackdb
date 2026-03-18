@@ -13,7 +13,7 @@ is a `.pptx` file in the project root that the user can open in Google Slides.
 ### Step 1 — Investigate the branch
 
 1. Run `git log --oneline <base>..HEAD` to list all commits on this branch.
-2. Run `git diff --name-only <base>..HEAD -- '*.java'` to find changed source files.
+2. Run `git diff --name-only <base>..HEAD` to find changed source files.
 3. Separate generated files (e.g. `sql/parser/YouTrackDBSql*.java`) from hand-written code.
 4. Read every non-generated changed source file to understand the full picture.
 5. Read commit messages for motivation and design rationale.
@@ -37,8 +37,8 @@ Create a slide outline (15–25 slides) covering:
 ### Step 3 — Set up Python environment
 
 ```bash
-python3 -m venv /tmp/claude-code-pptx-venv
-/tmp/claude-code-pptx-venv/bin/pip install python-pptx matplotlib
+python3 -m venv .tmp/pptx-venv
+.tmp/pptx-venv/bin/pip install python-pptx matplotlib
 ```
 
 If the venv already exists, skip creation and just verify imports work.
@@ -76,7 +76,7 @@ def make_box(ax, x, y, w, h, text, facecolor, edgecolor, text_color,
                          facecolor=facecolor, edgecolor=edgecolor, linewidth=1.5)
     ax.add_patch(box)
     ax.text(x + w/2, y + h/2, text, ha='center', va='center',
-            fontsize=fontsize, color=text_color, weight=weight, family='monospace')
+            fontsize=fontsize, color=text_color, weight=weight, family='monospace', wrap=True)
 
 def make_arrow(ax, x1, y1, x2, y2, color='#81D4FA', style='->', lw=2):
     ax.annotate('', xy=(x2, y2), xytext=(x1, y1),
@@ -139,7 +139,7 @@ BORDER_COLOR    = RGBColor(0x3A, 0x3A, 0x5C)  # code block border
 
 #### Code organization
 
-Write the entire generator as a **single Python script** saved to `/tmp/claude-code-gen-presentation.py`.
+Write the entire generator as a **single Python script** saved to `.tmp/gen-presentation.py`.
 Structure it as:
 
 1. Imports and theme constants.
@@ -148,13 +148,13 @@ Structure it as:
 4. Slide-by-slide assembly.
 5. `prs.save(output_path)` at the end.
 
-Run with: `/tmp/claude-code-pptx-venv/bin/python /tmp/claude-code-gen-presentation.py`
+Run with: `.tmp/pptx-venv/bin/python .tmp/gen-presentation.py`
 
 ### Step 6 — Output
 
 Save the PPTX to the project root as `<branch-name>-presentation.pptx`.
 Tell the user the file path and total slide count.
-Also leave the Python script at `/tmp/claude-code-gen-presentation.py` so the user
+Also leave the Python script at `.tmp/gen-presentation.py` so the user
 can tweak and regenerate.
 
 ## Quality checklist
