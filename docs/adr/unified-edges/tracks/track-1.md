@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -111,27 +111,27 @@
   > but accepts concrete classes (delegates to addEdgeInternal). It is
   > effectively equivalent to `newStatefulEdge()` for non-abstract classes.
 
-- [ ] Step 4: Remove dead `isStatefulEdge()`/`isStateful()` definitions and rename typo methods
-  > Remove `isStatefulEdge()` from interfaces: `DBRecord`, `Entity`, `Result`.
-  > Remove `isStatefulEdge()` implementations: `EntityImpl`, `ResultInternal`,
-  > `UpdatableResult`, `RecordBytes`, `EmbeddedEntityImpl`.
-  > Remove `isStateful()` default method from `Edge`.
-  > Remove `isStatefulEdge()` from test mock: `MatchStepUnitTest`.
+- [x] Step 4: Remove dead `isStatefulEdge()`/`isStateful()` definitions and rename typo methods
+  > **What was done:** Removed `isStatefulEdge()` from 3 interfaces (`DBRecord`,
+  > `Entity`, `Result`) and 5 implementations (`EntityImpl`, `ResultInternal`,
+  > `UpdatableResult`, `RecordBytes`, `EmbeddedEntityImpl`). Removed
+  > `Edge.isStateful()` default method. Removed `isStatefulEdge()` from
+  > `MatchStepUnitTest` mock. Deleted duplicate typo methods
+  > `ResultSet.findFirstStateFullEdge()`/`findFirstSateFullEdgeOrNull()` (the
+  > correctly-named `findFirstEdge()`/`findFirstEdgeOrNull()` already existed
+  > from Step 1). Renamed `YTDBGraphTraversalDSL.addStateFullEdgeClass()` to
+  > `addEdgeClass()`. Removed duplicate test method from `ResultSetTest`.
   >
-  > **NOT removed** (retained until Track 2): `asStatefulEdge()`,
-  > `asStatefulEdgeOrNull()` on all interfaces and implementations. These are
-  > needed because `Result.asStatefulEdge()` default calls
-  > `asEntity().asStatefulEdge()`.
+  > **What was discovered:** The typo methods in `ResultSet` were already
+  > superseded by correctly-named versions added in Step 1, so the "rename"
+  > was actually a deletion of duplicates rather than a rename + caller update.
+  > `SelectStatementExecutionTest` had no references to the typo methods.
+  > `asStatefulEdge()`/`asStatefulEdgeOrNull()` are retained on all interfaces
+  > as planned — they are needed until Track 2 merges `StatefulEdge` into `Edge`.
   >
-  > Rename typo methods:
-  > - `ResultSet.findFirstStateFullEdge()` → `findFirstEdge()` (fix body:
-  >   `asStatefulEdge()` → `asEdge()`)
-  > - `ResultSet.findFirstSateFullEdgeOrNull()` → `findFirstEdgeOrNull()`
-  >   (fix body: `asStatefulEdgeOrNull()` → `asEdgeOrNull()`)
-  > - `YTDBGraphTraversalDSL.addStateFullEdgeClass()` → `addEdgeClass()`
-  >   (update all callers and generated DSL)
-  >
-  > Update tests referencing renamed methods: `ResultSetTest.java`,
-  > `SelectStatementExecutionTest.java` (method name strings with "StateFull").
-  >
-  > **Files:** ~12 files (interface/implementation cleanup + renames)
+  > **Key files:** `DBRecord.java` (modified), `Entity.java` (modified),
+  > `Result.java` (modified), `Edge.java` (modified), `ResultSet.java` (modified),
+  > `EntityImpl.java` (modified), `RecordBytes.java` (modified),
+  > `EmbeddedEntityImpl.java` (modified), `ResultInternal.java` (modified),
+  > `UpdatableResult.java` (modified), `YTDBGraphTraversalDSL.java` (modified),
+  > `MatchStepUnitTest.java` (modified), `ResultSetTest.java` (modified)
