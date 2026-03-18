@@ -180,7 +180,7 @@ jobs:
             cd /root/ytdb
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+              -Djmh.args="LdbcSingleThread.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
           '
 
       - name: Run benchmarks
