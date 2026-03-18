@@ -7,8 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,12 +17,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.structure.Graph;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class YTDBGraphFactory {
-
-  private static final Logger logger = LoggerFactory.getLogger(YTDBGraphFactory.class);
 
   /// Path to the root folder that contains all embedded databases managed by [YouTrackDB], this
   /// parameter is used only in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory]
@@ -46,7 +42,8 @@ public class YTDBGraphFactory {
   /// instance. This parameter is used only in
   /// [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open the [YTDBGraph] instance.
   public static final String CONFIG_CREATE_IF_NOT_EXISTS = "youtrackdb.database.createIfNotExists";
-  private static final ConcurrentHashMap<Path, YouTrackDBImpl> storagePathYTDBMap = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<Path, YouTrackDBImpl> storagePathYTDBMap =
+      new ConcurrentHashMap<>();
 
   /// This method is used in [org.apache.tinkerpop.gremlin.structure.util.GraphFactory] to open a
   /// new graph instance.
@@ -120,7 +117,7 @@ public class YTDBGraphFactory {
 
   public static YouTrackDBImpl ytdbInstance(
       String dbPath, Supplier<YouTrackDBInternal> internalSupplier) {
-    var path = Path.of(dbPath).toAbsolutePath().normalize();
+    var path = resolvePath(dbPath);
     return storagePathYTDBMap.compute(path, (p, youTrackDB) -> {
       if (youTrackDB != null && youTrackDB.isOpen()) {
         return youTrackDB;
@@ -131,15 +128,8 @@ public class YTDBGraphFactory {
 
   }
 
-  @Nullable
-  public static YouTrackDB getYTDBInstance(String dbPath) {
-    var path = Path.of(dbPath);
-    try {
-      path = path.toRealPath();
-    } catch (IOException e) {
-      logger.error("Can not retrieve real path for {}", dbPath, e);
-      path = path.toAbsolutePath().normalize();
-    }
+  @Nullable public static YouTrackDB getYTDBInstance(String dbPath) {
+    var path = resolvePath(dbPath);
 
     var ytdb = storagePathYTDBMap.get(path);
     if (ytdb == null || !ytdb.isOpen()) {
@@ -153,12 +143,7 @@ public class YTDBGraphFactory {
   public static void unregisterYTDBInstance(@Nonnull YouTrackDBImpl youTrackDB,
       @Nullable Runnable onCloseCallback) {
     var ytdbInternal = youTrackDB.internal;
-    var path = Paths.get(ytdbInternal.getBasePath());
-    try {
-      path = path.toRealPath();
-    } catch (IOException e) {
-      path = path.toAbsolutePath().normalize();
-    }
+    var path = resolvePath(ytdbInternal.getBasePath());
 
     //noinspection resource
     storagePathYTDBMap.compute(path, (p, ytdb) -> {
@@ -178,6 +163,29 @@ public class YTDBGraphFactory {
         }
       }
     });
+  }
+
+  /// Resolves a database path to a canonical form suitable for use as a map key. Uses
+  /// [Path#toRealPath] to resolve symlinks and junction points (important on Windows where temp
+  /// directories may involve junctions). If the path does not exist yet, creates the directory
+  /// first so that [Path#toRealPath] can resolve the canonical form consistently — this avoids
+  /// a race condition where [Path#normalize] and [Path#toRealPath] produce different keys
+  /// for the same physical location (e.g., on Windows with junction points). Falls back to
+  /// [Path#toAbsolutePath] + [Path#normalize] only if directory creation also fails.
+  static Path resolvePath(String dbPath) {
+    var path = Path.of(dbPath);
+    try {
+      return path.toRealPath();
+    } catch (IOException e) {
+      // Path doesn't exist yet. Create the directory so that toRealPath() can resolve
+      // symlinks and junction points consistently (critical on Windows).
+      try {
+        Files.createDirectories(path);
+        return path.toRealPath();
+      } catch (IOException ex) {
+        return path.toAbsolutePath().normalize();
+      }
+    }
   }
 
   public static void closeAll() {
