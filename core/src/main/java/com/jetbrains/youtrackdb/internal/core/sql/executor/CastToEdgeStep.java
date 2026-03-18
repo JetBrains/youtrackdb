@@ -23,7 +23,7 @@ public class CastToEdgeStep extends AbstractExecutionStep {
 
   private static Result mapResult(Result result, CommandContext ctx) {
     if (result.isEdge()) {
-      ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
+      ((ResultInternal) result).setIdentifiable(result.asEdge());
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Current entity is not an edge: " + result);

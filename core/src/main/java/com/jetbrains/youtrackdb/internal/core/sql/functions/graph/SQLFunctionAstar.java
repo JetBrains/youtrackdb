@@ -324,7 +324,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       }
     }
     if (e != null) {
-      final var fieldValue = e.asStatefulEdge().getProperty(paramWeightFieldName);
+      final var fieldValue = e.getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float f) {
           return f;
@@ -339,7 +339,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
 
   protected double getDistance(final Edge edge) {
     if (edge != null) {
-      final var fieldValue = edge.asStatefulEdge().getProperty(paramWeightFieldName);
+      final var fieldValue = edge.getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float f) {
           return f;

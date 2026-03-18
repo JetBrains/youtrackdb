@@ -357,13 +357,13 @@ public class DbImportExportTest extends BaseDBJUnit5Test
         final var v3 = vs.get(2);
 
         final var v1Tov2 =
-            v1.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+            v1.getEdges(Direction.OUT, eClass).iterator().next();
         assertThat(v1Tov2.getFrom()).isEqualTo(v1);
         assertThat(v1Tov2.getTo()).isEqualTo(v2);
         assertThat(v1Tov2.getString("lbl")).isEqualTo("1to2");
 
         final var v2Tov1 =
-            v2.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+            v2.getEdges(Direction.OUT, eClass).iterator().next();
         assertThat(v2Tov1.getFrom()).isEqualTo(v2);
         assertThat(v2Tov1.getTo()).isEqualTo(v1);
         assertThat(v2Tov1.getString("lbl")).isEqualTo("2to1");

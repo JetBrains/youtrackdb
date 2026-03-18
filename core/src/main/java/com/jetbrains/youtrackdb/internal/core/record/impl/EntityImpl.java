@@ -213,27 +213,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nonnull
-  public Edge asStatefulEdge() {
-    checkForBinding();
-    if (this instanceof Edge edge) {
-      return edge;
-    }
-
-    throw new DatabaseException("Entity is not an edge");
-  }
-
-  @Override
-  @Nullable public Edge asStatefulEdgeOrNull() {
-    checkForBinding();
-    if (this instanceof Edge edge) {
-      return edge;
-    }
-
-    return null;
-  }
-
-  @Override
   public boolean isVertex() {
     checkForBinding();
     if (this instanceof Vertex) {

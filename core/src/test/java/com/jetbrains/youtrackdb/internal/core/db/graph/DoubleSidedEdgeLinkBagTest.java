@@ -626,7 +626,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     // Delete the edge in a new transaction
     tx = session.begin();
-    var loadedEdge = tx.load(edge.getIdentity()).asStatefulEdge();
+    var loadedEdge = tx.load(edge.getIdentity()).asEdge();
     loadedEdge.delete();
     tx.commit();
 
@@ -899,7 +899,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedCenter = tx.load(center.getIdentity()).asVertex();
     var edgeIter = loadedCenter.getEdges(Direction.OUT, "HeavyEdge").iterator();
     assertTrue("Should have edges to delete", edgeIter.hasNext());
-    var edgeToDelete = edgeIter.next().asStatefulEdge();
+    var edgeToDelete = edgeIter.next().asEdge();
     var deletedTargetRid = edgeToDelete.getTo().getIdentity();
     edgeToDelete.delete();
     tx.commit();

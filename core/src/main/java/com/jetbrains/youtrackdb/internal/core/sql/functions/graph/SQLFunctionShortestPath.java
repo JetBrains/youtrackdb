@@ -375,7 +375,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           final var neighborVertexIdentity = v.getIdentity();
           var edge = edgeIterator.next();
 
-          RID neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
+          RID neighborEdgeIdentity = edge.getIdentity();
 
           if (ctx.rightVisited.contains(neighborVertexIdentity)) {
             ctx.previouses.put(neighborVertexIdentity, neighborEdgeIdentity);
@@ -443,7 +443,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           final var neighborVertexIdentity = v.getIdentity();
           var edge = edgeIterator.next();
 
-          RID neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
+          RID neighborEdgeIdentity = edge.getIdentity();
 
           if (ctx.leftVisited.contains(neighborVertexIdentity)) {
             ctx.nexts.put(neighborVertexIdentity, neighborEdgeIdentity);

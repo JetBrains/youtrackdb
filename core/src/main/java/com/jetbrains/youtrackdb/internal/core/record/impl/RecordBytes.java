@@ -191,8 +191,8 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   @Nonnull
   @Override
-  public Edge asStatefulEdge() {
-    throw new IllegalStateException("Blob is not a StatefulEdge");
+  public Edge asEdge() {
+    throw new IllegalStateException("Blob is not an Edge");
   }
 
   @Nonnull
@@ -212,12 +212,17 @@ public class RecordBytes extends RecordAbstract implements Blob {
   }
 
   @Nullable @Override
-  public Edge asStatefulEdgeOrNull() {
+  public Edge asEdgeOrNull() {
     return null;
   }
 
   @Nullable @Override
   public Vertex asVertexOrNull() {
     return null;
+  }
+
+  @Override
+  public boolean isEdge() {
+    return false;
   }
 }

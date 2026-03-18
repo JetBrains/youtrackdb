@@ -186,8 +186,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
           (EdgeInternal) currentFrom.addEdge(currentTo, targetClass.getStringValue());
     }
 
-    // All edges are now record-based (StatefulEdge) after edge unification
-    return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
+    // All edges are now record-based after edge unification
+    return new UpdatableResult(session, edgeToUpdate.asEdge());
   }
 
   @Nullable private static EdgeInternal getExistingEdge(

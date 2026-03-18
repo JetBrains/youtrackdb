@@ -230,20 +230,6 @@ public interface Result extends BasicResult {
 
   @Nullable Edge asEdgeOrNull();
 
-  @Nonnull
-  default Edge asStatefulEdge() {
-    return asEntity().asStatefulEdge();
-  }
-
-  @Nullable default Edge asStatefulEdgeOrNull() {
-    var entity = asEntityOrNull();
-    if (entity == null) {
-      return null;
-    }
-
-    return entity.asStatefulEdgeOrNull();
-  }
-
   boolean isBlob();
 
   @Nonnull

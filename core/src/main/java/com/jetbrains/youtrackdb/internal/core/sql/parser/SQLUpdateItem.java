@@ -266,7 +266,7 @@ public class SQLUpdateItem extends SimpleNode {
           var entityImpl = (EntityImpl) newEdge.asEntity();
 
           entityImpl.movePropertiesFromOtherEntity((EntityImpl)
-              edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+              edge.asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
           res.setIdentifiable(newEdge);
 
           edge.delete();

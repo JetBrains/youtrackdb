@@ -159,7 +159,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     if (targetCollection == null) {
       return true;
     }
-    var collectionId = edge.asStatefulEdge().getIdentity().getCollectionId();
+    var collectionId = edge.getIdentity().getCollectionId();
     var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
     return collectionName.equals(targetCollection.getStringValue());
   }

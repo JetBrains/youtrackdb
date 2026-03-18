@@ -317,7 +317,7 @@ public interface ResultSet extends BasicResultSet<Result> {
             while (hasNext()) {
               var nextElem = next();
               if (nextElem != null) {
-                action.accept(nextElem.asStatefulEdge());
+                action.accept(nextElem.asEdge());
                 return true;
               }
             }
