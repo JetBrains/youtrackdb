@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,29 +13,28 @@
 
 ## Steps
 
-- [ ] Step 1: Make `Edge` extend `Entity` and resolve method conflicts
-  > Make `Edge` extend `Entity` in addition to `Element` and
-  > `Relation<Vertex>`. This is the core merge — after this commit,
-  > every `Edge` IS-A `Entity`.
+- [x] Step 1: Make `Edge` extend `Entity` and resolve method conflicts
+  > **What was done:** Changed `Edge` from `extends Element, Relation<Vertex>`
+  > to `extends Entity, Relation<Vertex>`. Added `default asEntity()` on Edge
+  > (resolves Entity/Relation conflict). Removed `asStatefulEdge()`/
+  > `asStatefulEdgeOrNull()` from Edge (inherited from Entity). Added
+  > `@Override` to `getSchemaClass()`, `getSchemaClassName()`, `delete()`.
+  > Added `isRelation()`/`asRelation()`/`asRelationOrNull()` overrides
+  > returning true/this (code review fix). Removed `asEntity()` default from
+  > StatefulEdge (now on Edge). Disambiguated 3 ResultInternal constructor
+  > calls with `(Identifiable)` cast. Removed dead EdgeInternal branch in
+  > ScriptTransformerImpl (code review fix).
   >
-  > Resolve method conflicts between `Edge` and `Entity`:
-  > - `getSchemaClass()`: `Edge` declares `@Nonnull`, `Entity` declares
-  >   `@Nullable`. Keep `@Nonnull` on `Edge` (edges always have a schema
-  >   class). Remove the declaration from `Edge` if it's inherited
-  >   identically, or keep the narrowed version.
-  > - `getSchemaClassName()`: same pattern as `getSchemaClass()`.
-  > - `toMap()`, `toJSON()`, `delete()`: both declare — remove duplicates
-  >   from `Edge` if inherited identically from `Entity`/`Relation`.
-  > - `asStatefulEdge()`/`asStatefulEdgeOrNull()`: both `Edge` and `Entity`
-  >   declare these — remove the duplicate from `Edge`.
-  > - Add `default Entity asEntity() { return this; }` on `Edge` (moved
-  >   from `StatefulEdge`).
+  > **What was discovered:** Edge extending both Identifiable (via Entity)
+  > and Relation causes constructor ambiguity in `ResultInternal` which has
+  > `(session, Identifiable)` and `(session, Relation<?>)` overloads.
+  > 3 call sites needed explicit `(Identifiable)` casts. Also, Entity's
+  > `isRelation()` default returns false — edges need explicit override to
+  > return true now that Edge IS-A Entity.
   >
-  > Remove the `asEntity()` default from `StatefulEdge` (now redundant —
-  > inherited from `Edge`).
-  >
-  > Files: `Edge.java`, `StatefulEdge.java`, possibly `Entity.java`.
-  > Verify: compile + full core test suite.
+  > **Key files:** `Edge.java` (modified), `StatefulEdge.java` (modified),
+  > `ScriptTransformerImpl.java` (modified), `FetchEdgesFromToVerticesStep.java`
+  > (modified), `FetchEdgesToVerticesStep.java` (modified)
 
 - [ ] Step 2: Remove `isLightweight()` from `Edge` and all call sites
   > Make `isLightweight()` a default method returning `false` on `Edge`
