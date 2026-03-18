@@ -155,7 +155,6 @@ public final class WOWCache extends AbstractWriteCache
 
   private static final Logger logger = LoggerFactory.getLogger(WOWCache.class);
 
-
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
@@ -625,8 +624,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void callPageIsBrokenListeners(final String fileName, final long pageIndex) {
-    for (final var pageIsBrokenListenerWeakReference :
-        pageIsBrokenListeners) {
+    for (final var pageIsBrokenListenerWeakReference : pageIsBrokenListeners) {
       final var listener = pageIsBrokenListenerWeakReference.get();
       if (listener != null) {
         try {
@@ -726,7 +724,8 @@ public final class WOWCache extends AbstractWriteCache
                 "File '"
                     + fileName
                     + "' is not registered in 'file name - id' map, but exists in file system."
-                    + " Registering it", logger);
+                    + " Registering it",
+                logger);
 
         openFile(storageName, fileClassic);
 
@@ -1560,8 +1559,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public String restoreFileById(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);
     filesLock.acquireWriteLock();
@@ -1793,8 +1791,7 @@ public final class WOWCache extends AbstractWriteCache
     return idNameMap.get(intId);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public String nativeFileNameById(final long fileId) {
     final var fileClassic = files.get(fileId);
     if (fileClassic != null) {
@@ -2221,8 +2218,8 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
+  @Nullable private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder)
+      throws IOException {
     try {
       var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
       IOUtils.readByteBuffer(buffer, nameIdMapHolder);
@@ -2243,8 +2240,8 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
+  @Nullable private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder)
+      throws IOException {
     try {
       var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
       IOUtils.readByteBuffer(buffer, nameIdMapHolder);
@@ -2279,8 +2276,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
+  @Nullable private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
     try {
       final var xxHashLen = 8;
       final var recordSizeLen = 4;
@@ -2405,8 +2401,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  private CachePointer loadFileContent(
+  @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
     final var fileId = composeFileId(id, internalFileId);
@@ -2434,8 +2429,8 @@ public final class WOWCache extends AbstractWriteCache
 
           if (verifyChecksums
               && (checksumMode == ChecksumMode.StoreAndVerify
-              || checksumMode == ChecksumMode.StoreAndThrow
-              || checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode)) {
+                  || checksumMode == ChecksumMode.StoreAndThrow
+                  || checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode)) {
             // if page is broken inside of data file we check double write log
             if (!verifyMagicChecksumAndDecryptPage(buffer, internalFileId, pageIndex)) {
               final var doubleWritePointer =
@@ -2468,8 +2463,8 @@ public final class WOWCache extends AbstractWriteCache
 
             if (verifyChecksums
                 && (checksumMode == ChecksumMode.StoreAndVerify
-                || checksumMode == ChecksumMode.StoreAndThrow
-                || checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode)) {
+                    || checksumMode == ChecksumMode.StoreAndThrow
+                    || checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode)) {
               if (!verifyMagicChecksumAndDecryptPage(buffer, internalFileId, pageIndex)) {
                 assertPageIsBroken(pageIndex, fileId, pointer);
               }
@@ -2603,10 +2598,10 @@ public final class WOWCache extends AbstractWriteCache
 
     if ((aesKey == null && magicNumber != MAGIC_NUMBER_WITH_CHECKSUM)
         || (magicNumber != MAGIC_NUMBER_WITH_CHECKSUM
-        && (magicNumber & 0xFF) != MAGIC_NUMBER_WITH_CHECKSUM_ENCRYPTED)) {
+            && (magicNumber & 0xFF) != MAGIC_NUMBER_WITH_CHECKSUM_ENCRYPTED)) {
       if ((aesKey == null && magicNumber != MAGIC_NUMBER_WITHOUT_CHECKSUM)
           || (magicNumber != MAGIC_NUMBER_WITHOUT_CHECKSUM
-          && (magicNumber & 0xFF) != MAGIC_NUMBER_WITHOUT_CHECKSUM_ENCRYPTED)) {
+              && (magicNumber & 0xFF) != MAGIC_NUMBER_WITHOUT_CHECKSUM_ENCRYPTED)) {
         return false;
       }
 
@@ -2711,10 +2706,9 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  public Long executeFindDirtySegment() {
+  @Nullable public Long executeFindDirtySegment() {
     if (flushError != null) {
-      final var iAdditionalArgs = new Object[]{flushError.getMessage()};
+      final var iAdditionalArgs = new Object[] {flushError.getMessage()};
       LogManager.instance()
           .error(
               this,
@@ -2796,8 +2790,7 @@ public final class WOWCache extends AbstractWriteCache
     fileIdSizeMap.defaultReturnValue(-1);
 
     LogSequenceNumber maxFullLogLSN = null;
-    flushCycle:
-    while (chunksSize < pagesFlushLimit) {
+    flushCycle : while (chunksSize < pagesFlushLimit) {
       final var segmentPages = localDirtyPagesBySegment.get(currentSegment);
 
       if (segmentPages == null) {
@@ -3076,38 +3069,44 @@ public final class WOWCache extends AbstractWriteCache
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final List<WritePageContainer> chunk : chunks) {
       for (var chunkPage : chunk) {
-        final var pointer = chunkPage.originalPagePointer;
-
-        final var pageKey =
-            new PageKey(internalFileId(pointer.getFileId()), pointer.getPageIndex());
-        final var version = chunkPage.pageVersion;
-
-        final var lock = lockManager.acquireExclusiveLock(pageKey);
+        // Always release the page copy's direct memory, even if the shared lock on the
+        // original page pointer cannot be acquired. Without this, the `continue` below
+        // would skip the release call, leaking the buffer pool allocation made during
+        // the flush copy phase (e.g., in executeFileFlush).
         try {
-          if (!pointer.tryAcquireSharedLock()) {
-            continue;
-          }
+          final var pointer = chunkPage.originalPagePointer;
 
+          final var pageKey =
+              new PageKey(internalFileId(pointer.getFileId()), pointer.getPageIndex());
+          final var version = chunkPage.pageVersion;
+
+          final var lock = lockManager.acquireExclusiveLock(pageKey);
           try {
-            if (version == pointer.getVersion()) {
-              var removed = writeCachePages.remove(pageKey);
-              if (removed == null) {
-                throw new IllegalStateException("Page is not found in write cache");
+            if (!pointer.tryAcquireSharedLock()) {
+              continue;
+            }
+
+            try {
+              if (version == pointer.getVersion()) {
+                var removed = writeCachePages.remove(pageKey);
+                if (removed == null) {
+                  throw new IllegalStateException("Page is not found in write cache");
+                }
+
+                writeCacheSize.decrementAndGet();
+
+                pointer.decrementWritersReferrer();
+                pointer.setWritersListener(null);
               }
-
-              writeCacheSize.decrementAndGet();
-
-              pointer.decrementWritersReferrer();
-              pointer.setWritersListener(null);
+            } finally {
+              pointer.releaseSharedLock();
             }
           } finally {
-            pointer.releaseSharedLock();
+            lock.unlock();
           }
         } finally {
-          lock.unlock();
+          bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
         }
-
-        bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
       }
     }
   }
@@ -3275,8 +3274,7 @@ public final class WOWCache extends AbstractWriteCache
     long lastPageIndex = -1;
 
     var iterator = exclusiveWritePages.iterator();
-    flushCycle:
-    while (flushedPages < pagesToFlushLimit) {
+    flushCycle : while (flushedPages < pagesToFlushLimit) {
       // if nothing to flush we should add the last gathered chunk and stop cycle.
       if (!iterator.hasNext()) {
         if (!chunk.isEmpty()) {
@@ -3451,7 +3449,7 @@ public final class WOWCache extends AbstractWriteCache
   public Void executeFileFlush(IntOpenHashSet fileIdSet)
       throws java.lang.InterruptedException, IOException {
     if (flushError != null) {
-      final var iAdditionalArgs = new Object[]{flushError.getMessage()};
+      final var iAdditionalArgs = new Object[] {flushError.getMessage()};
       LogManager.instance()
           .error(
               this,
@@ -3555,8 +3553,7 @@ public final class WOWCache extends AbstractWriteCache
     return storageName;
   }
 
-  @Nullable
-  public RawPair<String, String> executeDeleteFile(long externalFileId)
+  @Nullable public RawPair<String, String> executeDeleteFile(long externalFileId)
       throws IOException, java.lang.InterruptedException {
     final var internalFileId = extractFileId(externalFileId);
     final var fileId = composeFileId(id, internalFileId);
@@ -3592,7 +3589,7 @@ public final class WOWCache extends AbstractWriteCache
 
     try {
       if (flushError != null) {
-        final var iAdditionalArgs = new Object[]{flushError.getMessage()};
+        final var iAdditionalArgs = new Object[] {flushError.getMessage()};
         LogManager.instance()
             .error(
                 this,
@@ -3655,7 +3652,7 @@ public final class WOWCache extends AbstractWriteCache
 
     try {
       if (flushError != null) {
-        final var iAdditionalArgs = new Object[]{flushError.getMessage()};
+        final var iAdditionalArgs = new Object[] {flushError.getMessage()};
         LogManager.instance()
             .error(
                 this,
@@ -3699,7 +3696,7 @@ public final class WOWCache extends AbstractWriteCache
   public Void executeFlushTillSegment(long segmentId)
       throws java.lang.InterruptedException, IOException {
     if (flushError != null) {
-      final var iAdditionalArgs = new Object[]{flushError.getMessage()};
+      final var iAdditionalArgs = new Object[] {flushError.getMessage()};
       LogManager.instance()
           .error(
               this,
@@ -3735,8 +3732,8 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private record WritePageContainer(long pageVersion, ByteBuffer copyOfPage,
-                                    Pointer pageCopyDirectMemoryPointer,
-                                    CachePointer originalPagePointer) {
+      Pointer pageCopyDirectMemoryPointer,
+      CachePointer originalPagePointer) {
 
   }
 }

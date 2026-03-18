@@ -346,15 +346,15 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           Files.find(
               walLocation,
               1,
-              (Path path, BasicFileAttributes attributes) ->
-                  validateName(path.getFileName().toString(), walBaseName, locale));
+              (Path path, BasicFileAttributes attributes) -> validateName(
+                  path.getFileName().toString(), walBaseName, locale));
     } else {
       walFiles =
           Files.find(
               walLocation,
               1,
-              (Path path, BasicFileAttributes attrs) ->
-                  validateSimpleName(path.getFileName().toString(), locale));
+              (Path path, BasicFileAttributes attrs) -> validateSimpleName(
+                  path.getFileName().toString(), locale));
     }
     try {
       walFiles.forEach(
@@ -1037,8 +1037,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   }
 
   @Override
-  @Nullable
-  public LogSequenceNumber begin(final long segmentId) {
+  @Nullable public LogSequenceNumber begin(final long segmentId) {
     if (segments.contains(segmentId)) {
       return new LogSequenceNumber(segmentId, CASWALPage.RECORDS_OFFSET);
     }
@@ -1265,82 +1264,91 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   @Override
   public void close(final boolean flush) throws IOException {
-    if (flush) {
-      doFlush(true);
-    }
-
-    if (!recordsWriterFuture.cancel(false) && !recordsWriterFuture.isDone()) {
-      throw new StorageException(storageName, "Can not cancel background write thread in WAL");
-    }
-
-    cancelRecordsWriting = true;
     try {
-      recordsWriterFuture.get();
-    } catch (CancellationException e) {
-      // ignore, we canceled scheduled execution
-    } catch (InterruptedException | ExecutionException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName,
-              "Error during writing of WAL records in storage " + storageName),
-          e, storageName);
-    }
-
-    recordsWriterLock.lock();
-    try {
-      final var future = writeFuture;
-      if (future != null) {
-        try {
-          future.get();
-        } catch (InterruptedException | ExecutionException e) {
-          throw BaseException.wrapException(
-              new StorageException(storageName,
-                  "Error during writing of WAL records in storage " + storageName),
-              e, storageName);
-        }
+      if (flush) {
+        doFlush(true);
       }
 
-      var record = records.poll();
-      while (record != null) {
-        if (record instanceof WriteableWALRecord) {
-          ((WriteableWALRecord) record).freeBinaryContent();
-        }
-
-        record = records.poll();
+      if (!recordsWriterFuture.cancel(false) && !recordsWriterFuture.isDone()) {
+        throw new StorageException(storageName, "Can not cancel background write thread in WAL");
       }
 
-      for (var pair : fileCloseQueue) {
-        final var file = pair.second;
-
-        if (callFsync) {
-          file.force(true);
-        }
-
-        file.close();
+      cancelRecordsWriting = true;
+      try {
+        recordsWriterFuture.get();
+      } catch (CancellationException e) {
+        // ignore, we canceled scheduled execution
+      } catch (InterruptedException | ExecutionException e) {
+        throw BaseException.wrapException(
+            new StorageException(storageName,
+                "Error during writing of WAL records in storage " + storageName),
+            e, storageName);
       }
 
-      fileCloseQueueSize.set(0);
-
-      if (walFile != null) {
-        if (callFsync) {
-          walFile.force(true);
+      recordsWriterLock.lock();
+      try {
+        final var future = writeFuture;
+        if (future != null) {
+          try {
+            future.get();
+          } catch (InterruptedException | ExecutionException e) {
+            throw BaseException.wrapException(
+                new StorageException(storageName,
+                    "Error during writing of WAL records in storage " + storageName),
+                e, storageName);
+          }
         }
 
-        walFile.close();
-      }
+        var record = records.poll();
+        while (record != null) {
+          if (record instanceof WriteableWALRecord) {
+            ((WriteableWALRecord) record).freeBinaryContent();
+          }
 
-      segments.clear();
-      fileCloseQueue.clear();
+          record = records.poll();
+        }
 
-      allocator.deallocate(writeBufferPointerOne);
-      allocator.deallocate(writeBufferPointerTwo);
+        for (var pair : fileCloseQueue) {
+          final var file = pair.second;
 
-      if (writeBufferPointer != null) {
-        writeBufferPointer = null;
-        writeBuffer = null;
-        writeBufferPageIndex = -1;
+          if (callFsync) {
+            file.force(true);
+          }
+
+          file.close();
+        }
+
+        fileCloseQueueSize.set(0);
+
+        if (walFile != null) {
+          if (callFsync) {
+            walFile.force(true);
+          }
+
+          walFile.close();
+        }
+
+        segments.clear();
+        fileCloseQueue.clear();
+
+        if (writeBufferPointer != null) {
+          writeBufferPointer = null;
+          writeBuffer = null;
+          writeBufferPageIndex = -1;
+        }
+      } finally {
+        recordsWriterLock.unlock();
       }
     } finally {
-      recordsWriterLock.unlock();
+      // Always deallocate the WAL write buffers, even if an earlier step threw an
+      // exception (e.g., failed to cancel the records writer or flush pending writes).
+      // Without this, the two direct memory buffers allocated in the constructor leak
+      // and trigger the DirectMemoryAllocator.checkMemoryLeaks() assertion.
+      try {
+        allocator.deallocate(writeBufferPointerOne);
+      } finally {
+        allocator.deallocate(writeBufferPointerTwo);
+      }
     }
   }
 
@@ -1353,8 +1361,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   public void removeCheckpointListener(final CheckpointRequestListener listener) {
     final List<CheckpointRequestListener> itemsToRemove = new ArrayList<>();
 
-    for (final var fullCheckpointRequestListener :
-        checkpointRequestListeners) {
+    for (final var fullCheckpointRequestListener : checkpointRequestListeners) {
       if (fullCheckpointRequestListener.equals(listener)) {
         itemsToRemove.add(fullCheckpointRequestListener);
       }
@@ -1499,9 +1506,9 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       final WALRecord record, final WALRecord prevRecord, int pageSize, int maxRecordSize) {
     assert prevRecord.getLsn().getSegment() <= record.getLsn().getSegment()
         : "prev segment "
-        + prevRecord.getLsn().getSegment()
-        + " segment "
-        + record.getLsn().getSegment();
+            + prevRecord.getLsn().getSegment()
+            + " segment "
+            + record.getLsn().getSegment();
 
     if (prevRecord instanceof StartWALRecord) {
       assert prevRecord.getLsn().getSegment() == record.getLsn().getSegment();
@@ -1632,7 +1639,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     } else {
       length -= freeSpace;
 
-      @SuppressWarnings("UnnecessaryLocalVariable") final var firstChunk = freeSpace;
+      @SuppressWarnings("UnnecessaryLocalVariable")
+      final var firstChunk = freeSpace;
       final var pages = length / maxRecordSize;
       final var offset = length - pages * maxRecordSize;
 
@@ -1915,12 +1923,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
           writeFuture =
               writeExecutor().submit(
-                  (Callable<?>)
-                      () -> {
-                        executeSyncAndCloseFile();
-                        //noinspection ReturnOfNull
-                        return null;
-                      });
+                  (Callable<?>) () -> {
+                    executeSyncAndCloseFile();
+                    //noinspection ReturnOfNull
+                    return null;
+                  });
         } finally {
           lastFSyncTs = ts;
         }
@@ -2060,12 +2067,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
     writeFuture =
         writeExecutor().submit(
-            (Callable<?>)
-                () -> {
-                  executeWriteBuffer(file, buffer, lastLSN, limit, expectedPosition);
-                  //noinspection ReturnOfNull
-                  return null;
-                });
+            (Callable<?>) () -> {
+              executeWriteBuffer(file, buffer, lastLSN, limit, expectedPosition);
+              //noinspection ReturnOfNull
+              return null;
+            });
   }
 
   private void executeWriteBuffer(
@@ -2094,13 +2100,13 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         assert buffer.position() == initialPos + written;
         assert file.position() == expectedPosition - buffer.limit() + initialPos + written
             : "File position "
-            + file.position()
-            + " buffer limit "
-            + buffer.limit()
-            + " initial pos "
-            + initialPos
-            + " written "
-            + written;
+                + file.position()
+                + " buffer limit "
+                + buffer.limit()
+                + " initial pos "
+                + initialPos
+                + " written "
+                + written;
       }
       diskWriteMeter.record(totalWritten);
 
@@ -2158,7 +2164,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       final var threadsWaitingSum = CASDiskWriteAheadLog.this.threadsWaitingSum.sum();
 
       final var additionalArgs =
-          new Object[]{
+          new Object[] {
               storageName,
               bytesWritten / 1024,
               writtenTime > 0 ? 1_000_000_000L * bytesWritten / writtenTime / 1024 : -1,
