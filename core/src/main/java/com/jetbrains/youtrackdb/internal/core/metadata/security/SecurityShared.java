@@ -237,8 +237,7 @@ public class SecurityShared implements SecurityInternal {
     return user;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SecurityUserImpl authenticate(
       DatabaseSessionEmbedded session, final String iUsername, final String iUserPassword) {
     return null;
@@ -272,8 +271,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  @Nullable
-  public SecurityUserImpl getUser(final DatabaseSessionEmbedded session, final RID iRecordId) {
+  @Nullable public SecurityUserImpl getUser(final DatabaseSessionEmbedded session, final RID iRecordId) {
     if (iRecordId == null) {
       return null;
     }
@@ -325,8 +323,8 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public boolean dropUser(final DatabaseSessionEmbedded session, final String iUserName) {
     final Number removed;
-    try (var res = session.getActiveTransaction().
-        execute("delete from OUser where name = ?", iUserName)) {
+    try (var res =
+        session.getActiveTransaction().execute("delete from OUser where name = ?", iUserName)) {
       removed = res.next().getProperty("count");
     }
 
@@ -334,8 +332,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  @Nullable
-  public Role getRole(final DatabaseSessionEmbedded session, final Identifiable iRole) {
+  @Nullable public Role getRole(final DatabaseSessionEmbedded session, final Identifiable iRole) {
     try {
       var transaction = session.getActiveTransaction();
       final EntityImpl entity = transaction.load(iRole);
@@ -352,8 +349,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  @Nullable
-  public Role getRole(final DatabaseSessionEmbedded session, final String iRoleName) {
+  @Nullable public Role getRole(final DatabaseSessionEmbedded session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
@@ -373,8 +369,7 @@ public class SecurityShared implements SecurityInternal {
     });
   }
 
-  @Nullable
-  public static RID getRoleRID(final DatabaseSessionEmbedded session, final String iRoleName) {
+  @Nullable public static RID getRoleRID(final DatabaseSessionEmbedded session, final String iRoleName) {
     if (iRoleName == null) {
       return null;
     }
@@ -555,8 +550,7 @@ public class SecurityShared implements SecurityInternal {
     return session.computeInTx(transaction -> doGetSecurityPolicy(name, transaction));
   }
 
-  @Nullable
-  private static SecurityPolicyImpl doGetSecurityPolicy(String name, Transaction transaction) {
+  @Nullable private static SecurityPolicyImpl doGetSecurityPolicy(String name, Transaction transaction) {
     try (var rs =
         transaction.query(
             "SELECT FROM " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", name)) {
@@ -597,8 +591,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  @Nullable
-  public SecurityUserImpl create(final DatabaseSessionEmbedded session) {
+  @Nullable public SecurityUserImpl create(final DatabaseSessionEmbedded session) {
     if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
       return null;
     }
@@ -1272,9 +1265,9 @@ public class SecurityShared implements SecurityInternal {
                 for (var clazz : allClasses) {
                   if (isClassInvolved(clazz, res)
                       && !isAllAllowed(
-                      session,
-                      new ImmutableSecurityPolicy(
-                          new SecurityPolicyImpl((EntityImpl) policy)))) {
+                          session,
+                          new ImmutableSecurityPolicy(
+                              new SecurityPolicyImpl((EntityImpl) policy)))) {
                     var roleMap =
                         result.computeIfAbsent(roleName, k -> new HashMap<>());
                     roleMap.put(clazz.getName(), true);
@@ -1701,8 +1694,7 @@ public class SecurityShared implements SecurityInternal {
         session, predicate, (DBRecord) transaction.loadEntity(identifiable));
   }
 
-  @Nullable
-  protected SQLBooleanExpression getPredicateFromCache(String roleName, String key) {
+  @Nullable protected SQLBooleanExpression getPredicateFromCache(String roleName, String key) {
     var roleMap = this.securityPredicateCache.get(roleName);
     if (roleMap == null) {
       return null;
@@ -1795,6 +1787,7 @@ public class SecurityShared implements SecurityInternal {
         .existsClass(Role.CLASS_NAME)) {
       return Collections.emptySet();
     }
+    final var shouldCloseTxAfter = !db.isTxActive();
     try (var rs = db.query("select policies from " + Role.CLASS_NAME)) {
       while (rs.hasNext()) {
         var item = rs.next();
@@ -1820,6 +1813,10 @@ public class SecurityShared implements SecurityInternal {
             }
           }
         }
+      }
+    } finally {
+      if (shouldCloseTxAfter && db.isTxActive()) {
+        db.rollback();
       }
     }
     return result;
