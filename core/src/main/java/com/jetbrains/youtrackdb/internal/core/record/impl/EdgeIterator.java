@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
@@ -68,22 +67,13 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
 
     final EdgeInternal edge;
     if (entity.isVertex()) {
-      // DIRECT VERTEX, CREATE DUMMY EDGE
-      SchemaImmutableClass clazz = null;
-      if (connection.getValue() != null) {
-        clazz =
-            (SchemaImmutableClass) session.getMetadata().getImmutableSchemaSnapshot()
-                .getClass(connection.getValue());
-      }
-      if (connection.getKey() == Direction.OUT) {
-        edge =
-            new EdgeImpl(session,
-                this.sourceEntity, entity.asVertex(), clazz);
-      } else {
-        edge =
-            new EdgeImpl(session,
-                entity.asVertex(), this.sourceEntity, clazz);
-      }
+      // Legacy lightweight edges stored raw vertex RIDs in LinkBags. After edge
+      // unification, all LinkBag entries must point to edge records, not vertices.
+      throw new IllegalStateException(
+          "Legacy lightweight edge detected: LinkBag entry "
+              + identifiable
+              + " points to a vertex instead of an edge record. "
+              + "Legacy lightweight edges are no longer supported.");
     } else if (entity.isEdge()) {
       // EDGE
       edge = (EdgeInternal) entity.asEdge();

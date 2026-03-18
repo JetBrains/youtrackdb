@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Triple;
-
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -20,9 +19,13 @@ import org.junit.Test;
  */
 public class UniqueIndexTest extends DbTestBase {
 
+  // After edge unification, each edge has a unique RID, so a composite index on
+  // (type, out_Link) no longer conflicts when two vertices with the same type link
+  // to the same target — each edge RID is distinct. This test verifies that the
+  // commit succeeds (no RecordDuplicatedException).
   @Test
   public void compositeIndexWithEdgesTestOne() {
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var linkClass = session.createEdgeClass("Link");
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
@@ -42,26 +45,23 @@ public class UniqueIndexTest extends DbTestBase {
     var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
-    firstEntity.addLightWeightEdge(thirdEntity, linkClass);
-    secondEntity.addLightWeightEdge(thirdEntity, linkClass);
+    firstEntity.addEdge(thirdEntity, linkClass);
+    secondEntity.addEdge(thirdEntity, linkClass);
 
     session.commit();
 
+    // Each vertex has a unique edge RID in its LinkBag, so setting the same
+    // type on both vertices does not cause a composite index collision
     session.begin();
     var activeTx = session.getActiveTransaction();
     secondEntity = activeTx.load(secondEntity);
     secondEntity.setProperty("type", "type1");
-    try {
-      session.commit();
-      Assert.fail();
-    } catch (RecordDuplicatedException e) {
-      session.rollback();
-    }
+    session.commit();
   }
 
   @Test
   public void compositeIndexWithEdgesTestTwo() {
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var linkClass = session.createEdgeClass("Link");
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
@@ -81,15 +81,15 @@ public class UniqueIndexTest extends DbTestBase {
     var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
-    firstEntity.addLightWeightEdge(thirdEntity, linkClass);
-    secondEntity.addLightWeightEdge(thirdEntity, linkClass);
+    firstEntity.addEdge(thirdEntity, linkClass);
+    secondEntity.addEdge(thirdEntity, linkClass);
 
     session.commit();
   }
 
   @Test
   public void compositeIndexWithEdgesTestThree() {
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var linkClass = session.createEdgeClass("Link");
 
     var entityClass = session.createVertexClass("Entity");
     var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
@@ -109,7 +109,7 @@ public class UniqueIndexTest extends DbTestBase {
     var thirdEntity = session.newVertex(entityClass);
     thirdEntity.setProperty("type", "type3");
 
-    firstEntity.addLightWeightEdge(thirdEntity, linkClass);
+    firstEntity.addEdge(thirdEntity, linkClass);
 
     session.commit();
   }
@@ -200,8 +200,7 @@ public class UniqueIndexTest extends DbTestBase {
 
     // a unique index on the LINKBAG property
     aClass.createIndex(
-        "unique_index_123", SchemaClass.INDEX_TYPE.UNIQUE, "bLinks"
-    );
+        "unique_index_123", SchemaClass.INDEX_TYPE.UNIQUE, "bLinks");
 
     // 2 entities with different "bLinks" fields.
     final var ids = session.computeInTx(tx -> {

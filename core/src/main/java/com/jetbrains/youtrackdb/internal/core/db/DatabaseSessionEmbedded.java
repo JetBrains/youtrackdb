@@ -106,7 +106,6 @@ import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -1013,8 +1012,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private EdgeInternal addEdgeInternal(
       final Vertex toVertex,
       final Vertex inVertex,
-      String className,
-      boolean isRegular) {
+      String className) {
     Objects.requireNonNull(toVertex, "From vertex is null");
     Objects.requireNonNull(inVertex, "To vertex is null");
 
@@ -1044,39 +1042,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     className = edgeType.getName();
 
-    var createLightweightEdge =
-        !isRegular
-            && (edgeType.isAbstract() || className.equals(EdgeInternal.CLASS_NAME));
-    if (!isRegular && !createLightweightEdge) {
-      throw new IllegalArgumentException(
-          "Cannot create lightweight edge for class " + className + " because it is not abstract");
-    }
-
     final var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, className);
     final var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, className);
 
-    if (createLightweightEdge) {
-      // Lightweight edges: both primary and secondary RIDs point to the opposite vertex
-      var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
-      var tx = getActiveTransaction();
-      VertexEntityImpl.createLink(this, tx.load(toVertex), tx.load(inVertex), outFieldName);
-      tx = getActiveTransaction();
-      VertexEntityImpl.createLink(this, tx.load(inVertex), tx.load(toVertex), inFieldName);
-      edge = lightWeightEdge;
-    } else {
-      // Heavyweight edges: primary RID is the edge record, secondary RID is the opposite vertex
-      var statefulEdge = newStatefulEdgeInternal(className);
-      var tx = getActiveTransaction();
-      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
-      statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
+    // All edges are record-based: primary RID is the edge record,
+    // secondary RID is the opposite vertex
+    var statefulEdge = newStatefulEdgeInternal(className);
+    var tx = getActiveTransaction();
+    statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
+    statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
 
-      // OUT-VERTEX ---> edge record as primary, IN-VERTEX as secondary
-      VertexEntityImpl.createLink(this, outEntity, statefulEdge, inEntity, outFieldName);
+    // OUT-VERTEX ---> edge record as primary, IN-VERTEX as secondary
+    VertexEntityImpl.createLink(this, outEntity, statefulEdge, inEntity, outFieldName);
 
-      // IN-VERTEX ---> edge record as primary, OUT-VERTEX as secondary
-      VertexEntityImpl.createLink(this, inEntity, statefulEdge, outEntity, inFieldName);
-      edge = statefulEdge;
-    }
+    // IN-VERTEX ---> edge record as primary, OUT-VERTEX as secondary
+    VertexEntityImpl.createLink(this, inEntity, statefulEdge, outEntity, inFieldName);
+    edge = statefulEdge;
     // OK
 
     return edge;
@@ -1096,7 +1077,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           type + " is an abstract class and can not be used for creation of regular edge");
     }
 
-    return (StatefulEdge) addEdgeInternal(from, to, type, true);
+    return (StatefulEdge) addEdgeInternal(from, to, type);
   }
 
   public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
@@ -1106,14 +1087,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
-      throw new IllegalArgumentException(type + " is not a lightweight edge class");
+      throw new IllegalArgumentException(type + " is not an edge class");
     }
-    if (!cl.isAbstract()) {
+    if (cl.isAbstract()) {
       throw new IllegalArgumentException(
-          type + " is not an abstract class and can not be used for creation of lightweight edge");
+          type + " is abstract. After edge unification, all edges are record-based "
+              + "and abstract classes cannot be used for edge creation. "
+              + "Use createEdgeClass() instead of createLightweightEdgeClass().");
     }
 
-    return addEdgeInternal(from, to, type, false);
+    return addEdgeInternal(from, to, type);
   }
 
   @Nullable public RecordAbstract executeReadRecord(
@@ -1260,7 +1243,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw new IllegalArgumentException(iClassName + " is not an edge class");
     }
 
-    return addEdgeInternal(from, to, iClassName, true);
+    return addEdgeInternal(from, to, iClassName);
   }
 
   public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
@@ -3388,14 +3371,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    var clazz =
-        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
-
-    return new EdgeImpl(this, from, to, clazz);
+    throw new IllegalStateException(
+        "Legacy lightweight edges are no longer supported. "
+            + "All edges are now record-based. Use newStatefulEdge() instead.");
   }
 
   public void queryStarted(String id, ResultSet resultSet) {

@@ -186,14 +186,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
           (EdgeInternal) currentFrom.addEdge(currentTo, targetClass.getStringValue());
     }
 
-    // After unification (Track 2+), all edges will be StatefulEdge. Until then,
-    // lightweight edges (EdgeImpl) still exist and need the fallback path.
-    var stateful = edgeToUpdate.asStatefulEdgeOrNull();
-    if (stateful != null) {
-      return new UpdatableResult(session, stateful);
-    } else {
-      return new ResultInternal(session, edgeToUpdate);
-    }
+    // All edges are now record-based (StatefulEdge) after edge unification
+    return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
   }
 
   @Nullable private static EdgeInternal getExistingEdge(

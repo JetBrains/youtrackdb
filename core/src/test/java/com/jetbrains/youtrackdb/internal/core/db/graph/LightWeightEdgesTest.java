@@ -28,7 +28,7 @@ public class LightWeightEdgesTest {
     session = youTrackDB.open("test", "admin", "adminpwd");
 
     session.getSchema().createVertexClass("Vertex");
-    session.getSchema().createLightweightEdgeClass("Edge");
+    session.getSchema().createEdgeClass("Edge");
   }
 
   @Test
@@ -36,7 +36,7 @@ public class LightWeightEdgesTest {
     var tx = session.begin();
     var v = tx.newVertex("Vertex");
     var v1 = tx.newVertex("Vertex");
-    v.addLightWeightEdge(v1, "Edge");
+    v.addEdge(v1, "Edge");
     v.setProperty("name", "aName");
     v1.setProperty("name", "bName");
     tx.commit();

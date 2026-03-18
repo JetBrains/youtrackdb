@@ -14,11 +14,11 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -35,16 +35,10 @@ import org.junit.Test;
 /**
  * Tests that double-sided edge storage in LinkBag correctly stores primary and secondary RIDs.
  *
- * <p>For heavyweight (stateful) edges, the LinkBag should store:
+ * <p>After edge unification, all edges are record-based. The LinkBag stores:
  * <ul>
  *   <li>primaryRid = edge record RID</li>
  *   <li>secondaryRid = opposite vertex RID</li>
- * </ul>
- *
- * <p>For lightweight edges, the LinkBag should store:
- * <ul>
- *   <li>primaryRid = opposite vertex RID</li>
- *   <li>secondaryRid = opposite vertex RID (same as primary)</li>
  * </ul>
  */
 public class DoubleSidedEdgeLinkBagTest {
@@ -62,7 +56,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     session.getSchema().createVertexClass("TestVertex");
     session.getSchema().createEdgeClass("HeavyEdge");
-    session.getSchema().createLightweightEdgeClass("LightEdge");
+    session.getSchema().createEdgeClass("LightEdge");
   }
 
   @After
@@ -131,17 +125,18 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that a lightweight edge stores the opposite vertex RID as both primary
-   * and secondary (i.e. the pair is "lightweight") in both the outgoing and incoming
-   * vertex LinkBags.
+   * Verifies that a "LightEdge" (which after edge unification is record-based like all
+   * edges) stores the edge record RID as primary and the opposite vertex RID as secondary
+   * in both the outgoing and incoming vertex LinkBags.
    */
   @Test
-  public void testLightweightEdgeStoresSameVertexRidAsBothPrimaryAndSecondary() {
+  public void testEdgeStoresEdgeRidAsPrimaryAndVertexRidAsSecondary() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    var edge = outVertex.addStateFulEdge(inVertex, "LightEdge");
+    var edgeRid = edge.getIdentity();
 
     tx.commit();
 
@@ -149,7 +144,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedOut = (EntityImpl) tx.load(outVertex.getIdentity());
     var loadedIn = (EntityImpl) tx.load(inVertex.getIdentity());
 
-    // Check outgoing vertex: out_LightEdge should contain RidPair(inVertexRid, inVertexRid)
+    // Check outgoing vertex: out_LightEdge should contain RidPair(edgeRid, inVertexRid)
     var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     var outBag = (LinkBag) loadedOut.getPropertyInternal(outFieldName);
     assertNotNull("Outgoing vertex should have out_LightEdge LinkBag", outBag);
@@ -157,16 +152,16 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outPair = outBag.iterator().next();
     assertEquals(
-        "Lightweight outgoing primary RID should be the target (in) vertex",
-        inVertex.getIdentity(), outPair.primaryRid());
+        "Outgoing primary RID should be the edge record",
+        edgeRid, outPair.primaryRid());
     assertEquals(
-        "Lightweight outgoing secondary RID should also be the target (in) vertex",
+        "Outgoing secondary RID should be the target (in) vertex",
         inVertex.getIdentity(), outPair.secondaryRid());
-    assertTrue(
-        "Lightweight edge pair should be lightweight (primary == secondary)",
+    assertFalse(
+        "Edge pair should not be lightweight (all edges are record-based)",
         outPair.isLightweight());
 
-    // Check incoming vertex: in_LightEdge should contain RidPair(outVertexRid, outVertexRid)
+    // Check incoming vertex: in_LightEdge should contain RidPair(edgeRid, outVertexRid)
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "LightEdge");
     var inBag = (LinkBag) loadedIn.getPropertyInternal(inFieldName);
     assertNotNull("Incoming vertex should have in_LightEdge LinkBag", inBag);
@@ -174,13 +169,13 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var inPair = inBag.iterator().next();
     assertEquals(
-        "Lightweight incoming primary RID should be the source (out) vertex",
-        outVertex.getIdentity(), inPair.primaryRid());
+        "Incoming primary RID should be the edge record",
+        edgeRid, inPair.primaryRid());
     assertEquals(
-        "Lightweight incoming secondary RID should also be the source (out) vertex",
+        "Incoming secondary RID should be the source (out) vertex",
         outVertex.getIdentity(), inPair.secondaryRid());
-    assertTrue(
-        "Lightweight edge pair should be lightweight (primary == secondary)",
+    assertFalse(
+        "Edge pair should not be lightweight (all edges are record-based)",
         inPair.isLightweight());
 
     tx.commit();
@@ -258,18 +253,20 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that mixing lightweight and heavyweight edges on the same vertex stores
-   * the correct RidPair format for each type.
+   * Verifies that both LightEdge and HeavyEdge classes on the same vertex store
+   * the correct RidPair format (edgeRid, oppositeVertexRid). After edge unification,
+   * both edge classes are record-based and produce identical RidPair patterns.
    */
   @Test
-  public void testMixedLightweightAndHeavyweightEdgesOnSameVertex() {
+  public void testMultipleEdgeClassesOnSameVertexStoreCorrectRidPairs() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertexLight = tx.newVertex("TestVertex");
     var inVertexHeavy = tx.newVertex("TestVertex");
 
-    outVertex.addLightWeightEdge(inVertexLight, "LightEdge");
+    var lightEdge = outVertex.addStateFulEdge(inVertexLight, "LightEdge");
+    var lightEdgeRid = lightEdge.getIdentity();
     var heavyEdge = outVertex.addStateFulEdge(inVertexHeavy, "HeavyEdge");
     var heavyEdgeRid = heavyEdge.getIdentity();
 
@@ -278,23 +275,24 @@ public class DoubleSidedEdgeLinkBagTest {
     tx = session.begin();
     var loadedOut = (EntityImpl) tx.load(outVertex.getIdentity());
 
-    // Check lightweight edge field
+    // Check LightEdge field: should store RidPair(edgeRid, oppositeVertexRid)
     var lightOutField = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     var lightBag = (LinkBag) loadedOut.getPropertyInternal(lightOutField);
     assertNotNull(lightBag);
     assertEquals(1, lightBag.size());
     var lightPair = lightBag.iterator().next();
-    assertTrue("Light edge should be lightweight", lightPair.isLightweight());
-    assertEquals(inVertexLight.getIdentity(), lightPair.primaryRid());
+    assertFalse("LightEdge should not be lightweight (all edges are record-based)",
+        lightPair.isLightweight());
+    assertEquals(lightEdgeRid, lightPair.primaryRid());
     assertEquals(inVertexLight.getIdentity(), lightPair.secondaryRid());
 
-    // Check heavyweight edge field
+    // Check HeavyEdge field: should store RidPair(edgeRid, oppositeVertexRid)
     var heavyOutField = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
     var heavyBag = (LinkBag) loadedOut.getPropertyInternal(heavyOutField);
     assertNotNull(heavyBag);
     assertEquals(1, heavyBag.size());
     var heavyPair = heavyBag.iterator().next();
-    assertFalse("Heavy edge should not be lightweight", heavyPair.isLightweight());
+    assertFalse("HeavyEdge should not be lightweight", heavyPair.isLightweight());
     assertEquals(heavyEdgeRid, heavyPair.primaryRid());
     assertEquals(inVertexHeavy.getIdentity(), heavyPair.secondaryRid());
 
@@ -382,16 +380,16 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that getVertices(OUT) on a lightweight edge returns the correct opposite
-   * vertex. Lightweight edges store the same vertex RID as both primary and secondary.
+   * Verifies that getVertices(OUT) on a LightEdge returns the correct opposite
+   * vertex. After edge unification, LightEdge is record-based like all edges.
    */
   @Test
-  public void testGetVerticesOutReturnsOppositeVertexForLightweightEdge() {
+  public void testGetVerticesOutReturnsOppositeVertexForLightEdge() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    outVertex.addEdge(inVertex, "LightEdge");
 
     tx.commit();
 
@@ -451,7 +449,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var lightTarget = tx.newVertex("TestVertex");
 
     outVertex.addStateFulEdge(heavyTarget, "HeavyEdge");
-    outVertex.addLightWeightEdge(lightTarget, "LightEdge");
+    outVertex.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
 
@@ -514,9 +512,8 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that getVertices works correctly when a vertex has both heavyweight
-   * and lightweight edges, and returns all adjacent vertices when no label filter
-   * is applied.
+   * Verifies that getVertices works correctly when a vertex has edges from multiple
+   * edge classes, and returns all adjacent vertices when no label filter is applied.
    */
   @Test
   public void testGetVerticesWithMixedEdgeTypesReturnsAllAdjacentVertices() {
@@ -527,7 +524,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var lightTarget = tx.newVertex("TestVertex");
 
     center.addStateFulEdge(heavyTarget, "HeavyEdge");
-    center.addLightWeightEdge(lightTarget, "LightEdge");
+    center.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
 
@@ -542,10 +539,10 @@ public class DoubleSidedEdgeLinkBagTest {
 
     assertEquals("Should have 2 adjacent vertices", 2, adjacentRids.size());
     assertTrue(
-        "Should contain heavyweight target",
+        "Should contain HeavyEdge target",
         adjacentRids.contains(heavyTarget.getIdentity()));
     assertTrue(
-        "Should contain lightweight target",
+        "Should contain LightEdge target",
         adjacentRids.contains(lightTarget.getIdentity()));
 
     tx.commit();
@@ -751,7 +748,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var heavySource = tx.newVertex("TestVertex");
 
     center.addStateFulEdge(heavyTarget, "HeavyEdge");
-    center.addLightWeightEdge(lightTarget, "LightEdge");
+    center.addEdge(lightTarget, "LightEdge");
     heavySource.addStateFulEdge(center, "HeavyEdge");
 
     tx.commit();
@@ -766,11 +763,11 @@ public class DoubleSidedEdgeLinkBagTest {
     }
 
     assertEquals("Should have 3 adjacent vertices", 3, allAdjacentRids.size());
-    assertTrue("Should contain heavyweight outgoing target",
+    assertTrue("Should contain HeavyEdge outgoing target",
         allAdjacentRids.contains(heavyTarget.getIdentity()));
-    assertTrue("Should contain lightweight outgoing target",
+    assertTrue("Should contain LightEdge outgoing target",
         allAdjacentRids.contains(lightTarget.getIdentity()));
-    assertTrue("Should contain heavyweight incoming source",
+    assertTrue("Should contain HeavyEdge incoming source",
         allAdjacentRids.contains(heavySource.getIdentity()));
 
     tx.commit();
@@ -821,7 +818,7 @@ public class DoubleSidedEdgeLinkBagTest {
     // Verify RidPairs are correctly formed: each should be heavyweight
     for (var pair : outBag) {
       assertFalse(
-          "Each BTree pair should be heavyweight (edge RID != vertex RID)",
+          "Each BTree pair should not be lightweight (all edges are record-based)",
           pair.isLightweight());
       assertTrue(
           "Each pair's secondary RID should be a reachable target vertex",
@@ -1230,12 +1227,12 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that a LINKBAG index on an edge field stores the opposite vertex RID
-   * for lightweight edges (since primaryRid == secondaryRid == opposite vertex for
-   * lightweight edges).
+   * Verifies that a LINKBAG index on a LightEdge field stores the edge record RID
+   * (primaryRid) as the index key, not the opposite vertex RID. After edge unification,
+   * LightEdge is record-based and behaves identically to HeavyEdge.
    */
   @Test
-  public void testLinkBagIndexContainsVertexRidForLightweightEdges() {
+  public void testLinkBagIndexContainsEdgeRidForLightEdges() {
     var vertexClass = session.getSchema().getClass("TestVertex");
     var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     vertexClass.createProperty(outFieldName, PropertyType.LINKBAG);
@@ -1247,13 +1244,14 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
 
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    var edge = outVertex.addStateFulEdge(inVertex, "LightEdge");
 
+    var edgeRid = edge.getIdentity();
     var inVertexRid = inVertex.getIdentity();
 
     tx.commit();
 
-    // Verify the index contains the opposite vertex RID (primaryRid for lightweight)
+    // Verify the index contains the edge record RID (primaryRid)
     tx = session.begin();
     var ato = tx.getAtomicOperation();
     var index = session.getSharedContext().getIndexManager().getIndex("testLightEdgeIndex");
@@ -1269,7 +1267,9 @@ public class DoubleSidedEdgeLinkBagTest {
     }
 
     assertEquals("Index should have exactly 1 key", 1, indexKeys.size());
-    assertTrue("Index key should be the opposite vertex RID",
+    assertTrue("Index key should be the edge record RID (primaryRid)",
+        indexKeys.contains(edgeRid));
+    assertFalse("Index key should NOT be the opposite vertex RID (secondaryRid)",
         indexKeys.contains(inVertexRid));
 
     tx.commit();
@@ -1305,7 +1305,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedOut = (EntityImpl) tx.load(outRid);
     var fieldValue = loadedOut.getPropertyInternal(outFieldName);
     assertTrue("Edge property should be EntityLinkListImpl, but was: "
-            + fieldValue.getClass().getSimpleName(),
+        + fieldValue.getClass().getSimpleName(),
         fieldValue instanceof EntityLinkListImpl);
 
     // Verify getVertices() correctly resolves the adjacent vertex through the LINKLIST
@@ -1320,7 +1320,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedIn = (EntityImpl) tx.load(inRid);
     var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
     assertTrue("Incoming edge property should be EntityLinkListImpl, but was: "
-            + inFieldValue.getClass().getSimpleName(),
+        + inFieldValue.getClass().getSimpleName(),
         inFieldValue instanceof EntityLinkListImpl);
 
     var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
@@ -1373,7 +1373,7 @@ public class DoubleSidedEdgeLinkBagTest {
     // Verify the property is now EntityLinkSetImpl
     var outFieldValue = loadedOut.getPropertyInternal(outFieldName);
     assertTrue("Outgoing edge property should be EntityLinkSetImpl, but was: "
-            + outFieldValue.getClass().getSimpleName(),
+        + outFieldValue.getClass().getSimpleName(),
         outFieldValue instanceof EntityLinkSetImpl);
 
     // Verify getVertices() correctly resolves the adjacent vertex through the LINKSET
@@ -1400,7 +1400,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
     assertTrue("Incoming edge property should be EntityLinkSetImpl, but was: "
-            + inFieldValue.getClass().getSimpleName(),
+        + inFieldValue.getClass().getSimpleName(),
         inFieldValue instanceof EntityLinkSetImpl);
 
     var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
