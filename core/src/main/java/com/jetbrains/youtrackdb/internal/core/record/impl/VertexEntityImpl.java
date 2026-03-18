@@ -167,18 +167,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
               iterables.add(new VertexFromLinkBagIterable(bag, session));
           case Identifiable identifiable -> {
             var coll = Collections.singleton(identifiable);
-            var edges = new EdgeIterable(
-                this, connection, labels, session, coll, 1, coll);
+            var edges = new EdgeIterable(session, coll, 1, coll);
             iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkSetImpl set -> {
-            var edges = new EdgeIterable(
-                this, connection, labels, session, set, -1, set);
+            var edges = new EdgeIterable(session, set, -1, set);
             iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkListImpl list -> {
-            var edges = new EdgeIterable(
-                this, connection, labels, session, list, -1, list);
+            var edges = new EdgeIterable(session, list, -1, list);
             iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           default -> throw new IllegalArgumentException(
@@ -387,20 +384,17 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           case Identifiable identifiable -> {
             var coll = Collections.singleton(identifiable);
             iterables.add(
-                new EdgeIterable(this, connection, labels, session, coll, 1, coll));
+                new EdgeIterable(session, coll, 1, coll));
           }
           case EntityLinkSetImpl set -> iterables.add(
-              new EdgeIterable(this, connection, labels, session,
-                  set, -1, set));
+              new EdgeIterable(session, set, -1, set));
           case EntityLinkListImpl list -> iterables.add(
-              new EdgeIterable(this, connection, labels, session,
-                  list, -1, list));
+              new EdgeIterable(session, list, -1, list));
           case LinkBag bag -> {
             Iterable<RID> ridIterable =
                 () -> bag.stream().map(RidPair::primaryRid).iterator();
             iterables.add(
-                new EdgeIterable(
-                    this, connection, labels, session, ridIterable, bag.size(), bag));
+                new EdgeIterable(session, ridIterable, bag.size(), bag));
           }
           default -> {
             throw new IllegalArgumentException(
