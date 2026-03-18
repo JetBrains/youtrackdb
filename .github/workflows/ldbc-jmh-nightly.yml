@@ -128,6 +128,7 @@ jobs:
             git config --global user.email "bench@ci"
             git config --global user.name "bench"
             cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
+            git tag spotless-baseline
           '
 
       - name: Download LDBC dataset from S3
@@ -177,15 +178,17 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
-              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20
+            ./mvnw -pl jmh-ldbc -am compile exec:exec \
+              -DskipTests -Dspotless.check.skip=true \
+              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
           '
 
       - name: Run benchmarks
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+            ./mvnw -pl jmh-ldbc -am compile exec:exec \
+              -DskipTests -Dspotless.check.skip=true \
               -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
               2>&1 | tee /root/bench.log
           '
