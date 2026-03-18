@@ -11,11 +11,10 @@ Execution-specific formats and rules. Loaded only during Phase 3
 These subsections extend the plan file structure defined in
 `conventions.md` §1.2.
 
-### After track completion (user-approved)
+### After track completion
 
-The track episode is written to the plan file **only after the user
-approves** the track results (see workflow.md §Track Completion Protocol).
-The episode and `[x]` marker are committed together in a single commit:
+The track episode is appended to the plan file under the completed track's
+checklist entry:
 
 ```markdown
 - [x] Track 2: <title>
@@ -81,17 +80,9 @@ the resume state:
 | Progress section | Resume action |
 |---|---|
 | `Review + decomposition` is `[ ]` | Reviews completed section may show partial progress — re-run only missing reviews, then decompose |
-| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step, skipping any `[!]` (failed) steps before it (see step-implementation.md §Phase B Resume for incomplete step recovery and §Step Failure for retry handling) |
-| Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows the `[!]` — if yes, resume from the retry step. If the last `[!]` has no retry step after it, the previous session was interrupted before deciding retry/split — present the failed episode to the user and ask how to proceed |
-| All steps `[x]`, `Track-level code review` is `[ ]` or shows partial iterations | Run Phase C (track-level code review), starting from iteration 1 if `[ ]`, or continuing from the recorded iteration if partial |
-| All phases `[x]` | Track completion pending — compile track episode, present to user for approval, write to plan file only after approval (see workflow.md §Track Completion Protocol) |
-
-**Incomplete step recovery (Phase B resume):** When resuming at a `[ ]`
-step, the previous session may have committed code but not written the
-episode. Check `git log {base_commit}..HEAD` for orphan implementation
-commits after the last episoded step. If found, resume from the code
-review or episode sub-step instead of re-implementing. See
-step-implementation.md §Phase B Resume for the full protocol.
+| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step |
+| All steps `[x]`, `Track-level code review` is `[ ]` | Run Phase C (track-level code review) |
+| All phases `[x]` | Track is done but plan file not yet updated — write track episode, mark `[x]` |
 
 ### Step file content (`tracks/track-N.md`)
 
@@ -130,9 +121,7 @@ agent updates it at each phase transition:
 - Mark `Review + decomposition` as `[x]` when the step file is first written
 - Update `Step implementation` count as each step completes (e.g.,
   `(3/5 complete)`); mark `[x]` when all steps are done
-- Update `Track-level code review` iteration count as each review
-  iteration completes (e.g., `(1/3 iterations)`); mark `[x]` when the
-  review passes or max iterations are reached
+- Mark `Track-level code review` as `[x]` when the review passes
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once
@@ -332,30 +321,22 @@ fixes.
 
 ### Track-level code review (after all steps complete)
 
-After all steps are committed, the execution agent spawns **two sub-agents
-in parallel** that review the full track diff (`git diff <base>..HEAD`):
+After all steps are committed, the execution agent spawns a fresh
+**code review sub-agent** that reviews the full track diff
+(`git diff <base>..HEAD`):
 
-1. **Code review** (`code-reviewer` agent type) — reviews the entire track
-   diff for systematic code quality issues.
-2. **Test quality review** (`test-quality-reviewer` agent type) — reviews
-   whether tests are behavior-driven, thorough, and meaningful.
+1. The sub-agent reviews the entire track diff for systematic issues.
+2. If findings are returned, the execution agent applies fixes as additional
+   commits, then spawns a fresh sub-agent to verify.
+3. Repeats until approved OR **max 3 iterations** reached.
+4. If max iterations reached, remaining findings are noted and presented
+   to the user during track review.
 
-Both run in parallel against the same diff. Findings use distinct prefixes
-(`C<N>` for code, `Q<N>` for test quality). The iteration loop merges
-findings from both and re-runs only the review type(s) with open findings.
-Max 3 iterations total (shared counter). See `track-code-review.md` for
-the full protocol.
-
-**What track-level code review catches:** systematic patterns repeated
-across steps, cross-step consistency issues, accumulated technical debt
-that's individually acceptable but collectively problematic, integration
-issues where steps compile independently but the combined result has subtle
+**What track-level review catches:** systematic patterns repeated across
+steps, cross-step consistency issues, accumulated technical debt that's
+individually acceptable but collectively problematic, integration issues
+where steps compile independently but the combined result has subtle
 interactions.
-
-**What track-level test quality review catches:** coverage-driven tests
-that exercise code without verifying behavior, shallow or imprecise
-assertions, missing corner cases and boundary conditions, test isolation
-issues, and opportunities for Java `assert` statements in production code.
 
 ---
 
