@@ -305,7 +305,7 @@ public interface ResultSet extends BasicResultSet<Result> {
   }
 
   /**
-   * Returns the result set as a stream of vertices (filters only the results that are edges - where
+   * Returns the result set as a stream of edges (filters only the results that are edges - where
    * the isEdge() method returns true). IMPORTANT: the stream consumes the result set!
    */
   @Nonnull
