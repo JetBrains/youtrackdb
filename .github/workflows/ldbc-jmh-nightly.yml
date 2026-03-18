@@ -178,17 +178,19 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc compile exec:exec \
-              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+            ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q \
+              && ./mvnw -pl jmh-ldbc exec:exec \
+                   -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
           '
 
       - name: Run benchmarks
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc compile exec:exec \
-              -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
-              2>&1 | tee /root/bench.log
+            ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q \
+              && ./mvnw -pl jmh-ldbc exec:exec \
+                   -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
+                   2>&1 | tee /root/bench.log
           '
 
       - name: Collect results
