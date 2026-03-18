@@ -25,19 +25,36 @@ import javax.annotation.Nullable;
 public sealed interface RidFilterDescriptor {
 
   /**
+   * Sentinel value indicating that the link bag size is unknown at
+   * resolve time. When passed as {@code linkBagSize}, only the absolute
+   * {@link TraversalPreFilterHelper#maxRidSetSize()} cap is enforced;
+   * ratio-based guards are skipped.
+   */
+  int UNKNOWN_LINKBAG_SIZE = -1;
+
+  /**
    * Resolves this descriptor against the current execution context
    * and returns a {@link RidSet} of accepted vertex RIDs, or
-   * {@code null} if resolution fails or yields too many results.
+   * {@code null} if resolution fails, yields too many results, or
+   * the ratio of result size to {@code linkBagSize} is too high.
+   *
+   * @param ctx         command context (may contain {@code $parent}
+   *                    or {@code $matched} references)
+   * @param linkBagSize the actual size of the link bag that will be
+   *                    filtered, or {@link #UNKNOWN_LINKBAG_SIZE} if
+   *                    not yet known
    */
-  @Nullable RidSet resolve(CommandContext ctx);
+  @Nullable RidSet resolve(CommandContext ctx, int linkBagSize);
 
   /**
    * Direct RID equality: {@code WHERE @rid = <expr>}.
    * Resolves the expression to a single RID and returns a singleton set.
+   * The {@code linkBagSize} parameter is ignored — a singleton set is
+   * always worth applying.
    */
   record DirectRid(SQLExpression ridExpression) implements RidFilterDescriptor {
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
+    @Nullable public RidSet resolve(CommandContext ctx, int linkBagSize) {
       var value = ridExpression.execute((Result) null, ctx);
       RID rid = TraversalPreFilterHelper.toRid(value);
       if (rid == null) {
@@ -68,14 +85,14 @@ public sealed interface RidFilterDescriptor {
       SQLExpression targetRidExpression) implements RidFilterDescriptor {
 
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
+    @Nullable public RidSet resolve(CommandContext ctx, int linkBagSize) {
       var value = targetRidExpression.execute((Result) null, ctx);
       RID targetRid = TraversalPreFilterHelper.toRid(value);
       if (targetRid == null) {
         return null;
       }
       return TraversalPreFilterHelper.resolveReverseEdgeLookup(
-          targetRid, edgeClassName, traversalDirection, ctx);
+          targetRid, edgeClassName, traversalDirection, ctx, linkBagSize);
     }
   }
 
@@ -91,8 +108,9 @@ public sealed interface RidFilterDescriptor {
       IndexSearchDescriptor indexDescriptor) implements RidFilterDescriptor {
 
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
-      return TraversalPreFilterHelper.resolveIndexToRidSet(indexDescriptor, ctx);
+    @Nullable public RidSet resolve(CommandContext ctx, int linkBagSize) {
+      return TraversalPreFilterHelper.resolveIndexToRidSet(
+          indexDescriptor, ctx, linkBagSize);
     }
   }
 }

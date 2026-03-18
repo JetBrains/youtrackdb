@@ -1214,6 +1214,32 @@ public enum GlobalConfiguration {
       4,
       true,
       true),
+
+  // ---- Pre-filter (adaptive RidSet intersection) configuration ----
+
+  QUERY_PREFILTER_MAX_RIDSET_SIZE(
+      "youtrackdb.query.prefilter.maxRidSetSize",
+      "Maximum number of RIDs collected from an index or reverse edge lookup"
+          + " before aborting the pre-filter build (memory protection cap)",
+      Integer.class,
+      100_000,
+      true),
+
+  QUERY_PREFILTER_MAX_SELECTIVITY_RATIO(
+      "youtrackdb.query.prefilter.maxSelectivityRatio",
+      "Maximum ratio of ridSetSize/linkBagSize at which the pre-filter is"
+          + " still applied. Above this the filter is too weak to be useful",
+      Double.class,
+      0.8,
+      true),
+
+  QUERY_PREFILTER_MIN_LINKBAG_SIZE(
+      "youtrackdb.query.prefilter.minLinkBagSize",
+      "Minimum link bag size below which pre-filtering is skipped entirely."
+          + " Loading a few records is cheaper than building a RidSet",
+      Integer.class,
+      50,
+      true),
       ;
 
   static {

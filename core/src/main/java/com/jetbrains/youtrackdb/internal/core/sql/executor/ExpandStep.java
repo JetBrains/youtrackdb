@@ -118,11 +118,13 @@ public class ExpandStep extends AbstractExecutionStep {
 
     @Nullable RidSet ridFilterSet = null;
     if (ridFilterDescriptor != null) {
-      ridFilterSet = ridFilterDescriptor.resolve(ctx);
+      ridFilterSet = ridFilterDescriptor.resolve(
+          ctx, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
     }
     @Nullable RidSet indexRidSet = null;
     if (indexDescriptor != null) {
-      indexRidSet = resolveIndexToRidSet(indexDescriptor, ctx);
+      indexRidSet = resolveIndexToRidSet(
+          indexDescriptor, ctx, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
     }
     final var combinedRidSet = intersect(ridFilterSet, indexRidSet);
 
@@ -195,7 +197,8 @@ public class ExpandStep extends AbstractExecutionStep {
           if (acceptedCollectionIds != null) {
             filtered = filtered.withClassFilter(acceptedCollectionIds);
           }
-          if (indexRidSet != null) {
+          if (indexRidSet != null
+              && filtered.size() >= TraversalPreFilterHelper.minLinkBagSize()) {
             filtered = filtered.withRidFilter(indexRidSet);
           }
           return ExecutionStream.iterator(filtered.iterator(), expandAlias);
@@ -259,8 +262,8 @@ public class ExpandStep extends AbstractExecutionStep {
   }
 
   @Nullable private static RidSet resolveIndexToRidSet(
-      IndexSearchDescriptor desc, CommandContext ctx) {
-    return TraversalPreFilterHelper.resolveIndexToRidSet(desc, ctx);
+      IndexSearchDescriptor desc, CommandContext ctx, int linkBagSize) {
+    return TraversalPreFilterHelper.resolveIndexToRidSet(desc, ctx, linkBagSize);
   }
 
   @Nullable private static RidSet intersect(@Nullable RidSet a, @Nullable RidSet b) {

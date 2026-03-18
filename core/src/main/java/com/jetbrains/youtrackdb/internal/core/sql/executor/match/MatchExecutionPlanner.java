@@ -1094,7 +1094,9 @@ public class MatchExecutionPlanner {
     }
 
     // Extract direction from the method name (out/in/both).
-    Direction direction = parseDirection(method.getMethodName());
+    var methodId = method.getMethodName();
+    Direction direction = parseDirection(
+        methodId != null ? methodId.getStringValue() : null);
     if (direction == null) {
       return Double.MAX_VALUE;
     }
