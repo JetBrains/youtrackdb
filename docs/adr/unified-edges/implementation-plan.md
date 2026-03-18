@@ -86,8 +86,11 @@ graph TD
   support.
 - **Schema / SchemaClassEmbedded** — `createLightweightEdgeClass()` removed;
   `setAbstract()` no longer enforces abstract-only for edge classes.
-- **DatabaseSessionEmbedded** — `newLightweightEdge()` removed;
-  `newStatefulEdge()` renamed to `newEdge()`.
+- **Vertex / VertexEntityImpl** — modified: `addLightWeightEdge()`/
+  `addStateFulEdge()` collapsed into single `addEdge()`; `createLink()`
+  overloads unified.
+- **DatabaseSessionEmbedded** — modified: `newLightweightEdge()` removed;
+  `newStatefulEdge()` renamed to `newEdge()`; `addEdgeInternal()` simplified.
 - **SQLFunctionMove / MATCH traversers / SQLEngine** — `Relation<?>`
   pattern matches and parameters removed; `getEntities()` deleted;
   `v2v()` returns `null` for non-graph entities.
@@ -103,9 +106,9 @@ graph TD
 - **Risks/Caveats**: If any legacy database contains lightweight edges, the
   read-time guard will throw on first access. No migration tool is provided
   (assumption: no such databases exist).
-- **Implemented in**: Track 1 (call site migration), Track 2 (type hierarchy
-  collapse), Track 3 (implementation unification and RidPair guard), Track 4
-  (schema and lifecycle cleanup)
+- **Implemented in**: Track 1 (call site migration), Track 2 (StatefulEdge
+  merge), Track 3 (Relation deletion), Track 4 (implementation unification
+  and RidPair guard), Track 5 (schema and lifecycle cleanup)
 
 #### D2: Delete Relation interface entirely (not just deprecate)
 - **Alternatives considered**: (a) Keep `Relation` as a deprecated interface
@@ -119,7 +122,7 @@ graph TD
 - **Risks/Caveats**: `EntityImpl.getEntities()` is deleted —
   `out()`/`in()`/`both()` on plain entities will return `null`. This is
   correct behavior (plain entities are not graph elements).
-- **Implemented in**: Tracks 1, 2
+- **Implemented in**: Tracks 1, 2, 3
 
 #### D3: Read-time guard for legacy lightweight edges (not startup scan)
 - **Alternatives considered**: (a) Startup-time scan of all LinkBags;
@@ -130,7 +133,7 @@ graph TD
   message on first access to a legacy `primaryRid == secondaryRid` pair.
 - **Risks/Caveats**: The error surfaces lazily — a legacy database may appear
   to work until the specific LinkBag containing lightweight edges is accessed.
-- **Implemented in**: Track 3
+- **Implemented in**: Track 4
 
 #### D4: "Index by vertex" via secondary RID index definition
 - **Alternatives considered**: (a) Repurpose existing
@@ -143,7 +146,7 @@ graph TD
 - **Risks/Caveats**: New grammar tokens require SQL parser regeneration. The
   grammar change is isolated to the `CREATE INDEX` specifier rule and does not
   conflict with edge unification changes.
-- **Implemented in**: Track 5
+- **Implemented in**: Track 6
 
 #### Invariants
 
@@ -192,46 +195,59 @@ graph TD
   > Constraints:
   > - `EdgeImpl` deletion requires bridging `EdgeIterator` and
   >   `newLightweightEdgeInternal()` (throw on legacy lightweight edges).
-  > - `Edge` interface retains `asStatefulEdge()`/`asStatefulEdgeOrNull()`
-  >   until Track 2 removes `StatefulEdge`.
+  > - Track 1 removes `isStatefulEdge()`/`isStateful()` from non-`Edge`
+  >   interfaces. `Edge.asStatefulEdge()`/`asStatefulEdgeOrNull()` are
+  >   retained until Track 2 deletes `StatefulEdge`.
   >
-  > **Scope:** ~3 steps covering call site migration, EdgeImpl deletion with
-  > bridge fixes, dead method removal
+  > **Scope:** ~3-4 steps covering call site migration, EdgeImpl deletion
+  > with bridge fixes, dead method removal, ResultSet typo renames
 
-- [ ] Track 2: Delete Relation hierarchy and merge StatefulEdge into Edge
-  > Collapse `StatefulEdge` into `Edge` and eliminate the entire `Relation`
-  > type hierarchy. Move `StatefulEdge`-specific methods onto `Edge`. Replace
-  > all `StatefulEdge` type references with `Edge`. Delete `StatefulEdge.java`.
+- [ ] Track 2: Merge StatefulEdge into Edge
+  > Collapse `StatefulEdge` into `Edge`. Move `StatefulEdge`-specific methods
+  > onto `Edge`. Replace all `StatefulEdge` type references with `Edge`.
+  > Delete `StatefulEdge.java`. Remove `isLightweight()` API-level methods.
   >
-  > Then delete the `Relation` interface and everything that depends on it:
-  > `Element.java`, `EdgeInternal.java`, `LightweightRelationImpl.java`,
-  > `RelationsIteratorAbstract.java`, `RelationsIterable.java`,
-  > `EntityRelationsIterator.java`, `EntityRelationsIterable.java`. Inline
-  > `RelationsIteratorAbstract` logic into `EdgeIterator`/`EdgeIterable`.
-  > Delete `EntityImpl.getEntities()`/`getBidirectionalLinks()`/
+  > Approach: (1) Move StatefulEdge methods to Edge, (2) Replace StatefulEdge
+  > type refs, (3) Delete StatefulEdge, (4) Remove `isLightweight()` call
+  > sites.
+  >
+  > Constraints:
+  > - `isLightweight()` call site removal is a separate preceding commit
+  >   from the `StatefulEdge` deletion.
+  >
+  > **Scope:** ~3-4 steps covering StatefulEdge method migration, type
+  > reference replacement, StatefulEdge deletion, isLightweight removal
+  > **Depends on:** Track 1
+
+- [ ] Track 3: Delete Relation hierarchy
+  > Eliminate the entire `Relation` type hierarchy and everything that depends
+  > on it: `Element.java`, `EdgeInternal.java`,
+  > `LightweightRelationImpl.java`, `RelationsIteratorAbstract.java`,
+  > `RelationsIterable.java`, `EntityRelationsIterator.java`,
+  > `EntityRelationsIterable.java`. Inline `RelationsIteratorAbstract` logic
+  > into `EdgeIterator`/`EdgeIterable`. Delete
+  > `EntityImpl.getEntities()`/`getBidirectionalLinks()`/
   > `getBidirectionalLinksInternal()`. Remove `Relation<?>` pattern matches
   > from SQL functions and MATCH traversers. Reparameterize
   > `BidirectionalLinksIterable`/`BidirectionalLinkToEntityIterator` from
   > `Relation<T>` to `Edge`. Remove `ResultInternal.relation` field and
   > `isRelation()`/`asRelation()` from all interfaces.
   >
-  > Approach: (1) Move StatefulEdge methods to Edge, (2) Replace StatefulEdge
-  > type refs, (3) Delete StatefulEdge, (4) Remove `isLightweight()` API-level
-  > methods, (5) Atomic commit deleting Relation + Element + dependent types
-  > (these files cross-reference each other and cannot be deleted
-  > independently).
+  > Approach: (1) Reparameterize BidirectionalLinks types from Relation to
+  > Edge, (2) Remove Relation pattern matches from SQL/MATCH, (3) Atomic
+  > commit deleting Relation + Element + dependent types (these files
+  > cross-reference each other and cannot be deleted independently).
   >
   > Constraints:
-  > - Step 5 must be a single atomic commit because deleted types
-  >   cross-reference each other.
-  > - `isLightweight()` call site removal is a separate preceding commit.
+  > - The Relation/Element/dependent type deletion must be a single atomic
+  >   commit because deleted types cross-reference each other.
   >
-  > **Scope:** ~5 steps covering StatefulEdge merge, type reference
-  > replacement, StatefulEdge deletion, isLightweight removal, Relation
-  > hierarchy atomic deletion
-  > **Depends on:** Track 1
+  > **Scope:** ~3-4 steps covering BidirectionalLinks reparameterization,
+  > SQL/MATCH Relation removal, Relation hierarchy atomic deletion,
+  > ResultInternal relation field cleanup
+  > **Depends on:** Track 2
 
-- [ ] Track 3: Unify edge implementations and creation API
+- [ ] Track 4: Unify edge implementations and creation API
   > Rename `StatefullEdgeEntityImpl` -> `EdgeEntityImpl` and
   > `YTDBStatefulEdgeImpl` -> `YTDBEdgeImpl`. Add read-time guard in `RidPair`
   > constructor for legacy `primaryRid == secondaryRid` pairs. Remove
@@ -253,9 +269,9 @@ graph TD
   > **Scope:** ~5 steps covering impl renames, RidPair legacy guard, Vertex
   > API unification, VertexEntityImpl link creation simplification,
   > DatabaseSession API unification
-  > **Depends on:** Track 2
+  > **Depends on:** Track 3
 
-- [ ] Track 4: Unify schema and edge lifecycle
+- [ ] Track 5: Unify schema and edge lifecycle
   > Remove `Schema.createLightweightEdgeClass()` and its implementations.
   > Remove the `setAbstract()` enforcement that prevents concrete edge classes.
   > Unify edge iteration in `EdgeIterator` to remove the internal
@@ -273,9 +289,9 @@ graph TD
   >
   > **Scope:** ~4 steps covering schema cleanup, iteration unification,
   > deletion simplification, verification
-  > **Depends on:** Track 3
+  > **Depends on:** Track 4
 
-- [ ] Track 5: Index by vertex support
+- [ ] Track 6: Index by vertex support
   > Add "index by vertex" capability for LinkBag fields, allowing edges to be
   > indexed by the opposite vertex RID (`secondaryRid`) in addition to the
   > existing edge RID (`primaryRid`) index.
@@ -302,6 +318,8 @@ graph TD
   > - **IndexDefinitionFactory** — modified: routes `BY_VERTEX` to the new
   >   definition class
   > - **AbstractLinkBag** — modified: fires change events to secondary index
+  > - **BTreeIndex** — unchanged; existing index infrastructure used by the
+  >   new secondary definition
   >
   > Constraints:
   > - Index updates must be inside the same WAL atomic operation as LinkBag
@@ -311,9 +329,9 @@ graph TD
   > **Scope:** ~5 steps covering secondary index definition,
   > IndexDefinitionFactory registration, SQL grammar extension, index
   > maintenance wiring, CRUD tests
-  > **Depends on:** Track 4
+  > **Depends on:** Track 5
 
-- [ ] Track 6: Verification, API cleanup, and documentation
+- [ ] Track 7: Verification, API cleanup, and documentation
   > Verify all SQL statements, Gremlin integration, and TinkerPop Cucumber
   > feature tests (~1900 scenarios) work correctly with unified edges. Clean
   > up public API: remove any remaining `StatefulEdge`/`Relation` references
@@ -321,8 +339,11 @@ graph TD
   > Delete `LightWeightEdgesTest`. Update `DoubleSidedEdgeLinkBagTest` and
   > `LinkBagIndexTest`. Run full integration test suite.
   >
-  > Approach: verification passes first (SQL, Gremlin, Cucumber), then API
-  > cleanup, then test updates, then full integration run.
+  > Approach: verification is automated — run the full Cucumber feature test
+  > suite, SQL integration tests, and Gremlin integration tests. If failures
+  > are found, fix within this track's scope (API cleanup or test expectation
+  > updates), or escalate if the fix belongs to an earlier track's domain.
+  > Then API cleanup, test updates, and full integration run.
   >
   > Constraints:
   > - TinkerPop Cucumber suite requires `-Xms4096m -Xmx4096m`.
@@ -330,4 +351,4 @@ graph TD
   >
   > **Scope:** ~3-4 steps covering API cleanup and DSL regeneration, test
   > file updates, full test suite run (Cucumber + integration)
-  > **Depends on:** Track 5
+  > **Depends on:** Track 6
