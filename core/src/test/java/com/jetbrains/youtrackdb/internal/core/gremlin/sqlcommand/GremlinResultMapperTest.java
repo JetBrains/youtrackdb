@@ -139,8 +139,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     session.command("BEGIN");
     session.command(
         "UPDATE Employee SET manager = (SELECT FROM Employee WHERE name = 'Bob')"
-            + " WHERE name = 'Alice'"
-    );
+            + " WHERE name = 'Alice'");
     session.command("COMMIT");
 
     var map = singleProjection("SELECT manager FROM Employee WHERE name = 'Alice'");
@@ -206,8 +205,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     graph.tx().commit();
 
     var map = singleProjection(
-        "SELECT {'ref': first(@rid)} AS data FROM Ref"
-    );
+        "SELECT {'ref': first(@rid)} AS data FROM Ref");
 
     var nested = asMap(map.get("data"));
     assertInstanceOf(nested.get("ref"), Vertex.class);
@@ -220,8 +218,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     graph.tx().commit();
 
     var map = singleProjection(
-        "SELECT name, price, @rid AS rid FROM Product"
-    );
+        "SELECT name, price, @rid AS rid FROM Product");
 
     Assert.assertEquals("Laptop", map.get("name"));
     Assert.assertEquals(999, map.get("price"));
@@ -291,7 +288,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
 
     Assert.assertTrue(results.isEmpty());
   }
-  
+
   @Test
   public void shouldMapParameterizedSqlCommand() {
     session.getSchema().createVertexClass("Person");
@@ -300,7 +297,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     graph.tx().commit();
 
     var results = graph.traversal()
-        .sqlCommand("SELECT FROM Person WHERE name = :name", "name", "Alice")
+        .yql("SELECT FROM Person WHERE name = :name", "name", "Alice")
         .toList();
 
     Assert.assertEquals(1, results.size());
@@ -309,7 +306,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
   }
 
   private List<Object> sqlCommand(String sql) {
-    return graph.traversal().sqlCommand(sql).toList();
+    return graph.traversal().yql(sql).toList();
   }
 
   private Map<String, Object> singleProjection(String sql) {
@@ -322,8 +319,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
   private static void assertInstanceOf(Object value, Class<?> type) {
     Assert.assertTrue(
         "Expected " + type.getSimpleName() + " but got " + value.getClass().getSimpleName(),
-        type.isInstance(value)
-    );
+        type.isInstance(value));
   }
 
   private static void assertAllInstanceOf(List<?> values, Class<?> type) {

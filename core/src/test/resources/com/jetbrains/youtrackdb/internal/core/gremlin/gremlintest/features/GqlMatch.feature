@@ -1,0 +1,536 @@
+@StepCall @YTDBOnly
+Feature: GQL Match Support
+
+  Background:
+    Given the empty graph
+    And the traversal of
+      """
+      g.yql("CREATE CLASS GqlPerson IF NOT EXISTS EXTENDS V").yql("CREATE CLASS GqlWork IF NOT EXISTS EXTENDS V")
+      """
+    When iterated to list
+
+  Scenario: g_gql_MATCH_non_existent_class_throws_exception
+    And the traversal of
+      """
+      g.gql("MATCH (a:NonExistentClass)")
+      """
+    When iterated to list
+    Then the traversal will raise an error with message containing text of "NonExistentClass"
+
+  Scenario: g_gql_MATCH_with_alias_returns_map
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                |
+      | m[{"a":"v[Alice]"}]   |
+
+  Scenario: g_gql_MATCH_without_alias_returns_map
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"$c0":"v[Alice]"}]   |
+
+  Scenario: g_gql_MATCH_without_alias_returns_maps
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice").addV("GqlPerson").property("name", "John")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 2
+    And the result should be unordered
+      | result                  |
+      | m[{"$c0":"v[Alice]"}]   |
+      | m[{"$c0":"v[John]"}]    |
+
+  Scenario: g_gql_MATCH_without_label_returns_all_vertices
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice").addV("GqlWork").property("name", "Programmer")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a)")
+      """
+    When iterated to list
+    Then the result should have a count of 2
+    And the result should be unordered
+      | result                       |
+      | m[{"a":"v[Alice]"}]          |
+      | m[{"a":"v[Programmer]"}]     |
+
+  Scenario: g_gql_MATCH_with_empty_pattern
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH ()")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"$c0":"v[Alice]"}]   |
+
+  Scenario: g_gql_MATCH_multiple_nodes
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 2
+    And the result should be unordered
+      | result                |
+      | m[{"a":"v[John]"}]    |
+      | m[{"a":"v[Alice]"}]   |
+
+  Scenario: g_gql_MATCH_with_empty_pattern_with_multiple_nodes
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice").addV("GqlPerson").property("name", "John")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH ()")
+      """
+    When iterated to list
+    Then the result should have a count of 2
+    And the result should be unordered
+      | result                  |
+      | m[{"$c0":"v[Alice]"}]   |
+      | m[{"$c0":"v[John]"}]    |
+
+  Scenario: g_gql_MATCH_multiple_patterns
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 4
+    And the result should be unordered
+      | result                              |
+      | m[{"a":"v[John]", "b":"v[John]"}]   |
+      | m[{"a":"v[Alice]", "b":"v[John]"}]  |
+      | m[{"a":"v[Alice]", "b":"v[Alice]"}] |
+      | m[{"a":"v[John]", "b":"v[Alice]"}]  |
+
+  Scenario: g_gql_MATCH_three_patterns
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlPerson), (c:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 8
+    And the result should be unordered
+      | result                                              |
+      | m[{"a":"v[John]", "b":"v[John]", "c":"v[John]"}]    |
+      | m[{"a":"v[Alice]", "b":"v[John]", "c":"v[John]"}]   |
+      | m[{"a":"v[Alice]", "b":"v[Alice]", "c":"v[John]"}]  |
+      | m[{"a":"v[John]", "b":"v[Alice]", "c":"v[John]"}]   |
+      | m[{"a":"v[John]", "b":"v[John]", "c":"v[Alice]"}]   |
+      | m[{"a":"v[Alice]", "b":"v[John]", "c":"v[Alice]"}]  |
+      | m[{"a":"v[Alice]", "b":"v[Alice]", "c":"v[Alice]"}] |
+      | m[{"a":"v[John]", "b":"v[Alice]", "c":"v[Alice]"}]  |
+
+  Scenario: g_gql_MATCH_multiple_patterns_different_labels
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      .addV("GqlWork").property("name", "Programmer").addV("GqlWork").property("name", "TeamLeader")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlWork)")
+      """
+    When iterated to list
+    Then the result should have a count of 4
+    And the result should be unordered
+      | result                                   |
+      | m[{"a":"v[John]", "b":"v[Programmer]"}]  |
+      | m[{"a":"v[Alice]", "b":"v[Programmer]"}] |
+      | m[{"a":"v[Alice]", "b":"v[TeamLeader]"}] |
+      | m[{"a":"v[John]", "b":"v[TeamLeader]"}]  |
+
+  Scenario: g_gql_MATCH_multiple_patterns_one_without_alias
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      .addV("GqlWork").property("name", "Programmer").addV("GqlWork").property("name", "TeamLeader")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (:GqlWork)")
+      """
+    When iterated to list
+    Then the result should have a count of 4
+    And the result should be unordered
+      | result                                     |
+      | m[{"a":"v[John]", "$c0":"v[Programmer]"}]  |
+      | m[{"a":"v[Alice]", "$c0":"v[Programmer]"}] |
+      | m[{"a":"v[Alice]", "$c0":"v[TeamLeader]"}] |
+      | m[{"a":"v[John]", "$c0":"v[TeamLeader]"}]  |
+
+  Scenario: g_gql_MATCH_multiple_patterns_without_alias
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      .addV("GqlWork").property("name", "Programmer").addV("GqlWork").property("name", "TeamLeader")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson), (:GqlWork)")
+      """
+    When iterated to list
+    Then the result should have a count of 4
+    And the result should be unordered
+      | result                                       |
+      | m[{"$c0":"v[John]", "$c1":"v[Programmer]"}]  |
+      | m[{"$c0":"v[Alice]", "$c1":"v[Programmer]"}] |
+      | m[{"$c0":"v[Alice]", "$c1":"v[TeamLeader]"}] |
+      | m[{"$c0":"v[John]", "$c1":"v[TeamLeader]"}]  |
+
+  Scenario: g_gql_MATCH_multiple_patterns_without_labels
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "John").addV("GqlPerson").property("name", "Alice")
+      .addV("GqlWork").property("name", "Programmer").addV("GqlWork").property("name", "TeamLeader")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a), (b)")
+      """
+    When iterated to list
+    Then the result should have a count of 16
+    And the result should be unordered
+      | result                                        |
+      | m[{"a":"v[John]", "b":"v[Programmer]"}]       |
+      | m[{"a":"v[Alice]", "b":"v[Programmer]"}]      |
+      | m[{"a":"v[Alice]", "b":"v[TeamLeader]"}]      |
+      | m[{"a":"v[John]", "b":"v[TeamLeader]"}]       |
+      | m[{"a":"v[John]", "b":"v[John]"}]             |
+      | m[{"a":"v[Alice]", "b":"v[John]"}]            |
+      | m[{"a":"v[Alice]", "b":"v[Alice]"}]           |
+      | m[{"a":"v[John]", "b":"v[Alice]"}]            |
+      | m[{"a":"v[Programmer]", "b":"v[Programmer]"}] |
+      | m[{"a":"v[TeamLeader]", "b":"v[Programmer]"}] |
+      | m[{"a":"v[TeamLeader]", "b":"v[TeamLeader]"}] |
+      | m[{"a":"v[Programmer]", "b":"v[TeamLeader]"}] |
+      | m[{"a":"v[Programmer]", "b":"v[Alice]"}]      |
+      | m[{"a":"v[TeamLeader]", "b":"v[Alice]"}]      |
+      | m[{"a":"v[TeamLeader]", "b":"v[John]"}]       |
+      | m[{"a":"v[Programmer]", "b":"v[John]"}]       |
+
+  Scenario: g_gql_MATCH_with_parameters_and_where
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson) WHERE a.name = $name",  "name", "Maria")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                |
+      | m[{"a":"v[Maria]"}]   |
+
+  # Map result → select alias → get property
+  Scenario: g_gql_MATCH_with_select_and_values
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)").select("a").values("name")
+      """
+    When iterated to list
+    Then the result should be unordered
+      | result |
+      | Alice  |
+
+  Scenario: g_gql_MATCH_returns_empty_when_no_data
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_with_empty_pattern_returns_empty_when_no_data
+    And the traversal of
+      """
+      g.gql("MATCH ()")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_in_streaming_mode_after_V
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "StreamingAlice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.V().gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                          |
+      | m[{"a":"v[StreamingAlice]"}]    |
+
+  Scenario: g_gql_MATCH_second_pattern_non_existent_class_throws_exception
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Alice")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:NonExistentClass2)")
+      """
+    When iterated to list
+    Then the traversal will raise an error with message containing text of "NonExistentClass2"
+
+  Scenario: g_gql_MATCH_partial_consumption_with_limit
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "A").addV("GqlPerson").property("name", "B")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlPerson)").limit(2)
+      """
+    When iterated to list
+    Then the result should have a count of 2
+
+  Scenario: g_gql_MATCH_multiple_patterns_returns_empty_when_no_data
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson), (b:GqlWork)")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_polymorphic_subclass
+    And the traversal of
+      """
+      g.yql("CREATE CLASS GqlEmployee IF NOT EXISTS EXTENDS GqlPerson")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.addV("GqlEmployee").property("name", "Bob")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson)")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result              |
+      | m[{"a":"v[Bob]"}]   |
+
+  # ── Inline property filters ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_single_string
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result               |
+      | m[{"a":"v[Karl]"}]   |
+
+  Scenario: g_gql_MATCH_inline_property_filter_multiple_properties
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl30").property("age", 30).addV("GqlPerson").property("name", "Karl25").property("age", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl30', age: 30})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"a":"v[Karl30]"}]    |
+
+  Scenario: g_gql_MATCH_inline_property_filter_no_match
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'NonExistent'})")
+      """
+    When iterated to list
+    Then the result should be empty
+
+  Scenario: g_gql_MATCH_inline_property_filter_without_alias
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (:GqlPerson {name: 'Maria'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                    |
+      | m[{"$c0":"v[Maria]"}]     |
+
+  Scenario: g_gql_MATCH_inline_property_filter_with_select_values
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").property("age", 30).addV("GqlPerson").property("name", "Maria").property("age", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'})").select("a").values("age")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result |
+      | d[30].i |
+
+  Scenario: g_gql_MATCH_inline_property_filter_multiple_patterns
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Karl").addV("GqlPerson").property("name", "Maria")
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {name: 'Karl'}), (b:GqlPerson {name: 'Maria'})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                                    |
+      | m[{"a":"v[Karl]", "b":"v[Maria]"}]        |
+
+  # ── Inline property filter: boolean ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_boolean
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Active").property("active", true).addV("GqlPerson").property("name", "Inactive").property("active", false)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {active: true})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                    |
+      | m[{"a":"v[Active]"}]      |
+
+  # ── Inline property filter: floating-point (FLOAT/DOUBLE) ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_double
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Precise").property("score", 3.14d).addV("GqlPerson").property("name", "Other").property("score", 2.71d)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {score: 3.14})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                      |
+      | m[{"a":"v[Precise]"}]       |
+
+  # ── Inline property filter: negative number ──
+
+  Scenario: g_gql_MATCH_inline_property_filter_negative_number
+    And the traversal of
+      """
+      g.addV("GqlPerson").property("name", "Cold").property("temp", -10).addV("GqlPerson").property("name", "Warm").property("temp", 25)
+      """
+    When iterated to list
+    And the traversal of
+      """
+      g.gql("MATCH (a:GqlPerson {temp: -10})")
+      """
+    When iterated to list
+    Then the result should have a count of 1
+    And the result should be unordered
+      | result                  |
+      | m[{"a":"v[Cold]"}]      |

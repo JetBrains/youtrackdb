@@ -129,7 +129,7 @@ public class LdbcBenchmarkState {
   List<Map<String, Object>> executeSql(String sql, Object... keyValues) {
     return traversal.computeInTx(g -> {
       var ytg = (YTDBGraphTraversalSource) g;
-      return ytg.sqlCommand(sql, keyValues).toList().stream()
+      return ytg.yql(sql, keyValues).toList().stream()
           .map(obj -> (Map<String, Object>) obj)
           .toList();
     });
@@ -456,7 +456,7 @@ public class LdbcBenchmarkState {
     traversal.executeInTx(g -> {
       var ytg = (YTDBGraphTraversalSource) g;
       for (String sql : statements) {
-        ytg.sqlCommand(sql).iterate();
+        ytg.yql(sql).iterate();
       }
     });
   }
@@ -542,7 +542,7 @@ public class LdbcBenchmarkState {
       traversal.executeInTx(g -> {
         var ytg = (YTDBGraphTraversalSource) g;
         for (String[] f : batch) {
-          ytg.sqlCommand(sql,
+          ytg.yql(sql,
               "id", Long.parseLong(f[iId]),
               "name", f[iName], "url", f[iUrl],
               "type", f[iType]).iterate();
@@ -563,7 +563,7 @@ public class LdbcBenchmarkState {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
               if (!f[iFk].isEmpty()) {
-                ytg.sqlCommand(sql,
+                ytg.yql(sql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iFk])).iterate();
               }
@@ -589,7 +589,7 @@ public class LdbcBenchmarkState {
           traversal.executeInTx(g -> {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", Long.parseLong(f[iId]),
                   "name", f[iName], "url", f[iUrl]).iterate();
             }
@@ -599,7 +599,7 @@ public class LdbcBenchmarkState {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
               if (!f[iFk].isEmpty()) {
-                ytg.sqlCommand(edgeSql,
+                ytg.yql(edgeSql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iFk])).iterate();
               }
@@ -624,11 +624,11 @@ public class LdbcBenchmarkState {
           traversal.executeInTx(g -> {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", Long.parseLong(f[iId]),
                   "name", f[iName], "url", f[iUrl]).iterate();
               if (!f[iFk].isEmpty()) {
-                ytg.sqlCommand(edgeSql,
+                ytg.yql(edgeSql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iFk])).iterate();
               }
@@ -655,12 +655,12 @@ public class LdbcBenchmarkState {
           traversal.executeInTx(g -> {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", Long.parseLong(f[iId]),
                   "type", f[iType], "name", f[iName],
                   "url", f[iUrl]).iterate();
               if (!f[iFk].isEmpty()) {
-                ytg.sqlCommand(edgeSql,
+                ytg.yql(edgeSql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iFk])).iterate();
               }
@@ -700,7 +700,7 @@ public class LdbcBenchmarkState {
           traversal.executeInTx(g -> {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", Long.parseLong(f[iId]),
                   "firstName", f[iFirstName],
                   "lastName", f[iLastName],
@@ -712,7 +712,7 @@ public class LdbcBenchmarkState {
                   "languages", parseList(f[iLanguage]),
                   "emails", parseList(f[iEmail])).iterate();
               if (!f[iLocationCityId].isEmpty()) {
-                ytg.sqlCommand(edgeSql,
+                ytg.yql(edgeSql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iLocationCityId])).iterate();
               }
@@ -738,13 +738,13 @@ public class LdbcBenchmarkState {
           traversal.executeInTx(g -> {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", Long.parseLong(f[iId]),
                   "title", f[iTitle],
                   "creationDate",
                   Long.parseLong(f[iCreationDate])).iterate();
               if (!f[iModeratorId].isEmpty()) {
-                ytg.sqlCommand(edgeSql,
+                ytg.yql(edgeSql,
                     "fromId", Long.parseLong(f[iId]),
                     "toId", Long.parseLong(f[iModeratorId])).iterate();
               }
@@ -788,7 +788,7 @@ public class LdbcBenchmarkState {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
               long postId = Long.parseLong(f[iId]);
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", postId,
                   "creationDate", Long.parseLong(f[iCreationDate]),
                   "locationIP", f[iLocationIP],
@@ -800,17 +800,17 @@ public class LdbcBenchmarkState {
                   "content",
                   f[iContent].isEmpty() ? null : f[iContent]).iterate();
               if (!f[iCreatorId].isEmpty()) {
-                ytg.sqlCommand(creatorSql,
+                ytg.yql(creatorSql,
                     "fromId", postId,
                     "toId", Long.parseLong(f[iCreatorId])).iterate();
               }
               if (!f[iForumId].isEmpty()) {
-                ytg.sqlCommand(containerSql,
+                ytg.yql(containerSql,
                     "fromId", Long.parseLong(f[iForumId]),
                     "toId", postId).iterate();
               }
               if (!f[iLocationId].isEmpty()) {
-                ytg.sqlCommand(locationSql,
+                ytg.yql(locationSql,
                     "fromId", postId,
                     "toId", Long.parseLong(f[iLocationId])).iterate();
               }
@@ -856,7 +856,7 @@ public class LdbcBenchmarkState {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
               long commentId = Long.parseLong(f[iId]);
-              ytg.sqlCommand(vertexSql,
+              ytg.yql(vertexSql,
                   "id", commentId,
                   "creationDate", Long.parseLong(f[iCreationDate]),
                   "locationIP", f[iLocationIP],
@@ -864,22 +864,22 @@ public class LdbcBenchmarkState {
                   "content", f[iContent],
                   "length", Integer.parseInt(f[iLength])).iterate();
               if (!f[iCreatorId].isEmpty()) {
-                ytg.sqlCommand(creatorSql,
+                ytg.yql(creatorSql,
                     "fromId", commentId,
                     "toId", Long.parseLong(f[iCreatorId])).iterate();
               }
               if (!f[iLocationId].isEmpty()) {
-                ytg.sqlCommand(locationSql,
+                ytg.yql(locationSql,
                     "fromId", commentId,
                     "toId", Long.parseLong(f[iLocationId])).iterate();
               }
               if (!f[iParentPostId].isEmpty()) {
-                ytg.sqlCommand(replyPostSql,
+                ytg.yql(replyPostSql,
                     "fromId", commentId,
                     "toId", Long.parseLong(f[iParentPostId])).iterate();
               }
               if (!f[iParentCommentId].isEmpty()) {
-                ytg.sqlCommand(replyCommentSql,
+                ytg.yql(replyCommentSql,
                     "fromId", commentId,
                     "toId",
                     Long.parseLong(f[iParentCommentId])).iterate();
@@ -911,10 +911,10 @@ public class LdbcBenchmarkState {
               long p2 = Long.parseLong(f[iP2]);
               long cd = Long.parseLong(f[iCd]);
               // Bidirectional
-              ytg.sqlCommand(sql,
+              ytg.yql(sql,
                   "fromId", p1, "toId", p2,
                   "creationDate", cd).iterate();
-              ytg.sqlCommand(sql,
+              ytg.yql(sql,
                   "fromId", p2, "toId", p1,
                   "creationDate", cd).iterate();
             }
@@ -961,17 +961,17 @@ public class LdbcBenchmarkState {
             var ytg = (YTDBGraphTraversalSource) g;
             for (String[] f : batch) {
               if (!hasProp) {
-                ytg.sqlCommand(finalSql,
+                ytg.yql(finalSql,
                     "fromId", Long.parseLong(f[iFrom]),
                     "toId", Long.parseLong(f[iTo])).iterate();
               } else if ("int".equals(propType)) {
-                ytg.sqlCommand(finalSql,
+                ytg.yql(finalSql,
                     "fromId", Long.parseLong(f[iFrom]),
                     "toId", Long.parseLong(f[iTo]),
                     "propValue", Integer.parseInt(f[iProp])).iterate();
               } else {
                 // "long" or "joinDate" — both store a long timestamp
-                ytg.sqlCommand(finalSql,
+                ytg.yql(finalSql,
                     "fromId", Long.parseLong(f[iFrom]),
                     "toId", Long.parseLong(f[iTo]),
                     "propValue", Long.parseLong(f[iProp])).iterate();

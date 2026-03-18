@@ -35,7 +35,7 @@ import javax.annotation.Nullable;
  * {@link ExecutionStream} it receives from its predecessor.
  *
  * <h2>Caching</h2>
- * Plans can be cached in the {@link com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache}
+ * Plans can be cached in the {@link com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}
  * for reuse across identical queries. Cached plans are deep-copied via {@link #copy(CommandContext)}
  * before each execution to ensure thread safety. A plan is cacheable only if every
  * step in the chain reports {@link ExecutionStepInternal#canBeCached()} as {@code true}.
@@ -162,8 +162,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     result.setProperty(
         "steps",
         steps == null ? null
-            : steps.stream().map(x ->
-                x.toResult(db)).collect(Collectors.toList()));
+            : steps.stream().map(x -> x.toResult(db)).collect(Collectors.toList()));
     return result;
   }
 

@@ -14,11 +14,11 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 /// TinkerPop service that allows running any YouTrackDB non-idempotent command via GraphTraversal.
 ///
 /// Supports both Start and Streaming execution modes to allow chaining:
-/// g.sqlCommand("BEGIN").sqlCommand("INSERT")
+/// g.yql("BEGIN").yql("INSERT")
 public class YTDBCommandService implements Service<Object, Object> {
 
   public static final String NAME = "command";
-  public static final String SQL_COMMAND_NAME = "sqlCommand";
+  public static final String YQL_NAME = "yql";
   public static final String COMMAND = "command";
   public static final String ARGUMENTS = "args";
 
@@ -51,7 +51,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     @Override
     public Set<Type> getSupportedTypes() {
-      // Support both Start and Streaming to allow chaining: g.sqlCommand("BEGIN").sqlCommand("INSERT")
+      // Support both Start and Streaming to allow chaining: g.yql("BEGIN").yql("INSERT")
       return Set.of(Type.Start, Type.Streaming);
     }
 
@@ -74,20 +74,10 @@ public class YTDBCommandService implements Service<Object, Object> {
         }
       } else if (safeParams.get(ARGUMENTS) instanceof java.util.List<?> argsList
           && !argsList.isEmpty()) {
-        if (argsList.getFirst() instanceof String cmd) {
-          finalCommand = cmd;
-          if (argsList.size() > 1) {
-            var rest = argsList.size() - 1;
-            if (rest % 2 != 0) {
-              throw new IllegalArgumentException(
-                  "Arguments must be provided in key-value pairs");
-            }
-            var map = new java.util.LinkedHashMap<>();
-            for (var i = 1; i + 1 < argsList.size(); i += 2) {
-              map.put(argsList.get(i), argsList.get(i + 1));
-            }
-            finalCommandParams = map;
-          }
+        if (argsList.getFirst() instanceof String) {
+          var parsed = VarargsParser.parseVarargs(argsList);
+          finalCommand = parsed.command();
+          finalCommandParams = parsed.arguments();
         }
       }
 
@@ -96,11 +86,11 @@ public class YTDBCommandService implements Service<Object, Object> {
     }
   }
 
-  /// Factory for the sqlCommand service - an alias for command that can be used for chaining.
-  public static class SqlCommandFactory extends Factory {
+  /// Factory for the yql service - an alias for command that can be used for chaining.
+  public static class YqlFactory extends Factory {
 
-    public SqlCommandFactory() {
-      super(SQL_COMMAND_NAME);
+    public YqlFactory() {
+      super(YQL_NAME);
     }
   }
 
@@ -126,7 +116,7 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Emit a single placeholder so chaining works (Streaming needs an input traverser).
-      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(true));
+      case SqlCommandExecutionResult.Unit ignored -> CloseableIterator.of(IteratorUtils.of(true));
       case SqlCommandExecutionResult.Results r -> r.iterator();
     };
   }
@@ -145,7 +135,8 @@ public class YTDBCommandService implements Service<Object, Object> {
 
     return switch (((YTDBGraphInternal) graph).executeCommand(command, commandParams)) {
       // Pass through the input traverser for Streaming mode
-      case SqlCommandExecutionResult.Unit unit -> CloseableIterator.of(IteratorUtils.of(in.get()));
+      case SqlCommandExecutionResult.Unit ignored ->
+          CloseableIterator.of(IteratorUtils.of(in.get()));
       case SqlCommandExecutionResult.Results r -> r.iterator();
     };
   }

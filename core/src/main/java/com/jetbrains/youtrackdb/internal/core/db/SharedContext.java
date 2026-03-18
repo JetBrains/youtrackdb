@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
+import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
@@ -18,8 +20,8 @@ import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOps;
 import com.jetbrains.youtrackdb.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryStats;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
 import java.util.Map;
@@ -37,8 +39,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected SequenceLibraryImpl sequenceLibrary;
   protected LiveQueryHook.LiveQueryOps liveQueryOps;
   protected LiveQueryOps liveQueryOpsV2;
-  protected StatementCache statementCache;
-  protected ExecutionPlanCache executionPlanCache;
+  protected YqlStatementCache yqlStatementCache;
+  protected GqlStatementCache gqlStatementCache;
+  protected YqlExecutionPlanCache yqlExecutionPlanCache;
+  protected GqlExecutionPlanCache gqlExecutionPlanCache;
   protected QueryStats queryStats;
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
@@ -70,18 +74,30 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     sequenceLibrary = new SequenceLibraryImpl();
     liveQueryOps = new LiveQueryHook.LiveQueryOps();
     liveQueryOpsV2 = new LiveQueryOps();
-    statementCache =
-        new StatementCache(
+    yqlStatementCache =
+        new YqlStatementCache(
+            storage
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    gqlStatementCache =
+        new GqlStatementCache(
             storage
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
 
-    executionPlanCache =
-        new ExecutionPlanCache(
+    yqlExecutionPlanCache =
+        new YqlExecutionPlanCache(
             storage
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
-    this.registerListener(executionPlanCache);
+    this.registerListener(yqlExecutionPlanCache);
+
+    gqlExecutionPlanCache =
+        new GqlExecutionPlanCache(
+            storage
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
+    this.registerListener(gqlExecutionPlanCache);
 
     queryStats = new QueryStats();
     storage
@@ -118,7 +134,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-
   public void close() {
     lock.lock();
     try {
@@ -129,8 +144,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       functionLibrary.close();
       scheduler.close();
       sequenceLibrary.close();
-      statementCache.clear();
-      executionPlanCache.invalidate();
+      yqlStatementCache.clear();
+      gqlStatementCache.clear();
+      yqlExecutionPlanCache.invalidate();
+      gqlExecutionPlanCache.invalidate();
       liveQueryOps.close();
       liveQueryOpsV2.close();
       loaded = false;
@@ -138,7 +155,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       lock.unlock();
     }
   }
-
 
   public void reload(DatabaseSessionEmbedded database) {
     lock.lock();
@@ -211,7 +227,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-
   public SchemaShared getSchema() {
     return schema;
   }
@@ -240,12 +255,20 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return liveQueryOpsV2;
   }
 
-  public StatementCache getStatementCache() {
-    return statementCache;
+  public YqlStatementCache getYqlStatementCache() {
+    return yqlStatementCache;
   }
 
-  public ExecutionPlanCache getExecutionPlanCache() {
-    return executionPlanCache;
+  public GqlStatementCache getGqlStatementCache() {
+    return gqlStatementCache;
+  }
+
+  public YqlExecutionPlanCache getYqlExecutionPlanCache() {
+    return yqlExecutionPlanCache;
+  }
+
+  public GqlExecutionPlanCache getGqlExecutionPlanCache() {
+    return gqlExecutionPlanCache;
   }
 
   public QueryStats getQueryStats() {

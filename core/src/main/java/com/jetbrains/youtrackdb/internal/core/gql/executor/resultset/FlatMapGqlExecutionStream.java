@@ -1,0 +1,73 @@
+package com.jetbrains.youtrackdb.internal.core.gql.executor.resultset;
+
+import java.util.NoSuchElementException;
+import java.util.function.Function;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+
+public class FlatMapGqlExecutionStream implements GqlExecutionStream {
+
+  private final CloseableIterator<Object> upstream;
+  private final Function<Object, GqlExecutionStream> mapper;
+  private @Nullable GqlExecutionStream currentChildStream = null;
+
+  public FlatMapGqlExecutionStream(@Nonnull CloseableIterator<Object> upstream,
+      @Nonnull Function<Object, GqlExecutionStream> mapper) {
+    this.upstream = upstream;
+    this.mapper = mapper;
+  }
+
+  @Override
+  public boolean hasNext() {
+    while (currentChildStream == null || !currentChildStream.hasNext()) {
+      if (!upstream.hasNext()) {
+        upstream.close();
+        if (currentChildStream != null) {
+          currentChildStream.close();
+          currentChildStream = null;
+        }
+        return false;
+      }
+
+      if (currentChildStream != null) {
+        currentChildStream.close();
+      }
+
+      currentChildStream = mapper.apply(upstream.next());
+    }
+    return true;
+  }
+
+  @Override
+  public @Nullable Object next() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+    return currentChildStream != null ? currentChildStream.next() : null;
+  }
+
+  @Override
+  public void close() {
+    Exception firstException = null;
+    if (currentChildStream != null) {
+      try {
+        currentChildStream.close();
+      } catch (Exception e) {
+        firstException = e;
+      }
+    }
+    try {
+      upstream.close();
+    } catch (Exception e) {
+      if (firstException != null) {
+        firstException.addSuppressed(e);
+      } else {
+        firstException = e;
+      }
+    }
+    if (firstException != null) {
+      throw new RuntimeException("Failed to close stream", firstException);
+    }
+  }
+}

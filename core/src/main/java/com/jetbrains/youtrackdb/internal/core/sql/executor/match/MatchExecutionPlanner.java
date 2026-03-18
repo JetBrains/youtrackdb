@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -42,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -222,7 +222,7 @@ public class MatchExecutionPlanner {
   static final String DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_";
 
   /** The original parsed `MATCH` statement, used for execution plan caching. */
-  private final SQLMatchStatement statement;
+  private SQLMatchStatement statement;
 
   /** Positive `MATCH` expressions (the main graph pattern). */
   protected List<SQLMatchExpression> matchExpressions;
@@ -291,6 +291,44 @@ public class MatchExecutionPlanner {
   private static final long THRESHOLD = 100;
 
   /**
+   * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
+   * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
+   * Intended for non-SQL front-ends (e.g. GQL) that build the match IR directly.
+   *
+   * @param pattern      the pattern graph (nodes and edges)
+   * @param aliasClasses maps each alias to the schema class name it is constrained to
+   */
+  public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses) {
+    this(pattern, aliasClasses, Map.of());
+  }
+
+  /**
+   * Creates a planner from a pre-built pattern IR with per-alias WHERE filters.
+   * Intended for GQL front-ends that provide inline property filters
+   * (e.g. {@code MATCH (a:Person {name: 'Karl'})}).
+   *
+   * @param pattern      the pattern graph (nodes and edges)
+   * @param aliasClasses maps each alias to the schema class name it is constrained to
+   * @param aliasFilters per-alias WHERE clauses built from inline property filters
+   */
+  public MatchExecutionPlanner(Pattern pattern, Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters) {
+    this.matchExpressions = List.of();
+    this.notMatchExpressions = List.of();
+    this.returnItems = List.of();
+    this.returnAliases = List.of();
+    this.returnNestedProjections = List.of();
+    this.groupBy = null;
+    this.orderBy = null;
+    this.unwind = null;
+
+    this.pattern = pattern;
+    this.aliasClasses = aliasClasses;
+    this.aliasFilters = aliasFilters;
+    this.aliasRids = Map.of();
+  }
+
+  /**
    * Creates a planner by **deep-copying** every mutable component from the parsed
    * statement so that planning can freely mutate state (e.g. assign default aliases,
    * merge filters) without affecting the original AST.
@@ -341,7 +379,7 @@ public class MatchExecutionPlanner {
    *                         variables, etc.)
    * @param enableProfiling  when `true`, each step will collect timing/count statistics
    * @param useCache         when `true`, attempts to retrieve/store the plan from/to the
-   *                         {@link ExecutionPlanCache}
+   *                         {@link YqlExecutionPlanCache}
    * @return the assembled execution plan, ready to be {@linkplain InternalExecutionPlan#start()
    *         started}
    */
@@ -352,7 +390,7 @@ public class MatchExecutionPlanner {
 
     // --- Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = ExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
+      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
@@ -360,7 +398,7 @@ public class MatchExecutionPlanner {
 
     // Record the timestamp so we can avoid caching a stale plan if the schema
     // was modified concurrently during planning.
-    var planningStart = System.currentTimeMillis();
+    var planningStart = System.nanoTime();
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
@@ -493,8 +531,8 @@ public class MatchExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
-        && ExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      ExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
+        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, session);
     }
 
     return result;

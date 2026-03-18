@@ -34,6 +34,7 @@ public class SQLExpression extends SimpleNode {
   protected SQLJson json;
   protected SQLBooleanExpression booleanExpression;
   protected Boolean booleanValue;
+  private Object literalValue;
 
   public SQLExpression(int id) {
     super(id);
@@ -92,6 +93,9 @@ public class SQLExpression extends SimpleNode {
     if (booleanValue != null) {
       return booleanValue;
     }
+    if (literalValue != null) {
+      return literalValue;
+    }
     if (value instanceof SQLNumber) {
       return ((SQLNumber) value).getValue(); // only for old executor (manually replaced params)
     }
@@ -137,6 +141,9 @@ public class SQLExpression extends SimpleNode {
     }
     if (booleanValue != null) {
       return booleanValue;
+    }
+    if (literalValue != null) {
+      return literalValue;
     }
     if (value instanceof SQLNumber) {
       return ((SQLNumber) value).getValue(); // only for old executor (manually replaced params)
@@ -217,6 +224,9 @@ public class SQLExpression extends SimpleNode {
     if (booleanValue != null) {
       return true;
     }
+    if (literalValue != null) {
+      return true;
+    }
     if (rid != null) {
       return true;
     }
@@ -265,6 +275,8 @@ public class SQLExpression extends SimpleNode {
       json.toString(params, builder);
     } else if (booleanValue != null) {
       builder.append(booleanValue);
+    } else if (literalValue != null) {
+      builder.append(literalValue);
     } else if (value instanceof SimpleNode) {
       ((SimpleNode) value)
           .toString(
@@ -297,6 +309,8 @@ public class SQLExpression extends SimpleNode {
     } else if (json != null) {
       json.toGenericStatement(builder);
     } else if (booleanValue != null) {
+      builder.append(PARAMETER_PLACEHOLDER);
+    } else if (literalValue != null) {
       builder.append(PARAMETER_PLACEHOLDER);
     } else if (value instanceof SimpleNode) {
       ((SimpleNode) value).toGenericStatement(builder);
@@ -538,6 +552,7 @@ public class SQLExpression extends SimpleNode {
     result.json = json == null ? null : json.copy();
     result.booleanExpression = booleanExpression == null ? null : booleanExpression.copy();
     result.booleanValue = booleanValue;
+    result.literalValue = deepCopyLiteralValue(literalValue);
 
     return result;
   }
@@ -577,7 +592,10 @@ public class SQLExpression extends SimpleNode {
     if (!Objects.equals(booleanExpression, that.booleanExpression)) {
       return false;
     }
-    return Objects.equals(booleanValue, that.booleanValue);
+    if (!Objects.equals(booleanValue, that.booleanValue)) {
+      return false;
+    }
+    return deepEqualsLiteralValue(literalValue, that.literalValue);
   }
 
   @Override
@@ -591,7 +609,59 @@ public class SQLExpression extends SimpleNode {
     result = 31 * result + (json != null ? json.hashCode() : 0);
     result = 31 * result + (booleanExpression != null ? booleanExpression.hashCode() : 0);
     result = 31 * result + (booleanValue != null ? booleanValue.hashCode() : 0);
+    result = 31 * result + deepHashCodeLiteralValue(literalValue);
     return result;
+  }
+
+  /// Deep-copies mutable literal values (byte[], List, Map, Set, Date) to prevent
+  /// AST corruption when plans are cached and reused.
+  @Nullable
+  private static Object deepCopyLiteralValue(@Nullable Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof byte[] bytes) {
+      return bytes.clone();
+    }
+    if (value instanceof List<?> list) {
+      return new java.util.ArrayList<>(list);
+    }
+    if (value instanceof Map<?, ?> map) {
+      return new java.util.LinkedHashMap<>(map);
+    }
+    if (value instanceof Set<?> set) {
+      return new java.util.LinkedHashSet<>(set);
+    }
+    if (value instanceof java.util.Date date) {
+      return new java.util.Date(date.getTime());
+    }
+    // Immutable types (String, Number, Boolean, etc.) — no copy needed
+    return value;
+  }
+
+  /// Compares literal values with proper deep equality for byte[].
+  private static boolean deepEqualsLiteralValue(
+      @Nullable Object a, @Nullable Object b) {
+    if (a instanceof byte[] aBytes && b instanceof byte[] bBytes) {
+      return java.util.Arrays.equals(aBytes, bBytes);
+    }
+    return Objects.equals(a, b);
+  }
+
+  /// Computes hash code for literal values with proper handling for byte[].
+  private static int deepHashCodeLiteralValue(@Nullable Object value) {
+    if (value instanceof byte[] bytes) {
+      return java.util.Arrays.hashCode(bytes);
+    }
+    return value != null ? value.hashCode() : 0;
+  }
+
+  public void setBooleanValue(Boolean booleanValue) {
+    this.booleanValue = booleanValue;
+  }
+
+  public void setLiteralValue(Object literalValue) {
+    this.literalValue = literalValue;
   }
 
   public void setMathExpression(SQLMathExpression mathExpression) {
@@ -719,6 +789,7 @@ public class SQLExpression extends SimpleNode {
       result.setProperty("booleanExpression", booleanExpression.serialize(session));
     }
     result.setProperty("booleanValue", booleanValue);
+    result.setProperty("literalValue", literalValue);
     return result;
   }
 
@@ -748,6 +819,7 @@ public class SQLExpression extends SimpleNode {
           SQLBooleanExpression.deserializeFromOResult(fromResult.getProperty("booleanExpression"));
     }
     booleanValue = fromResult.getProperty("booleanValue");
+    literalValue = fromResult.getProperty("literalValue");
   }
 
   public boolean isDefinedFor(Result currentRecord) {
@@ -784,7 +856,9 @@ public class SQLExpression extends SimpleNode {
     if (booleanExpression != null) {
       return booleanExpression.isCacheable(session);
     }
-    // TODO optimize
+    if (literalValue != null) {
+      return true;
+    }
     return json == null;
   }
 

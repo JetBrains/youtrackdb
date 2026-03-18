@@ -18,7 +18,7 @@ import javax.annotation.Nullable;
  * <h2>Lifecycle</h2>
  * <pre>
  *  1. Plan is created by a planner (e.g. SelectExecutionPlanner)
- *  2. Optionally cached in ExecutionPlanCache
+ *  2. Optionally cached in YqlExecutionPlanCache
  *  3. Copied via copy() before each execution (to avoid shared mutable state)
  *  4. start() is called to begin pull-based execution
  *  5. close() is called when the consumer is done (releases resources)
@@ -78,13 +78,12 @@ public interface InternalExecutionPlan extends ExecutionPlan {
 
   /**
    * Returns {@code true} if every step in this plan is cacheable. Only cacheable
-   * plans are stored in the {@link com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache}.
+   * plans are stored in the {@link com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
    */
   boolean canBeCached();
 
   /** Returns the original SQL statement text (for logging / plan cache keys), or null. */
-  @Nullable
-  default String getStatement() {
+  @Nullable default String getStatement() {
     return null;
   }
 
@@ -96,8 +95,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
    * Returns a parameterized/generic form of the SQL statement (where literal values
    * are replaced with placeholders) used for cache grouping, or null.
    */
-  @Nullable
-  default String getGenericStatement() {
+  @Nullable default String getGenericStatement() {
     return null;
   }
 

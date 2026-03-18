@@ -55,6 +55,11 @@ public final class SQLBaseExpression extends SQLMathExpression {
     this.string = "\"" + StringSerializerHelper.encode(string) + "\"";
   }
 
+  public SQLBaseExpression(SQLNumber number) {
+    super(-1);
+    this.number = number;
+  }
+
   public SQLBaseExpression(SQLIdentifier identifier, SQLModifier modifier) {
     this(identifier);
     if (modifier != null) {
