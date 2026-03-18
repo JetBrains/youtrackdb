@@ -758,11 +758,7 @@ public class CostModelEndToEndTest {
     var expr = mock(SQLExpression.class);
     when(expr.isBaseIdentifier()).thenReturn(true);
     when(expr.toString()).thenReturn(name);
-    // Mock getDefaultAlias() for field matching via
-    // getDefaultAlias().getStringValue() (unquoted identifier comparison).
-    var alias = mock(SQLIdentifier.class);
-    when(alias.getStringValue()).thenReturn(name);
-    when(expr.getDefaultAlias()).thenReturn(alias);
+    when(expr.getDefaultAlias()).thenReturn(new SQLIdentifier(name));
     return expr;
   }
 

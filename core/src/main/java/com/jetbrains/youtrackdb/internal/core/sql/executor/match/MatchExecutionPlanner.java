@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -28,6 +30,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
@@ -39,10 +44,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
@@ -684,7 +693,7 @@ public class MatchExecutionPlanner {
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
-        aliasClasses, context.getDatabaseSession());
+        aliasClasses, aliasFilters, context.getDatabaseSession());
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
@@ -794,7 +803,8 @@ public class MatchExecutionPlanner {
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
       Map<String, Long> estimatedRootEntries, Pattern pattern,
-      Map<String, String> aliasClasses, DatabaseSessionEmbedded session) {
+      Map<String, String> aliasClasses, Map<String, SQLWhereClause> aliasFilters,
+      DatabaseSessionEmbedded session) {
     List<EdgeTraversal> resultingSchedule = new ArrayList<>();
     var remainingDependencies = getDependencies(pattern);
     Set<PatternNode> visitedNodes = new HashSet<>();
@@ -853,7 +863,8 @@ public class MatchExecutionPlanner {
       //    adding any non-visited ones with satisfied dependencies to our schedule.
       updateScheduleStartingAt(
           startingNode, visitedNodes, visitedEdges, remainingDependencies,
-          resultingSchedule, estimatedRootEntries, aliasClasses, session);
+          resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
+          session);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -885,6 +896,7 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> resultingSchedule,
       Map<String, Long> estimatedRootEntries,
       Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
       DatabaseSessionEmbedded session) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
@@ -951,13 +963,26 @@ public class MatchExecutionPlanner {
     // prefetch threshold used elsewhere in the planner. A moderate value avoids
     // making unknown-cost edges appear artificially cheap or expensive.
     long sourceRows = estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
-    // Pre-compute costs to avoid redundant schema lookups during sort comparisons
+    // Pre-compute costs to avoid redundant schema lookups during sort comparisons.
+    // The cost combines fan-out-based traversal cost with target node selectivity:
+    // edges whose target has a selective WHERE clause (low estimated cardinality)
+    // are cheaper because they produce fewer intermediate results to join against.
     var edgeCosts = new HashMap<PatternEdge, Double>(sortedEdges.size());
     for (var entry : sortedEdges) {
       var neighbor = entry.getValue() ? entry.getKey().in : entry.getKey().out;
-      double cost = visitedNodes.contains(neighbor) ? 0.0
-          : estimateEdgeCost(
-              entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+      double cost;
+      if (visitedNodes.contains(neighbor)) {
+        cost = 0.0;
+      } else {
+        cost = estimateEdgeCost(
+            entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+        if (cost < Double.MAX_VALUE) {
+          cost = applyTargetSelectivity(
+              cost, neighbor.alias, entry.getKey(), entry.getValue(),
+              aliasClasses, aliasFilters, estimatedRootEntries, session);
+          cost = applyDepthMultiplier(cost, entry.getKey());
+        }
+      }
       edgeCosts.put(entry.getKey(), cost);
     }
     // TimSort is stable: equal-cost edges (including those with MAX_VALUE when
@@ -1065,7 +1090,8 @@ public class MatchExecutionPlanner {
           resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
           updateScheduleStartingAt(
               neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
-              resultingSchedule, estimatedRootEntries, aliasClasses, session);
+              resultingSchedule, estimatedRootEntries, aliasClasses, aliasFilters,
+              session);
           progress = true;
         }
       }
@@ -1169,6 +1195,466 @@ public class MatchExecutionPlanner {
         outVertexClass, inVertexClass);
 
     return CostModel.edgeTraversalCost(sourceRows, fanOut);
+  }
+
+  /**
+   * Adjusts the traversal cost of an edge by the selectivity of the target node's
+   * WHERE clause. Uses two complementary strategies:
+   *
+   * <ol>
+   *   <li><b>Filter-shape heuristic</b> — inspects the AST of the target's WHERE clause
+   *       to classify it as an equality ({@code name = :value} → selectivity ≈ 1/classCount)
+   *       or inequality ({@code name <> :value} → selectivity ≈ (classCount−1)/classCount).
+   *       This works regardless of table size and does not require an index.</li>
+   *   <li><b>Estimated cardinality ratio</b> — when the heuristic cannot classify the
+   *       filter, falls back to the ratio of estimated filtered rows
+   *       ({@code estimatedRootEntries}) to total class count.</li>
+   * </ol>
+   *
+   * <p>If the target node has no explicit {@code class:} constraint, the method infers
+   * the class from the edge schema's linked vertex property (e.g., {@code HAS_TAG.in}
+   * linked to {@code Tag}).
+   *
+   * @param baseCost             the fan-out-based traversal cost from
+   *                             {@link #estimateEdgeCost}
+   * @param targetAlias          alias of the target (neighbor) node
+   * @param edge                 the pattern edge being evaluated
+   * @param isOutbound           whether the edge is outbound from the source node
+   * @param aliasClasses         alias → class name mapping
+   * @param aliasFilters         alias → WHERE clause mapping
+   * @param estimatedRootEntries estimated cardinality per alias
+   * @param session              database session for schema access
+   * @return adjusted cost (lower when the target's WHERE is more selective)
+   */
+  static double applyTargetSelectivity(
+      double baseCost,
+      String targetAlias,
+      PatternEdge edge,
+      boolean isOutbound,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session) {
+    var targetClass = resolveTargetClass(
+        targetAlias, edge, isOutbound, aliasClasses, session);
+    if (targetClass == null) {
+      return baseCost;
+    }
+
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null || !schema.existsClass(targetClass)) {
+      return baseCost;
+    }
+
+    long classCount = schema.getClassInternal(targetClass).approximateCount(session);
+    if (classCount <= 0) {
+      return baseCost;
+    }
+
+    var filter = aliasFilters != null ? aliasFilters.get(targetAlias) : null;
+    if (filter != null) {
+      var schemaClass = schema.getClassInternal(targetClass);
+      double heuristic = estimateFilterSelectivity(
+          filter, classCount, schemaClass, session);
+      if (heuristic >= 0.0) {
+        return baseCost * heuristic;
+      }
+    }
+
+    var targetEstimate = estimatedRootEntries.get(targetAlias);
+    if (targetEstimate == null) {
+      return baseCost;
+    }
+    double selectivity = (double) targetEstimate / classCount;
+    return baseCost * selectivity;
+  }
+
+  /**
+   * Resolves the target vertex class for an edge traversal. First checks
+   * {@code aliasClasses} for an explicit constraint; if absent, infers the class
+   * from the edge schema's linked vertex property.
+   *
+   * <p>For {@code .out('HAS_TAG')} the target is the "in" vertex of the edge class,
+   * so we read the linked class of the {@code in} property, and vice versa.
+   */
+  @Nullable private static String resolveTargetClass(
+      String targetAlias,
+      PatternEdge edge,
+      boolean isOutbound,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session) {
+    var explicit = aliasClasses.get(targetAlias);
+    if (explicit != null) {
+      return explicit;
+    }
+    // Infer target class from edge schema's linked vertex property.
+    // Chain of null-safe lookups: method → edgeClassName → schema → edgeClass → linkedProp.
+    var method = edge.item.getMethod();
+    var edgeClassName = method != null ? extractEdgeClassName(method) : null;
+    var schema = edgeClassName != null
+        ? session.getMetadata().getImmutableSchemaSnapshot() : null;
+    var edgeClass = schema != null ? schema.getClassInternal(edgeClassName) : null;
+    if (edgeClass == null) {
+      return null;
+    }
+    var linkedPropName = isOutbound ? "in" : "out";
+    var linkedProp = edgeClass.getPropertyInternal(linkedPropName);
+    return (linkedProp != null && linkedProp.getLinkedClass() != null)
+        ? linkedProp.getLinkedClass().getName() : null;
+  }
+
+  /**
+   * Classifies a WHERE clause by inspecting its AST to produce a selectivity
+   * estimate. When the filter is a simple binary condition on an indexed
+   * property, uses {@code distinctCount} from index statistics for accuracy:
+   *
+   * <ul>
+   *   <li>{@code field = value} → {@code 1.0 / distinctCount}</li>
+   *   <li>{@code field <> value} → {@code (distinctCount - 1.0) / distinctCount}</li>
+   * </ul>
+   *
+   * <p>Falls back to {@code classCount} when no index statistics are available.
+   * Returns {@code -1.0} for compound or unrecognizable filters to signal that
+   * the caller should fall back to the cardinality-ratio estimate.
+   */
+  static double estimateFilterSelectivity(
+      SQLWhereClause filter,
+      long classCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    var base = classCount > 0 ? filter.getBaseExpression() : null;
+    var condition = base != null ? unwrapSingleCondition(base) : null;
+    if (condition == null) {
+      return -1.0;
+    }
+
+    // Compound AND: multiply individual selectivities (independence assumption).
+    // For example, creationDate >= X AND creationDate < Y → sel(>=X) * sel(<Y).
+    if (condition instanceof SQLAndBlock andBlock && andBlock.getSubBlocks().size() > 1) {
+      return estimateCompoundAndSelectivity(
+          andBlock, classCount, schemaClass, session);
+    }
+
+    // Compound OR: inclusion-exclusion (independence assumption).
+    // sel(A OR B) = 1 - (1 - sel(A)) * (1 - sel(B))
+    if (condition instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() > 1) {
+      return estimateCompoundOrSelectivity(
+          orBlock, classCount, schemaClass, session);
+    }
+
+    if (!(condition instanceof SQLBinaryCondition binary)) {
+      return -1.0;
+    }
+    return estimateSingleConditionSelectivity(
+        binary, classCount, schemaClass, session);
+  }
+
+  /**
+   * Estimates selectivity of a compound AND filter by multiplying individual
+   * condition selectivities (independence assumption). Returns -1.0 if no
+   * sub-condition could be estimated.
+   */
+  private static double estimateCompoundAndSelectivity(
+      SQLAndBlock andBlock, long classCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    double combined = 1.0;
+    boolean anyEstimated = false;
+    for (var sub : andBlock.getSubBlocks()) {
+      double sel = estimateSubExpression(sub, classCount, schemaClass, session);
+      if (sel >= 0.0) {
+        combined *= sel;
+        anyEstimated = true;
+      }
+    }
+    return anyEstimated ? combined : -1.0;
+  }
+
+  /**
+   * Estimates selectivity of a compound OR filter using the inclusion-exclusion
+   * principle (independence assumption):
+   * {@code sel(A OR B) = 1 - (1 - sel(A)) * (1 - sel(B))}.
+   * Returns -1.0 if no sub-condition could be estimated.
+   */
+  private static double estimateCompoundOrSelectivity(
+      SQLOrBlock orBlock, long classCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    double complementProduct = 1.0;
+    boolean anyEstimated = false;
+    for (var sub : orBlock.getSubBlocks()) {
+      double sel = estimateSubExpression(sub, classCount, schemaClass, session);
+      if (sel >= 0.0) {
+        complementProduct *= (1.0 - sel);
+        anyEstimated = true;
+      }
+    }
+    return anyEstimated ? 1.0 - complementProduct : -1.0;
+  }
+
+  /**
+   * Estimates selectivity of a single sub-expression within a compound
+   * AND/OR block. Handles nested AND blocks, OR blocks, and leaf binary
+   * conditions via recursive dispatch.
+   */
+  private static double estimateSubExpression(
+      SQLBooleanExpression sub, long classCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    var unwrapped = unwrapSingleCondition(sub);
+    if (unwrapped instanceof SQLBinaryCondition binary) {
+      return estimateSingleConditionSelectivity(
+          binary, classCount, schemaClass, session);
+    }
+    if (unwrapped instanceof SQLAndBlock nested && nested.getSubBlocks().size() > 1) {
+      return estimateCompoundAndSelectivity(
+          nested, classCount, schemaClass, session);
+    }
+    if (unwrapped instanceof SQLOrBlock nested && nested.getSubBlocks().size() > 1) {
+      return estimateCompoundOrSelectivity(
+          nested, classCount, schemaClass, session);
+    }
+    return -1.0;
+  }
+
+  /**
+   * Estimates selectivity for a single binary condition using a three-tier
+   * approach:
+   * <ol>
+   *   <li>{@code @class = 'X'} — class count ratio (meta-attribute)</li>
+   *   <li>Histogram-aware estimation via {@link SelectivityEstimator}</li>
+   *   <li>Uniform-distribution fallback using {@code distinctCount}</li>
+   * </ol>
+   */
+  private static double estimateSingleConditionSelectivity(
+      SQLBinaryCondition binary, long classCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    // 1. @class = 'X' — meta-attribute, not index-backed
+    double classSel = estimateClassAttributeSelectivity(
+        binary, classCount, schemaClass, session);
+    if (classSel >= 0.0) {
+      return classSel;
+    }
+
+    // 2. Histogram-aware estimation (all operators: =, <>, >, <, >=, <=, IN)
+    double histogramSel = estimateViaHistogram(binary, schemaClass, session);
+    if (histogramSel >= 0.0) {
+      return histogramSel;
+    }
+
+    // 3. Fallback: uniform-distribution using distinctCount
+    var op = binary.getOperator();
+    long divisor = resolveDistinctCount(binary, schemaClass, session);
+    if (divisor <= 0) {
+      divisor = classCount;
+    }
+    if (op instanceof SQLEqualsOperator) {
+      return 1.0 / divisor;
+    } else if (op instanceof SQLNeOperator) {
+      return (divisor - 1.0) / divisor;
+    }
+    return -1.0;
+  }
+
+  /**
+   * Attempts histogram-aware selectivity estimation by looking up index statistics
+   * and histogram for the property in the binary condition, then delegating to
+   * {@link SelectivityEstimator#estimateForOperator}.
+   *
+   * @return selectivity in [0.0, 1.0], or -1.0 if estimation is not possible
+   *     (no index, no statistics, or value cannot be resolved at plan time)
+   */
+  private static double estimateViaHistogram(
+      SQLBinaryCondition binary,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (schemaClass == null || session == null) {
+      return -1.0;
+    }
+    var propName = binary.getRelatedIndexPropertyName();
+    if (propName == null) {
+      return -1.0;
+    }
+    var indexes = schemaClass.getInvolvedIndexesInternal(session, propName);
+    if (indexes == null) {
+      return -1.0;
+    }
+    for (var index : indexes) {
+      var stats = index.getStatistics(session);
+      if (stats == null || stats.totalCount() <= 0) {
+        continue;
+      }
+      // Try to resolve the comparison value at plan time. Only literal values
+      // can be resolved — parameterized queries (e.g. :startDate) depend on
+      // runtime input parameters which are not available during planning.
+      Object value;
+      try {
+        value = binary.getRight().execute(
+            (com.jetbrains.youtrackdb.internal.core.query.Result) null, null);
+      } catch (Exception e) {
+        // Expression requires runtime context (e.g. input parameters, $matched
+        // references, function calls). Fall back to non-histogram estimation.
+        value = null;
+      }
+      if (value == null) {
+        continue;
+      }
+      var histogram = index.getHistogram(session);
+      var sel = SelectivityEstimator.estimateForOperator(
+          binary.getOperator(), stats, histogram, value);
+      if (sel >= 0.0) {
+        return sel;
+      }
+    }
+    return -1.0;
+  }
+
+  /**
+   * Attempts to resolve the number of distinct values for the property
+   * referenced in a binary condition by looking up index statistics. Returns
+   * {@code -1} if no indexed property can be identified or no statistics are
+   * available.
+   */
+  private static long resolveDistinctCount(
+      SQLBinaryCondition binary,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    var propName = (schemaClass != null && session != null)
+        ? binary.getRelatedIndexPropertyName() : null;
+    var indexes = propName != null
+        ? schemaClass.getInvolvedIndexesInternal(session, propName) : null;
+    if (indexes != null) {
+      for (var index : indexes) {
+        var stats = index.getStatistics(session);
+        if (stats != null && stats.distinctCount() > 0) {
+          return stats.distinctCount();
+        }
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Adjusts edge cost based on the maximum traversal depth specified in
+   * a WHILE clause. Edges with {@code $depth < N} (or explicit maxDepth)
+   * produce intermediate results proportional to the depth limit. A
+   * lower maxDepth means fewer hops and cheaper traversal.
+   *
+   * <p>When no depth limit is set (simple one-hop edge), the cost is
+   * unchanged. For WHILE edges without maxDepth, a default multiplier
+   * of {@value #DEFAULT_WHILE_DEPTH} is applied to reflect the
+   * potentially unbounded recursive expansion.
+   *
+   * @param baseCost the cost computed from fan-out and target selectivity
+   * @param edge     the pattern edge to inspect for depth limits
+   * @return adjusted cost, multiplied by the depth factor
+   */
+  static double applyDepthMultiplier(double baseCost, PatternEdge edge) {
+    var filter = edge.item.getFilter();
+    if (filter == null) {
+      return baseCost;
+    }
+    var whileCondition = filter.getWhileCondition();
+    if (whileCondition == null) {
+      return baseCost;
+    }
+    var maxDepth = filter.getMaxDepth();
+    if (maxDepth != null && maxDepth > 0) {
+      return baseCost * maxDepth;
+    }
+    return baseCost * DEFAULT_WHILE_DEPTH;
+  }
+
+  private static final int DEFAULT_WHILE_DEPTH = 10;
+
+  /**
+   * Handles the {@code @class = 'ClassName'} selectivity heuristic. When the
+   * left side of the condition is a record attribute ({@code @class}) and the
+   * operator is equality, the selectivity is the ratio of the subclass record
+   * count to the total target class count:
+   * {@code subclassCount / targetClassCount}.
+   *
+   * <p>For example, with target class {@code Message} (10000 records) and
+   * filter {@code @class = 'Post'} where {@code Post} has 3000 records,
+   * selectivity = 3000/10000 = 0.3.
+   *
+   * @return selectivity in [0.0, 1.0], or {@code -1.0} if the condition
+   *     is not a {@code @class = 'X'} pattern
+   */
+  private static double estimateClassAttributeSelectivity(
+      SQLBinaryCondition binary,
+      long targetClassCount,
+      @Nullable SchemaClassInternal schemaClass,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (schemaClass == null || session == null || targetClassCount <= 0) {
+      return -1.0;
+    }
+    // Verify left side is @class, evaluate right side, and look up subclass — all
+    // in a single guard chain. Any null/mismatch returns -1.0 to signal "not applicable".
+    var recAttr = extractRecordAttribute(binary.getLeft());
+    var isClassAttr = recAttr != null && "@class".equalsIgnoreCase(recAttr.getName());
+    var subclassName = isClassAttr ? evaluateAsString(binary.getRight()) : null;
+    var schema = subclassName != null
+        ? session.getMetadata().getImmutableSchemaSnapshot() : null;
+    if (schema == null || !schema.existsClass(subclassName)) {
+      return -1.0;
+    }
+    long subclassCount = schema.getClassInternal(subclassName).approximateCount(session);
+    return (double) subclassCount / targetClassCount;
+  }
+
+  /** Extracts the SQLRecordAttribute from an expression's left side, or null. */
+  @Nullable private static SQLRecordAttribute extractRecordAttribute(
+      @Nullable SQLExpression expr) {
+    if (expr == null || expr.getMathExpression() == null) {
+      return null;
+    }
+    if (!(expr.getMathExpression() instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    var identifier = base.getIdentifier();
+    if (identifier == null || identifier.getSuffix() == null) {
+      return null;
+    }
+    return identifier.getSuffix().getRecordAttribute();
+  }
+
+  /** Evaluates an expression and returns the result as a String, or null. */
+  @Nullable private static String evaluateAsString(@Nullable SQLExpression expr) {
+    if (expr == null) {
+      return null;
+    }
+    try {
+      var value = expr.execute(
+          (com.jetbrains.youtrackdb.internal.core.query.Result) null,
+          new BasicCommandContext());
+      return value instanceof String s ? s : null;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /**
+   * Unwraps single-element AND/OR blocks to find the innermost condition.
+   * Returns the expression as-is if it is already a leaf condition or if
+   * there are multiple sub-blocks (compound filter).
+   */
+  @Nullable private static SQLBooleanExpression unwrapSingleCondition(SQLBooleanExpression expr) {
+    if (expr instanceof SQLAndBlock and) {
+      if (and.getSubBlocks().size() == 1) {
+        return unwrapSingleCondition(and.getSubBlocks().getFirst());
+      }
+    } else if (expr instanceof SQLOrBlock or) {
+      if (or.getSubBlocks().size() == 1) {
+        return unwrapSingleCondition(or.getSubBlocks().getFirst());
+      }
+    } else if (expr instanceof SQLNotBlock not) {
+      if (!not.isNegate()) {
+        return unwrapSingleCondition(not.getSub());
+      }
+    }
+    return expr;
   }
 
   /**
