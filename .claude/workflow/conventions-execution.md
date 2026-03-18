@@ -11,10 +11,11 @@ Execution-specific formats and rules. Loaded only during Phase 3
 These subsections extend the plan file structure defined in
 `conventions.md` §1.2.
 
-### After track completion
+### After track completion (user-approved)
 
-The track episode is appended to the plan file under the completed track's
-checklist entry:
+The track episode is written to the plan file **only after the user
+approves** the track results (see workflow.md §Track Completion Protocol).
+The episode and `[x]` marker are committed together in a single commit:
 
 ```markdown
 - [x] Track 2: <title>
@@ -80,9 +81,16 @@ the resume state:
 | Progress section | Resume action |
 |---|---|
 | `Review + decomposition` is `[ ]` | Reviews completed section may show partial progress — re-run only missing reviews, then decompose |
-| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step |
+| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for incomplete step recovery) |
 | All steps `[x]`, `Track-level code review` is `[ ]` | Run Phase C (track-level code review) |
-| All phases `[x]` | Track is done but plan file not yet updated — write track episode, mark `[x]` |
+| All phases `[x]` | Track completion pending — compile track episode, present to user for approval, write to plan file only after approval (see workflow.md §Track Completion Protocol) |
+
+**Incomplete step recovery (Phase B resume):** When resuming at a `[ ]`
+step, the previous session may have committed code but not written the
+episode. Check `git log {base_commit}..HEAD` for orphan implementation
+commits after the last episoded step. If found, resume from the code
+review or episode sub-step instead of re-implementing. See
+step-implementation.md §Phase B Resume for the full protocol.
 
 ### Step file content (`tracks/track-N.md`)
 
