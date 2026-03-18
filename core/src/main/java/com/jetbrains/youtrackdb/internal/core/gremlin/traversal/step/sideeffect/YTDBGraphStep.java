@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect;
 
-
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
@@ -11,11 +11,11 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
-import java.util.Locale;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -57,8 +57,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
     var userVertices = elements(
         YTDBGraph::vertices,
-        result -> new YTDBVertexImpl(graph, result.asVertex())
-    );
+        result -> new YTDBVertexImpl(graph, result.asVertex()));
 
     var schemaVertices = createClassIterator(graph);
     if (schemaVertices == null) {
@@ -77,8 +76,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var graph = getGraph();
     return elements(
         YTDBGraph::edges,
-        result -> new YTDBStatefulEdgeImpl(graph, result.asStatefulEdge())
-    );
+        result -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) result.asEdge()));
   }
 
   /**
@@ -92,8 +90,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
    */
   private <ElementType extends Element> Iterator<? extends ElementType> elements(
       BiFunction<YTDBGraph, Object[], Iterator<ElementType>> getElementsByIds,
-      Function<Result, ElementType> getElement
-  ) {
+      Function<Result, ElementType> getElement) {
     final var graph = getGraph();
     var tx = graph.tx();
     tx.readWrite();
@@ -104,8 +101,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
       /* Got some element IDs, so just get the elements using those */
       return IteratorUtils.filter(
           getElementsByIds.apply(graph, this.ids),
-          element -> HasContainer.testAll(element, this.hasContainers)
-      );
+          element -> HasContainer.testAll(element, this.hasContainers));
     } else {
       final var builder = new YTDBGraphQueryBuilder(isVertexStep());
       final var labelContainers = new ArrayList<HasContainer>();
@@ -141,8 +137,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     return (YTDBGraphInternal) this.getTraversal().getGraph().orElseThrow();
   }
 
-  @Nullable
-  private Iterator<Vertex> createClassIterator(YTDBGraphInternal graph) {
+  @Nullable private Iterator<Vertex> createClassIterator(YTDBGraphInternal graph) {
     for (var hasContainer : this.hasContainers) {
       if (T.label.getAccessor().equals(hasContainer.getKey()) && YTDBSchemaClass.LABEL.equals(
           hasContainer.getValue())) {
@@ -165,7 +160,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     } else {
       return 0 == this.ids.length
           ? StringFactory.stepString(
-          this, this.returnClass.getSimpleName().toLowerCase(Locale.ROOT), this.hasContainers)
+              this, this.returnClass.getSimpleName().toLowerCase(Locale.ROOT), this.hasContainers)
           : StringFactory.stepString(
               this,
               this.returnClass.getSimpleName().toLowerCase(Locale.ROOT),

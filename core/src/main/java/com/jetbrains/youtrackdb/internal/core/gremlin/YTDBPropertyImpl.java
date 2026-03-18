@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.NoSuchElementException;
 import javax.annotation.Nullable;
@@ -15,8 +16,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
   protected String key;
   protected V value;
   protected Object wrappedValue;
-  @Nullable
-  private final PropertyType propertyType;
+  @Nullable private final PropertyType propertyType;
   protected YTDBElementImpl element;
   private boolean removed = false;
 
@@ -24,8 +24,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       String key,
       @Nullable V value,
       @Nullable PropertyType propertyType,
-      YTDBElementImpl element
-  ) {
+      YTDBElementImpl element) {
     this.key = key;
     this.value = value;
     this.element = element;
@@ -57,8 +56,8 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       if (entity.isVertex()) {
         result =
             new YTDBVertexImpl(graph, entity.asVertex());
-      } else if (entity.isStatefulEdge()) {
-        result = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
+      } else if (entity.isEdge()) {
+        result = new YTDBStatefulEdgeImpl(graph, (StatefulEdge) entity.asEdge());
       }
     }
 

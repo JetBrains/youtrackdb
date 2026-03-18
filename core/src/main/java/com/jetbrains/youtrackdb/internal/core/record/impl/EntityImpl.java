@@ -571,7 +571,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       if (entity.isVertex()) {
         value = (RET) entity.asVertex();
       } else {
-        if (entity.isStatefulEdge()) {
+        if (entity.isEdge()) {
           value = (RET) entity.asEdge();
         }
       }
@@ -1981,7 +1981,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' that is vertex class");
           }
 
-          if (entity.isStatefulEdge()) {
+          if (entity.isEdge()) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -4042,7 +4042,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Embedded entities can be only of abstract classes. Provided class : " + cls.getName()
               + " is not abstract");
     }
-    if (isVertex() || isStatefulEdge()) {
+    if (isVertex() || isEdge()) {
       throw new DatabaseException(session.getDatabaseName(),
           "Vertices or Edges cannot be stored as embedded");
     }

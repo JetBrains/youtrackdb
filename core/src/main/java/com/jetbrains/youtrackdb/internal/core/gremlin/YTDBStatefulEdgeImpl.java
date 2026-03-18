@@ -60,6 +60,6 @@ public final class YTDBStatefulEdgeImpl extends YTDBElementImpl implements YTDBE
 
   @Override
   public StatefulEdge getRawEntity() {
-    return super.getRawEntity().asStatefulEdge();
+    return (StatefulEdge) super.getRawEntity().asEdge();
   }
 }

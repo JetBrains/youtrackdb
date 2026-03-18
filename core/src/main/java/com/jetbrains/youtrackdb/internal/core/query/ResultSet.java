@@ -43,8 +43,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-  @Nullable
-  default <R> R findFirstEntityOrNull(@Nonnull Function<Entity, R> function) {
+  @Nullable default <R> R findFirstEntityOrNull(@Nonnull Function<Entity, R> function) {
     try {
       if (hasNext()) {
         var entity = next().asEntityOrNull();
@@ -88,8 +87,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-  @Nullable
-  default <R> R findFirstVertexOrNull(@Nonnull Function<Vertex, R> function) {
+  @Nullable default <R> R findFirstVertexOrNull(@Nonnull Function<Vertex, R> function) {
     try {
       if (hasNext()) {
         var vertex = next().asVertexOrNull();
@@ -132,9 +130,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-
-  @Nullable
-  default Edge findFirstEdgeOrNull() {
+  @Nullable default Edge findFirstEdgeOrNull() {
     try {
       if (hasNext()) {
         return next().asEdgeOrNull();
@@ -146,8 +142,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-  @Nullable
-  default <R> R findFirstEdgeOrNull(@Nonnull Function<Edge, R> function) {
+  @Nullable default <R> R findFirstEdgeOrNull(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
         var edge = next().asEdgeOrNull();
@@ -177,8 +172,7 @@ public interface ResultSet extends BasicResultSet<Result> {
     }
   }
 
-  @Nullable
-  default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
+  @Nullable default <R> R findFirstSateFullEdgeOrNull(@Nonnull Function<Edge, R> function) {
     try {
       if (hasNext()) {
         var edge = next().asStatefulEdgeOrNull();
@@ -202,39 +196,37 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nonnull
   default Stream<Entity> entityStream() {
     return StreamSupport.stream(
-            new Spliterator<Entity>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super Entity> action) {
-                while (hasNext()) {
-                  var elem = next();
-                  if (elem != null) {
-                    action.accept(elem.asEntity());
-                    return true;
-                  }
-                }
-                return false;
+        new Spliterator<Entity>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super Entity> action) {
+            while (hasNext()) {
+              var elem = next();
+              if (elem != null) {
+                action.accept(elem.asEntity());
+                return true;
               }
+            }
+            return false;
+          }
 
-              @Override
-              @Nullable
-              public Spliterator<Entity> trySplit() {
-                return null;
-              }
+          @Override
+          @Nullable public Spliterator<Entity> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
-
 
   default void forEachEntity(@Nonnull Consumer<? super Entity> action) {
     entityStream().forEach(action);
@@ -252,38 +244,37 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nonnull
   default Stream<Vertex> vertexStream() {
     return StreamSupport.stream(
-            new Spliterator<Vertex>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super Vertex> action) {
-                while (hasNext()) {
-                  var elem = next();
+        new Spliterator<Vertex>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super Vertex> action) {
+            while (hasNext()) {
+              var elem = next();
 
-                  if (elem != null) {
-                    action.accept(elem.asVertex());
-                    return true;
-                  }
-
-                }
-                return false;
+              if (elem != null) {
+                action.accept(elem.asVertex());
+                return true;
               }
 
-              @Override
-              @Nullable
-              public Spliterator<Vertex> trySplit() {
-                return null;
-              }
+            }
+            return false;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          @Nullable public Spliterator<Vertex> trySplit() {
+            return null;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
+
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
 
@@ -299,44 +290,43 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nonnull
   default Stream<RID> ridStream() {
     return StreamSupport.stream(
-            new Spliterator<RID>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super RID> action) {
-                while (hasNext()) {
-                  var elem = next();
+        new Spliterator<RID>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super RID> action) {
+            while (hasNext()) {
+              var elem = next();
 
-                  if (elem == null) {
-                    continue;
-                  }
-
-                  if (elem.isIdentifiable()) {
-                    action.accept(elem.getIdentity());
-                    return true;
-                  } else {
-                    throw new IllegalStateException(elem + " is not a record");
-                  }
-                }
-
-                return false;
+              if (elem == null) {
+                continue;
               }
 
-              @Override
-              @Nullable
-              public Spliterator<RID> trySplit() {
-                return null;
+              if (elem.isIdentifiable()) {
+                action.accept(elem.getIdentity());
+                return true;
+              } else {
+                throw new IllegalStateException(elem + " is not a record");
               }
+            }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+            return false;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          @Nullable public Spliterator<RID> trySplit() {
+            return null;
+          }
+
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
+
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
 
@@ -352,36 +342,35 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nonnull
   default Stream<StatefulEdge> statefulEdgeStream() {
     return StreamSupport.stream(
-            new Spliterator<StatefulEdge>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super StatefulEdge> action) {
-                while (hasNext()) {
-                  var nextElem = next();
-                  if (nextElem != null) {
-                    action.accept(nextElem.asStatefulEdge());
-                    return true;
-                  }
-                }
-                return false;
+        new Spliterator<StatefulEdge>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super StatefulEdge> action) {
+            while (hasNext()) {
+              var nextElem = next();
+              if (nextElem != null) {
+                action.accept(nextElem.asStatefulEdge());
+                return true;
               }
+            }
+            return false;
+          }
 
-              @Nullable
-              @Override
-              public Spliterator<StatefulEdge> trySplit() {
-                return null;
-              }
+          @Nullable @Override
+          public Spliterator<StatefulEdge> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
 
@@ -397,36 +386,35 @@ public interface ResultSet extends BasicResultSet<Result> {
   @Nonnull
   default Stream<Edge> edgeStream() {
     return StreamSupport.stream(
-            new Spliterator<Edge>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super Edge> action) {
-                while (hasNext()) {
-                  var nextElem = next();
-                  if (nextElem != null) {
-                    action.accept(nextElem.asStatefulEdge());
-                    return true;
-                  }
-                }
-                return false;
+        new Spliterator<Edge>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super Edge> action) {
+            while (hasNext()) {
+              var nextElem = next();
+              if (nextElem != null) {
+                action.accept(nextElem.asEdge());
+                return true;
               }
+            }
+            return false;
+          }
 
-              @Nullable
-              @Override
-              public Spliterator<Edge> trySplit() {
-                return null;
-              }
+          @Nullable @Override
+          public Spliterator<Edge> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
 
@@ -440,9 +428,7 @@ public interface ResultSet extends BasicResultSet<Result> {
   }
 
   @Override
-  @Nullable
-  DatabaseSessionEmbedded getBoundToSession();
+  @Nullable DatabaseSessionEmbedded getBoundToSession();
 
-  @Nullable
-  ExecutionPlan getExecutionPlan();
+  @Nullable ExecutionPlan getExecutionPlan();
 }

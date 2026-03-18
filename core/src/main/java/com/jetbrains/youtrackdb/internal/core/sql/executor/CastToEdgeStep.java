@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
 /** Execution step that casts upstream results to edge records. */
@@ -23,17 +22,11 @@ public class CastToEdgeStep extends AbstractExecutionStep {
   }
 
   private static Result mapResult(Result result, CommandContext ctx) {
-
-    var db = ctx.getDatabaseSession();
-    if (result.isStatefulEdge()) {
-      if (result.isStatefulEdge()) {
-        ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
-      } else {
-        result = new ResultInternal(db, (EdgeInternal) result.asEdge());
-      }
+    if (result.isEdge()) {
+      ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
     } else {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "Current entity is not a stateful edge : " + result);
+          "Current entity is not an edge: " + result);
     }
 
     return result;

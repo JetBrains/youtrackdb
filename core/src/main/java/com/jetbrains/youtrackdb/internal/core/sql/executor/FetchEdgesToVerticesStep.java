@@ -108,15 +108,9 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     if (targetCollection == null) {
       return true;
     }
-    if (edge.isStateful()) {
-      var statefulEdge = edge.asStatefulEdge();
-
-      var collectionId = statefulEdge.getIdentity().getCollectionId();
-      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
-      return collectionName.equals(targetCollection.getStringValue());
-    }
-
-    return false;
+    var collectionId = edge.asStatefulEdge().getIdentity().getCollectionId();
+    var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+    return collectionName.equals(targetCollection.getStringValue());
   }
 
   private boolean matchesClass(DatabaseSessionEmbedded unusedDb, Edge edge) {

@@ -6,6 +6,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import java.util.Iterator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -23,8 +24,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
 
   public YTDBVertexImpl(
       final YTDBGraphInternal graph,
-      final com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex rawElement
-  ) {
+      final com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex rawElement) {
     super(graph, rawElement);
   }
 
@@ -44,8 +44,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
 
   @Override
   public <V> Iterator<VertexProperty<V>> properties(final String... propertyKeys) {
-    return readProperties(YTDBPropertyFactory.stdVectorProps(), propertyKeys
-    );
+    return readProperties(YTDBPropertyFactory.stdVectorProps(), propertyKeys);
   }
 
   @Override
@@ -79,9 +78,9 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
     graph.tx().readWrite();
     Stream<Vertex> vertexStream =
         StreamUtils.asStream(
-                getRawEntity().asVertex()
-                    .getVertices(YTDBGraphUtils.mapDirection(direction), labels)
-                    .iterator())
+            getRawEntity().asVertex()
+                .getVertices(YTDBGraphUtils.mapDirection(direction), labels)
+                .iterator())
             .map(v -> new YTDBVertexImpl(graph, v));
 
     return vertexStream.iterator();
@@ -96,11 +95,11 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
     // EdgeTest#shouldNotHaveAConcurrentModificationExceptionWhenIteratingAndRemovingAddingEdges
     Stream<Edge> edgeStream =
         StreamUtils.asStream(
-                getRawEntity().asVertex()
-                    .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
-                    .iterator())
-            .filter(e -> e != null && e.isStateful() && e.getFrom() != null && e.getTo() != null)
-            .map(e -> new YTDBStatefulEdgeImpl(graph, e.asStatefulEdge()));
+            getRawEntity().asVertex()
+                .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
+                .iterator())
+            .filter(e -> e != null && e.getFrom() != null && e.getTo() != null)
+            .map(e -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) e));
 
     return edgeStream.collect(Collectors.toList()).iterator();
   }

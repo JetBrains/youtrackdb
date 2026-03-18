@@ -262,18 +262,12 @@ public class SQLUpdateItem extends SimpleNode {
             fromVertex = edge.getVertex(Direction.OUT);
           }
 
-          if (edge.isStateful()) {
-            var statefulEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
-            var EntityImpl = (EntityImpl) statefulEdge.asEntity();
+          var newEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
+          var entityImpl = (EntityImpl) newEdge.asEntity();
 
-            EntityImpl.movePropertiesFromOtherEntity((EntityImpl)
-                edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
-            res.setIdentifiable(statefulEdge);
-          } else {
-            var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
-                edge.getSchemaClass());
-            res.setRelation(lightweightEdge);
-          }
+          entityImpl.movePropertiesFromOtherEntity((EntityImpl)
+              edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+          res.setIdentifiable(newEdge);
 
           edge.delete();
         } else {

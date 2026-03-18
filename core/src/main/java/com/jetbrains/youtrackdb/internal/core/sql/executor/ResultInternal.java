@@ -288,11 +288,7 @@ public class ResultInternal implements Result, BasicResultInternal {
           return convertPropertyValue(result.asBlob());
         }
         if (result.isEdge()) {
-          if (!result.isStatefulEdge()) {
-            return result.asEdge();
-          }
-
-          return convertPropertyValue(result.asStatefulEdge());
+          return convertPropertyValue(result.asEdge());
         }
         if (result.isRelation()) {
           return result.asRelation();

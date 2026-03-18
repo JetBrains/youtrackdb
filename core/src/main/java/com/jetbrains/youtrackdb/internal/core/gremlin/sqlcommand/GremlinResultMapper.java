@@ -21,20 +21,19 @@ import javax.annotation.Nullable;
 /// Handles recursive mapping of vertices, edges, RIDs, Result objects, maps, and collections.
 public final class GremlinResultMapper {
 
-  private GremlinResultMapper() {}
+  private GremlinResultMapper() {
+  }
 
   /// Main entry point — recursively converts any value into its Gremlin representation.
   /// Vertices become [YTDBVertexImpl], edges become [YTDBStatefulEdgeImpl],
   /// Results are unwrapped, and collections/maps are recursively mapped.
-  @Nullable
-  public static Object toGremlinValue(
-      YTDBGraphInternal graph, ImmutableSchema schema, Object value
-  ) {
+  @Nullable public static Object toGremlinValue(
+      YTDBGraphInternal graph, ImmutableSchema schema, Object value) {
     return switch (value) {
       case null -> null;
       case Vertex vertex -> new YTDBVertexImpl(graph, vertex);
       case StatefulEdge edge -> new YTDBStatefulEdgeImpl(graph, edge);
-      case Edge edge -> new YTDBStatefulEdgeImpl(graph, edge.asStatefulEdge());
+      case Edge edge -> new YTDBStatefulEdgeImpl(graph, (StatefulEdge) edge);
       case Entity entity -> mapEntity(graph, entity);
       case Identifiable identifiable -> wrapRid(graph, schema, identifiable.getIdentity());
       case Result result -> mapResult(graph, schema, result);
@@ -61,8 +60,8 @@ public final class GremlinResultMapper {
   private static Object mapEntity(YTDBGraphInternal graph, Entity entity) {
     if (entity.isVertex()) {
       return new YTDBVertexImpl(graph, entity.asVertex());
-    } else if (entity.isStatefulEdge()) {
-      return new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
+    } else if (entity.isEdge()) {
+      return new YTDBStatefulEdgeImpl(graph, (StatefulEdge) entity.asEdge());
     }
 
     throw new IllegalStateException(
@@ -71,8 +70,7 @@ public final class GremlinResultMapper {
 
   /// Converts a [Result] — dispatches to entity/identifiable/property-map handling.
   private static Object mapResult(
-      YTDBGraphInternal graph, ImmutableSchema schema, Result result
-  ) {
+      YTDBGraphInternal graph, ImmutableSchema schema, Result result) {
     if (result.isEntity()) {
       return mapEntity(graph, result.asEntity());
     }

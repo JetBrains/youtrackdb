@@ -133,7 +133,7 @@ public class GraphRepair {
             try (var edgeIterator = graph.browseClass(edgeClass.getName())) {
               while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
                 final var edge = edgeIterator.next();
-                if (!edge.isStatefulEdge()) {
+                if (!edge.isEdge()) {
                   continue;
                 }
                 final RID edgeId = edge.getIdentity();
@@ -172,7 +172,7 @@ public class GraphRepair {
 
                 var removalReason = "";
 
-                final Identifiable out = edge.asStatefulEdgeOrNull().getFrom();
+                final Identifiable out = edge.asEdgeOrNull().getFrom();
                 if (out == null) {
                   outVertexMissing = true;
                 } else {
@@ -221,7 +221,7 @@ public class GraphRepair {
 
                 var inVertexMissing = false;
 
-                final Identifiable in = edge.asStatefulEdgeOrNull().getTo();
+                final Identifiable in = edge.asEdgeOrNull().getTo();
                 if (in == null) {
                   inVertexMissing = true;
                 } else {
@@ -326,7 +326,7 @@ public class GraphRepair {
 
             message(outputListener, "Scanning " + countVertices + " vertices...\n");
 
-            var parsedVertices = new long[]{0L};
+            var parsedVertices = new long[] {0L};
             final var beginTime = System.currentTimeMillis();
 
             try (var vertexIterator = session.browseClass(vertexClass.getName())) {
@@ -345,8 +345,8 @@ public class GraphRepair {
 
                 if (outputListener != null && stats.scannedVertices % 100000 == 0) {
                   var speedPerSecond =
-                      (long)
-                          (parsedVertices[0] / ((System.currentTimeMillis() - beginTime) / 1000.0));
+                      (long) (parsedVertices[0]
+                          / ((System.currentTimeMillis() - beginTime) / 1000.0));
                   if (speedPerSecond < 1) {
                     speedPerSecond = 1;
                   }
@@ -401,7 +401,7 @@ public class GraphRepair {
                       }
                       case Collection<?> coll -> {
 
-                        for (var it = coll.iterator(); it.hasNext(); ) {
+                        for (var it = coll.iterator(); it.hasNext();) {
                           final var o = it.next();
 
                           if (isEdgeBroken(session,
@@ -428,11 +428,11 @@ public class GraphRepair {
                           vertex.removePropertyInternal(fieldName);
                         } else if (!ridbag.isEmbedded()
                             && ridbag.size()
-                            < GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD
-                            .getValueAsInteger()) {
+                                < GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD
+                                    .getValueAsInteger()) {
                           vertex.setDirty();
                         }
-                        for (var it = ridbag.iterator(); it.hasNext(); ) {
+                        for (var it = ridbag.iterator(); it.hasNext();) {
                           final var ridPair = it.next();
                           if (isEdgeBroken(session,
                               vertex, fieldName, connection.getKey(), ridPair.primaryRid(),
@@ -583,8 +583,8 @@ public class GraphRepair {
             }
           } else {
             // EDGE -> REGULAR EDGE, OK
-            if (record.isStatefulEdge()) {
-              var edge = record.asStatefulEdgeOrNull();
+            if (record.isEdge()) {
+              var edge = record.asEdgeOrNull();
               final Identifiable backRID = edge.getVertex(direction);
               if (backRID == null || !backRID.equals(vertex))
               // BACK RID POINTS TO ANOTHER VERTEX

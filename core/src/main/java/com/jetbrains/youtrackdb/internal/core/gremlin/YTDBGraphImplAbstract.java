@@ -7,6 +7,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.GremlinResultMapper;
 import com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult;
@@ -17,14 +20,18 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBeginStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCommitStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRollbackStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.TokenMgrError;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
@@ -157,7 +164,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     return elements(
         tx.getDatabaseSession(),
         SchemaClass.EDGE_CLASS_NAME,
-        entity -> new YTDBStatefulEdgeImpl(this, entity.asStatefulEdge()),
+        entity -> new YTDBStatefulEdgeImpl(this, (StatefulEdge) entity.asEdge()),
         edgeIds);
   }
 
@@ -229,9 +236,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       throw new IllegalArgumentException("Command cannot be null or empty");
     }
 
+    var statement = getSqlStatement(sqlCommand);
     var tx = tx();
-    var statement = getSqlStatement(sqlCommand,
-        tx.isOpen() ? tx.getDatabaseSession() : null);
 
     if (statement instanceof SQLBeginStatement) {
       if (!tx.isOpen()) {
@@ -297,12 +303,20 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     }
   }
 
-  private static SQLStatement getSqlStatement(String command,
-      @Nullable DatabaseSessionEmbedded session) {
-    // Route through YqlStatementCache for atomic parse-on-miss caching.
-    // When session is non-null, parsed ASTs are cached in SharedContext's YqlStatementCache.
-    // When session is null, falls through to direct parsing (no caching).
-    return YqlStatementCache.get(command, session);
+  private static SQLStatement getSqlStatement(String command) {
+    SQLStatement statement;
+    try {
+      var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
+      var parser = new YouTrackDBSql(is);
+      statement = parser.parse();
+    } catch (ParseException | TokenMgrError e) {
+      throw new CommandSQLParsingException("Error on parsing command: " + command,
+          String.valueOf(e));
+    } catch (Exception e) {
+      throw new CommandExecutionException("Error on executing command: " + command,
+          String.valueOf(e));
+    }
+    return statement;
   }
 
   @Override

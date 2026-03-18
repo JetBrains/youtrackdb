@@ -24,40 +24,27 @@ import javax.annotation.Nullable;
 
 public class CreateEdgesStep extends AbstractExecutionStep {
 
-  @Nullable
-  private final SQLIdentifier targetClass;
-  @Nullable
-  private final String uniqueIndexName;
+  @Nullable private final SQLIdentifier targetClass;
+  @Nullable private final String uniqueIndexName;
 
-  @Nullable
-  private final SQLIdentifier fromAlias;
-  @Nullable
-  private final SQLIdentifier toAlias;
+  @Nullable private final SQLIdentifier fromAlias;
+  @Nullable private final SQLIdentifier toAlias;
 
-  @Nullable
-  private final SQLStatement fromStatemen;
-  @Nullable
-  private final SQLStatement toStatement;
+  @Nullable private final SQLStatement fromStatemen;
+  @Nullable private final SQLStatement toStatement;
 
   public CreateEdgesStep(
-      @Nullable
-      SQLIdentifier targetClass,
+      @Nullable SQLIdentifier targetClass,
 
-      @Nullable
-      String uniqueIndex,
+      @Nullable String uniqueIndex,
 
-      @Nullable
-      SQLIdentifier fromAlias,
-      @Nullable
-      SQLIdentifier toAlias,
+      @Nullable SQLIdentifier fromAlias,
+      @Nullable SQLIdentifier toAlias,
 
-      @Nullable
-      SQLStatement fromStatemen,
-      @Nullable
-      SQLStatement toStatement,
+      @Nullable SQLStatement fromStatemen,
+      @Nullable SQLStatement toStatement,
 
-      @Nonnull
-      CommandContext ctx,
+      @Nonnull CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.targetClass = targetClass;
@@ -91,8 +78,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return ExecutionStream.resultIterator(stream.iterator());
   }
 
-  @Nullable
-  private Index findIndex(String uniqueIndexName) {
+  @Nullable private Index findIndex(String uniqueIndexName) {
     if (uniqueIndexName != null) {
       final var session = ctx.getDatabaseSession();
       var uniqueIndex =
@@ -105,7 +91,6 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     }
     return null;
   }
-
 
   private Stream<?> fetchFroms() {
     if (fromAlias != null) {
@@ -201,15 +186,17 @@ public class CreateEdgesStep extends AbstractExecutionStep {
           (EdgeInternal) currentFrom.addEdge(currentTo, targetClass.getStringValue());
     }
 
-    if (edgeToUpdate.isStateful()) {
-      return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
+    // After unification (Track 2+), all edges will be StatefulEdge. Until then,
+    // lightweight edges (EdgeImpl) still exist and need the fallback path.
+    var stateful = edgeToUpdate.asStatefulEdgeOrNull();
+    if (stateful != null) {
+      return new UpdatableResult(session, stateful);
     } else {
       return new ResultInternal(session, edgeToUpdate);
     }
   }
 
-  @Nullable
-  private static EdgeInternal getExistingEdge(
+  @Nullable private static EdgeInternal getExistingEdge(
       DatabaseSessionEmbedded db,
       Vertex currentFrom,
       Vertex currentTo,

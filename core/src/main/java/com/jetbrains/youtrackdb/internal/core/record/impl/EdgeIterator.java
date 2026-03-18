@@ -46,15 +46,14 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
     super(iSourceVertex, iMultiValue, iterator, connection, iLabels, iSize, session);
   }
 
-
   @Override
   protected EdgeInternal createBidirectionalLink(Identifiable identifiable) {
     if (identifiable == null) {
       return null;
     }
 
-    if (identifiable instanceof Entity entity && entity.isStatefulEdge()) {
-      return (EdgeInternal) entity.asStatefulEdge();
+    if (identifiable instanceof Entity entity && entity.isEdge()) {
+      return (EdgeInternal) entity.asEdge();
     }
 
     final Entity entity;
@@ -73,8 +72,8 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
       SchemaImmutableClass clazz = null;
       if (connection.getValue() != null) {
         clazz =
-            (SchemaImmutableClass)
-                session.getMetadata().getImmutableSchemaSnapshot().getClass(connection.getValue());
+            (SchemaImmutableClass) session.getMetadata().getImmutableSchemaSnapshot()
+                .getClass(connection.getValue());
       }
       if (connection.getKey() == Direction.OUT) {
         edge =
@@ -85,9 +84,9 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
             new EdgeImpl(session,
                 entity.asVertex(), this.sourceEntity, clazz);
       }
-    } else if (entity.isStatefulEdge()) {
+    } else if (entity.isEdge()) {
       // EDGE
-      edge = (EdgeInternal) entity.asStatefulEdge();
+      edge = (EdgeInternal) entity.asEdge();
     } else {
       throw new IllegalStateException(
           "Invalid content found while iterating edges, value '" + entity + "' is not an edge");
