@@ -224,7 +224,7 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: Merge StatefulEdge into Edge
+- [x] Track 2: Merge StatefulEdge into Edge
   > Collapse `StatefulEdge` into `Edge`. Move `StatefulEdge`-specific methods
   > onto `Edge`. Replace all `StatefulEdge` type references with `Edge`.
   > Delete `StatefulEdge.java`. Remove `isLightweight()` API-level methods.
@@ -240,6 +240,26 @@ graph TD
   > **Scope:** ~3-4 steps covering StatefulEdge method migration, type
   > reference replacement, StatefulEdge deletion, isLightweight removal
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Collapsed `StatefulEdge` into `Edge` across 4 steps. Made `Edge` extend
+  > `Entity` (resolving Entity/Relation constructor ambiguity with explicit
+  > `(Identifiable)` casts at 3 call sites). Removed `isLightweight()` from
+  > `Edge` and dead call sites. Mechanically replaced all `StatefulEdge` type
+  > references with `Edge` across 22 files. Deleted `StatefulEdge.java` and
+  > removed `asStatefulEdge()`/`asStatefulEdgeOrNull()` from all interfaces,
+  > adding `isEdge()`/`asEdge()`/`asEdgeOrNull()` to `DBRecord` to fill the
+  > gap exposed by removal.
+  >
+  > Key discovery: `DBRecord` lacked `isEdge()`/`asEdge()`/`asEdgeOrNull()`
+  > — they were only on `Entity` and `Result`. This gap was exposed when
+  > removing `asStatefulEdge()` from `DBRecord`.
+  >
+  > Track-level code review passed at iteration 2 (removed dead
+  > lightweight-edge code from `VertexEntityImpl` and duplicate
+  > `statefulEdge` methods from `ResultSet`).
+  >
+  > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
 
 - [ ] Track 3: Delete Relation hierarchy
   > Eliminate the entire `Relation` type hierarchy and everything that depends
