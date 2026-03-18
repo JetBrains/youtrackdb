@@ -1214,49 +1214,21 @@ public class ExecuteReadOperationTest extends DbTestBase {
     assertThat(componentLockName).isNotEqualTo(storageName);
 
     // executeInsideComponentOperation: consumer variant (line 170)
-    // The outer executeInsideAtomicOperation wraps the CommonDurableComponentException
-    // in a StorageException. Dig into the cause chain to find it.
+    //
+    // We manage the atomic operation lifecycle manually instead of using
+    // executeInsideAtomicOperation, because the latter calls
+    // moveToErrorStateIfNeeded(error) which marks the storage as "in error"
+    // for any non-HighLevelException. That prevents proper cache cleanup on
+    // database drop, causing a direct memory leak detected by JUnitTestListener.
+    // Since the exception is intentional and the lambda performs no real work,
+    // we end the operation with null error — a harmless no-op commit.
     var comp = collection;
-    try {
-      mgr.executeInsideAtomicOperation(atomicOp -> {
-        mgr.executeInsideComponentOperation(atomicOp, comp, op -> {
-          throw new RuntimeException("intentional test error");
-        });
-      });
-      fail("Should have thrown");
-    } catch (Exception e) {
-      var cause = findCause(e, CommonDurableComponentException.class);
-      assertNotNull("Should contain CommonDurableComponentException in cause chain",
-          cause);
-      var message = cause.getMessage();
-      assertThat(message)
-          .as("exception should contain correct component name")
-          .contains("Component Name=\"" + componentLockName + "\"");
-      assertThat(message)
-          .as("exception should contain correct DB name")
-          .contains("DB Name=\"" + storageName + "\"");
-    }
+    verifyComponentOperationException(mgr, comp, componentLockName, storageName,
+        /* useCalculateVariant= */ false);
 
     // calculateInsideComponentOperation: function variant (line 190)
-    try {
-      mgr.executeInsideAtomicOperation(atomicOp -> {
-        mgr.calculateInsideComponentOperation(atomicOp, comp, op -> {
-          throw new RuntimeException("intentional test error");
-        });
-      });
-      fail("Should have thrown");
-    } catch (Exception e) {
-      var cause = findCause(e, CommonDurableComponentException.class);
-      assertNotNull("Should contain CommonDurableComponentException in cause chain",
-          cause);
-      var message = cause.getMessage();
-      assertThat(message)
-          .as("exception should contain correct component name (calculate variant)")
-          .contains("Component Name=\"" + componentLockName + "\"");
-      assertThat(message)
-          .as("exception should contain correct DB name (calculate variant)")
-          .contains("DB Name=\"" + storageName + "\"");
-    }
+    verifyComponentOperationException(mgr, comp, componentLockName, storageName,
+        /* useCalculateVariant= */ true);
   }
 
   // ---------------------------------------------------------------------------
@@ -1281,6 +1253,51 @@ public class ExecuteReadOperationTest extends DbTestBase {
       fail("Should have thrown AssertionError");
     } catch (AssertionError e) {
       assertEquals("intentional assertion error", e.getMessage());
+    }
+  }
+
+  /**
+   * Tests one variant of executeInsideComponentOperation / calculateInsideComponentOperation
+   * by manually managing the atomic operation lifecycle. This avoids
+   * {@code executeInsideAtomicOperation} which would call
+   * {@code storage.moveToErrorStateIfNeeded()} and mark the storage as "in error", preventing
+   * proper cache cleanup on database drop (direct memory leak).
+   */
+  private void verifyComponentOperationException(
+      AtomicOperationsManager mgr,
+      PaginatedCollectionV2 comp,
+      String expectedComponentName,
+      String expectedDbName,
+      boolean useCalculateVariant) throws IOException {
+    var atomicOp = mgr.startAtomicOperation();
+    mgr.startToApplyOperations(atomicOp);
+    try {
+      if (useCalculateVariant) {
+        mgr.calculateInsideComponentOperation(atomicOp, comp, op -> {
+          throw new RuntimeException("intentional test error");
+        });
+      } else {
+        mgr.executeInsideComponentOperation(atomicOp, comp, op -> {
+          throw new RuntimeException("intentional test error");
+        });
+      }
+      fail("Should have thrown");
+    } catch (Exception e) {
+      var cause = findCause(e, CommonDurableComponentException.class);
+      assertNotNull("Should contain CommonDurableComponentException in cause chain",
+          cause);
+      var message = cause.getMessage();
+      var variant = useCalculateVariant ? " (calculate variant)" : "";
+      assertThat(message)
+          .as("exception should contain correct component name" + variant)
+          .contains("Component Name=\"" + expectedComponentName + "\"");
+      assertThat(message)
+          .as("exception should contain correct DB name" + variant)
+          .contains("DB Name=\"" + expectedDbName + "\"");
+    } finally {
+      // End with null error: the exception was intentional and no pages were modified,
+      // so this is a harmless no-op commit that avoids marking storage as in error.
+      mgr.endAtomicOperation(atomicOp, null);
     }
   }
 
