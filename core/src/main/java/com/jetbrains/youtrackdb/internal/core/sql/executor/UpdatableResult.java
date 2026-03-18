@@ -193,6 +193,9 @@ public class UpdatableResult extends ResultInternal {
   }
 
   @Override
+  // Delegates to isEdge() — semantically wider than isStatefulEdge() (includes lightweight).
+  // UpdatableResult always wraps an Entity, so this is safe. Temporary until Track 2 removes
+  // isStatefulEdge() entirely when StatefulEdge merges into Edge.
   public boolean isStatefulEdge() {
     assert checkSession();
     return this.asEntity().isEdge();

@@ -1051,6 +1051,10 @@ public class ResultInternal implements Result, BasicResultInternal {
       return edge;
     }
 
+    if (identifiable instanceof Edge edge) {
+      return edge;
+    }
+
     if (isEdge()) {
       return asEntity().asEdge();
     }
@@ -1063,6 +1067,10 @@ public class ResultInternal implements Result, BasicResultInternal {
     assert checkSession();
 
     if (relation instanceof Edge edge) {
+      return edge;
+    }
+
+    if (identifiable instanceof Edge edge) {
       return edge;
     }
 
