@@ -2,7 +2,7 @@ Read and follow the workflow for Phase 1 (Planning).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary, plan file structure, episode formats
+   glossary, plan file structure, scope indicators, review iteration protocol
 2. `.claude/workflow/planning.md` — Phase 1 instructions:
    goal, plan file structure, architecture notes format, track descriptions,
    scope indicators, checklist decomposition rules
