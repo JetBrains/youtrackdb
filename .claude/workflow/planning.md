@@ -10,18 +10,18 @@ with a single Claude Code session.
   Produce tracks with architecture notes and scope indicators.
 - **Phase 2 (Structural Review):** Lightweight structural validation of the
   plan before execution begins.
-- **Phase 3 (Execution):** Covered in `execution-orchestrator.md`. Includes
+- **Phase 3 (Execution):** Covered in `workflow.md`. Includes
   replanning via the ESCALATE flow.
 
 Replanning (formerly Phase 4 in v1) is now handled within Phase 3 by the
-execution orchestrator's ESCALATE flow — see `execution-orchestrator.md`.
+execution agent's ESCALATE flow — see `workflow.md`.
 There is no separate replanning phase or `/replan` command.
 
 ```mermaid
 flowchart TD
     P1["/create-plan\nPhase 1: Planning\nTracks + architecture notes\nScope indicators"]
     P2["/review-plan\nPhase 2: Structural Review\nValidate plan structure\nMax 3 iterations"]
-    P3["/execute-tracks\nPhase 3: Execution\n(see execution-orchestrator.md)\nIncludes replanning via ESCALATE"]
+    P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
     DONE((Done))
 
     P1 --> P2
@@ -32,7 +32,7 @@ flowchart TD
 ```
 
 **Important:** The durable plan always lives in the **project's**
-`adr/<dir-name>/` directory (e.g., `adr/ytdb-123-add-auth/implementation-plan.md`).
+`docs/adr/<dir-name>/` directory (e.g., `docs/adr/ytdb-123-add-auth/implementation-plan.md`).
 This is distinct from the global `~/.claude/plans/` where Claude Code stores
 ephemeral auto-named session plans. The project plan file is the single source
 of truth — it's human-readable, version-controlled, and serves as a lightweight
@@ -48,7 +48,7 @@ Produce a plan markdown file with a high-level description, architecture notes,
 and track-level decomposition. Step-level decomposition is **deferred to
 execution** — tracks include scope indicators (a rough sketch of expected
 work) but not detailed steps. Final step decomposition happens just-in-time
-during Phase 3 when the track orchestrator has maximum codebase context from
+during Phase 3 when the execution agent has maximum codebase context from
 prior tracks.
 
 ### How to run
@@ -64,22 +64,20 @@ ordering, etc.
 The plan file structure is defined in `conventions.md` (section 1.2). The key
 points:
 
-- `adr/<dir-name>/implementation-plan.md` — strategic: goals, architecture,
+- `docs/adr/<dir-name>/implementation-plan.md` — strategic: goals, architecture,
   tracks, track-level episodic summaries
-- `adr/<dir-name>/tracks/track-N.md` — tactical: decomposed steps, step
+- `docs/adr/<dir-name>/tracks/track-N.md` — tactical: decomposed steps, step
   episodes (created during Phase 3)
-- `adr/<dir-name>/logs/step-N.M.md` — execution logs (created during
-  Phase 3)
-- `adr/<dir-name>/reviews/structural.md` — structural review output
+- `docs/adr/<dir-name>/reviews/structural.md` — structural review output
 
-Track files and execution logs do not exist during Phase 1 (planning) or
+Track files do not exist during Phase 1 (planning) or
 Phase 2 (structural review) — only scope indicators in the plan file exist
 at that point.
 
 **The plan is a strategic guide, not a rigid task graph.** Track descriptions,
 architecture notes, and inter-track dependencies are the load-bearing parts.
 Step-level detail is tactical and should emerge just-in-time during execution
-when the track orchestrator has maximum codebase context. The track orchestrator
+when the execution agent has maximum codebase context. The execution agent
 always has freedom to adapt step-level decomposition without formal replanning —
 only track-level or decision-level changes require escalation.
 
@@ -169,7 +167,7 @@ scope creep during execution.
 1. **Component Map and at least one Decision Record are mandatory.** Other
    sections are "include if applicable."
 2. **Decisions are immutable once execution starts.** If reality changes, the
-   execution orchestrator handles replanning via ESCALATE and adds a revision
+   execution agent handles replanning via ESCALATE and adds a revision
    note — decisions are not silently overwritten.
 3. **Each decision must reference the track(s) that implement it** — creates
    traceability between "why" and "where." Step references are added during
@@ -189,7 +187,7 @@ scope creep during execution.
 
 Each **track** in the checklist must have a description block (in a blockquote
 under the track heading). There is no length cap — the description should be as
-long as it needs to be to give the track orchestrator full context. Use bullet
+long as it needs to be to give the execution agent full context. Use bullet
 points if it grows beyond a short paragraph.
 
 The description should cover:
@@ -199,11 +197,11 @@ The description should cover:
 - **Interactions with other tracks** (dependencies, shared state, ordering)
 
 **Track sizing rule:** If a track would need more than ~5-7 steps, split it
-into separate dependent tracks during planning. The execution orchestrator
+into separate dependent tracks during planning. The execution agent
 handles sequencing and episode propagation between dependent tracks — this gives
 the same "informed decomposition" benefit without added complexity. Track
 sequencing and episode propagation between dependent tracks is handled by the
-execution orchestrator.
+execution agent.
 
 ### Track-level component interaction diagrams
 
@@ -266,7 +264,7 @@ Example:
 Every track must include a **Scope** line in its description block: a rough
 sketch of the expected work — approximate step count and a brief list of what
 they'd cover. Scope indicators are strategic signals, not tactical commitments.
-The track orchestrator always does full step decomposition at execution time
+The execution agent always does full step decomposition at execution time
 regardless.
 
 Format: `> **Scope:** ~N steps covering X, Y, Z`
@@ -276,7 +274,7 @@ Scope indicators serve three purposes:
    but describing 8 distinct changes) and ordering problems (scope of
    track B implies a dependency on track A's output).
 2. **Human reviewers** can quickly gauge relative effort across tracks.
-3. **Execution planning** — the track orchestrator uses scope indicators as a
+3. **Execution planning** — the execution agent uses scope indicators as a
    starting point for just-in-time step decomposition, not as a binding contract.
 
 **Rules:**
@@ -311,7 +309,7 @@ catches plan-level defects (dependency cycles, missing descriptions,
 contradictions) cheaply.
 
 Technical, risk, and adversarial reviews happen later, adaptively per-track
-during Phase 3, when the track orchestrator has maximum context about the
+during Phase 3, when the execution agent has maximum context about the
 codebase and can benefit from what was learned executing earlier tracks.
 
 ### How to run
@@ -354,7 +352,7 @@ TRACK DESCRIPTIONS
 - Does every track have a description covering what/how/constraints/interactions?
 - Are track-level component diagrams present where needed (3+ internal
   components with non-trivial interactions)?
-- Are track descriptions substantive enough for the track orchestrator to
+- Are track descriptions substantive enough for the execution agent to
   decompose steps from them?
 
 TRACK SIZING
@@ -457,7 +455,7 @@ issues.
 ### Review output
 
 The structural review document is saved to
-`adr/<dir-name>/reviews/structural.md`:
+`docs/adr/<dir-name>/reviews/structural.md`:
 
 ```markdown
 # Structural Review
@@ -494,15 +492,15 @@ When the structural review passes, proceed to Phase 3 execution
 ## Replanning (formerly Phase 4)
 
 **Removed as a separate phase.** Replanning is now handled within Phase 3
-by the execution orchestrator's ESCALATE flow (see "Inline Replanning
-(ESCALATE)" in `execution-orchestrator.md`).
+by the execution agent's ESCALATE flow (see "Inline Replanning
+(ESCALATE)" in `workflow.md`).
 
-**Why:** The execution orchestrator persists across all tracks, holds all
-episodes, and can read/write the plan file. It already has the context to
-revise the plan. A separate phase added a session boundary that lost context.
+**Why:** The execution agent reads all track episodes from the plan file
+and can read/write it directly. It has the context to revise the plan
+within the session. A separate phase would add unnecessary context loss.
 
 **What happens on ESCALATE:**
-1. Execution orchestrator stops spawning tracks.
+1. Execution agent stops starting new steps.
 2. Presents full situation to user (all episodes, what broke, what assumptions
    failed).
 3. Proposes revised plan (new/modified tracks, reordering, removed tracks).

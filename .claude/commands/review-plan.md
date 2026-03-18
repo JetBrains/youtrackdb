@@ -18,8 +18,8 @@ Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-Plan file: adr/<dir-name>/implementation-plan.md
-Review output directory: adr/<dir-name>/reviews/
+Plan file: docs/adr/<dir-name>/implementation-plan.md
+Review output directory: docs/adr/<dir-name>/reviews/
 
 Steps:
 1. Read the plan file and the workflow documents (conventions.md and
@@ -46,7 +46,7 @@ Steps:
    tracks added/removed, scope indicators changed substantially), re-run
    the full structural review instead of the gate.
 9. When the gate is clean, save the review document to
-   adr/<dir-name>/reviews/structural.md using the format from planning.md.
+   docs/adr/<dir-name>/reviews/structural.md using the format from planning.md.
 
 Finding IDs are cumulative across iterations (S1, S2, ... S6, S7).
 

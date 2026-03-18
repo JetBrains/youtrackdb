@@ -13,7 +13,7 @@ Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-The plan will be saved to: adr/<dir-name>/implementation-plan.md
+The plan will be saved to: docs/adr/<dir-name>/implementation-plan.md
 The codebase is at the current working directory.
 
 Help me:

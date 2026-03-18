@@ -11,32 +11,25 @@ Shared formats, rules, and glossary used by all agents in the workflow.
 | **Track** | A coherent stream of related work within a plan. Contains steps. Max ~5-7 steps. If larger, split into dependent tracks during planning. |
 | **Step** | A single atomic change = one commit. Fully tested. |
 | **Episode** | Structured record of what happened during a step or track. |
-| **Execution log** | Raw notable-events trace from a step executor. |
 | **Scope indicator** | Rough sketch of expected work in a track. |
-| **Execution orchestrator** | Team lead agent. Cross-track coordination. All user interaction flows through it. |
-| **Track orchestrator** | Teammate agent. Owns one track's lifecycle. Internal to the execution orchestrator — user does not interact with it directly. |
-| **Step executor** | Sub-agent. Implements one step. |
+| **Session** | One invocation of `/execute-tracks`. Handles one track (or resumes an incomplete one). Sessions are separated by context clearing. Episodes bridge context across sessions. |
+| **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, code-reviewer, track-level code review). Sub-agents provide fresh perspective; the main agent retains full context. |
 
 ---
 
 ## 1.2 Plan File Structure
 
-All three agents reference this structure. `<dir-name>` is the plan directory
-name — provided explicitly by the user, or defaulting to the current git
-branch name.
+All workflow phases reference this structure.
+`<dir-name>` is the plan directory name — provided explicitly by the user, or
+defaulting to the current git branch name.
 
 ```
-adr/<dir-name>/
+docs/adr/<dir-name>/
   implementation-plan.md          <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries
   tracks/
     track-1.md                    <- tactical: decomposed steps, step episodes
     track-2.md
-    ...
-  logs/
-    step-1.1.md                   <- execution logs: notable events from each
-    step-1.2.md                      step's implementation (permanent record)
-    step-2.1.md
     ...
   reviews/
     structural.md
@@ -72,8 +65,8 @@ adr/<dir-name>/
 
 **Planning rule:** If a track would need more than ~5-7 steps or internal
 phasing, split it into separate dependent tracks. Track sequencing and
-episode propagation between dependent tracks is handled by the execution
-orchestrator — this gives the same "informed decomposition" benefit without
+episode propagation between dependent tracks is handled by the session
+workflow — this gives the same "informed decomposition" benefit without
 extra complexity.
 
 ### Track status markers
@@ -82,7 +75,7 @@ extra complexity.
 |---|---|
 | `[ ]` | Not started |
 | `[x]` | Completed |
-| `[~]` | Skipped (recommended by track review or execution orchestrator) |
+| `[~]` | Skipped (recommended by track review or execution agent) |
 
 ### After track completion
 
@@ -100,16 +93,75 @@ checklist entry:
 ```
 
 **Track episode fields:**
-- 2-4 sentences covering: what was built, key discoveries, plan deviations
-  with cross-track impact
+- Strategic summary covering: what was built, key discoveries, plan deviations
+  with cross-track impact. Length is proportional to cross-track impact — a
+  routine track may need only a couple of sentences, while a track with
+  architectural surprises should include enough detail for the next session's
+  strategy refresh to assess downstream impact without reading the step file.
 - Reference to the step file with step count and failure count
 - This is what future track sessions read from the plan file — the step
   file is available for deeper investigation if needed
+
+### After strategy refresh
+
+The strategy refresh result is appended to the same track's block in the
+plan file, after the step file reference:
+
+```markdown
+- [x] Track 2: <title>
+  > <description>
+  >
+  > **Track episode:**
+  > <strategic summary>
+  >
+  > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
+```
+
+For ADJUST, include a brief summary of what was adjusted:
+
+```markdown
+  > **Strategy refresh:** ADJUST — Track 4 description updated to account
+  > for the new `IndexStatistics` API shape discovered during this track.
+```
+
+ESCALATE triggers inline replanning (see workflow.md), which restructures
+the plan file directly — no strategy refresh line is written.
+
+### Session state detection
+
+On session startup, the plan file and step files together determine
+the resume state:
+
+| Plan file state | Step file state | Session state |
+|---|---|---|
+| Last `[x]` track has no `**Strategy refresh:**` line | — | **State A**: perform strategy refresh first |
+| All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file for next track | **State B**: fresh start on next track |
+| A track is `[ ]` | Step file exists | **State C**: mid-track resume — read Progress section |
+
+**State C sub-states** (from step file Progress section):
+
+| Progress section | Resume action |
+|---|---|
+| `Review + decomposition` is `[ ]` | Reviews completed section may show partial progress — re-run only missing reviews, then decompose |
+| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step |
+| All steps `[x]`, `Track-level code review` is `[ ]` | Run Phase C (track-level code review) |
+| All phases `[x]` | Track is done but plan file not yet updated — write track episode, mark `[x]` |
 
 ### Step file content (`tracks/track-N.md`)
 
 ```markdown
 # Track N: <title>
+
+## Progress
+- [x] Review + decomposition
+- [ ] Step implementation (2/5 complete)
+- [ ] Track-level code review
+
+## Reviews completed
+- [x] Technical
+- [x] Risk
 
 ## Steps
 - [x] Step: <description>
@@ -120,9 +172,24 @@ checklist entry:
 - [x] Step: <description>
   > **What was done:** ...
   > **Key files:** ...
+
+- [ ] Step: <description>
+- [ ] Step: <description>
+- [ ] Step: <description>
 ```
 
-Step files are created by the track orchestrator during Phase 3 when steps
+The **Progress** section tracks which phase the track is in. The execution
+agent updates it at each phase transition:
+- Mark `Review + decomposition` as `[x]` when the step file is first written
+- Update `Step implementation` count as each step completes (e.g.,
+  `(3/5 complete)`); mark `[x]` when all steps are done
+- Mark `Track-level code review` as `[x]` when the review passes
+
+The **Reviews completed** section records which pre-execution reviews
+finished. If a session is interrupted during Phase A, the next session
+can skip completed reviews and only re-run missing ones.
+
+Step files are created by the review phase during Phase 3 when steps
 are decomposed. They do not exist during Phase 1 (planning) or Phase 2
 (structural review) — only scope indicators in the plan file exist at
 that point.
@@ -130,8 +197,8 @@ that point.
 **The plan is a strategic guide, not a rigid task graph.** Track
 descriptions, architecture notes, and inter-track dependencies are the
 load-bearing parts. Step-level detail is tactical and should emerge
-just-in-time during execution when the executor has maximum codebase
-context. The track orchestrator always has freedom to adapt step-level
+just-in-time during execution when the agent has maximum codebase
+context. The review phase always has freedom to adapt step-level
 decomposition without formal replanning — only track-level or
 decision-level changes require escalation.
 
@@ -140,7 +207,7 @@ decision-level changes require escalation.
 Every track must include a **Scope** line in its description block: a rough
 sketch of the expected work — approximate step count and a brief list of
 what they'd cover. Scope indicators are strategic signals, not tactical
-commitments. The track orchestrator always does full step decomposition at
+commitments. The review phase always does full step decomposition at
 execution time regardless.
 
 Format: `> **Scope:** ~N steps covering X, Y, Z`
@@ -150,7 +217,7 @@ Scope indicators serve three purposes:
    but describing 8 distinct changes) and ordering problems (scope of
    Track B implies a dependency on Track A's output).
 2. **Human reviewers** can quickly gauge relative effort across tracks.
-3. **Execution planning** — the track orchestrator uses scope indicators as
+3. **Execution planning** — the review phase uses scope indicators as
    a starting point for just-in-time step decomposition, not as a binding
    contract.
 
@@ -183,6 +250,11 @@ Recorded in the step file under the completed step item:
 
 #### Episode fields
 
+Episodes are produced by the **execution agent** (step implementation phase)
+after it commits the code changes and completes the code review cycle. The
+execution agent has full context of what it implemented, what it discovered,
+and what deviated from the plan.
+
 | Field | Required | Purpose |
 |---|---|---|
 | **What was done** | Always | Factual summary of the implementation — files created/modified, approach taken |
@@ -192,14 +264,12 @@ Recorded in the step file under the completed step item:
 | **Critical context** | When applicable | Free-form field for anything essential that doesn't fit the structured fields above — e.g., a fundamental architectural insight, a performance characteristic that changes the approach for the whole feature, or a constraint discovered that affects multiple tracks. Use sparingly; most episodes won't need this |
 
 **Rules:**
-- **"What was discovered" must be filled whenever the step executor
-  encounters anything unexpected** — even if it didn't block the current
-  step. The track orchestrator and future track reviews depend on this
-  field to adapt.
+- **"What was discovered" must be filled whenever anything unexpected is
+  found** — even if it didn't block the current step. Future sessions and
+  track reviews depend on this field to adapt.
 - **"What changed from the plan" must name affected future steps** when the
-  deviation could impact them. The track orchestrator uses this to adapt
-  remaining steps within the track; the execution orchestrator uses it to
-  adapt across tracks.
+  deviation could impact them. The execution agent uses this to
+  adapt remaining steps within the track and across tracks.
 - Keep each field concise but complete. A reviewer should understand the
   full step outcome from the episode alone, without reading the diff.
 - Episodes are immutable once committed. If later work reveals an episode
@@ -230,23 +300,24 @@ simply omitted — no need for "N/A" placeholders.
   > **Key files:** ...
 ```
 
-When a step executor cannot complete its work (tests won't pass, coverage
-can't be met, code reviewer finds fundamental issues, wrong API assumption),
-it appends failure details to the execution log and signals failure. Failed
-steps always use the episode synthesis agent, regardless of the step's
-complexity — the full trail of what was attempted is essential for recovery
-decisions.
+When a step implementation phase cannot complete its work
+(tests won't pass, coverage can't be met, code reviewer finds fundamental
+issues, wrong API assumption), it signals failure. The execution agent reverts
+uncommitted changes and produces a failed episode explaining what was
+attempted, why it failed, and the impact on remaining steps.
 
-The track orchestrator receives the failed episode and decides:
-- **Retry** with a different approach (new sub-agent)
+The execution agent then decides:
+- **Retry** with a different approach
 - **Split** the step into smaller pieces that can succeed independently
 - **Adjust** upcoming steps to work around the discovered constraint
-- **Escalate** to the execution orchestrator if the failure undermines
-  the track's approach
+- **Escalate** if the failure undermines the track's approach
+
+If the same step fails twice, stop and present the situation to the user
+(see workflow.md §Failure Handling).
 
 Failed episodes are recorded in the step file with the `[!]` marker so
-the track orchestrator and future sessions can see what was attempted and
-why it didn't work.
+future sessions and reviews can see what was attempted and why it didn't
+work.
 
 ### Track episode
 
@@ -259,7 +330,7 @@ impact. Reference to step file with counts.
 Proportional to cross-track impact. A track that went as planned and
 produced no surprises needs 1-2 sentences. A track that discovered
 architectural issues, changed assumptions, or deviated from the plan
-should include enough detail for the execution orchestrator to assess
+should include enough detail for the execution agent to assess
 impact on remaining tracks without reading the step file. There is no
 hard line limit — clarity and completeness for downstream decision-making
 is the criterion.
@@ -269,79 +340,28 @@ line; a step that uncovered a concurrency bug needs a full explanation.
 
 ### Commit and episode ordering
 
-During Phase 3, the step executor commits its code changes first. The track
-orchestrator then produces the episode (using `git diff HEAD~1..HEAD` for
-the code diff) and commits it as a **separate episode commit**. This avoids
-the chicken-and-egg problem of needing the episode before the commit while
-needing the diff to produce the episode. The code commit hash can be
-referenced in the episode since it is already known.
+During Phase 3, the step implementation phase commits its
+code changes first (including any code review fix commits). After all code
+is committed, the execution agent writes the episode to the step file and
+commits it as a **separate episode commit**. This avoids the chicken-and-egg
+problem of needing the episode before the commit while needing the
+implementation to produce the episode.
 
 ### Where episodes live
 
 Step-level episodes are recorded in the **step file**
-(`adr/<dir-name>/tracks/track-N.md`), not in the plan file. This keeps
+(`docs/adr/<dir-name>/tracks/track-N.md`), not in the plan file. This keeps
 the plan file focused on strategic content.
 
-After a track completes (user review + strategy refresh), the execution
-orchestrator writes a compressed **track episode** into the plan file under
+After a track completes (user review), the execution agent writes a
+compressed **track episode** into the plan file under
 the track's checklist entry. The track episode is a strategic summary
 synthesized from the step episodes — it captures what the track achieved
 and what was discovered, without step-level detail.
 
 ---
 
-## 1.4 Execution Log Format
-
-Every step executor maintains a structured execution log file at
-`adr/<dir-name>/logs/step-<N.M>.md`, regardless of the step's
-complexity. The log captures **notable events only** — moments where
-expectations are violated or non-obvious choices are made. The git diff
-already shows what changed mechanically; the log captures what the diff
-cannot.
-
-Execution logs are **permanent and version-controlled**. They serve as
-the raw data behind episodes — the uncompressed tactical trace that can
-be re-examined when:
-- A bug surfaces weeks later and you need the full reasoning trail behind
-  a design decision that the episode only summarized
-- Replanning needs to understand exactly what was tried and why it failed,
-  beyond what the failed episode captured
-- An episode turns out to be incomplete and needs re-synthesis from the
-  original log
-
-### Format
-
-```markdown
-# Execution Log: <step description>
-
-## Event: <short title>
-<what happened, what was expected, what was found instead, what was decided>
-
-## Event: <short title>
-<...>
-```
-
-### What to log (notable events)
-
-- Design decisions made and why (e.g., "chose adapter pattern over
-  inheritance because X interface is final")
-- Failed attempts and what was learned (e.g., "tried lock-free approach,
-  discovered PageCache holds exclusive lock during eviction")
-- Surprising API behaviors or codebase findings (e.g., "validateSchema
-  middleware silently swallows errors — not documented anywhere")
-- Code review findings that required rethinking the approach (not minor
-  fixes)
-- Assumptions from the plan that turned out to be wrong
-
-### What NOT to log
-
-- Routine actions (read file, ran test, edited line) — visible in the diff
-- Minor code review fixes (formatting, naming) — not strategically relevant
-- Test results unless they reveal something unexpected
-
----
-
-## 1.5 Commit Message Format
+## 1.4 Commit Message Format
 
 Follow the project's commit message conventions (see `CLAUDE.md`). If the
 branch name contains a YTDB issue number, the `prepare-commit-msg` hook
@@ -361,72 +381,72 @@ message explains why.
 
 ---
 
-## 1.6 Episode Synthesis Rules
+## 1.5 Two-Tier Code Review
 
-For moderate, complex, and failed steps, after the step executor commits
-(or signals failure), the track orchestrator spawns an **episode synthesis
-agent** to produce the episode. This separates tactical execution from strategic compression —
-the step executor focuses on implementation, the synthesizer focuses on
-extracting what matters for the plan.
+Code review happens at two levels, catching different classes of issues:
 
-The episode synthesis agent receives:
-- The execution log file
-- The git diff of the step's committed changes (`git diff HEAD~1..HEAD`)
-- The step description
-- The track description and relevant architecture notes
-- Curated episodes from prior steps (same set the step executor received)
+### Step-level code review (within each execution agent step phase)
 
-The synthesis agent produces:
-- A structured episode (all fields: What was done / What was discovered /
-  What changed from the plan / Key files / Critical context)
-- For failed steps: a structured failed episode (What was attempted /
-  Why it failed / Impact on remaining steps / Key files)
+After implementing and committing, the execution agent runs a code review loop:
 
-**Rules:**
-- The git diff is the authoritative source for "What was done" and
-  "Key files" — the synthesizer reconstructs these from the diff, not
-  from the execution log.
-- The execution log is the primary source for "What was discovered" and
-  "What changed from the plan" — these are the notable events that the
-  diff cannot show.
-- "Critical context" is synthesized from execution log events that have
-  implications beyond the current step or track.
-- The synthesizer should flag any execution log events that reference
-  future steps or other tracks — these are candidates for cross-track
-  impact assessment.
+1. Delegates review to the **code-reviewer agent** (fresh sub-agent).
+2. If findings are returned, fixes them and re-submits for review.
+3. Repeats until approved OR **max 3 iterations** reached.
+4. Each iteration spawns a fresh code-reviewer sub-agent.
+5. If max iterations reached, notes remaining findings in the episode.
+   Some findings may be genuinely hard or non-fixable within the step's
+   scope — this is an escalation signal, not a "try harder" signal.
+
+**What step-level review catches:** localized code quality — naming, error
+handling, edge cases, test coverage gaps, obvious bugs in the diff.
+
+The code review loop runs **within the execution agent's context** — no context
+clearing between review iterations. The execution agent retains full knowledge
+of why it made each implementation choice, enabling targeted and accurate
+fixes.
+
+### Track-level code review (after all steps complete)
+
+After all steps are committed, the execution agent spawns a fresh
+**code review sub-agent** that reviews the full track diff
+(`git diff <base>..HEAD`):
+
+1. The sub-agent reviews the entire track diff for systematic issues.
+2. If findings are returned, the execution agent applies fixes as additional
+   commits, then spawns a fresh sub-agent to verify.
+3. Repeats until approved OR **max 3 iterations** reached.
+4. If max iterations reached, remaining findings are noted and presented
+   to the user during track review.
+
+**What track-level review catches:** systematic patterns repeated across
+steps, cross-step consistency issues, accumulated technical debt that's
+individually acceptable but collectively problematic, integration issues
+where steps compile independently but the combined result has subtle
+interactions.
 
 ---
 
-## 1.7 Complexity Tiers
-
-### Step complexity and episode production
-
-| Step complexity | Episode production | Rationale |
-|---|---|---|
-| Simple + successful | Self-reported by step executor | Log kept on disk |
-| Moderate + successful | Execution log + synthesizer | Notable events likely |
-| Complex + successful | Execution log + synthesizer | High risk of underreporting |
-| Failed (any) | Execution log + synthesizer | Full trail essential |
-
-The complexity of a step is assessed by the track orchestrator during step
-decomposition, informed by the track's overall complexity assessment.
+## 1.6 Complexity Tiers
 
 ### Track complexity and review pipeline
 
 | Track complexity | Review pipeline |
 |---|---|
 | Simple (1-2 steps) | Technical review only — even if track characteristics suggest Risk or Adversarial, skip them for 1-2 step tracks. |
-| Moderate (3-5 steps) | Technical review as baseline. Risk and/or Adversarial reviews are added when track characteristics warrant them (see track-orchestrator.md "Which reviews to run"). |
+| Moderate (3-5 steps) | Technical review as baseline. Risk and/or Adversarial reviews are added when track characteristics warrant them (see track-execution.md "Which reviews to run"). |
 | Complex (6-7 steps, or critical path / high-risk) | Full: Technical + Risk + Adversarial. |
 
-Complexity determines which reviews to run, not user interaction level —
-all tracks execute autonomously after review.
+Complexity determines which pre-execution reviews to run, not user
+interaction level — all tracks execute autonomously after review.
+
+All tracks get both step-level and track-level code review regardless of
+complexity.
 
 ---
 
-## 1.8 Checklist Decomposition Rules
+## 1.7 Checklist Decomposition Rules
 
-These rules apply to step decomposition by the track orchestrator.
+These rules apply to step decomposition by the review phase.
 
 - Each step = one commit
 - Each step = fully tested, self-contained change with 85% line / 70%
@@ -438,17 +458,17 @@ These rules apply to step decomposition by the track orchestrator.
   steps rather than embedding them inside feature steps
 
 **Parallel step annotation:** During step decomposition, the track
-orchestrator may identify independent steps within the track — steps that
+review agent may identify independent steps within the track — steps that
 don't depend on each other and don't modify the same files. These are
 annotated with `*(parallel with Step N.M)*` in the step file. Must not
 modify same files.
 
 ---
 
-## 1.9 Review Iteration Protocol
+## 1.8 Review Iteration Protocol
 
-Shared by structural review (planning.md) and track reviews
-(track-orchestrator.md).
+Shared by structural review (planning.md), track pre-execution reviews
+(track-execution.md), and track-level code review.
 
 - Max 3 iterations per review type
 - Finding IDs are cumulative across iterations:
@@ -456,6 +476,7 @@ Shared by structural review (planning.md) and track reviews
   - `T1, T2, ...` for technical review
   - `R1, R2, ...` for risk review
   - `A1, A2, ...` for adversarial review
+  - `C1, C2, ...` for track-level code review
 - If blockers persist after 3 iterations, escalate
 - Severity levels: **blocker** / **should-fix** / **suggestion** / **skip** (track reviews only — recommends skipping the entire track)
 
@@ -488,11 +509,11 @@ numbering. Summary: **PASS** or **FAIL**.
 
 ---
 
-## 1.10 Note on `~/.claude/plans/` vs `adr/`
+## 1.9 Note on `~/.claude/plans/` vs `adr/`
 
 There are two plan-related directories — don't confuse them:
 
-| | Global `~/.claude/plans/` | Project `adr/<dir-name>/` |
+| | Global `~/.claude/plans/` | Project `docs/adr/<dir-name>/` |
 |---|---|---|
 | **Purpose** | Claude Code session artifacts | Durable project plans (lightweight ADRs) |
 | **Names** | Auto-generated (`synthetic-orbiting-gizmo.md`) | `implementation-plan.md` + `tracks/track-N.md` |

@@ -2,56 +2,51 @@ Read and follow the workflow for Phase 3 (Execution).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary, plan file structure, episode formats, execution log format,
-   complexity tiers, checklist decomposition rules, review iteration protocol
-2. `.claude/workflow/execution-orchestrator.md` — your
-   role as execution orchestrator: startup protocol, spawning track
-   orchestrators, user interaction model, cross-track impact monitoring,
-   strategy refresh, parallel track management, inline replanning (ESCALATE)
-3. `.claude/workflow/track-orchestrator.md` — track
-   orchestrator role (used when spawning track orchestrator teammates): track
-   review, step decomposition, step executor spawning, episode synthesis,
-   episode capture, track completion, message protocol
+   glossary, plan file structure, episode formats, complexity tiers,
+   checklist decomposition rules, review iteration protocol
+2. `.claude/workflow/workflow.md` — session lifecycle,
+   startup protocol (auto-resume), strategy refresh, cross-track impact
+   monitoring, session boundary rules, failure handling, inline replanning
+   (ESCALATE), track completion protocol
+3. `.claude/workflow/track-execution.md` — track execution
+   within a session: review + decomposition (Phase A), step implementation
+   (Phase B), track-level code review (Phase C), episode production
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-The implementation plan is at: adr/<dir-name>/implementation-plan.md
+The implementation plan is at: docs/adr/<dir-name>/implementation-plan.md
 
-You are the **execution orchestrator** — the team lead agent for Phase 3.
-Follow the startup protocol in `execution-orchestrator.md`:
+Follow the startup protocol in `workflow.md`:
 
-1. Read the plan file at `adr/<dir-name>/implementation-plan.md`.
+1. Read the plan file at `docs/adr/<dir-name>/implementation-plan.md`.
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
-   `[~]` skipped). Read track episodes from completed tracks if resuming.
-3. Build the dependency graph from track descriptions.
-4. Create the team (once per plan execution) using `TeamCreate` with the
-   directory name as the team name. Skip if resuming and the team already
-   exists.
-5. Identify the next track(s) to execute. If independent tracks exist with
-   no pending dependencies, propose parallel execution.
-6. Wait for user confirmation. The user may confirm, reorder, skip, or
-   override parallel/sequential recommendation.
-7. Spawn track orchestrator(s) as named teammates (in worktrees for parallel
-   tracks). Each track orchestrator receives:
-   - Track description from the plan
-   - Track episodes from all completed tracks
-   - Relevant decision records and architecture notes
-   - Step file path (`adr/<dir-name>/tracks/track-N.md`)
-   - The full track-orchestrator.md instructions
-8. Monitor step episodes from track orchestrators for cross-track impact.
-9. Present track results to the user at track boundaries.
-10. Run strategy refresh after each completed and user-approved track.
-11. Handle ESCALATE inline — no separate `/replan` command.
+   `[~]` skipped).
+3. Determine session state and auto-resume:
+   - **State A** (track just completed, needs strategy refresh): perform
+     strategy refresh, then proceed to next track.
+   - **State B** (fresh start): identify first uncompleted track, begin
+     execution.
+   - **State C** (mid-track resume): read step file, report progress, resume
+     from next incomplete step.
+4. Inform the user of the auto-resume decision. The user can override, but
+   by default proceed without waiting for confirmation.
+5. Execute the track following `track-execution.md`:
+   Phase A (review + decomposition) → Phase B (step implementation) →
+   Phase C (track-level code review).
+6. After track completion, present results to the user (workflow.md §Track
+   Completion Protocol). End session after user approval.
+7. Strategy refresh for this track happens at the start of the NEXT session.
 
-User interaction happens **only** at track boundaries:
-- Track proposal: confirm, reorder, or skip
-- Track complete: approve, request fixes, or request rework
+User interaction happens at specific points:
+- Session start: auto-resume decision (confirm or override)
 - Strategy refresh: accept recommendation or override
 - Cross-track impact detected: continue, pause, or escalate
-- Failure (unrecoverable): retry, adjust, or escalate
+- Track complete: approve, request fixes, or request rework
+- Step failure (2nd attempt): retry, adjust, or escalate
 
-Everything within a track executes autonomously: track reviews, step
-decomposition, step implementation, code review iterations, episode synthesis,
-and within-track adaptation.
+Everything within a track executes autonomously: track reviews (as
+sub-agents), step decomposition, step implementation, code review iterations
+(code-reviewer sub-agent), track-level code review (sub-agent), episode
+production, and within-track adaptation.
