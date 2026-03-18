@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Reviews completed
@@ -10,61 +10,61 @@
 
 ## Steps
 
-- [ ] Step 1: Give `EntityImpl` and `ResultInternal` standalone `isEdge()`/`asEdge()`/`asEdgeOrNull()` implementations
-  > Make `EntityImpl.isEdge()` stop delegating to `isStatefulEdge()` — copy the
-  > body (instanceof Edge check + schema check). Make `EntityImpl.asEdge()` and
-  > `asEdgeOrNull()` stop delegating to `asStatefulEdgeOrNull()` — use
-  > `instanceof Edge` directly, returning `Edge` type.
+- [x] Step 1: Give `EntityImpl` and `ResultInternal` standalone `isEdge()`/`asEdge()`/`asEdgeOrNull()` implementations
+  > **What was done:** Made `EntityImpl.isEdge()` standalone with its own
+  > `instanceof Edge` + schema check instead of delegating to `isStatefulEdge()`.
+  > Made `EntityImpl.asEdge()`/`asEdgeOrNull()` use `instanceof Edge` directly
+  > instead of delegating to `asStatefulEdgeOrNull()`. Made
+  > `ResultInternal.isEdge()` standalone by merging the `relation instanceof Edge`
+  > check with the identifiable switch (preserving `!cls.isAbstract()` check).
+  > Updated `ResultInternal.asEdge()`/`asEdgeOrNull()`/`asRelation()`/
+  > `asRelationOrNull()` to route through `isEdge()` + `asEntity().asEdge()`.
+  > Updated `UpdatableResult.isStatefulEdge()` to delegate to `isEdge()`.
   >
-  > Make `ResultInternal.isEdge()` standalone by merging the current `isEdge()`
-  > body (lines 992-1003: `relation instanceof Edge` check) with the
-  > `isStatefulEdge()` body (lines 1006-1025: identifiable switch with
-  > `!cls.isAbstract()` check). Similarly update `asEdge()` and `asEdgeOrNull()`
-  > to stop delegating through `isStatefulEdge()`/`asStatefulEdge()`.
-  >
-  > Update `UpdatableResult.isStatefulEdge()` to also delegate to `isEdge()`
-  > instead of `isStatefulEdge()` (preparing for Step 4 removal).
-  >
-  > **Files:** `EntityImpl.java`, `ResultInternal.java`, `UpdatableResult.java`
+  > **Key files:** `EntityImpl.java` (modified), `ResultInternal.java` (modified),
+  > `UpdatableResult.java` (modified)
 
-- [ ] Step 2: Migrate all call sites from stateful edge API to unified edge API
-  > Mechanical migration across the codebase. All changes follow the same
-  > patterns:
-  > - `entity.isStatefulEdge()` → `entity.isEdge()`
-  > - `entity.asStatefulEdge()` → `entity.asEdge()` (cast to Edge)
-  > - `edge.isStateful()` → remove guard (always true after unification) or
-  >   replace with `true`
-  > - `edge.asStatefulEdge()` → remove cast (edge is already Edge)
-  > - `result.isStatefulEdge()` → `result.isEdge()`
-  > - `result.asStatefulEdge()` → `result.asEdge()`
+- [x] Step 2: Migrate all call sites from stateful edge API to unified edge API
+  > **What was done:** Migrated all `isStatefulEdge()`/`isStateful()` call sites
+  > to `isEdge()` across 19 files. Removed `isStateful()` guards where they
+  > were always true (SQLFunctionShortestPath, SQLFunctionAstar,
+  > FetchEdgesToVerticesStep, FetchEdgesFromToVerticesStep). Simplified
+  > CastToEdgeStep (removed dead double-check). Fixed ResultSet.edgeStream()
+  > to use `asEdge()` instead of `asStatefulEdge()`. Collapsed
+  > ResultInternal.convertPropertyValue() lightweight/stateful branch into
+  > single edge path.
   >
-  > Call sites grouped by area:
+  > **What was discovered:** The `Edge` interface does not extend `Entity` or
+  > `Identifiable`, so `asEdge()` returning `Edge` cannot be used where
+  > `getIdentity()`, `getProperty()`, or `asEntity()` is needed. This means
+  > ~9 call sites must retain `asStatefulEdge()` until Track 2 merges
+  > `StatefulEdge` into `Edge`. Affected: CastToEdgeStep, CreateEdgesStep,
+  > FetchEdgesToVerticesStep, FetchEdgesFromToVerticesStep, SQLUpdateItem,
+  > SQLFunctionShortestPath, SQLFunctionAstar, ResultInternal.toMapValue().
+  > Gremlin layer uses `(StatefulEdge)` casts from `asEdge()` results.
   >
-  > **Core:** `EntityImpl.java` (lines 572, 2006, 4084),
-  > `EdgeIterator.java` (lines 56-57, 88-90), `GraphRepair.java` (lines 136,
-  > 175, 224, 586-587)
+  > **What changed from the plan:** DbImportExportTest was NOT migrated — it
+  > uses `getString()` (Entity method) on the result, requiring
+  > `asStatefulEdge()`. MatchStepUnitTest mock was NOT changed here — it
+  > implements the `Result` interface's `isStatefulEdge()` method which is
+  > removed in Step 4. CreateEdgesStep keeps a fallback for lightweight edges
+  > (EdgeImpl still exists until Step 3).
   >
-  > **Gremlin:** `YTDBStatefulEdgeImpl.java` (line 63),
-  > `YTDBVertexImpl.java` (lines 102-103), `YTDBGraphImplAbstract.java`
-  > (line 170), `YTDBGraphStep.java` (line 80), `YTDBPropertyImpl.java`
-  > (lines 60-61), `YTDBElementImpl.java` (line 220),
-  > `GremlinResultMapper.java` (lines 37, 64-65)
+  > **Key files:** `EntityImpl.java` (modified), `EdgeIterator.java` (modified),
+  > `GraphRepair.java` (modified), `YTDBStatefulEdgeImpl.java` (modified),
+  > `YTDBVertexImpl.java` (modified), `YTDBGraphImplAbstract.java` (modified),
+  > `YTDBGraphStep.java` (modified), `YTDBPropertyImpl.java` (modified),
+  > `YTDBElementImpl.java` (modified), `GremlinResultMapper.java` (modified),
+  > `SQLUpdateItem.java` (modified), `FetchEdgesToVerticesStep.java` (modified),
+  > `FetchEdgesFromToVerticesStep.java` (modified), `CreateEdgesStep.java`
+  > (modified), `CastToEdgeStep.java` (modified),
+  > `SQLFunctionShortestPath.java` (modified), `SQLFunctionAstar.java`
+  > (modified), `ResultInternal.java` (modified), `ResultSet.java` (modified)
   >
-  > **SQL:** `SQLUpdateItem.java` (lines 265, 270),
-  > `FetchEdgesToVerticesStep.java` (lines 111-112),
-  > `FetchEdgesFromToVerticesStep.java` (lines 164-165),
-  > `CreateEdgesStep.java` (lines 204-205), `CastToEdgeStep.java`
-  > (lines 28, 30), `SQLFunctionShortestPath.java` (lines 382-383, 456-457),
-  > `SQLFunctionAstar.java` (lines 327-328, 342-343)
-  >
-  > **Result:** `ResultInternal.java` (lines 129, 297-302, 1052-1109 — collapse
-  > lightweight/stateful branches into unified edge paths),
-  > `ResultSet.java` (lines 171, 406 — fix `edgeStream()` internal call)
-  >
-  > **Tests:** `DbImportExportTest.java` (lines 360, 366),
-  > `MatchStepUnitTest.java` (line 3336 — mock override)
-  >
-  > **Files:** ~20 files (mechanical, same pattern throughout)
+  > **Critical context:** Future tracks should be aware that any call site
+  > needing Entity/Identifiable methods on an Edge MUST use `asStatefulEdge()`
+  > until Track 2 merges StatefulEdge into Edge. After Track 2, all these casts
+  > can be removed.
 
 - [ ] Step 3: Delete `EdgeImpl` and bridge lightweight edge creation/iteration paths
   > Delete `EdgeImpl.java` (lightweight edge implementation).
