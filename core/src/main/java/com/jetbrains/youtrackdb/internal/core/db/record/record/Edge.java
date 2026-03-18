@@ -24,7 +24,11 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface Edge extends Element, Relation<Vertex> {
+/**
+ * Represents a graph edge connecting two vertices. After unification, every Edge IS-A Entity
+ * (has a record, RID, and properties) and IS-A Relation (has from/to vertices).
+ */
+public interface Edge extends Entity, Relation<Vertex> {
 
   /**
    * The name of the class of the edge record
@@ -131,35 +135,25 @@ public interface Edge extends Element, Relation<Vertex> {
   boolean isLabeled(@Nonnull String[] labels);
 
   /**
-   * Retrieves the schema class associated with this edge.
+   * Retrieves the schema class associated with this edge. Edges always have a schema class.
    *
    * @return the schema class associated with this edge.
    */
+  @Override
   @Nonnull
   SchemaClass getSchemaClass();
 
   /**
-   * Retrieves the class name associated with this edge
+   * Retrieves the class name associated with this edge. Edges always have a schema class name.
    */
+  @Override
   @Nonnull
   String getSchemaClassName();
 
   /**
-   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
-   * an exception is thrown.
-   */
-  @Nonnull
-  StatefulEdge asStatefulEdge();
-
-  /**
-   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
-   * null is returned.
-   */
-  @Nullable StatefulEdge asStatefulEdgeOrNull();
-
-  /**
    * Deletes the edge from the graph.
    */
+  @Override
   void delete();
 
   @Override
@@ -169,4 +163,16 @@ public interface Edge extends Element, Relation<Vertex> {
   @Override
   @Nonnull
   String toJSON();
+
+  // --- Default methods resolving conflicts between Entity and Relation supertypes ---
+
+  /**
+   * Returns this edge as an Entity. Resolves the conflict between Entity's default asEntity()
+   * and Relation's abstract asEntity().
+   */
+  @Nonnull
+  @Override
+  default Entity asEntity() {
+    return this;
+  }
 }

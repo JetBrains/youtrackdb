@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -85,7 +84,7 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
             false)
             .filter((e) -> filterResult(db, e, toList))
             .map(
-                (edge) -> (Result) new ResultInternal(db, (EdgeInternal) edge))
+                (edge) -> (Result) new ResultInternal(db, (Identifiable) edge))
             .iterator());
   }
 

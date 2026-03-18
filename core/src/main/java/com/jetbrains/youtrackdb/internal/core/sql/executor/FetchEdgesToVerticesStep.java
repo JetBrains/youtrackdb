@@ -97,7 +97,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
       Stream<Result> stream =
           StreamSupport.stream(edges.spliterator(), false)
               .filter((edge) -> matchesClass(session, edge) && matchesCollection(edge))
-              .map(e -> new ResultInternal(session, e));
+              .map(e -> new ResultInternal(session, (Identifiable) e));
       return ExecutionStream.resultIterator(stream.iterator());
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);

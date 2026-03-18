@@ -65,7 +65,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
           if (hostObject instanceof Identifiable identifiable) {
             array.add(new ResultInternal(db, identifiable));
           } else if (hostObject instanceof EdgeInternal edge) {
-            array.add(new ResultInternal(db, edge));
+            array.add(new ResultInternal(db, (Identifiable) edge));
           } else {
             array.add(toResult(db, hostObject));
           }
@@ -114,8 +114,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return transformer.transform(db, value);
   }
 
-  @Nullable
-  public ResultTransformer getTransformer(final Class clazz) {
+  @Nullable public ResultTransformer getTransformer(final Class clazz) {
     if (clazz != null) {
       for (var entry : transformers.entrySet()) {
         if (entry.getKey().isAssignableFrom(clazz)) {
