@@ -45,19 +45,15 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-
 public class ResultInternal implements Result, BasicResultInternal {
 
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
 
-  @Nullable
-  protected Identifiable identifiable;
-  @Nullable
-  protected DatabaseSessionEmbedded session;
-  @Nullable
-  protected Relation<?> relation;
+  @Nullable protected Identifiable identifiable;
+  @Nullable protected DatabaseSessionEmbedded session;
+  @Nullable protected Relation<?> relation;
 
   public ResultInternal(@Nullable DatabaseSessionEmbedded session) {
     content = new HashMap<>();
@@ -91,7 +87,8 @@ public class ResultInternal implements Result, BasicResultInternal {
    * (like {@code MatchResultRow}) that manage their own property storage and
    * would immediately discard the map.
    */
-  protected ResultInternal(@Nullable DatabaseSessionEmbedded session, @SuppressWarnings("unused") boolean noContentMap) {
+  protected ResultInternal(@Nullable DatabaseSessionEmbedded session,
+      @SuppressWarnings("unused") boolean noContentMap) {
     this.session = session;
   }
 
@@ -117,8 +114,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
-  @Nullable
-  public static Object toMapValue(Object value, boolean includeEntityMetadata) {
+  @Nullable public static Object toMapValue(Object value, boolean includeEntityMetadata) {
     return switch (value) {
       case null -> null;
 
@@ -234,8 +230,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     return identifiable != null;
   }
 
-  @Nullable
-  protected Object convertPropertyValue(Object value) {
+  @Nullable protected Object convertPropertyValue(Object value) {
     if (value == null) {
       return null;
     }
@@ -264,9 +259,7 @@ public class ResultInternal implements Result, BasicResultInternal {
           return entity.detach();
         }
         final var rid = entity.getIdentity();
-        return session.isTxActive() && !rid.isPersistent() ?
-            session.refreshRid(rid) :
-            rid;
+        return session.isTxActive() && !rid.isPersistent() ? session.refreshRid(rid) : rid;
       }
 
       case ContextualRecordId contextualRecordId -> {
@@ -479,8 +472,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
   }
 
-  @Nullable
-  public Object getTemporaryProperty(String name) {
+  @Nullable public Object getTemporaryProperty(String name) {
     assert checkSession();
     if (name == null || temporaryContent == null) {
       return null;
@@ -537,8 +529,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     throw new DatabaseException("Property " + name + " is not an entity");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Result getResult(@Nonnull String name) {
     assert checkSession();
     Object result = getProperty(name);
@@ -600,8 +591,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     throw new DatabaseException("Property " + name + " is not a blob");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
     // Delegate to entity's getLink() directly instead of getProperty() to avoid
@@ -649,8 +639,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     return false;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DatabaseSessionEmbedded getBoundedToSession() {
     return session;
   }
@@ -686,8 +675,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     throw new IllegalStateException("Result is not an identifiable");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Identifiable asIdentifiableOrNull() {
     return identifiable;
   }
@@ -730,8 +718,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     throw new IllegalStateException("Result is not an entity");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity asEntityOrNull() {
     assert checkSession();
     if (identifiable instanceof Entity) {
@@ -792,8 +779,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     return asRecord();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DBRecord asRecordOrNull() {
     assert checkSession();
     if (identifiable == null) {
@@ -857,8 +843,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     return true;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob asBlobOrNull() {
     assert checkSession();
     if (identifiable instanceof Blob) {
@@ -883,8 +868,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     return null;
   }
 
-  @Nullable
-  public Object getMetadata(String key) {
+  @Nullable public Object getMetadata(String key) {
     assert checkSession();
     if (key == null) {
       return null;
@@ -999,7 +983,23 @@ public class ResultInternal implements Result, BasicResultInternal {
       return true;
     }
 
-    return isStatefulEdge();
+    switch (identifiable) {
+      case null -> {
+        return false;
+      }
+      case Edge edge -> {
+        return true;
+      }
+      default -> {
+        checkSessionForRecords();
+
+        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var cls = schemaSnapshot.getClassByCollectionId(
+            identifiable.getIdentity().getCollectionId());
+
+        return cls != null && !cls.isAbstract() && cls.isEdgeType();
+      }
+    }
   }
 
   @Override
@@ -1055,15 +1055,14 @@ public class ResultInternal implements Result, BasicResultInternal {
       return edge;
     }
 
-    if (isStatefulEdge()) {
-      return asStatefulEdge();
+    if (isEdge()) {
+      return asEntity().asEdge();
     }
 
     throw new DatabaseException("Result is not an edge");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Edge asEdgeOrNull() {
     assert checkSession();
 
@@ -1071,8 +1070,8 @@ public class ResultInternal implements Result, BasicResultInternal {
       return edge;
     }
 
-    if (isStatefulEdge()) {
-      return asStatefulEdge();
+    if (isEdge()) {
+      return asEntity().asEdgeOrNull();
     }
 
     return null;
@@ -1086,24 +1085,23 @@ public class ResultInternal implements Result, BasicResultInternal {
       return relation;
     }
 
-    if (isStatefulEdge()) {
-      return asStatefulEdge();
+    if (isEdge()) {
+      return asEntity().asEdge();
     }
 
     throw new DatabaseException("Result is not an relation");
   }
 
   @Override
-  @Nullable
-  public Relation<?> asRelationOrNull() {
+  @Nullable public Relation<?> asRelationOrNull() {
     assert checkSession();
 
     if (relation != null) {
       return relation;
     }
 
-    if (isStatefulEdge()) {
-      return asStatefulEdge();
+    if (isEdge()) {
+      return asEntity().asEdgeOrNull();
     }
 
     return null;
@@ -1308,13 +1306,11 @@ public class ResultInternal implements Result, BasicResultInternal {
     return h;
   }
 
-  @Nullable
-  public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionEmbedded session) {
+  @Nullable public static Result toResult(@Nullable Object value, @Nonnull DatabaseSessionEmbedded session) {
     return toResult(value, session, null);
   }
 
-  @Nullable
-  public static Result toResult(@Nullable Object value,
+  @Nullable public static Result toResult(@Nullable Object value,
       @Nonnull DatabaseSessionEmbedded session, @Nullable String alias) {
     if (value instanceof Result result) {
       return result;
@@ -1323,14 +1319,12 @@ public class ResultInternal implements Result, BasicResultInternal {
     return toResultInternal(value, session, alias);
   }
 
-  @Nullable
-  public static ResultInternal toResultInternal(@Nullable Object value,
+  @Nullable public static ResultInternal toResultInternal(@Nullable Object value,
       @Nonnull DatabaseSessionEmbedded session) {
     return toResultInternal(value, session, null);
   }
 
-  @Nullable
-  public static ResultInternal toResultInternal(@Nullable Object value,
+  @Nullable public static ResultInternal toResultInternal(@Nullable Object value,
       @Nonnull DatabaseSessionEmbedded session, @Nullable String alias) {
     switch (value) {
       case null -> {

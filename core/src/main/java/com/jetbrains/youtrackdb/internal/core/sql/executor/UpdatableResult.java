@@ -48,8 +48,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().getEntity(name);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Result getResult(@Nonnull String name) {
     assert checkSession();
     return this.asEntity().getResult(name);
@@ -67,8 +66,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().getEdge(name);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
     return this.asEntity().getLink(name);
@@ -113,8 +111,7 @@ public class UpdatableResult extends ResultInternal {
     return ((Entity) identifiable);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity asEntityOrNull() {
     assert checkSession();
     return this.asEntity();
@@ -139,8 +136,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DBRecord asRecordOrNull() {
     assert checkSession();
     return this.asEntity();
@@ -159,8 +155,7 @@ public class UpdatableResult extends ResultInternal {
     throw new DatabaseException("Result is not a blob");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob asBlobOrNull() {
     assert checkSession();
     return null;
@@ -200,7 +195,7 @@ public class UpdatableResult extends ResultInternal {
   @Override
   public boolean isStatefulEdge() {
     assert checkSession();
-    return this.asEntity().isStatefulEdge();
+    return this.asEntity().isEdge();
   }
 
   @Nonnull
@@ -210,8 +205,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().asEdge();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Edge asEdgeOrNull() {
     assert checkSession();
     return this.asEntity().asEdgeOrNull();
