@@ -118,8 +118,9 @@ perspective on cross-track impact.
      done, or mid-track checkpoint reached).
    - All steps `[x]`, `Track-level code review` is `[ ]` → run Phase C
      (track-level code review). End session after Phase C completes.
-   - All phases `[x]` → write track episode to plan file, mark `[x]`,
-     present results to user.
+   - All phases `[x]` → enter Track Completion Protocol: compile track
+     episode, present results to user, write to plan file only after
+     user approval.
 
 4. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why
@@ -250,8 +251,11 @@ exactly one phase:
   `Track-level code review` is marked `[x]`. Session ends. Next session
   writes the track episode and presents results to the user.
 
-- **After track completion** — track episode written, track marked `[x]`,
-  user approved. Session ends. Strategy refresh happens in the next session.
+- **After track completion** — user approved, track episode written and
+  track marked `[x]` (single commit after approval). Session ends. Strategy
+  refresh happens in the next session. If session is interrupted before
+  user approval, the next session re-enters the Track Completion Protocol
+  (all phases `[x]` in step file, track still `[ ]` in plan file).
 
 - **Mid-Phase B checkpoint** — if you've completed 5+ steps and the track
   has more steps remaining, suggest ending the session. The step file with
@@ -336,6 +340,9 @@ The step file bridges context between sessions:
 - **Reviews completed** — which reviews ran and their outcomes
 - **Step episodes** — what was discovered and implemented
 - **Review files** — full review findings in `reviews/track-N-*.md`
+- **Base commit + git log** — when resuming Phase B, orphan commits
+  (code committed but no episode) are detected by comparing git log
+  against step episodes (see step-implementation.md §Phase B Resume)
 
 Deliberately NOT carried forward (shed with the session):
 - Implementation context (variable names, debugging history, workaround
@@ -521,7 +528,22 @@ After track-level code review passes (or max iterations):
    The track episode is a strategic summary — what was built, key
    discoveries, plan deviations with cross-track impact.
 
-2. **Write the track episode** to the plan file:
+2. **Present track results to the user** (do NOT write to plan file yet):
+   - Track episode (compiled but not yet persisted)
+   - All step episodes from the step file
+   - Git log of track commits
+   - Any unresolved track-level code review findings
+
+3. **Wait for user response:**
+   - **Approved** — proceed to step 4.
+   - **Fixes needed** — apply the user's specific fixes as additional
+     commits. Re-run track-level code review if fixes are substantial.
+     Re-compile the track episode if fixes changed outcomes.
+     Present updated results and wait again.
+   - **Fundamental rework** — trigger ESCALATE.
+
+4. **Write the track episode and mark `[x]`** in the plan file (single
+   commit, only after user approval):
 
    ```markdown
    - [x] Track N: <title>
@@ -533,20 +555,15 @@ After track-level code review passes (or max iterations):
      > **Step file:** `tracks/track-N.md` (M steps, K failed)
    ```
 
-3. **Mark the track as `[x]`** in the plan file.
+5. **Session ends.** Strategy refresh happens next session.
 
-4. **Present track results to the user:**
-   - Track episode
-   - All step episodes from the step file
-   - Git log of track commits
-   - Any unresolved track-level code review findings
-
-5. **Wait for user response:**
-   - **Approved** — session ends. Strategy refresh happens next session.
-   - **Fixes needed** — apply the user's specific fixes as additional
-     commits. Re-run track-level code review if fixes are substantial.
-     Present updated results.
-   - **Fundamental rework** — trigger ESCALATE.
+**Why deferred write:** Writing the track episode and marking `[x]` before
+user approval creates a state that cannot be reliably resumed — if the
+session ends between marking `[x]` and receiving approval, the next session
+detects the track as complete (State A: strategy refresh needed) and skips
+user review entirely. By deferring the plan file write, an interrupted
+session simply re-enters the Track Completion Protocol on resume (all
+phases `[x]` in the step file, track still `[ ]` in the plan file).
 
 ---
 

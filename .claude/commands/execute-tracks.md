@@ -39,9 +39,11 @@ Follow the startup protocol in `workflow.md`:
    - **State C** (mid-track resume): read step file Progress section,
      resume the next incomplete phase:
      - `Review + decomposition` incomplete → resume Phase A
-     - Steps incomplete → run Phase B
+     - Steps incomplete → run Phase B (check for orphan commits from
+       interrupted steps — see step-implementation.md §Phase B Resume)
      - Steps done, code review incomplete → run Phase C
-     - All phases done → write track episode, present results
+     - All phases done → compile track episode, present to user, write
+       to plan file only after user approval
 4. Inform the user of the auto-resume decision. The user can override, but
    by default proceed without waiting for confirmation.
 5. Load the phase-specific workflow document and execute that phase only.
