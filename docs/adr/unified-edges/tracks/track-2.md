@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -54,28 +54,27 @@
   > (modified), `VertexEntityImpl.java` (modified), `ResultInternal.java`
   > (modified), `DbImportExportTest.java` (modified)
 
-- [ ] Step 3: Replace all `StatefulEdge` type references with `Edge`
-  > Mechanical replacement of `StatefulEdge` with `Edge` across the
-  > codebase. Now that `Edge extends Entity`, all `Entity` methods are
-  > available on `Edge`, so the replacement is safe.
+- [x] Step 3: Replace all `StatefulEdge` type references with `Edge`
+  > **What was done:** Mechanical replacement of `StatefulEdge` type across
+  > 22 files: return types, parameter types, local variables, instanceof,
+  > casts, generic args. Key areas: Transaction interface (7 methods),
+  > FrontendTransactionImpl/NoTx, Vertex interface, VertexEntityImpl,
+  > Entity/DBRecord/Result (asStatefulEdge return types → Edge),
+  > ResultSet (Stream/Spliterator/List generics), DatabaseSessionEmbedded,
+  > Gremlin layer (YTDBEdgeInternal, YTDBStatefulEdgeImpl,
+  > GremlinResultMapper switch collapse), EntityImpl (instanceof Edge),
+  > 3 test files. Fixed pre-existing Javadoc error in
+  > ResultSet.statefulEdgeStream() (code review fix).
   >
-  > Key areas:
-  > - **Transaction interface** (`Transaction.java`): 7 methods change
-  >   return type from `StatefulEdge` to `Edge`
-  > - **Transaction implementations** (`FrontendTransactionImpl.java`,
-  >   `FrontendTransactionNoTx.java`): return types + internal casts
-  > - **Vertex interface** (`Vertex.java`): `addStateFulEdge()` overloads
-  >   return `Edge` instead of `StatefulEdge`
-  > - **VertexEntityImpl**: `addStateFulEdge()` implementations
-  > - **EntityImpl**: `asStatefulEdge()`/`asStatefulEdgeOrNull()` use
-  >   `instanceof Edge` + cast to `Edge` (since Edge IS-A StatefulEdge's
-  >   contract now)
-  > - **DatabaseSessionEmbedded**: method signatures
-  > - **Gremlin layer**: `YTDBEdgeInternal.getRawEntity()` returns `Edge`;
-  >   `YTDBStatefulEdgeImpl` constructor takes `Edge`;
-  >   `GremlinResultMapper`/`YTDBGraphImplAbstract` casts updated
-  > - **ResultInternal**: any remaining `StatefulEdge` references
-  > - **Test files**: `instanceof StatefulEdge` → `instanceof Edge`, etc.
+  > **Key files:** Transaction.java, FrontendTransactionImpl.java,
+  > FrontendTransactionNoTx.java, Vertex.java, VertexEntityImpl.java,
+  > Entity.java, DBRecord.java, Result.java, ResultSet.java,
+  > DatabaseSessionEmbedded.java, EntityImpl.java, RecordBytes.java,
+  > YTDBEdgeInternal.java, YTDBStatefulEdgeImpl.java,
+  > YTDBGraphImplAbstract.java, YTDBPropertyImpl.java, YTDBVertexImpl.java,
+  > YTDBGraphStep.java, GremlinResultMapper.java, TransactionTest.java,
+  > SelectStatementExecutionTest.java, TestGraphElementDelete.java
+  > (all modified)
 
 - [ ] Step 4: Delete `StatefulEdge.java` and remove `asStatefulEdge()`/`asStatefulEdgeOrNull()`
   > Delete `StatefulEdge.java` — it is now an empty bridge interface
