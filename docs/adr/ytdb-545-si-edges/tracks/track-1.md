@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -73,7 +73,7 @@
   > `LinkBagUpdateSerializationOperation.java` (modified), `LinkBagValueTest.java` (modified),
   > `BTreeTestIT.java` (modified)
 
-- [ ] Step 3: Add comprehensive EdgeKey ordering and LinkBagValue tombstone tests
+- [x] Step 3: Add comprehensive EdgeKey ordering and LinkBagValue tombstone tests
   > Add focused unit tests validating the new EdgeKey comparison semantics and tombstone
   > edge cases that go beyond simple serialization round-trips. For EdgeKey: test that
   > `compareTo` orders by `ts` last (two keys with same 3-tuple but different `ts` compare
@@ -86,3 +86,12 @@
   >
   > **Files**: `EdgeKeySerializerTest.java` or new `EdgeKeyTest.java`,
   > `LinkBagValueTest.java`
+  >
+  > **What was done:** Created new `EdgeKeyTest` class with 15 tests covering: 4-component
+  > compareTo ordering with precedence verification, boundary values for prefix range scans,
+  > equals/hashCode with ts discrimination, compareTo/equals consistency, equals with null
+  > and wrong type, TreeMap/Collections.sort integration with full key assertions, negative
+  > ridBagId handling, and toString verification. Added 3 LinkBagValue tests for tombstone
+  > equality distinction and toString.
+  >
+  > **Key files:** `EdgeKeyTest.java` (new), `LinkBagValueTest.java` (modified)
