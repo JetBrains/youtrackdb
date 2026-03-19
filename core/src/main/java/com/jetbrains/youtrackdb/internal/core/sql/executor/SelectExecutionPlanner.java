@@ -1751,9 +1751,12 @@ public class SelectExecutionPlanner {
    */
   private static Map<SQLLetItem, List<SQLLetItem>> detectSharedLetBases(
       List<SQLLetItem> items) {
-    // Group subquery items by their inner FROM statement.
-    // LinkedHashMap preserves insertion order so groups appear in declaration order.
-    var byInner = new LinkedHashMap<SQLStatement, List<SQLLetItem>>();
+    // Group subquery items by the string representation of their inner FROM
+    // subquery. Using toString() instead of equals() because SQLStatement.equals()
+    // may not work reliably across different AST instances parsed from the same
+    // text (e.g. different object identities for $parent.$current references).
+    var byInnerText = new LinkedHashMap<String, List<SQLLetItem>>();
+    var innerByItem = new HashMap<SQLLetItem, SQLStatement>();
     for (var item : items) {
       if (item.getQuery() == null) {
         continue;
@@ -1762,11 +1765,13 @@ public class SelectExecutionPlanner {
       if (inner == null) {
         continue;
       }
-      byInner.computeIfAbsent(inner, k -> new ArrayList<>()).add(item);
+      var key = inner.toString();
+      byInnerText.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
+      innerByItem.put(item, inner);
     }
 
     var result = new HashMap<SQLLetItem, List<SQLLetItem>>();
-    for (var group : byInner.values()) {
+    for (var group : byInnerText.values()) {
       for (var item : group) {
         result.put(item, group);
       }

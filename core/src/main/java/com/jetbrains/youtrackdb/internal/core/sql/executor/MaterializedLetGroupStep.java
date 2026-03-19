@@ -104,12 +104,11 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
 
   private List<Result> executeAndMaterialize(
       SQLStatement query, BasicCommandContext subCtx) {
-    InternalExecutionPlan plan;
-    if (query.toString().contains("?")) {
-      plan = query.createExecutionPlanNoCache(subCtx, profilingEnabled);
-    } else {
-      plan = query.createExecutionPlan(subCtx, profilingEnabled);
-    }
+    // Same caching strategy as LetQueryStep: use cached plans unless the query
+    // contains positional parameters (?), where ordinal-to-value mapping may differ.
+    var plan = usePlanCache(query)
+        ? query.createExecutionPlan(subCtx, profilingEnabled)
+        : query.createExecutionPlanNoCache(subCtx, profilingEnabled);
     return toList(new LocalResultSet(subCtx.getDatabaseSession(), plan));
   }
 
@@ -123,13 +122,13 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       List<Result> materializedBase,
       BasicCommandContext subCtx,
       com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
-    InternalExecutionPlan outerPlan;
-    if (entry.fullQuery.toString().contains("?")) {
-      outerPlan = entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
-    } else {
-      outerPlan = entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled);
-    }
+    var outerPlan = usePlanCache(entry.fullQuery)
+        ? entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled)
+        : entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
 
+    // Replace the SubQueryStep (which would re-execute the shared inner subquery)
+    // with a ListSourceStep that streams from the already-materialized results.
+    // Guard: only replace if the plan structure matches expectations.
     if (outerPlan instanceof SelectExecutionPlan selectPlan
         && !selectPlan.getSteps().isEmpty()
         && selectPlan.getSteps().getFirst() instanceof SubQueryStep) {
@@ -137,6 +136,8 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
           materializedBase, subCtx, profilingEnabled);
       selectPlan.replaceFirstStep(listSource);
     }
+    // If the plan structure doesn't match (e.g. no SubQueryStep as first step),
+    // the full query executes normally without materialization — correct but slower.
 
     result.setMetadata(entry.varName.getStringValue(),
         toList(new LocalResultSet(session, outerPlan)));
@@ -151,15 +152,22 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       BasicCommandContext subCtx,
       com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
     for (var entry : entries) {
-      InternalExecutionPlan plan;
-      if (entry.fullQuery.toString().contains("?")) {
-        plan = entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
-      } else {
-        plan = entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled);
-      }
+      var plan = usePlanCache(entry.fullQuery)
+          ? entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled)
+          : entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
       result.setMetadata(entry.varName.getStringValue(),
           toList(new LocalResultSet(session, plan)));
     }
+  }
+
+  /**
+   * Returns {@code true} if the query's execution plan can be cached.
+   * Queries with positional parameters ({@code ?}) cannot be cached because
+   * the ordinal-to-value mapping may differ between invocations.
+   * Same strategy as {@link LetQueryStep}.
+   */
+  private static boolean usePlanCache(SQLStatement query) {
+    return !query.toString().contains("?");
   }
 
   private List<Result> toList(LocalResultSet rs) {

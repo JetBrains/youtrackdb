@@ -7495,7 +7495,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         plan.contains("index pre-filter"));
 
         "SELECT name, $postCount[0].cnt as posts, $commentCount[0].cnt as comments"
-            + " FROM LmPerson WHERE @rid = " + personRid
+            + " FROM LmPerson"
             + " LET $postCount = (SELECT count(*) as cnt FROM"
             + " (SELECT expand(in('LmHasCreator')) FROM LmPerson"
             + " WHERE @rid = $parent.$current.@rid)"
@@ -7503,7 +7503,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
             + " $commentCount = (SELECT count(*) as cnt FROM"
             + " (SELECT expand(in('LmHasCreator')) FROM LmPerson"
             + " WHERE @rid = $parent.$current.@rid)"
-            + " WHERE type = 'Comment')");
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
 
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -7589,10 +7590,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
         plan.contains("push-down filter"));
 
         "SELECT name, $msgCount[0].cnt as msgs FROM SlPerson"
-            + " WHERE @rid = " + personRid
             + " LET $msgCount = (SELECT count(*) as cnt FROM"
             + " (SELECT expand(in('SlHasCreator')) FROM SlPerson"
-            + " WHERE @rid = $parent.$current.@rid))");
+            + " WHERE @rid = $parent.$current.@rid))"
+            + " WHERE @rid = " + personRid);
 
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -7929,7 +7930,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       var result = session.query(
           "SELECT name, $postCount[0].cnt as posts,"
               + " $commentCount[0].cnt as comments"
-              + " FROM FbPerson WHERE @rid = " + personRid
+              + " FROM FbPerson"
               + " LET $postCount = (SELECT count(*) as cnt FROM"
               + " (SELECT expand(in('FbHasCreator')) FROM FbPerson"
               + " WHERE @rid = $parent.$current.@rid)"
@@ -7937,7 +7938,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
               + " $commentCount = (SELECT count(*) as cnt FROM"
               + " (SELECT expand(in('FbHasCreator')) FROM FbPerson"
               + " WHERE @rid = $parent.$current.@rid)"
-              + " WHERE type = 'Comment')");
+              + " WHERE type = 'Comment')"
+              + " WHERE @rid = " + personRid);
 
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -8252,13 +8254,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
         plan.contains("index pre-filter"));
 
         "SELECT name, $msgCount[0].cnt as msgs, $forumCount[0].cnt as forums"
-            + " FROM DsPerson WHERE @rid = " + personRid
+            + " FROM DsPerson"
             + " LET $msgCount = (SELECT count(*) as cnt FROM"
             + " (SELECT expand(in('DsHasCreator')) FROM DsPerson"
             + " WHERE @rid = $parent.$current.@rid)),"
             + " $forumCount = (SELECT count(*) as cnt FROM"
             + " (SELECT expand(out('DsMemberOf')) FROM DsPerson"
-            + " WHERE @rid = $parent.$current.@rid))");
+            + " WHERE @rid = $parent.$current.@rid))"
+            + " WHERE @rid = " + personRid);
 
     Assert.assertTrue(result.hasNext());
     var item = result.next();
@@ -8586,6 +8589,62 @@ public class SelectStatementExecutionTest extends DbTestBase {
             + "plan was:\n" + plan,
         plan.contains("index pre-filter"));
 
+   * Verifies that three LET subqueries sharing the same inner FROM subquery
+   * are all grouped into a single materialized group.
+   */
+  @Test
+  public void testLetMaterialization_threeLetsSharedBase() {
+    session.execute("CREATE CLASS TlPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TlMessage EXTENDS V").close();
+    session.execute("CREATE CLASS TlHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX TlPerson SET name = 'eve'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 9; i++) {
+      String type = i < 4 ? "Post" : (i < 7 ? "Comment" : "Reply");
+      session.execute(
+          "CREATE VERTEX TlMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE TlHasCreator FROM (SELECT FROM TlMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $posts[0].cnt as posts, $comments[0].cnt as comments,"
+            + " $replies[0].cnt as replies"
+            + " FROM TlPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment'),"
+            + " $replies = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Reply')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(4L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(3L, ((Number) item.getProperty("comments")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("replies")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Three shared LETs should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+
     result.close();
     session.commit();
   }
@@ -8656,6 +8715,29 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.execute(
           "CREATE EDGE EiWrote FROM (SELECT FROM EiAuthor WHERE name='Bob')"
               + " TO (SELECT FROM EiArticle WHERE title='art" + i + "')")
+
+   * Verifies mixed LET types: two shared subqueries grouped, one expression LET
+   * and one different subquery LET handled independently.
+   */
+  @Test
+  public void testLetMaterialization_mixedLetTypes() {
+    session.execute("CREATE CLASS MxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS MxMessage EXTENDS V").close();
+    session.execute("CREATE CLASS MxHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX MxPerson SET name = 'frank', age = 30");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 4; i++) {
+      String type = (i < 2) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX MxMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE MxHasCreator FROM (SELECT FROM MxMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
           .close();
     }
     session.commit();
@@ -8764,6 +8846,29 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
     Assert.assertTrue("EXPLAIN should show LET step, plan was:\n" + plan,
         plan.contains("LET"));
+
+    var result = session.query(
+        "SELECT name, $doubled, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM MxPerson"
+            + " LET $doubled = age * 2,"
+            + " $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('MxHasCreator')) FROM MxPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('MxHasCreator')) FROM MxPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    // Focus on the shared subquery LET results (the expression LET is handled separately)
+    Assert.assertEquals(2L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("comments")).longValue());
+
+    result.close();
     session.commit();
   }
 }
