@@ -325,6 +325,8 @@ graph LR
   > the delete path. No plan deviations with cross-track impact.
   >
   > **Step file:** `tracks/track-2.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 3: SharedLinkBagBTree write path with SI
   > **What**: Modify the write operations (`put`, `remove`) in
