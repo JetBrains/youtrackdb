@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/5 complete)
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,26 +14,18 @@
 
 ## Steps
 
-- [ ] Step 1: Create EdgeSnapshotKey and EdgeVisibilityKey record types with tests
-  > Create `EdgeSnapshotKey` record in `core/.../storage/ridbag/ridbagbtree/` package:
-  > `(int componentId, long ridBagId, int targetCollection, long targetPosition, long version)`
-  > implementing `Comparable<EdgeSnapshotKey>` with natural ordering
-  > `componentId → ridBagId → targetCollection → targetPosition → version`.
-  > `componentId` is the `collectionId` that identifies the `SharedLinkBagBTree` instance
-  > (resolves T1 — `DurableComponent.getId()` does not exist; `collectionId` is the natural
-  > identifier).
+- [x] Step 1: Create EdgeSnapshotKey and EdgeVisibilityKey record types with tests
+  > **What was done:** Created `EdgeSnapshotKey` and `EdgeVisibilityKey` Java records
+  > in the `ridbagbtree` package following the exact pattern of the existing
+  > `SnapshotKey`/`VisibilityKey` in the `collection` package. EdgeSnapshotKey has
+  > 5-field natural ordering (componentId → ridBagId → targetCollection →
+  > targetPosition → version). EdgeVisibilityKey has 5-field ordering with recordTs
+  > first for efficient headMap eviction. Added comprehensive tests (23 total):
+  > per-field ordering, equality/hashCode, subMap/headMap range scans, component
+  > isolation, ridBagId isolation, and descending scan for newest-version lookups.
+  > 100% line and branch coverage on both new types.
   >
-  > Create `EdgeVisibilityKey` record in the same package:
-  > `(long recordTs, int componentId, long ridBagId, int targetCollection, long targetPosition)`
-  > implementing `Comparable<EdgeVisibilityKey>` with natural ordering
-  > `recordTs → componentId → ridBagId → targetCollection → targetPosition`.
-  > `recordTs` must be first to enable efficient `headMap(lwm)` range-scan during cleanup.
-  >
-  > Add tests modeled after `SnapshotKeyTest` and `VisibilityKeyTest`: ordering by each field,
-  > equal keys compare to zero, subMap range scan isolation (component isolation, position
-  > isolation, version range scan), and headMap for visibility cleanup sentinel pattern.
-  >
-  > **Files**: `EdgeSnapshotKey.java` (new), `EdgeVisibilityKey.java` (new),
+  > **Key files:** `EdgeSnapshotKey.java` (new), `EdgeVisibilityKey.java` (new),
   > `EdgeSnapshotKeyTest.java` (new), `EdgeVisibilityKeyTest.java` (new)
 
 - [ ] Step 2: Add edge snapshot maps and size counter to AbstractStorage, with eviction method
