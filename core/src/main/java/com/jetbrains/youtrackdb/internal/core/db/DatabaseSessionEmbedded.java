@@ -3345,12 +3345,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return sharedContext;
   }
 
-  public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
-    throw new IllegalStateException(
-        "Legacy lightweight edges are no longer supported. "
-            + "All edges are now record-based. Use newEdge() instead.");
-  }
-
   public void queryStarted(String id, ResultSet resultSet) {
     assert assertIfNotActive();
 
