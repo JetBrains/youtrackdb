@@ -181,6 +181,21 @@ public class PageFrameTest {
     frame.releaseExclusiveLock(exclusiveStamp);
   }
 
+  @Test
+  public void testTryAcquireSharedLockDoesNotInvalidateOptimisticStamps() {
+    // Shared locks (including try-acquired) must not invalidate optimistic stamps —
+    // only exclusive locks invalidate them. This is the symmetric test to
+    // testOptimisticValidateSucceedsWithSharedLockHeld for the try-variant.
+    var frame = new PageFrame(pointer);
+    long optimisticStamp = frame.tryOptimisticRead();
+    assertNotEquals(0, optimisticStamp);
+
+    long sharedStamp = frame.tryAcquireSharedLock();
+    assertNotEquals(0, sharedStamp);
+    assertTrue(frame.validate(optimisticStamp));
+    frame.releaseSharedLock(sharedStamp);
+  }
+
   // --- Try Acquire Exclusive Lock API ---
 
   @Test
