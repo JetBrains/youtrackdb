@@ -102,14 +102,25 @@ public final class PageFrame {
    * Sets the page coordinates for this frame. Must be called under exclusive lock.
    */
   public void setPageCoordinates(long fileId, int pageIndex) {
+    assert stampedLock.isWriteLocked() : "Must hold exclusive lock";
     this.fileId = fileId;
     this.pageIndex = pageIndex;
   }
 
+  /**
+   * Returns the file ID of the page currently assigned to this frame. Must be read within
+   * a stamp-validated region (between {@link #tryOptimisticRead()} and
+   * {@link #validate(long)}), or under a shared or exclusive lock.
+   */
   public long getFileId() {
     return fileId;
   }
 
+  /**
+   * Returns the page index of the page currently assigned to this frame. Must be read within
+   * a stamp-validated region (between {@link #tryOptimisticRead()} and
+   * {@link #validate(long)}), or under a shared or exclusive lock.
+   */
   public int getPageIndex() {
     return pageIndex;
   }

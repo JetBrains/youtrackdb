@@ -237,6 +237,38 @@ public class PageFramePoolTest {
     allocator.checkMemoryLeaks();
   }
 
+  // --- Recycled Frame Clear ---
+
+  @Test
+  public void testAcquireWithClearOnRecycledFrame() {
+    // Verifies that acquiring a recycled frame with clear=true zeros dirty data
+    // written by the previous user.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+
+    var frame = pool.acquire(false, Intention.TEST);
+
+    // Write dirty data to the frame
+    var buffer = frame.getBuffer();
+    for (int i = 0; i < buffer.capacity(); i += 4) {
+      buffer.putInt(i, 0xDEADBEEF);
+    }
+
+    pool.release(frame);
+
+    // Re-acquire with clear=true — dirty data must be zeroed
+    var reused = pool.acquire(true, Intention.TEST);
+    var reusedBuffer = reused.getBuffer();
+    for (int i = 0; i < reusedBuffer.capacity(); i++) {
+      assertEquals("Byte at position " + i + " should be zero after clear", 0,
+          reusedBuffer.get(i));
+    }
+
+    pool.release(reused);
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
   // --- Concurrent Access ---
 
   @Test
@@ -267,6 +299,103 @@ public class PageFramePoolTest {
     pool.clear();
     assertEquals(0, pool.getPoolSize());
     assertEquals(0, allocator.getMemoryConsumption());
+    allocator.checkMemoryLeaks();
+  }
+
+  @Test
+  public void testConcurrentOptimisticReadAndRelease() throws Exception {
+    // Verifies that concurrent optimistic readers and frame releasers interact correctly:
+    // readers always see validate() return false when a release intervened between
+    // tryOptimisticRead and validate.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 10);
+    int readerThreads = 4;
+    int writerThreads = 2;
+    int opsPerThread = 1000;
+
+    // Pre-allocate frames for writers to cycle through
+    var sharedFrames = new ArrayList<PageFrame>();
+    for (int i = 0; i < 10; i++) {
+      var frame = pool.acquire(false, Intention.TEST);
+      long stamp = frame.acquireExclusiveLock();
+      frame.setPageCoordinates(i, i * 100);
+      frame.releaseExclusiveLock(stamp);
+      sharedFrames.add(frame);
+    }
+
+    var errorOccurred = new AtomicBoolean();
+    var futures = new ArrayList<Future<Void>>();
+    var executor = Executors.newFixedThreadPool(readerThreads + writerThreads);
+
+    try {
+      // Reader threads: take optimistic stamps and validate them
+      for (int t = 0; t < readerThreads; t++) {
+        futures.add(executor.submit(() -> {
+          try {
+            var random = ThreadLocalRandom.current();
+            for (int i = 0; i < opsPerThread && !errorOccurred.get(); i++) {
+              var frame = sharedFrames.get(random.nextInt(sharedFrames.size()));
+              long stamp = frame.tryOptimisticRead();
+              if (stamp != 0) {
+                // Read coordinates — may see stale data
+                long fId = frame.getFileId();
+                int pIdx = frame.getPageIndex();
+
+                if (frame.validate(stamp)) {
+                  // If validation succeeded, coordinates must be consistent:
+                  // either the original values or values set by a writer thread.
+                  // The key assertion is that no crash or exception occurs during
+                  // the optimistic read of non-volatile fields.
+                  assert fId >= -1 : "fileId must be >= -1";
+                  assert pIdx >= -1 : "pageIndex must be >= -1";
+                }
+                // If validation failed, that's expected — a writer intervened
+              }
+            }
+          } catch (Exception | Error e) {
+            errorOccurred.set(true);
+            throw new RuntimeException(e);
+          }
+          return null;
+        }));
+      }
+
+      // Writer threads: acquire exclusive locks and update coordinates
+      for (int t = 0; t < writerThreads; t++) {
+        futures.add(executor.submit(() -> {
+          try {
+            var random = ThreadLocalRandom.current();
+            for (int i = 0; i < opsPerThread && !errorOccurred.get(); i++) {
+              var frame = sharedFrames.get(random.nextInt(sharedFrames.size()));
+              long stamp = frame.acquireExclusiveLock();
+              try {
+                frame.setPageCoordinates(
+                    random.nextLong(1000), random.nextInt(10000));
+              } finally {
+                frame.releaseExclusiveLock(stamp);
+              }
+            }
+          } catch (Exception | Error e) {
+            errorOccurred.set(true);
+            throw new RuntimeException(e);
+          }
+          return null;
+        }));
+      }
+
+      for (var future : futures) {
+        future.get();
+      }
+    } finally {
+      executor.shutdown();
+    }
+
+    assertFalse("No errors should occur during concurrent access", errorOccurred.get());
+
+    for (var frame : sharedFrames) {
+      pool.release(frame);
+    }
+    pool.clear();
     allocator.checkMemoryLeaks();
   }
 

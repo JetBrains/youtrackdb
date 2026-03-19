@@ -102,14 +102,20 @@ public final class PageFramePool {
       frame.releaseExclusiveLock(stamp);
     }
 
+    // Add to queue first, then increment counter. This avoids the race where
+    // poolSize is incremented but the frame is not yet visible in the queue,
+    // which could cause acquire() to see a non-zero size but poll() null.
+    pool.add(frame);
     if (poolSize.incrementAndGet() > maxPoolSize) {
-      poolSize.decrementAndGet();
-      // Deallocate — exclusive lock above already invalidated all stamps.
-      // StampedLock itself lives on the Java heap, so validate() is always
-      // safe to call regardless of native memory state.
-      allocator.deallocate(frame.getPointer());
-    } else {
-      pool.add(frame);
+      // Over capacity — trim one frame (may not be the one just added)
+      PageFrame excess = pool.poll();
+      if (excess != null) {
+        poolSize.decrementAndGet();
+        // Exclusive lock above already invalidated all stamps on the released frame.
+        // If we're deallocating a different frame here, it was already pooled with
+        // invalidated stamps from its own release cycle.
+        allocator.deallocate(excess.getPointer());
+      }
     }
   }
 
@@ -121,7 +127,8 @@ public final class PageFramePool {
   }
 
   /**
-   * Clears the pool, deallocating all pooled frames.
+   * Clears the pool, deallocating all pooled frames. Must only be called during shutdown
+   * when no concurrent access to the pool or its frames is possible.
    */
   public void clear() {
     PageFrame frame;
