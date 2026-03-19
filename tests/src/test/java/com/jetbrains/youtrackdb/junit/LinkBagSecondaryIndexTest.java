@@ -244,9 +244,13 @@ public class LinkBagSecondaryIndexTest extends BaseDBJUnit5Test {
     assertEquals(3, priIdx.size(session),
         "Primary index should have 3 entries (one per edge RID)");
 
-    // Secondary index: 2 distinct target RIDs (target1 appears twice but
-    // the index deduplicates keys within the same entity)
+    // Secondary index: target1 is referenced by two edges (edgeDoc1 and edgeDoc3),
+    // target2 by one. The NOTUNIQUE index deduplicates (key, docRID) pairs, so
+    // duplicate (target1, entity) entries collapse to one. Result: 2 distinct entries.
     var secIdx = getIndex("secIdxByValue");
+    assertEquals(2, secIdx.size(session),
+        "Secondary index should have 2 entries (target1 + target2, deduplicated per entity)");
+
     var activeTx = session.getActiveTransaction();
     var ato = activeTx.getAtomicOperation();
     var secKeys = collectKeys(secIdx, ato);
@@ -294,6 +298,10 @@ public class LinkBagSecondaryIndexTest extends BaseDBJUnit5Test {
     var secKeys = collectKeys(secIdx, ato);
     assertTrue(secKeys.contains(target1.getIdentity()));
     assertTrue(secKeys.contains(target2.getIdentity()));
+
+    var priKeys = collectKeys(priIdx, ato);
+    assertTrue(priKeys.contains(edgeDoc1.getIdentity()));
+    assertTrue(priKeys.contains(edgeDoc2.getIdentity()));
     session.commit();
   }
 
