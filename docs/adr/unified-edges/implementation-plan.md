@@ -394,6 +394,8 @@ graph TD
   > No cross-track impact — Track 6 proceeds as planned.
   >
   > **Step file:** `tracks/track-5.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 6: Index by vertex support
   > Add "index by vertex" capability for LinkBag fields, allowing edges to be
