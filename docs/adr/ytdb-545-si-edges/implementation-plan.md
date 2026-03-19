@@ -207,7 +207,7 @@ graph LR
 
 ## Checklist
 
-- [ ] Track 1: EdgeKey timestamp and tombstone value model
+- [x] Track 1: EdgeKey timestamp and tombstone value model
   > **What**: Extend `EdgeKey` with a `long ts` field as the 4th comparison
   > component, and add a `boolean tombstone` field to `LinkBagValue`. This is
   > the foundational data model change that all other tracks depend on.
@@ -234,6 +234,20 @@ graph LR
   > **Scope:** ~4-5 steps covering EdgeKey modification, EdgeKeySerializer
   > update, LinkBagValue/LinkBagValueSerializer tombstone support, call site
   > updates, and serialization round-trip tests
+  >
+  > **Track episode:**
+  > Extended the edge storage data model with snapshot isolation foundations.
+  > Added `long ts` as the 4th comparison component to `EdgeKey` (ordering:
+  > ridBagId → targetCollection → targetPosition → ts), enabling prefix range
+  > scans for single-edge lookups. Added `boolean tombstone` to `LinkBagValue`
+  > for marking deleted edges. Fixed a pre-existing offset bug in
+  > `EdgeKeySerializer.doGetObjectSize`. Updated ~40 call sites across
+  > production and test code. Discovered that range query boundary keys in
+  > `spliteratorEntriesBetween` and `loadEntriesMajor` need
+  > `Long.MIN_VALUE`/`Long.MAX_VALUE` for ts bounds (not `0L`) — fixed during
+  > code review.
+  >
+  > **Step file:** `tracks/track-1.md` (3 steps, 0 failed)
 
 - [ ] Track 2: Snapshot index infrastructure for link bag entries
   > **What**: Create the snapshot index types and plumbing for storing old
@@ -245,10 +259,14 @@ graph LR
   >   `(int componentId, long ridBagId, int targetCollection,
   >   long targetPosition, long version)` with natural ordering
   >   `componentId → ridBagId → targetCollection → targetPosition → version`.
+  >   `componentId` identifies the `SharedLinkBagBTree` durable component
+  >   instance (same concept as in collection snapshot keys — obtained via
+  >   `DurableComponent.getId()`).
   > - Create `EdgeVisibilityKey` record:
   >   `(long recordTs, int componentId, long ridBagId, int targetCollection,
   >   long targetPosition)` with natural ordering
   >   `recordTs → componentId → ridBagId → targetCollection → targetPosition`.
+  >   `componentId` same as in `EdgeSnapshotKey`.
   > - Add to `AbstractStorage`:
   >   `ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue>
   >   sharedEdgeSnapshotIndex`,
@@ -279,9 +297,12 @@ graph LR
   >   descending order (newest version first) — same `MergingDescendingIterator`
   >   pattern as collection snapshot lookups.
   >
-  > **Interactions**: Independent of Track 1 (key types here use the logical
-  > edge identity fields, not the new `EdgeKey` with `ts`). Tracks 3 and 4
-  > depend on this.
+  > **Interactions**: Partially independent of Track 1 — the key types
+  > (`EdgeSnapshotKey`, `EdgeVisibilityKey`) use logical edge identity fields,
+  > not the new `EdgeKey` with `ts`. However, the snapshot value type
+  > (`LinkBagValue`) gains a `tombstone` field in Track 1, so either track can
+  > go first but Track 1 first is the natural order. Tracks 3 and 4 depend on
+  > this.
   >
   > **Scope:** ~5-6 steps covering new key types, AbstractStorage maps,
   > AtomicOperation interface methods, AtomicOperationBinaryTracking
@@ -317,6 +338,10 @@ graph LR
   >      `LinkBagValue(..., tombstone=true)`.
   >   The tree size does not change (one entry replaced by one tombstone).
   >
+  > - **IsolatedLinkBagBTreeImpl write path**: Update `put()` and `remove()`
+  >   call sites to pass `commitTs` when constructing `EdgeKey` and forward
+  >   the `AtomicOperation` to `SharedLinkBagBTree` for snapshot preservation.
+  >
   > **Constraints**:
   > - `commitTs` is obtained from `atomicOperation.getCommitTs()` — this must
   >   be available at write time.
@@ -328,7 +353,8 @@ graph LR
   >
   > **Interactions**: Depends on Track 1 (new EdgeKey/LinkBagValue format) and
   > Track 2 (snapshot index infrastructure). Track 4 depends on this for
-  > correct visibility behavior.
+  > correct visibility behavior (Track 4 covers `IsolatedLinkBagBTreeImpl`
+  > read/iteration path changes).
   >
   > **Scope:** ~4-5 steps covering prefix lookup helper, put() SI logic,
   > remove() tombstone logic, IsolatedLinkBagBTreeImpl write path updates,
@@ -358,7 +384,9 @@ graph LR
   >      - If found non-tombstone → add snapshot version to cache.
   >      - If found tombstone or not found → skip.
   >   The spliterators need access to `AtomicOperation` for visibility checks
-  >   and snapshot lookups — they already receive it.
+  >   and snapshot lookups — verify whether spliterator constructors/factory
+  >   methods already accept `AtomicOperation` or need a signature change to
+  >   pass it through.
   > - **IsolatedLinkBagBTreeImpl**: Update `get()`, `spliteratorEntriesBetween`,
   >   `loadEntriesMajor`, and other methods to work with the new SI-aware
   >   APIs. The `TransformingSpliterator` must strip the `ts` from EdgeKey
