@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -49,25 +49,31 @@
   > **Key files:** `CachePointer.java` (modified), `AtomicOperationBinaryTracking.java`
   > (modified), `CachePointerPageFrameTest.java` (new)
 
-- [ ] Step 3: Migrate callers to PageFrame-based CachePointer and remove old constructor
-  > Update all CachePointer creation sites to use `PageFramePool` → `PageFrame` → new
-  > `CachePointer` constructor:
+- [x] Step 3: Migrate callers to PageFrame-based CachePointer and remove old constructor
+  > **What was done:** Migrated all 3 production CachePointer creation sites to use
+  > PageFramePool. Added `pageFramePool()` lazy accessor to ByteBufferPool that creates
+  > a PageFramePool sharing the same allocator and pool limits. WOWCache, LockFreeReadCache,
+  > and MemoryFile now use `pageFramePool.acquire()` → `new CachePointer(pageFrame, pool, ...)`
+  > for page loads. WOWCache's double-write recovery copies data into the PageFrame buffer
+  > instead of swapping pointers. Temporary flush allocations stay with ByteBufferPool.
+  > Added `allocatedFrames` tracking set to PageFramePool so `clear()` deallocates both
+  > pooled and leaked frames at shutdown. Added buffer `position(0)` reset in
+  > `PageFramePool.acquire()` to match ByteBufferPool behavior. Legacy constructor
+  > retained for test compatibility (~15 test files use it for temporary allocations).
   >
-  > - **WOWCache.java** (page load path only): `bufferPool.acquireDirect()` → create
-  >   PageFrame from acquired Pointer, pass to new CachePointer constructor. Temporary
-  >   allocations (flush copies: `COPY_PAGE_DURING_FLUSH`, `FILE_FLUSH`, etc.) continue
-  >   using `ByteBufferPool` directly — these are short-lived buffers, not page frames.
-  > - **LockFreeReadCache.java** (`addNewPagePointerToTheCache`): use PageFramePool.
-  > - **MemoryFile.java** (`addNewPage`): use PageFramePool.
+  > **What was discovered:** PageFramePool.acquire() didn't reset the ByteBuffer position
+  > to 0, causing assertion failures in WOWCache (ByteBufferPool.acquireDirect() always
+  > did this). Also, PageFramePool.clear() only deallocated pooled frames — frames still
+  > held by leaked CachePointers at shutdown were not cleaned up, causing
+  > DirectMemoryAllocator leak detection assertions. ByteBufferPool's clear() handled
+  > this via its `pointerMapping` TRACK set; PageFramePool needed an equivalent
+  > `allocatedFrames` set.
   >
-  > After all callers are migrated, remove the old `CachePointer(Pointer, ByteBufferPool,
-  > ...)` constructor. `ByteBufferPool` continues to exist for temporary allocations.
+  > **What changed from the plan:** The old CachePointer(Pointer, ByteBufferPool)
+  > constructor was NOT removed — ~15 test files use it for temporary allocations.
+  > Removing it would require migrating all test files, which is mechanical but out of
+  > scope for this track. Deferred to a future cleanup.
   >
-  > WOWCache and LockFreeReadCache need `PageFramePool` injected (constructor parameter
-  > or via the existing `ByteBufferPool` instance — decide during implementation based
-  > on how `ByteBufferPool.instance()` is accessed).
-  >
-  > Run full `core` module test suite to verify no regressions.
-  >
-  > **Key files:** `WOWCache.java` (modified), `LockFreeReadCache.java` (modified),
-  > `MemoryFile.java` (modified), `CachePointer.java` (modified — remove old constructor)
+  > **Key files:** `ByteBufferPool.java` (modified), `PageFramePool.java` (modified),
+  > `WOWCache.java` (modified), `LockFreeReadCache.java` (modified),
+  > `MemoryFile.java` (modified)
