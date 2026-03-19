@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,27 +13,20 @@
 - [x] Risk
 
 ## Steps
-- [ ] Step 1: Create PageFrame and PageFramePool classes with unit tests
-  > Introduce the new abstraction layer in `com.jetbrains.youtrackdb.internal.common.directmemory`.
+- [x] Step 1: Create PageFrame and PageFramePool classes with unit tests
+  > **What was done:** Created `PageFrame` wrapping `Pointer` + `StampedLock` + page
+  > coordinates with optimistic/shared/exclusive lock APIs. Created `PageFramePool`
+  > managing frame lifecycle with `ConcurrentLinkedQueue` + `AtomicInteger` sizing,
+  > protective memory allocation (recycling over deallocation), and exclusive lock
+  > barriers on acquire/release for stamp invalidation. 26 unit tests covering lock
+  > API correctness, coordinate lifecycle, pool capacity limits, stamp invalidation
+  > barriers, clear on recycled frames, and concurrent access (acquire/release +
+  > optimistic-read/exclusive-lock contention).
   >
-  > **PageFrame** wraps an existing `Pointer` (native direct memory) plus a `StampedLock`
-  > for future optimistic read support (Track 3+), plus page coordinates (`fileId`,
-  > `pageIndex`) set under exclusive lock for frame reuse detection. Exposes:
-  > - Optimistic read API: `tryOptimisticRead()`, `validate(stamp)`
-  > - Exclusive lock API: `acquireExclusiveLock()`, `releaseExclusiveLock(stamp)`
-  > - Shared lock API: `acquireSharedLock()`, `releaseSharedLock(stamp)`
-  > - Page identity: `setPageCoordinates(fileId, pageIndex)`, getters
-  > - Memory access: `getBuffer()` (delegates to Pointer), `getPointer()`, `clear()`
-  >
-  > **PageFramePool** manages frame lifecycle. `acquire(clear, intention)` pulls from a
-  > `ConcurrentLinkedQueue` or allocates new via `DirectMemoryAllocator`. On acquire from
-  > pool, acquires+releases exclusive lock to invalidate stale stamps. `release(frame)`
-  > acquires exclusive lock (stamp invalidation barrier), clears page coordinates, returns
-  > to pool if under capacity, otherwise deallocates via allocator. `Intention` is passed
-  > through to the allocator for profiling.
-  >
-  > Unit tests cover: lock API correctness, page coordinate lifecycle, pool acquire/release
-  > cycling, pool capacity limits with deallocation, concurrent acquire/release.
+  > **What was discovered:** Code review caught a race in the initial `release()`
+  > implementation where `poolSize` was incremented before adding the frame to the
+  > queue, causing potential size accounting drift. Fixed by adding to queue first,
+  > then trimming excess.
   >
   > **Key files:** `PageFrame.java` (new), `PageFramePool.java` (new),
   > `PageFrameTest.java` (new), `PageFramePoolTest.java` (new)
