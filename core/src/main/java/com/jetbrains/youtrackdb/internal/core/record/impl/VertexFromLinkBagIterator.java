@@ -28,6 +28,12 @@ import javax.annotation.Nullable;
  * skipped without any disk I/O — only the RID (already in memory from the
  * LinkBag) is inspected.
  *
+ * <p>When {@code acceptedCollectionIds} is set, the iterator checks the
+ * target vertex's collection (cluster) ID <em>before</em> loading it from
+ * storage. Vertices whose collection ID is not in the accepted set are
+ * skipped without any disk I/O — only the RID (already in memory from the
+ * LinkBag) is inspected.
+ *
  * <p>Requires an active transaction on the session.
  *
  * <p>Note: {@link #size()} returns an upper bound (the LinkBag size), not the
