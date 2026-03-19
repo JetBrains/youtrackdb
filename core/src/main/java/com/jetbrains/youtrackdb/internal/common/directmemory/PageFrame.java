@@ -74,6 +74,15 @@ public final class PageFrame {
   }
 
   /**
+   * Tries to acquire the exclusive lock without blocking. Returns a non-zero stamp on
+   * success (for use in {@link #releaseExclusiveLock(long)}), or zero if the lock could
+   * not be acquired immediately (e.g., a shared or exclusive lock is held).
+   */
+  public long tryAcquireExclusiveLock() {
+    return stampedLock.tryWriteLock();
+  }
+
+  /**
    * Releases the exclusive lock using the given stamp.
    */
   public void releaseExclusiveLock(long stamp) {
@@ -83,11 +92,20 @@ public final class PageFrame {
   // --- Shared Lock API (for CAS-pinned reads that need blocking guarantees) ---
 
   /**
-   * Acquires a shared (read) lock. Returns a stamp for use in
+   * Acquires a shared (read) lock, blocking until available. Returns a stamp for use in
    * {@link #releaseSharedLock(long)}.
    */
   public long acquireSharedLock() {
     return stampedLock.readLock();
+  }
+
+  /**
+   * Tries to acquire a shared (read) lock without blocking. Returns a non-zero stamp on
+   * success (for use in {@link #releaseSharedLock(long)}), or zero if the lock could not
+   * be acquired immediately (e.g., an exclusive lock is held).
+   */
+  public long tryAcquireSharedLock() {
+    return stampedLock.tryReadLock();
   }
 
   /**

@@ -128,6 +128,129 @@ public class PageFrameTest {
     frame.releaseSharedLock(sharedStamp);
   }
 
+  // --- Try Acquire Shared Lock API ---
+
+  @Test
+  public void testTryAcquireSharedLockSucceedsWhenUnlocked() {
+    // Verifies that tryAcquireSharedLock returns a non-zero stamp when no exclusive
+    // lock is held, indicating successful non-blocking acquisition.
+    var frame = new PageFrame(pointer);
+    long stamp = frame.tryAcquireSharedLock();
+    assertNotEquals(0, stamp);
+    frame.releaseSharedLock(stamp);
+  }
+
+  @Test
+  public void testTryAcquireSharedLockFailsWhenExclusiveLockHeld() {
+    // Verifies that tryAcquireSharedLock returns 0 when the exclusive lock is held,
+    // indicating the non-blocking attempt failed.
+    var frame = new PageFrame(pointer);
+    long exclusiveStamp = frame.acquireExclusiveLock();
+    try {
+      long stamp = frame.tryAcquireSharedLock();
+      assertEquals(0, stamp);
+    } finally {
+      frame.releaseExclusiveLock(exclusiveStamp);
+    }
+  }
+
+  @Test
+  public void testTryAcquireSharedLockCoexistsWithOtherSharedLocks() {
+    // Verifies that tryAcquireSharedLock succeeds even when other shared locks
+    // are already held — shared locks are non-exclusive by design.
+    var frame = new PageFrame(pointer);
+    long sharedStamp1 = frame.acquireSharedLock();
+    long sharedStamp2 = frame.tryAcquireSharedLock();
+    assertNotEquals(0, sharedStamp2);
+    frame.releaseSharedLock(sharedStamp1);
+    frame.releaseSharedLock(sharedStamp2);
+  }
+
+  @Test
+  public void testTryAcquireSharedLockStampValidForRelease() {
+    // Verifies that a stamp from tryAcquireSharedLock can be used to release
+    // the shared lock, and that after release an exclusive lock can be acquired.
+    var frame = new PageFrame(pointer);
+    long stamp = frame.tryAcquireSharedLock();
+    assertNotEquals(0, stamp);
+    frame.releaseSharedLock(stamp);
+
+    // After release, exclusive lock acquisition should succeed immediately
+    long exclusiveStamp = frame.acquireExclusiveLock();
+    assertNotEquals(0, exclusiveStamp);
+    frame.releaseExclusiveLock(exclusiveStamp);
+  }
+
+  // --- Try Acquire Exclusive Lock API ---
+
+  @Test
+  public void testTryAcquireExclusiveLockSucceedsWhenUnlocked() {
+    // Verifies that tryAcquireExclusiveLock returns a non-zero stamp when the lock
+    // is completely free.
+    var frame = new PageFrame(pointer);
+    long stamp = frame.tryAcquireExclusiveLock();
+    assertNotEquals(0, stamp);
+    frame.releaseExclusiveLock(stamp);
+  }
+
+  @Test
+  public void testTryAcquireExclusiveLockFailsWhenSharedLockHeld() {
+    // Verifies that tryAcquireExclusiveLock returns 0 when a shared lock is held,
+    // since exclusive and shared locks are mutually exclusive.
+    var frame = new PageFrame(pointer);
+    long sharedStamp = frame.acquireSharedLock();
+    try {
+      long stamp = frame.tryAcquireExclusiveLock();
+      assertEquals(0, stamp);
+    } finally {
+      frame.releaseSharedLock(sharedStamp);
+    }
+  }
+
+  @Test
+  public void testTryAcquireExclusiveLockFailsWhenExclusiveLockHeld() {
+    // Verifies that tryAcquireExclusiveLock returns 0 when an exclusive lock
+    // is already held (non-reentrant).
+    var frame = new PageFrame(pointer);
+    long exclusiveStamp = frame.acquireExclusiveLock();
+    try {
+      long stamp = frame.tryAcquireExclusiveLock();
+      assertEquals(0, stamp);
+    } finally {
+      frame.releaseExclusiveLock(exclusiveStamp);
+    }
+  }
+
+  @Test
+  public void testTryAcquireExclusiveLockInvalidatesOptimisticStamps() {
+    // Verifies that successfully acquiring an exclusive lock via tryAcquireExclusiveLock
+    // invalidates outstanding optimistic stamps — same behavior as acquireExclusiveLock.
+    var frame = new PageFrame(pointer);
+    long optimisticStamp = frame.tryOptimisticRead();
+    assertNotEquals(0, optimisticStamp);
+
+    long exclusiveStamp = frame.tryAcquireExclusiveLock();
+    assertNotEquals(0, exclusiveStamp);
+    frame.releaseExclusiveLock(exclusiveStamp);
+
+    assertFalse(frame.validate(optimisticStamp));
+  }
+
+  @Test
+  public void testTryAcquireExclusiveLockStampValidForRelease() {
+    // Verifies that a stamp from tryAcquireExclusiveLock can be used to release
+    // the exclusive lock, and that after release shared locks can be acquired.
+    var frame = new PageFrame(pointer);
+    long stamp = frame.tryAcquireExclusiveLock();
+    assertNotEquals(0, stamp);
+    frame.releaseExclusiveLock(stamp);
+
+    // After release, shared lock acquisition should succeed
+    long sharedStamp = frame.acquireSharedLock();
+    assertNotEquals(0, sharedStamp);
+    frame.releaseSharedLock(sharedStamp);
+  }
+
   // --- Page Coordinates ---
 
   @Test
