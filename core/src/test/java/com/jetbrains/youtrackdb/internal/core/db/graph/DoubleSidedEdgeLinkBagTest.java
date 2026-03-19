@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.db.graph;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -100,9 +101,9 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Outgoing LinkBag secondary RID should be the target (in) vertex",
         inVertex.getIdentity(), outPair.secondaryRid());
-    assertFalse(
-        "Heavyweight edge pair should not be lightweight",
-        outPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        outPair.primaryRid(), outPair.secondaryRid());
 
     // Check incoming vertex: in_HeavyEdge should contain RidPair(edgeRid, outVertexRid)
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
@@ -117,9 +118,9 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Incoming LinkBag secondary RID should be the source (out) vertex",
         outVertex.getIdentity(), inPair.secondaryRid());
-    assertFalse(
-        "Heavyweight edge pair should not be lightweight",
-        inPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
@@ -157,9 +158,9 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Outgoing secondary RID should be the target (in) vertex",
         inVertex.getIdentity(), outPair.secondaryRid());
-    assertFalse(
-        "Edge pair should not be lightweight (all edges are record-based)",
-        outPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        outPair.primaryRid(), outPair.secondaryRid());
 
     // Check incoming vertex: in_LightEdge should contain RidPair(edgeRid, outVertexRid)
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "LightEdge");
@@ -174,9 +175,9 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Incoming secondary RID should be the source (out) vertex",
         outVertex.getIdentity(), inPair.secondaryRid());
-    assertFalse(
-        "Edge pair should not be lightweight (all edges are record-based)",
-        inPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
@@ -214,7 +215,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var foundEdge1 = false;
     var foundEdge2 = false;
     for (var pair : outBag) {
-      assertFalse("All pairs should be heavyweight", pair.isLightweight());
+      assertNotEquals("Edge RID and vertex RID must differ",
+          pair.primaryRid(), pair.secondaryRid());
       if (pair.primaryRid().equals(edge1Rid)) {
         assertEquals(
             "Edge1 secondary should be inVertex1",
@@ -281,8 +283,8 @@ public class DoubleSidedEdgeLinkBagTest {
     assertNotNull(lightBag);
     assertEquals(1, lightBag.size());
     var lightPair = lightBag.iterator().next();
-    assertFalse("LightEdge should not be lightweight (all edges are record-based)",
-        lightPair.isLightweight());
+    assertNotEquals("Edge RID and vertex RID must differ",
+        lightPair.primaryRid(), lightPair.secondaryRid());
     assertEquals(lightEdgeRid, lightPair.primaryRid());
     assertEquals(inVertexLight.getIdentity(), lightPair.secondaryRid());
 
@@ -292,7 +294,8 @@ public class DoubleSidedEdgeLinkBagTest {
     assertNotNull(heavyBag);
     assertEquals(1, heavyBag.size());
     var heavyPair = heavyBag.iterator().next();
-    assertFalse("HeavyEdge should not be lightweight", heavyPair.isLightweight());
+    assertNotEquals("Edge RID and vertex RID must differ",
+        heavyPair.primaryRid(), heavyPair.secondaryRid());
     assertEquals(heavyEdgeRid, heavyPair.primaryRid());
     assertEquals(inVertexHeavy.getIdentity(), heavyPair.secondaryRid());
 
@@ -333,7 +336,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var outPair = outBag.iterator().next();
     assertEquals(edgeRid, outPair.primaryRid());
     assertEquals(inRid, outPair.secondaryRid());
-    assertFalse(outPair.isLightweight());
+    assertNotEquals(outPair.primaryRid(), outPair.secondaryRid());
 
     // Verify incoming LinkBag still has correct double-sided pair
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
@@ -343,7 +346,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var inPair = inBag.iterator().next();
     assertEquals(edgeRid, inPair.primaryRid());
     assertEquals(outRid, inPair.secondaryRid());
-    assertFalse(inPair.isLightweight());
+    assertNotEquals(inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
@@ -817,9 +820,9 @@ public class DoubleSidedEdgeLinkBagTest {
 
     // Verify RidPairs are correctly formed: each should be heavyweight
     for (var pair : outBag) {
-      assertFalse(
-          "Each BTree pair should not be lightweight (all edges are record-based)",
-          pair.isLightweight());
+      assertNotEquals(
+          "Edge RID and vertex RID must differ",
+          pair.primaryRid(), pair.secondaryRid());
       assertTrue(
           "Each pair's secondary RID should be a reachable target vertex",
           foundRids.contains(pair.secondaryRid()));

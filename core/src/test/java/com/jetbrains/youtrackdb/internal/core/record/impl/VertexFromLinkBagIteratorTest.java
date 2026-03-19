@@ -210,17 +210,14 @@ public class VertexFromLinkBagIteratorTest {
   }
 
   /**
-   * RidPair.ofSingle creates a lightweight pair where primary == secondary.
-   * This is used for lightweight edges where no separate edge record exists.
+   * RidPair.validateEdgePair() rejects legacy lightweight pairs where primaryRid == secondaryRid.
+   * After edge unification (YTDB-605), all edges must have distinct edge and vertex RIDs.
    */
-  @Test
-  public void testOfSingleCreatesLightweightPair() {
+  @Test(expected = IllegalStateException.class)
+  public void testValidateEdgePairRejectsEqualRids() {
     var rid = new RecordId(10, 1);
-    var pair = RidPair.ofSingle(rid);
-
-    assertEquals(rid, pair.primaryRid());
-    assertEquals(rid, pair.secondaryRid());
-    assertTrue("ofSingle should create a lightweight pair", pair.isLightweight());
+    var pair = new RidPair(rid, rid);
+    pair.validateEdgePair();
   }
 
   /**
