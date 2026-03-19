@@ -383,7 +383,7 @@ public final class LockFreeReadCache implements ReadCache {
     // it is treated as flushed during fuzzy checkpoint and portion of write ahead log which
     // contains not flushed changes is removed.
     // This can lead to the data loss after restore and corruption of data structures
-    cachePointer.releaseExclusiveLock();
+    cacheEntry.releaseExclusiveLock();
     cacheEntry.releaseEntry();
   }
 

@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
 
 /**
@@ -49,8 +48,6 @@ public final class CachePointer {
 
   private static final int WRITERS_OFFSET = 32;
   private static final long READERS_MASK = 0xFFFFFFFFL;
-
-  private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
   private volatile int referrersCount;
 
@@ -257,15 +254,6 @@ public final class CachePointer {
     decrementReferrer();
   }
 
-  /**
-   * DEBUG only !!!
-   *
-   * @return Whether pointer lock (read or write )is acquired
-   */
-  boolean isLockAcquiredByCurrentThread() {
-    return readWriteLock.getReadHoldCount() > 0 || readWriteLock.isWriteLockedByCurrentThread();
-  }
-
   public void incrementReferrer() {
     REFERRERS_COUNT_UPDATER.incrementAndGet(this);
   }
@@ -306,29 +294,73 @@ public final class CachePointer {
     return pageFrame;
   }
 
-  public void acquireExclusiveLock() {
-    readWriteLock.writeLock().lock();
+  /**
+   * Acquires the exclusive lock on the underlying PageFrame, blocking until available.
+   * Returns a stamp for use in {@link #releaseExclusiveLock(long)}.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long acquireExclusiveLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    long stamp = pageFrame.acquireExclusiveLock();
     version++;
+    return stamp;
   }
 
   public long getVersion() {
     return version;
   }
 
-  public void releaseExclusiveLock() {
-    readWriteLock.writeLock().unlock();
+  /**
+   * Releases the exclusive lock using the given stamp.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public void releaseExclusiveLock(long stamp) {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    pageFrame.releaseExclusiveLock(stamp);
   }
 
-  public void acquireSharedLock() {
-    readWriteLock.readLock().lock();
+  /**
+   * Acquires a shared (read) lock on the underlying PageFrame, blocking until available.
+   * Returns a stamp for use in {@link #releaseSharedLock(long)}.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long acquireSharedLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    return pageFrame.acquireSharedLock();
   }
 
-  public void releaseSharedLock() {
-    readWriteLock.readLock().unlock();
+  /**
+   * Releases the shared lock using the given stamp.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public void releaseSharedLock(long stamp) {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    pageFrame.releaseSharedLock(stamp);
   }
 
-  public boolean tryAcquireSharedLock() {
-    return readWriteLock.readLock().tryLock();
+  /**
+   * Tries to acquire a shared (read) lock without blocking. Returns a non-zero stamp on
+   * success, or zero if the lock could not be acquired immediately.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long tryAcquireSharedLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    return pageFrame.tryAcquireSharedLock();
   }
 
   @Override

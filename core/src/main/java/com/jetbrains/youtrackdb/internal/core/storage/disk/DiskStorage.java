@@ -1413,7 +1413,7 @@ public class DiskStorage extends AbstractStorage {
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
         final var cacheEntry =
             readCache.silentLoadForRead(fileId, pageIndex, writeCache, true);
-        cacheEntry.acquireSharedLock();
+        long sharedStamp = cacheEntry.acquireSharedLock();
         try {
           var cachePointer = cacheEntry.getCachePointer();
           assert cachePointer != null;
@@ -1443,7 +1443,7 @@ public class DiskStorage extends AbstractStorage {
             }
           }
         } finally {
-          cacheEntry.releaseSharedLock();
+          cacheEntry.releaseSharedLock(sharedStamp);
           readCache.releaseFromRead(cacheEntry);
         }
       }

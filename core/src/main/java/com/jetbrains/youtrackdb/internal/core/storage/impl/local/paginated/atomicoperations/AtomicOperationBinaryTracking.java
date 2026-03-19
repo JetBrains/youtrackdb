@@ -365,7 +365,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     if (cacheEntry.getCachePointer().getBuffer() != null) {
       readCache.releaseFromRead(real.getDelegate());
     } else {
-      assert real.isNew || !cacheEntry.isLockAcquiredByCurrentThread();
+      assert real.isNew;
     }
   }
 

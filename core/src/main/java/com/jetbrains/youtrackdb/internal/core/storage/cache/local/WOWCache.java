@@ -2699,7 +2699,7 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = entry.getValue();
         final var groupLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          pagePointer.acquireExclusiveLock();
+          long exclusiveStamp = pagePointer.acquireExclusiveLock();
           try {
             pagePointer.decrementWritersReferrer();
             pagePointer.setWritersListener(null);
@@ -2707,7 +2707,7 @@ public final class WOWCache extends AbstractWriteCache
 
             removeFromDirtyPages(pageKey);
           } finally {
-            pagePointer.releaseExclusiveLock();
+            pagePointer.releaseExclusiveLock(exclusiveStamp);
           }
 
           entryIterator.remove();
@@ -3502,7 +3502,9 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = writeCachePages.get(pageKey);
         final var pageLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          pagePointer.acquireSharedLock();
+          if (!pagePointer.tryAcquireSharedLock()) {
+            continue;
+          }
           try {
             final var buffer = pagePointer.getBuffer();
 

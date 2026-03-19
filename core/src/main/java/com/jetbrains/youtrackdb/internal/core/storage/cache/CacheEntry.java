@@ -41,24 +41,32 @@ public interface CacheEntry extends Closeable {
 
   int getPageIndex();
 
-  void acquireExclusiveLock();
+  /**
+   * Acquires the exclusive lock on the underlying page frame. Returns a stamp that is also
+   * stored internally for use by {@link #releaseExclusiveLock()}.
+   */
+  long acquireExclusiveLock();
 
+  /**
+   * Releases the exclusive lock using the stamp stored during the last
+   * {@link #acquireExclusiveLock()} call.
+   */
   void releaseExclusiveLock();
 
-  void acquireSharedLock();
+  /**
+   * Acquires a shared (read) lock. Returns a stamp that must be passed to
+   * {@link #releaseSharedLock(long)}.
+   */
+  long acquireSharedLock();
 
-  void releaseSharedLock();
+  /**
+   * Releases the shared lock using the given stamp from {@link #acquireSharedLock()}.
+   */
+  void releaseSharedLock(long stamp);
 
   int getUsagesCount();
 
   void incrementUsages();
-
-  /**
-   * DEBUG only !!
-   *
-   * @return Whether lock acquired on current entry
-   */
-  boolean isLockAcquiredByCurrentThread();
 
   void decrementUsages();
 
