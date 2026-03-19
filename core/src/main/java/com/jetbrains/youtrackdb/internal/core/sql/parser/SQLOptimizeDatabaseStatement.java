@@ -3,7 +3,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -35,7 +34,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
     result.setProperty("operation", "optimize database");
 
     if (isOptimizeEdges()) {
-      var edges = optimizeEdges(db);
+      var edges = optimizeEdges();
       result.setProperty("optimizeEdges", edges);
     }
 
@@ -70,7 +69,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
     return result;
   }
 
-  private String optimizeEdges(DatabaseSessionEmbedded db) {
+  private String optimizeEdges() {
     throw new UnsupportedOperationException(
         "OPTIMIZE DATABASE -LWEDGES is no longer supported. "
             + "Lightweight edge conversion was removed after edge unification — "

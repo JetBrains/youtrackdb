@@ -381,7 +381,6 @@ public class GraphRepair {
                       case Identifiable identifiable -> {
                         if (isEdgeBroken(session,
                             vertex,
-                            fieldName,
                             connection.getKey(),
                             identifiable,
                             stats)) {
@@ -405,7 +404,7 @@ public class GraphRepair {
                           final var o = it.next();
 
                           if (isEdgeBroken(session,
-                              vertex, fieldName, connection.getKey(), (Identifiable) o,
+                              vertex, connection.getKey(), (Identifiable) o,
                               stats)) {
                             vertexCorrupted = true;
                             if (!checkOnly) {
@@ -435,7 +434,7 @@ public class GraphRepair {
                         for (var it = ridbag.iterator(); it.hasNext();) {
                           final var ridPair = it.next();
                           if (isEdgeBroken(session,
-                              vertex, fieldName, connection.getKey(), ridPair.primaryRid(),
+                              vertex, connection.getKey(), ridPair.primaryRid(),
                               stats)) {
                             vertexCorrupted = true;
                             if (!checkOnly) {
@@ -506,10 +505,8 @@ public class GraphRepair {
     }
   }
 
-  @SuppressWarnings("UnusedVariable")
   private boolean isEdgeBroken(
       DatabaseSessionEmbedded session, final Identifiable vertex,
-      final String fieldName,
       final Direction direction,
       final Identifiable edgeRID,
       final RepairStats stats) {
