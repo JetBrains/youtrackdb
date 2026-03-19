@@ -271,6 +271,8 @@ TOKEN:
     |
     < ENGINE: ( "E" | "e")  ( "N" | "n") ( "G" | "g") ( "I" | "i") ( "N" | "n")( "E" | "e") >
     |
+    < ANALYZE: ( "A" | "a") ( "N" | "n") ( "A" | "a") ( "L" | "l") ( "Y" | "y") ( "Z" | "z") ( "E" | "e") >
+    |
     < REBUILD: ( "R" | "r") ( "E" | "e")  ( "B" | "b") ( "U" | "u") ( "I" | "i") ( "L" | "l") ( "D" | "d") >
     |
     < ID: ( "I" | "i") ( "D" | "d") >
@@ -791,6 +793,8 @@ SQLIdentifier Identifier():
 	|
 	token = <ENGINE>
 	|
+	token = <ANALYZE>
+	|
 	token = <REBUILD>
 	|
 	token = <ID>
@@ -1112,6 +1116,9 @@ SQLStatement StatementInternal():
                 result = DropPropertyStatement()
                 |
                 result = RebuildIndexStatement()
+                |
+                LOOKAHEAD(2)
+                result = AnalyzeIndexStatement()
                 |
                 LOOKAHEAD(2)
                 result = DropIndexStatement()
@@ -4059,6 +4066,20 @@ SQLRebuildIndexStatement RebuildIndexStatement():
 {
     (
         <REBUILD> <INDEX>
+        (
+            jjtThis.name = IndexName()
+            |
+            <STAR> { jjtThis.all = true; }
+        )
+	)
+	{ return jjtThis; }
+}
+
+SQLAnalyzeIndexStatement AnalyzeIndexStatement():
+{}
+{
+    (
+        <ANALYZE> <INDEX>
         (
             jjtThis.name = IndexName()
             |

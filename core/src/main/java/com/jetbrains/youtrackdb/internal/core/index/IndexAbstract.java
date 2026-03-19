@@ -37,6 +37,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdExce
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -49,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.HashMap;
@@ -82,11 +87,9 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
-  @Nullable
-  protected IndexMetadata im;
+  @Nullable protected IndexMetadata im;
 
-  @Nullable
-  protected RID identity;
+  @Nullable protected RID identity;
 
   public IndexAbstract(@Nullable RID identity,
       @Nonnull FrontendTransactionImpl transaction, @Nonnull final Storage storage) {
@@ -128,7 +131,8 @@ public abstract class IndexAbstract implements Index {
       final String algorithm) {
     final var indexName = (String) config.get(CONFIG_NAME);
 
-    @SuppressWarnings("unchecked") final var indexDefinitionEntity = (Map<String, Object>) config.get(
+    @SuppressWarnings("unchecked")
+    final var indexDefinitionEntity = (Map<String, Object>) config.get(
         INDEX_DEFINITION);
     IndexDefinition loadedIndexDefinition = null;
     if (indexDefinitionEntity != null) {
@@ -140,13 +144,14 @@ public abstract class IndexAbstract implements Index {
         loadedIndexDefinition.fromMap(indexDefinitionEntity);
 
       } catch (final ClassNotFoundException
-                     | IllegalAccessException
-                     | InstantiationException
-                     | InvocationTargetException
-                     | NoSuchMethodException e) {
+          | IllegalAccessException
+          | InstantiationException
+          | InvocationTargetException
+          | NoSuchMethodException e) {
         throw BaseException.wrapException(
             new IndexException(transaction.getDatabaseSession(),
-                "Error during deserialization of index definition"), e,
+                "Error during deserialization of index definition"),
+            e,
             transaction.getDatabaseSession());
       }
     }
@@ -168,7 +173,6 @@ public abstract class IndexAbstract implements Index {
         algorithm,
         indexVersion, metadataEntity);
   }
-
 
   /**
    * Creates the index.
@@ -320,9 +324,76 @@ public abstract class IndexAbstract implements Index {
       releaseExclusiveLock();
     }
 
-    entitiesIndexed = fillIndex(session, progressListener);
+    // Enable bulk-load mode on the histogram manager to suppress per-put
+    // delta accumulation during fillIndex(). The post-fill buildHistogram()
+    // computes all statistics from scratch (exact NDV, accurate frequencies).
+    setBulkLoading(true);
+    try {
+      entitiesIndexed = fillIndex(session, progressListener);
+    } finally {
+      // Always disable bulk-load mode, even on failure, to avoid
+      // permanently suppressing delta accumulation if the engine survives.
+      setBulkLoading(false);
+    }
+
+    buildHistogramAfterFill(session);
 
     return entitiesIndexed;
+  }
+
+  /**
+   * Sets bulk-loading mode on the histogram manager for this index's engine.
+   * In bulk-loading mode, onPut/onRemove are no-ops — avoiding O(N log B)
+   * overhead from N individual findBucket() calls during population.
+   */
+  private void setBulkLoading(boolean bulkLoading) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var mgr = btreeEngine.getHistogramManager();
+          if (mgr != null) {
+            mgr.setBulkLoading(bulkLoading);
+          }
+        }
+        break;
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
+  /**
+   * Builds the initial histogram after fillIndex() completes. Runs the
+   * build inside a new transaction so the full B-tree scan has its own
+   * atomic operation for page reads.
+   */
+  private void buildHistogramAfterFill(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          if (btreeEngine.getHistogramManager() != null) {
+            session.executeInTxInternal(tx -> {
+              try {
+                btreeEngine.buildInitialHistogram(
+                    tx.getAtomicOperation());
+              } catch (IOException e) {
+                // Histogram build failure must not fail the index rebuild.
+                // The histogram will be built lazily on the next rebalance.
+                LogManager.instance().warn(
+                    IndexAbstract.this,
+                    "Failed to build initial histogram for index '%s': %s",
+                    im.getName(), e.getMessage());
+              }
+            });
+          }
+        }
+        break;
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
   }
 
   public long fillIndex(DatabaseSessionEmbedded session,
@@ -818,6 +889,48 @@ public abstract class IndexAbstract implements Index {
     return engine.acquireAtomicExclusiveLock(atomicOperation);
   }
 
+  @Nullable @Override
+  public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        return engine.getStatistics();
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
+  @Nullable @Override
+  public EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        return engine.getHistogram();
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
+  @Nullable @Override
+  public HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session) {
+    while (true) {
+      try {
+        var engine = storage.getIndexEngine(indexId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var manager = btreeEngine.getHistogramManager();
+          if (manager != null) {
+            return manager.analyzeIndex();
+          }
+        }
+        return null;
+      } catch (InvalidIndexEngineIdException ignore) {
+        doReloadIndexEngine();
+      }
+    }
+  }
+
   private long[] indexCollection(
       DatabaseSessionEmbedded session, final String collectionName,
       final ProgressListener iProgressListener,
@@ -827,13 +940,13 @@ public abstract class IndexAbstract implements Index {
     if (im.getIndexDefinition() == null) {
       throw new ConfigurationException(
           session, "Index '"
-          + im.getName()
-          + "' cannot be rebuilt because has no a valid definition ("
-          + im.getIndexDefinition()
-          + ")");
+              + im.getName()
+              + "' cannot be rebuilt because has no a valid definition ("
+              + im.getIndexDefinition()
+              + ")");
     }
 
-    var stat = new long[]{documentNum, documentIndexed};
+    var stat = new long[] {documentNum, documentIndexed};
 
     FrontendTransaction currentTransaction = null;
     if (session.isTxActive()) {
@@ -908,7 +1021,6 @@ public abstract class IndexAbstract implements Index {
       }
     }
   }
-
 
   /**
    * Indicates search behavior in case of {@link CompositeKey} keys that have less amount of
@@ -1010,8 +1122,7 @@ public abstract class IndexAbstract implements Index {
     return keyFrom;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getIdentity() {
     return identity;
   }

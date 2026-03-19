@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -18,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.C
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
@@ -29,6 +31,7 @@ public final class BTreeSingleValueIndexEngine
   private final String name;
   private final int id;
   private final AbstractStorage storage;
+  @Nullable private volatile IndexHistogramManager histogramManager;
 
   public BTreeSingleValueIndexEngine(
       int id, String name, AbstractStorage storage, int version) {
@@ -65,7 +68,8 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) {
-    @SuppressWarnings("unchecked") var keySerializer =
+    @SuppressWarnings("unchecked")
+    var keySerializer =
         (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     try {
       sbTree.create(
@@ -82,6 +86,10 @@ public final class BTreeSingleValueIndexEngine
     try {
       doClearTree(atomicOperation);
       sbTree.delete(atomicOperation);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.deleteStatsFile(atomicOperation);
+      }
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during deletion of index " + name), e,
@@ -110,19 +118,27 @@ public final class BTreeSingleValueIndexEngine
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     @SuppressWarnings("unchecked")
-    var keySerializer = (BinarySerializer<Object>)
-        storage.resolveObjectSerializer(data.getKeySerializedId());
+    var keySerializer =
+        (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     sbTree.load(name, keySize, keyTypes, keySerializer, atomicOperation);
   }
 
   @Override
   public boolean remove(AtomicOperation atomicOperation, Object key) {
     try {
-      return sbTree.remove(atomicOperation, key) != null;
+      var removed = sbTree.remove(atomicOperation, key) != null;
+      if (removed) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onRemove(atomicOperation, key, true);
+        }
+      }
+      return removed;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during removal of key " + key + " from index " + name), e,
+              "Error during removal of key " + key + " from index " + name),
+          e,
           storage.getName());
     }
   }
@@ -131,6 +147,10 @@ public final class BTreeSingleValueIndexEngine
   public void clear(Storage storage, AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.resetOnClear(atomicOperation);
+      }
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during clear of index " + name),
@@ -141,6 +161,10 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public void close() {
     sbTree.close();
+    var mgr = histogramManager;
+    if (mgr != null) {
+      mgr.closeStatsFile();
+    }
   }
 
   @Override
@@ -178,13 +202,19 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void put(AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
     try {
-      sbTree.put(atomicOperation, key, value);
+      boolean wasInsert = sbTree.put(atomicOperation, key, value);
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.onPut(atomicOperation, key, true, wasInsert);
+      }
+      return wasInsert;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during insertion of key " + key + " into index " + name), e,
+              "Error during insertion of key " + key + " into index " + name),
+          e,
           storage.getName());
     }
   }
@@ -196,11 +226,21 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      return sbTree.validatedPut(atomicOperation, key, value, validator);
+      // validatedPut returns: 1=insert, 0=update, -1=IGNORE (validator rejected).
+      // Only notify the histogram manager when the B-tree was actually modified.
+      int result = sbTree.validatedPut(atomicOperation, key, value, validator);
+      if (result >= 0) {
+        var mgr = histogramManager;
+        if (mgr != null) {
+          mgr.onPut(atomicOperation, key, true, result > 0);
+        }
+      }
+      return result > 0;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
-              "Error during insertion of key " + key + " into index " + name), e,
+              "Error during insertion of key " + key + " into index " + name),
+          e,
           storage.getName());
     }
   }
@@ -247,4 +287,49 @@ public final class BTreeSingleValueIndexEngine
     return true;
   }
 
+  @Override
+  public void buildInitialHistogram(AtomicOperation atomicOperation)
+      throws IOException {
+    var mgr = histogramManager;
+    if (mgr == null) {
+      return;
+    }
+    // sbTree.size() returns non-null entry count only (null stored in
+    // separate null bucket, not included in the B-tree's TREE_SIZE).
+    long nonNullCount = sbTree.size(atomicOperation);
+    long nullCount = sbTree.get(null, atomicOperation) != null ? 1 : 0;
+    long totalCount = nonNullCount + nullCount;
+
+    try (var keys = sbTree.keyStream(atomicOperation)) {
+      mgr.buildHistogram(
+          atomicOperation, keys, totalCount, nullCount,
+          mgr.getKeyFieldCount());
+    }
+  }
+
+  @Override
+  public long getNullCount(AtomicOperation atomicOperation) {
+    return sbTree.get(null, atomicOperation) != null ? 1 : 0;
+  }
+
+  @Override
+  public long getTotalCount(AtomicOperation atomicOperation) {
+    long nonNullCount = sbTree.size(atomicOperation);
+    long nullCount = getNullCount(atomicOperation);
+    return nonNullCount + nullCount;
+  }
+
+  /**
+   * Sets the histogram manager for this engine. Called during engine
+   * lifecycle (create/load) once the manager is initialized.
+   */
+  @Override
+  public void setHistogramManager(@Nullable IndexHistogramManager histogramManager) {
+    this.histogramManager = histogramManager;
+  }
+
+  @Override
+  @Nullable public IndexHistogramManager getHistogramManager() {
+    return histogramManager;
+  }
 }

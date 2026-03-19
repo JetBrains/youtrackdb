@@ -1421,7 +1421,7 @@ public final class WOWCache extends AbstractWriteCache
 
     for (final var completionLatch : triggeredTasks.values()) {
       try {
-        if (!completionLatch.await(shutdownTimeout, TimeUnit.MINUTES)) {
+        if (!completionLatch.await(shutdownTimeout, TimeUnit.MILLISECONDS)) {
           throw new WriteCacheException(storageName,
               "Can not shutdown data flush for storage " + storageName);
         }
@@ -1435,7 +1435,7 @@ public final class WOWCache extends AbstractWriteCache
 
     if (flushFuture != null) {
       try {
-        flushFuture.get(shutdownTimeout, TimeUnit.MINUTES);
+        flushFuture.get(shutdownTimeout, TimeUnit.MILLISECONDS);
       } catch (final java.lang.InterruptedException | CancellationException e) {
         // ignore
       } catch (final ExecutionException e) {
@@ -3609,6 +3609,12 @@ public final class WOWCache extends AbstractWriteCache
           if (exclusiveWriteCacheSize.get() > 0) {
             flushInterval = 1;
           }
+        }
+
+        // Check stopFlush between flush phases so the flush aborts quickly
+        // when the cache is being shut down.
+        if (stopFlush) {
+          return;
         }
 
         final var begin = writeAheadLog.begin();

@@ -4,10 +4,13 @@ import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
@@ -22,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
@@ -31,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -44,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,6 +61,8 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Converts a parsed `MATCH` statement into a physical execution plan.
@@ -212,6 +220,9 @@ import javax.annotation.Nullable;
  * @see EdgeTraversal
  */
 public class MatchExecutionPlanner {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(MatchExecutionPlanner.class);
 
   /**
    * Prefix prepended to auto-generated aliases for pattern nodes that the user did not
@@ -671,7 +682,7 @@ public class MatchExecutionPlanner {
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
-        context.getDatabaseSession());
+        aliasClasses, context.getDatabaseSession());
 
     var first = true;
     if (!sortedEdges.isEmpty()) {
@@ -774,7 +785,8 @@ public class MatchExecutionPlanner {
    *                                    dependencies
    */
   private List<EdgeTraversal> getTopologicalSortedSchedule(
-      Map<String, Long> estimatedRootEntries, Pattern pattern, DatabaseSessionEmbedded session) {
+      Map<String, Long> estimatedRootEntries, Pattern pattern,
+      Map<String, String> aliasClasses, DatabaseSessionEmbedded session) {
     List<EdgeTraversal> resultingSchedule = new ArrayList<>();
     var remainingDependencies = getDependencies(pattern);
     Set<PatternNode> visitedNodes = new HashSet<>();
@@ -832,7 +844,8 @@ public class MatchExecutionPlanner {
       // 2. Having found a starting vertex, traverse its neighbors depth-first,
       //    adding any non-visited ones with satisfied dependencies to our schedule.
       updateScheduleStartingAt(
-          startingNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
+          startingNode, visitedNodes, visitedEdges, remainingDependencies,
+          resultingSchedule, estimatedRootEntries, aliasClasses, session);
     }
 
     if (resultingSchedule.size() != pattern.numOfEdges) {
@@ -861,7 +874,10 @@ public class MatchExecutionPlanner {
       Set<PatternNode> visitedNodes,
       Set<PatternEdge> visitedEdges,
       Map<String, Set<String>> remainingDependencies,
-      List<EdgeTraversal> resultingSchedule) {
+      List<EdgeTraversal> resultingSchedule,
+      Map<String, Long> estimatedRootEntries,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session) {
     // YouTrackDB requires the schedule to contain all edges present in the query, which is a stronger
     // condition
     // than simply visiting all nodes in the query. Consider the following example query:
@@ -892,98 +908,161 @@ public class MatchExecutionPlanner {
       dependencies.remove(startNode.alias);
     }
 
-    Map<PatternEdge, Boolean> edges = new LinkedHashMap<>();
+    // Build candidate edges with estimated costs, sorted cheapest first.
+    List<Map.Entry<PatternEdge, Boolean>> sortedEdges = new ArrayList<>();
     for (var outEdge : startNode.out) {
-      edges.put(outEdge, true);
+      sortedEdges.add(Map.entry(outEdge, true));
     }
     for (var inEdge : startNode.in) {
       if (inEdge.item.isBidirectional()) {
-        edges.put(inEdge, false);
+        sortedEdges.add(Map.entry(inEdge, false));
+      } else if (visitedNodes.contains(inEdge.out)) {
+        // Non-bidirectional incoming edge from an already-visited node.
+        // This happens when a node with $matched dependencies becomes a start
+        // node after its dependencies are resolved by a different branch of the
+        // DFS. The edge must still be scheduled (from the visited source toward
+        // this node), even though we cannot traverse it in reverse.
+        //
+        // isOutbound=false: from startNode's perspective, this edge is incoming.
+        // In the traversal direction logic below, for non-optional
+        // non-bidirectional edges this yields traversalDirection=false (reverse),
+        // which causes MatchReverseEdgeTraverser to start at edge.in (startNode)
+        // and call executeReverse() to reach edge.out (the visited node). Both
+        // endpoints are already visited, so this is a join/verification step.
+        // For optional nodes, the direction is flipped to !isOutbound=true
+        // (outbound from the visited source toward the optional start node).
+        sortedEdges.add(Map.entry(inEdge, false));
       }
     }
 
-    for (var edgeData : edges.entrySet()) {
-      var edge = edgeData.getKey();
-      boolean isOutbound = edgeData.getValue();
-      var neighboringNode = isOutbound ? edge.in : edge.out;
+    // Sort by estimated edge traversal cost (cheapest first).
+    // Already-visited neighbors get cost 0.0 (just a join, no traversal).
+    // When estimates are unavailable (MAX_VALUE), preserve original order.
+    var sourceAlias = startNode.alias;
+    // Use THRESHOLD as fallback for unestimated nodes — consistent with the
+    // prefetch threshold used elsewhere in the planner. A moderate value avoids
+    // making unknown-cost edges appear artificially cheap or expensive.
+    long sourceRows = estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
+    // Pre-compute costs to avoid redundant schema lookups during sort comparisons
+    var edgeCosts = new HashMap<PatternEdge, Double>(sortedEdges.size());
+    for (var entry : sortedEdges) {
+      var neighbor = entry.getValue() ? entry.getKey().in : entry.getKey().out;
+      double cost = visitedNodes.contains(neighbor) ? 0.0
+          : estimateEdgeCost(
+              entry.getKey(), sourceAlias, sourceRows, aliasClasses, session);
+      edgeCosts.put(entry.getKey(), cost);
+    }
+    // TimSort is stable: equal-cost edges (including those with MAX_VALUE when
+    // cost cannot be estimated) retain their insertion order, preserving the
+    // original out-first-then-bidirectional-in ordering as a tiebreaker.
+    sortedEdges.sort(Comparator.comparingDouble(
+        entry -> edgeCosts.getOrDefault(entry.getKey(), Double.MAX_VALUE)));
 
-      if (!remainingDependencies.get(neighboringNode.alias).isEmpty()) {
-        // Unsatisfied dependencies, ignore this neighboring node.
-        continue;
-      }
+    // Process edges in cost order, retrying any that were skipped due to unsatisfied
+    // $matched dependencies. Traversing cheaper edges first may resolve dependencies
+    // for more expensive edges (e.g., visiting 'author' before 'knowsCheck' which
+    // references $matched.author). We loop until no further progress is made.
+    var pending = new ArrayList<>(sortedEdges);
+    boolean progress = true;
+    while (progress && !pending.isEmpty()) {
+      progress = false;
+      var deferred = new ArrayList<Map.Entry<PatternEdge, Boolean>>();
 
-      if (visitedNodes.contains(neighboringNode)) {
-        if (!visitedEdges.contains(edge)) {
-          // If we are executing in this block, we are in the following situation:
-          // - the startNode has not been visited yet;
-          // - it has a neighboringNode that has already been visited;
-          // - the edge between the startNode and the neighboringNode has not been scheduled yet.
-          //
-          // The isOutbound value shows us whether the edge is outbound from the point
-          // of view of the startNode. However, if there are edges to the startNode, we
-          // must visit the startNode from an already-visited neighbor, to preserve the
-          // validity of the traversal. Therefore, we negate the value of isOutbound to
-          // ensure that the edge is always scheduled in the direction from the
-          // already-visited neighbor toward the startNode. Notably, this is also the
-          // case when evaluating "optional" nodes -- we always visit the optional node
-          // from its non-optional and already-visited neighbor.
-          //
-          // The only exception to the above is when we have edges with "while"
-          // conditions. We are not allowed to flip their directionality, so we leave
-          // them as-is.
-          //
-          // Example: bidirectional edge between visited node B and new node A
-          //
-          //   Pattern:    (A) ──both('Knows')──> (B)
-          //                        edge.out=A, edge.in=B
-          //
-          //   DFS state at this point:
-          //     - B is already in visitedNodes (it was reached earlier)
-          //     - A is the startNode being processed for the first time
-          //     - isOutbound = true (edge goes out from A's perspective)
-          //
-          //   Without flip:  schedule as EdgeTraversal(edge, fwd)  -> A is source
-          //     Problem: A hasn't been produced by any prior step yet, so
-          //     MatchStep cannot look up A in the upstream row.
-          //
-          //   With flip:     schedule as EdgeTraversal(edge, rev)  -> B is source
-          //     Correct: B was already matched in a previous step, so
-          //     MatchReverseEdgeTraverser starts from B and traverses to A.
-          //
-          // The flip is applied when:
-          //   - startNode is optional (must be reached FROM a visited node), or
-          //   - edge is bidirectional (direction is arbitrary; pick the valid one)
-          // The flip is NOT applied for WHILE edges because recursive traversal
-          // semantics depend on the original syntactic direction.
-          boolean traversalDirection;
-          if (startNode.optional || edge.item.isBidirectional()) {
-            traversalDirection = !isOutbound;
-          } else {
-            traversalDirection = isOutbound;
+      for (var edgeData : pending) {
+        var edge = edgeData.getKey();
+        boolean isOutbound = edgeData.getValue();
+        var neighboringNode = isOutbound ? edge.in : edge.out;
+
+        var deps = remainingDependencies.get(neighboringNode.alias);
+        if (!deps.isEmpty()) {
+          // Unsatisfied dependencies — defer to a later pass.
+          if (logger.isTraceEnabled()) {
+            logger.trace("Deferred edge {} to {} due to unsatisfied dependencies: {}",
+                edge, neighboringNode.alias, deps);
+          }
+          deferred.add(edgeData);
+          continue;
+        }
+
+        if (visitedNodes.contains(neighboringNode)) {
+          if (!visitedEdges.contains(edge)) {
+            // If we are executing in this block, we are in the following situation:
+            // - the startNode has not been visited yet;
+            // - it has a neighboringNode that has already been visited;
+            // - the edge between the startNode and the neighboringNode has not been
+            //   scheduled yet.
+            //
+            // The isOutbound value shows us whether the edge is outbound from the point
+            // of view of the startNode. However, if there are edges to the startNode, we
+            // must visit the startNode from an already-visited neighbor, to preserve the
+            // validity of the traversal. Therefore, we negate the value of isOutbound to
+            // ensure that the edge is always scheduled in the direction from the
+            // already-visited neighbor toward the startNode. Notably, this is also the
+            // case when evaluating "optional" nodes -- we always visit the optional node
+            // from its non-optional and already-visited neighbor.
+            //
+            // The only exception to the above is when we have edges with "while"
+            // conditions. We are not allowed to flip their directionality, so we leave
+            // them as-is.
+            //
+            // Example: bidirectional edge between visited node B and new node A
+            //
+            //   Pattern:    (A) ──both('Knows')──> (B)
+            //                        edge.out=A, edge.in=B
+            //
+            //   DFS state at this point:
+            //     - B is already in visitedNodes (it was reached earlier)
+            //     - A is the startNode being processed for the first time
+            //     - isOutbound = true (edge goes out from A's perspective)
+            //
+            //   Without flip:  schedule as EdgeTraversal(edge, fwd)  -> A is source
+            //     Problem: A hasn't been produced by any prior step yet, so
+            //     MatchStep cannot look up A in the upstream row.
+            //
+            //   With flip:     schedule as EdgeTraversal(edge, rev)  -> B is source
+            //     Correct: B was already matched in a previous step, so
+            //     MatchReverseEdgeTraverser starts from B and traverses to A.
+            //
+            // The flip is applied when:
+            //   - startNode is optional (must be reached FROM a visited node), or
+            //   - edge is bidirectional (direction is arbitrary; pick the valid one)
+            // The flip is NOT applied for WHILE edges because recursive traversal
+            // semantics depend on the original syntactic direction.
+            boolean traversalDirection;
+            if (startNode.optional || edge.item.isBidirectional()) {
+              traversalDirection = !isOutbound;
+            } else {
+              traversalDirection = isOutbound;
+            }
+
+            visitedEdges.add(edge);
+            resultingSchedule.add(new EdgeTraversal(edge, traversalDirection));
+            progress = true;
+          }
+        } else if (!startNode.optional
+            || isOptionalChain(startNode, edge, neighboringNode)) {
+          // If the neighboring node wasn't visited, we don't expand the optional node
+          // into it, hence the above check. Instead, we'll allow the neighboring node
+          // to add the edge we failed to visit, via the above block.
+          if (visitedEdges.contains(edge)) {
+            // Should never happen.
+            throw new AssertionError(
+                "The edge was visited, but the neighboring vertex was not: "
+                    + edge
+                    + " "
+                    + neighboringNode);
           }
 
           visitedEdges.add(edge);
-          resultingSchedule.add(new EdgeTraversal(edge, traversalDirection));
+          resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
+          updateScheduleStartingAt(
+              neighboringNode, visitedNodes, visitedEdges, remainingDependencies,
+              resultingSchedule, estimatedRootEntries, aliasClasses, session);
+          progress = true;
         }
-      } else if (!startNode.optional || isOptionalChain(startNode, edge, neighboringNode)) {
-        // If the neighboring node wasn't visited, we don't expand the optional node into it, hence
-        // the above check.
-        // Instead, we'll allow the neighboring node to add the edge we failed to visit, via the
-        // above block.
-        if (visitedEdges.contains(edge)) {
-          // Should never happen.
-          throw new AssertionError(
-              "The edge was visited, but the neighboring vertex was not: "
-                  + edge
-                  + " "
-                  + neighboringNode);
-        }
-
-        visitedEdges.add(edge);
-        resultingSchedule.add(new EdgeTraversal(edge, isOutbound));
-        updateScheduleStartingAt(
-            neighboringNode, visitedNodes, visitedEdges, remainingDependencies, resultingSchedule);
       }
+
+      pending = deferred;
     }
   }
 
@@ -1019,6 +1098,131 @@ public class MatchExecutionPlanner {
     }
 
     return true;
+  }
+
+  /**
+   * Estimates the cost of traversing {@code edge} from the node whose alias is
+   * {@code sourceAlias}, using the edge's fan-out and the source's estimated
+   * cardinality.
+   *
+   * @param edge         the pattern edge to traverse
+   * @param sourceAlias  alias of the node we are traversing FROM
+   * @param sourceRows   estimated rows for the source alias
+   * @param aliasClasses alias → class name mapping
+   * @param session      database session for schema access
+   * @return estimated cost (lower is better), or {@link Double#MAX_VALUE} if
+   *         the cost cannot be estimated
+   */
+  static double estimateEdgeCost(
+      PatternEdge edge,
+      String sourceAlias,
+      long sourceRows,
+      Map<String, String> aliasClasses,
+      DatabaseSessionEmbedded session) {
+    var method = edge.item.getMethod();
+    if (method == null) {
+      return Double.MAX_VALUE;
+    }
+
+    // Extract direction from the method name (out/in/both).
+    Direction direction = parseDirection(method.getMethodName());
+    if (direction == null) {
+      return Double.MAX_VALUE;
+    }
+
+    // Extract edge class name from the method's first parameter, if present.
+    // e.g., .out('Knows') → edgeClassName = "Knows"
+    String edgeClassName = extractEdgeClassName(method);
+
+    // Determine OUT/IN vertex classes from the edge schema (if available).
+    String outVertexClass = null;
+    String inVertexClass = null;
+    if (edgeClassName != null) {
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var edgeClass = schema.getClassInternal(edgeClassName);
+        if (edgeClass != null) {
+          var outProp = edgeClass.getPropertyInternal("out");
+          if (outProp != null && outProp.getLinkedClass() != null) {
+            outVertexClass = outProp.getLinkedClass().getName();
+          }
+          var inProp = edgeClass.getPropertyInternal("in");
+          if (inProp != null && inProp.getLinkedClass() != null) {
+            inVertexClass = inProp.getLinkedClass().getName();
+          }
+        }
+      }
+    }
+
+    String sourceClassName = aliasClasses.get(sourceAlias);
+
+    double fanOut = EdgeFanOutEstimator.estimateFanOut(
+        session, edgeClassName, sourceClassName, direction,
+        outVertexClass, inVertexClass);
+
+    return CostModel.edgeTraversalCost(sourceRows, fanOut);
+  }
+
+  /**
+   * Parses "out", "in", "both" (and their E-variants "outE", "inE", "bothE")
+   * into a {@link Direction}. Returns {@code null} for unrecognized methods.
+   */
+  static Direction parseDirection(String methodName) {
+    if (methodName == null) {
+      return null;
+    }
+    return switch (methodName.toLowerCase(Locale.ENGLISH)) {
+      case "out", "oute" -> Direction.OUT;
+      case "in", "ine" -> Direction.IN;
+      case "both", "bothe" -> Direction.BOTH;
+      default -> null;
+    };
+  }
+
+  /**
+   * Extracts the edge class name from the method call's first parameter.
+   * Tries {@code execute()} first to get the evaluated literal value;
+   * falls back to stripping surrounding quotes from {@code toString()}
+   * if execution returns null (e.g., context-dependent expressions).
+   *
+   * @return the edge class name, or {@code null} if no parameter is present
+   *     or the value cannot be resolved to a string
+   */
+  static String extractEdgeClassName(SQLMethodCall method) {
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      return null;
+    }
+    var firstParam = params.getFirst();
+
+    // Try evaluating the expression first (handles all literal types cleanly)
+    try {
+      var value = firstParam.execute((Result) null, new BasicCommandContext());
+      if (value instanceof String s) {
+        return s;
+      }
+    } catch (CommandExecutionException e) {
+      // Expression may require a full context — fall through to toString fallback.
+      if (logger.isTraceEnabled()) {
+        logger.trace("Could not evaluate edge class parameter, "
+            + "falling back to toString", e);
+      }
+    }
+
+    // Fallback: strip surrounding quotes from the string representation
+    if (firstParam.getMathExpression() instanceof SQLBaseExpression base) {
+      var raw = base.toString();
+      if (raw != null && raw.length() >= 2) {
+        char first = raw.charAt(0);
+        char last = raw.charAt(raw.length() - 1);
+        if ((first == '"' && last == '"')
+            || (first == '\'' && last == '\'')) {
+          return raw.substring(1, raw.length() - 1);
+        }
+      }
+      return raw;
+    }
+    return null;
   }
 
   /**
@@ -1397,7 +1601,7 @@ public class MatchExecutionPlanner {
    * @return a map from alias name to estimated record count
    * @throws CommandExecutionException if a referenced class does not exist in the schema
    */
-  private static Map<String, Long> estimateRootEntries(
+  static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
       Map<String, SQLRid> aliasRids,
       Map<String, SQLWhereClause> aliasFilters,

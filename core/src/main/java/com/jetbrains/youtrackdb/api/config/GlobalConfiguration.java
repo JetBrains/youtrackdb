@@ -1098,20 +1098,146 @@ public enum GlobalConfiguration {
       "youtrackdb.executor.debug.traceSource",
       "Enable tracing of the source that submit a task in database executor in case of exception",
       Boolean.class,
-      false), EXECUTOR_POOL_MAX_SIZE(
-          "youtrackdb.executor.pool.maxSize",
-          "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-          Integer.class,
-          -1), EXECUTOR_POOL_IO_MAX_SIZE(
-              "youtrackdb.executor.pool.io.maxSize",
-              "Maximum number of threads in the executor pool (-1 will base the size on the number CPUs)",
-              Integer.class,
-              -1), EXECUTOR_POOL_IO_ENABLED(
-                  "youtrackdb.executor.pool.io.enabled",
-                  "Flag to use the executor pool for IO, default enabled",
-                  Boolean.class,
-                  true),
-                  ;
+      false),
+
+  EXECUTOR_POOL_MAX_SIZE(
+      "youtrackdb.executor.pool.maxSize",
+      "Maximum number of threads in the executor pool"
+          + " (-1 will base the size on the number CPUs)",
+      Integer.class,
+      -1),
+
+  EXECUTOR_POOL_IO_MAX_SIZE(
+      "youtrackdb.executor.pool.io.maxSize",
+      "Maximum number of threads in the IO executor pool"
+          + " (-1 will base the size on the number CPUs)",
+      Integer.class,
+      -1),
+
+  EXECUTOR_POOL_IO_ENABLED(
+      "youtrackdb.executor.pool.io.enabled",
+      "Flag to use the executor pool for IO, default enabled",
+      Boolean.class,
+      true),
+
+  // ---- Histogram / query statistics configuration ----
+
+  QUERY_STATS_DEFAULT_SELECTIVITY(
+      "youtrackdb.query.stats.defaultSelectivity",
+      "Default selectivity fraction for non-indexed or unknown predicates",
+      Double.class,
+      0.1,
+      true),
+
+  QUERY_STATS_DEFAULT_FAN_OUT(
+      "youtrackdb.query.stats.defaultFanOut",
+      "Default edge fan-out when schema metadata is unavailable",
+      Double.class,
+      10.0,
+      true),
+
+  QUERY_STATS_HISTOGRAM_BUCKETS(
+      "youtrackdb.query.stats.histogramBuckets",
+      "Maximum number of equi-depth histogram buckets per index."
+          + " Takes effect on the next histogram build or rebalance",
+      Integer.class,
+      128,
+      true),
+
+  QUERY_STATS_HISTOGRAM_MIN_SIZE(
+      "youtrackdb.query.stats.histogramMinSize",
+      "Minimum number of non-null index entries required to build a histogram",
+      Integer.class,
+      1000,
+      true),
+
+  QUERY_STATS_REBALANCE_MUTATION_FRACTION(
+      "youtrackdb.query.stats.rebalanceMutationFraction",
+      "Fraction of totalCountAtLastBuild that triggers histogram rebalance",
+      Double.class,
+      0.3,
+      true),
+
+  QUERY_STATS_MIN_REBALANCE_MUTATIONS(
+      "youtrackdb.query.stats.minRebalanceMutations",
+      "Minimum absolute mutation count before histogram rebalance is triggered",
+      Long.class,
+      1000L,
+      true),
+
+  QUERY_STATS_MAX_REBALANCE_MUTATIONS(
+      "youtrackdb.query.stats.maxRebalanceMutations",
+      "Maximum rebalance threshold (caps the fraction-based computation)",
+      Long.class,
+      10_000_000L,
+      true),
+
+  QUERY_STATS_MAX_BOUNDARY_BYTES(
+      "youtrackdb.query.stats.maxBoundaryBytes",
+      "Maximum serialized size in bytes for a single histogram boundary key."
+          + " Takes effect on the next histogram build or rebalance",
+      Integer.class,
+      256,
+      true),
+
+  QUERY_STATS_PERSIST_BATCH_SIZE(
+      "youtrackdb.query.stats.persistBatchSize",
+      "Number of committed mutations before flushing histogram stats to disk",
+      Integer.class,
+      500,
+      true),
+
+  QUERY_STATS_REBALANCE_FAILURE_COOLDOWN(
+      "youtrackdb.query.stats.rebalanceFailureCooldown",
+      "Cooldown period in milliseconds after a rebalance failure before retrying",
+      Long.class,
+      60_000L,
+      true),
+
+  QUERY_STATS_MAX_CONCURRENT_REBALANCES(
+      "youtrackdb.query.stats.maxConcurrentRebalances",
+      "Maximum concurrent histogram rebalance tasks per storage."
+          + " -1 = auto: max(2, availableProcessors / 4)."
+          + " Requires database restart to take effect",
+      Integer.class,
+      -1),
+
+  QUERY_STATS_COST_SEQ_PAGE_READ(
+      "youtrackdb.query.stats.costSeqPageRead",
+      "Cost of a sequential page read (baseline unit for cost model). "
+          + "Internal tuning knob — not intended for end-user configuration.",
+      Double.class,
+      1.0,
+      true,
+      true),
+
+  QUERY_STATS_COST_RANDOM_PAGE_READ(
+      "youtrackdb.query.stats.costRandomPageRead",
+      "Cost of a random page read relative to sequential. "
+          + "Internal tuning knob — not intended for end-user configuration.",
+      Double.class,
+      4.0,
+      true,
+      true),
+
+  QUERY_STATS_COST_PER_ROW_CPU(
+      "youtrackdb.query.stats.costPerRowCpu",
+      "Per-row CPU cost for filtering and comparison. "
+          + "Internal tuning knob — not intended for end-user configuration.",
+      Double.class,
+      0.01,
+      true,
+      true),
+
+  QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH(
+      "youtrackdb.query.stats.defaultIndexTreeDepth",
+      "Assumed B-tree depth for index seek cost estimation. "
+          + "Internal tuning knob — not intended for end-user configuration.",
+      Integer.class,
+      4,
+      true,
+      true),
+      ;
 
   static {
     readConfiguration();
@@ -1292,6 +1418,8 @@ public enum GlobalConfiguration {
         value = Integer.parseInt(iValue.toString());
       } else if (type == Float.class) {
         value = Float.parseFloat(iValue.toString());
+      } else if (type == Double.class) {
+        value = Double.parseDouble(iValue.toString());
       } else if (type == String.class) {
         value = iValue.toString();
       } else if (type.isEnum()) {
@@ -1357,6 +1485,12 @@ public enum GlobalConfiguration {
   public float getValueAsFloat() {
     final var v = value != null && value != nullValue ? value : defValue;
     return v instanceof Float f ? f : Float.parseFloat(v.toString());
+  }
+
+  public double getValueAsDouble() {
+    final var v = value != null && value != nullValue ? value : defValue;
+    return v instanceof Number n ? n.doubleValue()
+        : Double.parseDouble(v.toString());
   }
 
   public String getKey() {

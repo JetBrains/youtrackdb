@@ -55,7 +55,8 @@ public interface IndexEngine extends BaseIndexEngine {
    * @param key             the key to put the value under.
    * @param value           the value to put.
    * @param validator       the operation validator.
-   * @return {@code true} if the validator allowed the put, {@code false} otherwise.
+   * @return {@code true} if a new key was inserted, {@code false} if an existing key was updated
+   *     in-place or the validator rejected the operation (IGNORE).
    * @see IndexEngineValidator#validate(Object, Object, Object)
    */
   boolean validatedPut(

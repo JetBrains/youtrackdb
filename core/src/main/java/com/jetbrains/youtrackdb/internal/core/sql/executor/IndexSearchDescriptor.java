@@ -3,14 +3,24 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
+import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Describes how to use a specific index to evaluate a subset of WHERE conditions.
@@ -91,16 +101,24 @@ public class IndexSearchDescriptor {
   }
 
   /**
-   * Estimates the I/O cost of this index lookup by querying stored index statistics.
-   * Returns {@link Integer#MAX_VALUE} if no statistics are available.
+   * Estimates the I/O cost of this index lookup. Consults {@link QueryStats} first
+   * (volatile EMA of past query counts); falls back to persistent histogram-based
+   * estimation when QueryStats has no data for this index/condition combination.
+   * Returns {@link Integer#MAX_VALUE} if neither source can provide an estimate.
    */
   public int cost(CommandContext ctx) {
-    var stats = QueryStats.get(ctx.getDatabaseSession());
+    if (keyCondition == null) {
+      return Integer.MAX_VALUE;
+    }
+
+    var session = ctx.getDatabaseSession();
+    var stats = QueryStats.get(session);
 
     var indexName = index.getName();
-    var size = getSubBlocks().size();
+    var subBlocks = getSubBlocks();
+    var size = subBlocks.size();
     var range = false;
-    var lastOp = getSubBlocks().get(getSubBlocks().size() - 1);
+    var lastOp = subBlocks.get(size - 1);
     if (lastOp instanceof SQLBinaryCondition binCond) {
       var op = binCond.getOperator();
       range = op.isRangeOperator();
@@ -108,14 +126,184 @@ public class IndexSearchDescriptor {
 
     var val =
         stats.getIndexStats(
-            indexName, size, range, additionalRangeCondition != null, ctx.getDatabaseSession());
-    if (val == -1) {
-      // TODO query the index!
-    }
+            indexName, size, range, additionalRangeCondition != null, session);
     if (val >= 0) {
       return val > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) val;
     }
-    return Integer.MAX_VALUE;
+
+    // QueryStats has no data — try histogram-based estimation.
+    return estimateFromHistogram(ctx);
+  }
+
+  /**
+   * Estimates I/O cost using persistent index statistics (histogram + counters)
+   * and the {@link CostModel}. Returns a cost value in abstract units (where
+   * one sequential page read = 1.0), or {@link Integer#MAX_VALUE} if no
+   * statistics are available.
+   *
+   * <p>Strategy:
+   * <ol>
+   *   <li>Leading field condition: dispatched to {@link SelectivityEstimator}
+   *       using the histogram (if available) or uniform estimation.</li>
+   *   <li>Non-leading field conditions (composite indexes): each multiplies
+   *       by {@link SelectivityEstimator#defaultSelectivity()} since no
+   *       per-field histogram exists.</li>
+   *   <li>Additional range condition on the leading field (single-field index
+   *       with two bounds): combined into a tighter range estimate.</li>
+   *   <li>Estimated row count is converted to I/O cost via
+   *       {@link CostModel#indexEqualityCost(long)} (equality) or
+   *       {@link CostModel#indexRangeCost(long)} (range).</li>
+   * </ol>
+   */
+  private int estimateFromHistogram(CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    var indexStats = index.getStatistics(session);
+    if (indexStats == null || indexStats.totalCount() == 0) {
+      return Integer.MAX_VALUE;
+    }
+    var histogram = index.getHistogram(session);
+
+    var subBlocks = getSubBlocks();
+    var leadingField = index.getDefinition().getProperties().getFirst();
+
+    // Estimate leading field selectivity.
+    double selectivity = estimateBlockSelectivity(
+        subBlocks.getFirst(), leadingField, indexStats, histogram, ctx);
+    if (selectivity < 0) {
+      return Integer.MAX_VALUE;
+    }
+
+    // Single-field index with two range bounds → compute tighter range.
+    if (additionalRangeCondition != null && subBlocks.size() == 1) {
+      double rangeSel = estimateCombinedRange(
+          subBlocks.getFirst(), additionalRangeCondition,
+          indexStats, histogram, ctx);
+      if (rangeSel >= 0) {
+        selectivity = rangeSel;
+      }
+    }
+
+    // Non-leading field conditions: apply default selectivity per field.
+    for (int i = 1; i < subBlocks.size(); i++) {
+      selectivity *= SelectivityEstimator.defaultSelectivity();
+    }
+
+    // Note: selectivity is expressed as a fraction of non-null entries (see
+    // SelectivityEstimator Javadoc), but we multiply by totalCount (which
+    // includes nulls).  This produces a mild overestimate bounded by the null
+    // fraction — an intentional conservative bias that favors full scans in
+    // borderline cases rather than picking a bad index.
+    long estimatedRows = Math.max(1, (long) (indexStats.totalCount() * selectivity));
+    boolean isRange = isRangeEstimate(subBlocks, additionalRangeCondition);
+    double cost = isRange
+        ? CostModel.indexRangeCost(estimatedRows)
+        : CostModel.indexEqualityCost(estimatedRows);
+    // Ensure at least cost 1 so histogram-estimated indexes are always
+    // distinguishable from "no estimate" (Integer.MAX_VALUE) and from each
+    // other when costs are fractional.
+    return cost > Integer.MAX_VALUE
+        ? Integer.MAX_VALUE : Math.max(1, (int) cost);
+  }
+
+  /**
+   * Estimates selectivity for a single condition block on the leading field.
+   * Returns -1 if the condition cannot be estimated (field mismatch, non-constant
+   * value, or unsupported operator).
+   */
+  private static double estimateBlockSelectivity(
+      SQLBooleanExpression expr, String field,
+      IndexStatistics stats, @Nullable EquiDepthHistogram histogram,
+      CommandContext ctx) {
+    if (!(expr instanceof SQLBinaryCondition bc)) {
+      return -1;
+    }
+    if (!bc.getLeft().isBaseIdentifier()
+        || !field.equals(bc.getLeft().getDefaultAlias().getStringValue())
+        || !bc.getRight().isEarlyCalculated(ctx)) {
+      return -1;
+    }
+    var value = bc.getRight().execute((Result) null, ctx);
+    if (value == null) {
+      return -1;
+    }
+    return SelectivityEstimator.estimateForOperator(
+        bc.getOperator(), stats, histogram, value);
+  }
+
+  /**
+   * Combines two range conditions on the same field (e.g., {@code f >= 20}
+   * and {@code f < 30}) into a single range selectivity estimate.
+   * Returns -1 if the bounds cannot be determined.
+   */
+  private static double estimateCombinedRange(
+      SQLBooleanExpression firstExpr, SQLBinaryCondition additional,
+      IndexStatistics stats, @Nullable EquiDepthHistogram histogram,
+      CommandContext ctx) {
+    if (!(firstExpr instanceof SQLBinaryCondition first)) {
+      return -1;
+    }
+    if (!first.getRight().isEarlyCalculated(ctx)
+        || !additional.getRight().isEarlyCalculated(ctx)) {
+      return -1;
+    }
+    var val1 = first.getRight().execute((Result) null, ctx);
+    var val2 = additional.getRight().execute((Result) null, ctx);
+    if (val1 == null || val2 == null) {
+      return -1;
+    }
+
+    // Determine from/to based on which operator is the lower vs upper bound.
+    var op1 = first.getOperator();
+    var op2 = additional.getOperator();
+
+    Object fromKey;
+    Object toKey;
+    boolean fromInclusive;
+    boolean toInclusive;
+
+    if (isLowerBound(op1) && isUpperBound(op2)) {
+      fromKey = val1;
+      toKey = val2;
+      fromInclusive = op1 instanceof SQLGeOperator;
+      toInclusive = op2 instanceof SQLLeOperator;
+    } else if (isUpperBound(op1) && isLowerBound(op2)) {
+      fromKey = val2;
+      toKey = val1;
+      fromInclusive = op2 instanceof SQLGeOperator;
+      toInclusive = op1 instanceof SQLLeOperator;
+    } else {
+      return -1;
+    }
+
+    return SelectivityEstimator.estimateRange(
+        stats, histogram, fromKey, toKey, fromInclusive, toInclusive);
+  }
+
+  private static boolean isLowerBound(SQLBinaryCompareOperator op) {
+    return op instanceof SQLGtOperator || op instanceof SQLGeOperator;
+  }
+
+  private static boolean isUpperBound(SQLBinaryCompareOperator op) {
+    return op instanceof SQLLtOperator || op instanceof SQLLeOperator;
+  }
+
+  /**
+   * Returns {@code true} if the estimate represents a range scan rather than
+   * an equality seek. An estimate is range-based when the condition on the
+   * leading field uses a range operator or when two bounds are combined via
+   * {@code additionalRange}.
+   */
+  private static boolean isRangeEstimate(
+      List<SQLBooleanExpression> subBlocks,
+      @Nullable SQLBinaryCondition additionalRange) {
+    if (additionalRange != null) {
+      return true;
+    }
+    if (!subBlocks.isEmpty()
+        && subBlocks.getFirst() instanceof SQLBinaryCondition bc) {
+      return bc.getOperator().isRangeOperator();
+    }
+    return false;
   }
 
   /** Unwraps the key condition into its sub-blocks (AND block -> sub-blocks, else singleton). */

@@ -82,6 +82,117 @@ public class MurmurHash3 {
     return k;
   }
 
+  /**
+   * Hashes a single long value without allocating a byte array.
+   * Equivalent to hashing the 8-byte big-endian representation of {@code value}.
+   */
+  public static long murmurHash3_x64_64(final long value, final int seed) {
+    var state = new State();
+
+    state.h1 = 0x9368e53c2f6af274L ^ seed;
+    state.h2 = 0x586dcd208f7cd3fdL ^ seed;
+
+    state.c1 = 0x87c37b91114253d5L;
+    state.c2 = 0x4cf5ad432745937fL;
+
+    // 8 bytes: goes into k1, k2 stays 0
+    state.k1 = value;
+    state.k2 = 0;
+    bmix(state);
+
+    state.h2 ^= 8; // length = 8
+
+    state.h1 += state.h2;
+    state.h2 += state.h1;
+
+    state.h1 = fmix(state.h1);
+    state.h2 = fmix(state.h2);
+
+    state.h1 += state.h2;
+    // Note: state.h2 is not computed here because this method only returns
+    // the 64-bit h1 half. The full 128-bit MurmurHash3 would also finalize h2.
+
+    return state.h1;
+  }
+
+  /**
+   * Hashes a CharSequence (typically a String) without allocating a byte array.
+   * Reads chars directly via {@code charAt()}, packing 4 chars (8 bytes) into
+   * each 64-bit block in little-endian order. This provides full 64-bit entropy
+   * unlike the {@code String.hashCode() → long mixer} approach which is limited
+   * to 2^32 distinct outputs.
+   *
+   * <p>The byte-level representation treats each char as a 2-byte little-endian
+   * value, so the total logical length is {@code cs.length() * 2} bytes.
+   */
+  public static long murmurHash3_x64_64(final CharSequence cs, final int seed) {
+    var state = new State();
+
+    state.h1 = 0x9368e53c2f6af274L ^ seed;
+    state.h2 = 0x586dcd208f7cd3fdL ^ seed;
+
+    state.c1 = 0x87c37b91114253d5L;
+    state.c2 = 0x4cf5ad432745937fL;
+
+    int len = cs.length();
+    // Process full 8-char (16-byte) blocks
+    int fullBlocks = len / 8;
+    for (int i = 0; i < fullBlocks; i++) {
+      int base = i * 8;
+      // Pack 4 chars into k1 (little-endian: char 0 in low bits)
+      state.k1 = ((long) cs.charAt(base))
+          | ((long) cs.charAt(base + 1) << 16)
+          | ((long) cs.charAt(base + 2) << 32)
+          | ((long) cs.charAt(base + 3) << 48);
+      // Pack 4 chars into k2
+      state.k2 = ((long) cs.charAt(base + 4))
+          | ((long) cs.charAt(base + 5) << 16)
+          | ((long) cs.charAt(base + 6) << 32)
+          | ((long) cs.charAt(base + 7) << 48);
+      bmix(state);
+    }
+
+    // Tail: remaining 0-7 chars
+    state.k1 = 0;
+    state.k2 = 0;
+    int tailStart = fullBlocks * 8;
+    int remaining = len - tailStart;
+
+    // Chars 4-7 go into k2 (each char is 2 bytes, so char index 4 = byte index 8)
+    // Fall-through is intentional (same pattern as the byte[] variant).
+    switch (remaining) {
+      case 7 :
+        state.k2 ^= (long) cs.charAt(tailStart + 6) << 32;
+      case 6 :
+        state.k2 ^= (long) cs.charAt(tailStart + 5) << 16;
+      case 5 :
+        state.k2 ^= (long) cs.charAt(tailStart + 4);
+      case 4 :
+        state.k1 ^= (long) cs.charAt(tailStart + 3) << 48;
+      case 3 :
+        state.k1 ^= (long) cs.charAt(tailStart + 2) << 32;
+      case 2 :
+        state.k1 ^= (long) cs.charAt(tailStart + 1) << 16;
+      case 1 :
+        state.k1 ^= (long) cs.charAt(tailStart);
+        bmix(state);
+    }
+
+    state.h2 ^= (long) len * 2; // logical length in bytes
+
+    state.h1 += state.h2;
+    state.h2 += state.h1;
+
+    state.h1 = fmix(state.h1);
+    state.h2 = fmix(state.h2);
+
+    state.h1 += state.h2;
+    // Note: state.h2 is not computed here because this method only returns
+    // the 64-bit h1 half. The full 128-bit MurmurHash3 would also finalize h2.
+
+    return state.h1;
+  }
+
   public static long murmurHash3_x64_64(final byte[] key, final int seed) {
     var state = new State();
 
@@ -104,36 +215,36 @@ public class MurmurHash3 {
     var tail = (key.length >>> 4) << 4;
 
     switch (key.length & 15) {
-      case 15:
+      case 15 :
         state.k2 ^= (long) key[tail + 14] << 48;
-      case 14:
+      case 14 :
         state.k2 ^= (long) key[tail + 13] << 40;
-      case 13:
+      case 13 :
         state.k2 ^= (long) key[tail + 12] << 32;
-      case 12:
+      case 12 :
         state.k2 ^= (long) key[tail + 11] << 24;
-      case 11:
+      case 11 :
         state.k2 ^= (long) key[tail + 10] << 16;
-      case 10:
+      case 10 :
         state.k2 ^= (long) key[tail + 9] << 8;
-      case 9:
+      case 9 :
         state.k2 ^= key[tail + 8];
 
-      case 8:
+      case 8 :
         state.k1 ^= (long) key[tail + 7] << 56;
-      case 7:
+      case 7 :
         state.k1 ^= (long) key[tail + 6] << 48;
-      case 6:
+      case 6 :
         state.k1 ^= (long) key[tail + 5] << 40;
-      case 5:
+      case 5 :
         state.k1 ^= (long) key[tail + 4] << 32;
-      case 4:
+      case 4 :
         state.k1 ^= (long) key[tail + 3] << 24;
-      case 3:
+      case 3 :
         state.k1 ^= (long) key[tail + 2] << 16;
-      case 2:
+      case 2 :
         state.k1 ^= (long) key[tail + 1] << 8;
-      case 1:
+      case 1 :
         state.k1 ^= key[tail];
         bmix(state);
     }

@@ -437,6 +437,11 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
       throw e;
     }
+    // Wire the general-purpose executor into histogram managers so they can
+    // schedule background rebalance work. We deliberately avoid ioExecutor
+    // here because it is also used by AsynchronousFileChannel for I/O
+    // completions — running blocking reads on it causes deadlocks.
+    storage.setHistogramExecutor(youTrack.getExecutor());
     return storage;
   }
 
@@ -482,7 +487,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     return embedded;
   }
 
-
   public DatabaseSessionEmbedded poolOpenNoAuthenticate(String name, String user,
       DatabasePoolInternal pool) {
     final DatabaseSessionEmbedded embedded;
@@ -523,13 +527,12 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       storage = storages.get(name);
       if (storage == null) {
         storage =
-            (AbstractStorage)
-                disk.createStorage(
-                    buildName(name),
-                    getMaxWalSegSize(),
-                    getDoubleWriteLogMaxSegSize(),
-                    generateStorageId(),
-                    this);
+            (AbstractStorage) disk.createStorage(
+                buildName(name),
+                getMaxWalSegSize(),
+                getDoubleWriteLogMaxSegSize(),
+                generateStorageId(),
+                this);
         if (storage.exists()) {
           storages.put(name, storage);
         }
@@ -589,7 +592,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     } catch (IOException e) {
       throw CoreException.wrapException(
           new DatabaseException(basePath.toString(),
-              "Error during calculation of maximum of size of double write log segment."), e,
+              "Error during calculation of maximum of size of double write log segment."),
+          e,
           basePath.toString());
     }
   }
@@ -633,7 +637,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     } catch (IOException e) {
       throw CoreException.wrapException(
           new DatabaseException(basePath.toString(),
-              "Error during calculation of maximum of size of WAL segment."), e,
+              "Error during calculation of maximum of size of WAL segment."),
+          e,
           basePath.toString());
     }
   }
@@ -721,22 +726,20 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           AbstractStorage storage;
           if (type == DatabaseType.MEMORY) {
             storage =
-                (AbstractStorage)
-                    memory.createStorage(
-                        name,
-                        -1,
-                        -1,
-                        generateStorageId(),
-                        this);
+                (AbstractStorage) memory.createStorage(
+                    name,
+                    -1,
+                    -1,
+                    generateStorageId(),
+                    this);
           } else {
             storage =
-                (AbstractStorage)
-                    disk.createStorage(
-                        buildName(name),
-                        getMaxWalSegSize(),
-                        getDoubleWriteLogMaxSegSize(),
-                        generateStorageId(),
-                        this);
+                (AbstractStorage) disk.createStorage(
+                    buildName(name),
+                    getMaxWalSegSize(),
+                    getDoubleWriteLogMaxSegSize(),
+                    generateStorageId(),
+                    this);
           }
           storages.put(name, storage);
           embedded = internalCreate(config, storage);
@@ -810,7 +813,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     try {
       var db = openNoAuthenticate(name, user);
       for (var it = youTrack.getDbLifecycleListeners();
-          it.hasNext(); ) {
+          it.hasNext();) {
         it.next().onDrop(db);
       }
       db.close();
@@ -869,6 +872,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               var storage = getOrInitStorage(name);
               // THIS OPEN THE STORAGE ONLY THE FIRST TIME
               storage.open(configuration.getConfiguration());
+              storage.setHistogramExecutor(youTrack.getExecutor());
             }
           });
     }
@@ -994,8 +998,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               var fileName = cf.getName();
               if (fileName.equals("database.ocf")
                   || (fileName.startsWith(CollectionBasedStorageConfiguration.COMPONENT_NAME)
-                  && fileName.endsWith(
-                  CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))) {
+                      && fileName.endsWith(
+                          CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))) {
                 found.found(db.getName());
                 break;
               }
@@ -1011,10 +1015,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     synchronized (this) {
       var exists = DiskStorage.exists(Paths.get(path));
       var storage =
-          (AbstractStorage)
-              disk.createStorage(
-                  path, getMaxWalSegSize(), getDoubleWriteLogMaxSegSize(), generateStorageId(),
-                  this);
+          (AbstractStorage) disk.createStorage(
+              path, getMaxWalSegSize(), getDoubleWriteLogMaxSegSize(), generateStorageId(),
+              this);
       // TODO: Add Creation settings and parameters
       if (!exists) {
         embedded = internalCreate(configuration, storage);

@@ -8,7 +8,7 @@ public interface V1IndexEngine extends BaseIndexEngine {
 
   int API_VERSION = 1;
 
-  void put(AtomicOperation atomicOperation, Object key, RID value);
+  boolean put(AtomicOperation atomicOperation, Object key, RID value);
 
   Stream<RID> get(Object key, AtomicOperation atomicOperation);
 

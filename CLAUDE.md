@@ -158,6 +158,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
+- **Do not create separate `*MutationTest` classes.** When writing tests to kill pitest mutations, add the test methods directly to the existing domain test class for that component (e.g., `HyperLogLogSketchTest`, `EquiDepthHistogramTest`). Mutation-killing tests are just regular unit tests that happen to target specific boundary conditions — they belong alongside the other tests for the same class.
 - **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code (enforced by CI coverage gate).
 - **Coverage verification**: Always use the `coverage-gate.py` script (see [Pre-Commit Verification](#pre-commit-verification)) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
 

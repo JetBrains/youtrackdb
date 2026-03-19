@@ -92,8 +92,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
-  private static final int MAX_KEY_SIZE =
-      GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
+  // Cached per-instance in create()/load() instead of reading from
+  // GlobalConfiguration on every put(). Cannot be a static final because
+  // the value depends on DISK_CACHE_PAGE_SIZE which is set by
+  // AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration()
+  // after class loading.
+  private int maxKeySize;
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
@@ -156,6 +160,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           acquireExclusiveLock();
           try {
             this.keySize = keySize;
+            this.maxKeySize =
+                GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
             if (keyTypes != null) {
               this.keyTypes = Arrays.copyOf(keyTypes, keyTypes.length);
             } else {
@@ -236,13 +242,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public void put(final AtomicOperation atomicOperation,
+  public boolean put(final AtomicOperation atomicOperation,
       final K key, final RID value) {
-    update(atomicOperation, key, value, null);
+    return update(atomicOperation, key, value, null) > 0;
   }
 
   @Override
-  public boolean validatedPut(
+  public int validatedPut(
       AtomicOperation atomicOperation,
       final K key,
       final RID value,
@@ -250,7 +256,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     return update(atomicOperation, key, value, validator);
   }
 
-  private boolean update(
+  private int update(
       final AtomicOperation atomicOperation,
       final K k,
       final RID rid,
@@ -267,12 +273,12 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
-              if (serializedKey.length > MAX_KEY_SIZE) {
+              if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
                 throw new TooBigIndexKeyException(storage.getName(),
                     "Key size is more than allowed, operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
-                        + MAX_KEY_SIZE,
+                        + maxKeySize,
                     getName());
               }
               var bucketSearchResult =
@@ -312,7 +318,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                   if (result == IndexEngineValidator.IGNORE) {
                     ignored = true;
                     failure = false;
-                    return false;
+                    return -1;
                   }
 
                   value = (RID) result;
@@ -334,13 +340,14 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               int insertionIndex;
               final int sizeDiff;
               if (bucketSearchResult.getItemIndex() >= 0) {
+                // Key already exists — this is an update, not an insert.
                 assert oldRawValue != null;
 
                 if (oldRawValue.length == serializedValue.length) {
                   keyBucket.updateValue(
                       bucketSearchResult.getItemIndex(), serializedValue, serializedKey.length);
                   keyBucketCacheEntry.close();
-                  return true;
+                  return 0; // update, not insert
                 } else {
                   keyBucket.removeLeafEntry(bucketSearchResult.getItemIndex(), serializedKey);
                   insertionIndex = bucketSearchResult.getItemIndex();
@@ -380,6 +387,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               if (sizeDiff != 0) {
                 updateSize(sizeDiff, atomicOperation);
               }
+              // sizeDiff == 1 means a new key was inserted;
+              // sizeDiff == 0 means a value was updated (remove + re-insert).
+              return sizeDiff;
             } else {
               var sizeDiff = 0;
               final RID oldValue;
@@ -392,7 +402,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                 if (validator != null) {
                   final var result = validator.validate(null, oldValue, value);
                   if (result == IndexEngineValidator.IGNORE) {
-                    return false;
+                    return -1;
                   }
                 }
 
@@ -403,8 +413,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
               }
               sizeDiff++;
               updateSize(sizeDiff, atomicOperation);
+              // sizeDiff == 1 means null key is new; 0 means null key updated.
+              return sizeDiff;
             }
-            return true;
           } finally {
             releaseExclusiveLock();
           }
@@ -449,6 +460,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       nullBucketFileId = openFile(atomicOperation, name + nullFileExtension);
 
       this.keySize = keySize;
+      this.maxKeySize =
+          GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
       this.keyTypes = keyTypes;
       this.keySerializer = keySerializer;
     } catch (final IOException e) {

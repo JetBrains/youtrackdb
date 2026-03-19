@@ -1,0 +1,287 @@
+package com.jetbrains.youtrackdb.internal.common.hash;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.junit.Test;
+
+/**
+ * Known-value tests for the MurmurHash3 hash function. Each test asserts the exact hash output
+ * for a specific input, ensuring that any mutation to the hash computation (arithmetic, bitwise,
+ * shift, XOR, constant) will be detected.
+ */
+public class MurmurHash3Test {
+
+  // --- Long overload: murmurHash3_x64_64(long, int) ---
+
+  @Test
+  public void longHash_zeroWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(0L, 0)).isEqualTo(-6180381343859527073L);
+  }
+
+  @Test
+  public void longHash_oneWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(1L, 0)).isEqualTo(6333283390351972457L);
+  }
+
+  @Test
+  public void longHash_minusOneWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(-1L, 0)).isEqualTo(-2430564858822907883L);
+  }
+
+  @Test
+  public void longHash_maxLongWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(Long.MAX_VALUE, 0)).isEqualTo(-999350745582466048L);
+  }
+
+  @Test
+  public void longHash_minLongWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(Long.MIN_VALUE, 0)).isEqualTo(2948338765831686026L);
+  }
+
+  @Test
+  public void longHash_42WithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(42L, 0)).isEqualTo(6680639807124125198L);
+  }
+
+  @Test
+  public void longHash_deadbeefWithDefaultSeed() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(0xDEADBEEFL, 0)).isEqualTo(-2250810076645059223L);
+  }
+
+  @Test
+  public void longHash_differentSeedProducesDifferentResult() {
+    // Same value, different seed must produce a different hash
+    assertThat(MurmurHash3.murmurHash3_x64_64(42L, 12345)).isEqualTo(3924573562633331253L);
+    assertThat(MurmurHash3.murmurHash3_x64_64(42L, 12345))
+        .isNotEqualTo(MurmurHash3.murmurHash3_x64_64(42L, 0));
+  }
+
+  // --- CharSequence overload: murmurHash3_x64_64(CharSequence, int) ---
+  // Tests cover all tail lengths 0-7 plus full blocks (len=8,9,16,17).
+
+  @Test
+  public void charSequenceHash_emptyString() {
+    // Tail length 0: no chars processed
+    assertThat(MurmurHash3.murmurHash3_x64_64("", 0)).isEqualTo(-7781342737886326986L);
+  }
+
+  @Test
+  public void charSequenceHash_length1() {
+    // Tail length 1: exercises case 1 only
+    assertThat(MurmurHash3.murmurHash3_x64_64("a", 0)).isEqualTo(-4060589748530793459L);
+  }
+
+  @Test
+  public void charSequenceHash_length2() {
+    // Tail length 2: exercises case 2 → 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("ab", 0)).isEqualTo(3371390696271435024L);
+  }
+
+  @Test
+  public void charSequenceHash_length3() {
+    // Tail length 3: exercises case 3 → 2 → 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abc", 0)).isEqualTo(7099591825648212176L);
+  }
+
+  @Test
+  public void charSequenceHash_length4() {
+    // Tail length 4: exercises case 4 → 3 → 2 → 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcd", 0)).isEqualTo(6592752022319426910L);
+  }
+
+  @Test
+  public void charSequenceHash_length5() {
+    // Tail length 5: exercises case 5 → 4 → 3 → 2 → 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcde", 0)).isEqualTo(-4884312323288591925L);
+  }
+
+  @Test
+  public void charSequenceHash_length6() {
+    // Tail length 6: exercises case 6 → 5 → 4 → 3 → 2 → 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdef", 0)).isEqualTo(-979904102157717082L);
+  }
+
+  @Test
+  public void charSequenceHash_length7() {
+    // Tail length 7: exercises all tail cases (7 → 6 → ... → 1)
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdefg", 0)).isEqualTo(3389670505183857921L);
+  }
+
+  @Test
+  public void charSequenceHash_length8_exactlyOneBlock() {
+    // Exactly 1 full 8-char block, no tail
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdefgh", 0)).isEqualTo(-3364713676898773966L);
+  }
+
+  @Test
+  public void charSequenceHash_length9_oneBlockPlusTail1() {
+    // 1 full block + tail length 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdefghi", 0)).isEqualTo(-3006228879249915946L);
+  }
+
+  @Test
+  public void charSequenceHash_length16_twoFullBlocks() {
+    // 2 full blocks, no tail
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdefghijklmnop", 0))
+        .isEqualTo(1705432138945715914L);
+  }
+
+  @Test
+  public void charSequenceHash_length17_twoBlocksPlusTail1() {
+    // 2 full blocks + tail length 1
+    assertThat(MurmurHash3.murmurHash3_x64_64("abcdefghijklmnopq", 0))
+        .isEqualTo(4485702361801488403L);
+  }
+
+  @Test
+  public void charSequenceHash_differentSeedProducesDifferentResult() {
+    assertThat(MurmurHash3.murmurHash3_x64_64("hello", 99)).isEqualTo(-1567717746062969060L);
+    assertThat(MurmurHash3.murmurHash3_x64_64("hello", 99))
+        .isNotEqualTo(MurmurHash3.murmurHash3_x64_64("hello", 0));
+  }
+
+  // --- byte[] overload: murmurHash3_x64_64(byte[], int) ---
+  // Tests exercise every tail length from 0 to 15, plus 16 (full block) and 17 (block + tail 1).
+
+  @Test
+  public void byteHash_emptyArray() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {}, 0))
+        .isEqualTo(-7781342737886326986L);
+  }
+
+  @Test
+  public void byteHash_tailLength1() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1}, 0))
+        .isEqualTo(-2251886599231904971L);
+  }
+
+  @Test
+  public void byteHash_tailLength2() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2}, 0))
+        .isEqualTo(1739395130355374806L);
+  }
+
+  @Test
+  public void byteHash_tailLength3() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3}, 0))
+        .isEqualTo(492029490741731226L);
+  }
+
+  @Test
+  public void byteHash_tailLength4() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4}, 0))
+        .isEqualTo(-170868427806902235L);
+  }
+
+  @Test
+  public void byteHash_tailLength5() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5}, 0))
+        .isEqualTo(-3902809372243876965L);
+  }
+
+  @Test
+  public void byteHash_tailLength6() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5, 6}, 0))
+        .isEqualTo(7615920780962878600L);
+  }
+
+  @Test
+  public void byteHash_tailLength7() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5, 6, 7}, 0))
+        .isEqualTo(-217301646648926418L);
+  }
+
+  @Test
+  public void byteHash_tailLength8() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5, 6, 7, 8}, 0))
+        .isEqualTo(-3032185381894660834L);
+  }
+
+  @Test
+  public void byteHash_tailLength9() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9}, 0))
+        .isEqualTo(1474419114225903436L);
+  }
+
+  @Test
+  public void byteHash_tailLength10() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 0))
+        .isEqualTo(5745530786812235977L);
+  }
+
+  @Test
+  public void byteHash_tailLength11() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, 0))
+        .isEqualTo(-2075471372228467093L);
+  }
+
+  @Test
+  public void byteHash_tailLength12() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, 0))
+        .isEqualTo(-560599178314965018L);
+  }
+
+  @Test
+  public void byteHash_tailLength13() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, 0))
+        .isEqualTo(5778938241322871061L);
+  }
+
+  @Test
+  public void byteHash_tailLength14() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, 0))
+        .isEqualTo(-5058703038363834716L);
+  }
+
+  @Test
+  public void byteHash_tailLength15() {
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}, 0))
+        .isEqualTo(7441962444598815095L);
+  }
+
+  @Test
+  public void byteHash_exactlyOneBlock() {
+    // 16 bytes = 1 full block, no tail
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, 0))
+        .isEqualTo(3665714945722039059L);
+  }
+
+  @Test
+  public void byteHash_oneBlockPlusTail1() {
+    // 17 bytes = 1 full block + tail length 1
+    assertThat(MurmurHash3.murmurHash3_x64_64(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}, 0))
+        .isEqualTo(-1592450216787179230L);
+  }
+
+  // --- Cross-overload consistency ---
+
+  @Test
+  public void emptyInputsProduceSameHash() {
+    // Empty byte[] and empty string should produce the same hash (both have length 0)
+    assertThat(MurmurHash3.murmurHash3_x64_64(new byte[] {}, 0))
+        .isEqualTo(MurmurHash3.murmurHash3_x64_64("", 0));
+  }
+
+  @Test
+  public void differentInputsProduceDifferentHashes() {
+    // Sanity check: distinct inputs produce distinct hashes
+    long h1 = MurmurHash3.murmurHash3_x64_64(1L, 0);
+    long h2 = MurmurHash3.murmurHash3_x64_64(2L, 0);
+    assertThat(h1).isNotEqualTo(h2);
+  }
+
+  @Test
+  public void deterministicResults() {
+    // Calling the hash with the same input twice must return the same result
+    long first = MurmurHash3.murmurHash3_x64_64(12345L, 42);
+    long second = MurmurHash3.murmurHash3_x64_64(12345L, 42);
+    assertThat(first).isEqualTo(second);
+  }
+}

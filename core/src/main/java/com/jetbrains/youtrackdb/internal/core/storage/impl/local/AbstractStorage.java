@@ -75,12 +75,15 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
@@ -161,9 +164,12 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -223,6 +229,32 @@ public abstract class AbstractStorage
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
+
+  /**
+   * Storage-level shared cache for histogram snapshots, keyed by engine ID.
+   * Shared across all {@link IndexHistogramManager} instances in this storage.
+   */
+  private final ConcurrentHashMap<Integer, HistogramSnapshot> histogramSnapshotCache =
+      new ConcurrentHashMap<>();
+
+  /**
+   * Executor reference for histogram managers. Must NOT be the ioExecutor
+   * (used by AsynchronousFileChannel for I/O completions) — blocking reads
+   * on the ioExecutor cause deadlocks. Stored so that newly created indexes
+   * (after database open) can receive the executor immediately.
+   * Set by {@link #setHistogramExecutor}.
+   */
+  @Nullable private volatile ExecutorService histogramExecutor;
+
+  /**
+   * Storage-level semaphore limiting concurrent histogram rebalance tasks.
+   * Permit count is read from
+   * {@link GlobalConfiguration#QUERY_STATS_MAX_CONCURRENT_REBALANCES} at
+   * construction time ({@code -1} = auto: {@code max(2, processors / 4)}).
+   * Propagated to each histogram manager via
+   * {@link IndexHistogramManager#setRebalanceSemaphore}.
+   */
+  private final Semaphore histogramRebalanceSemaphore;
 
   private boolean wereDataRestoredAfterOpen;
   protected UUID uuid;
@@ -306,6 +338,15 @@ public abstract class AbstractStorage
     stateLock = new ScalableRWLock();
 
     this.id = id;
+
+    int permits = GlobalConfiguration.QUERY_STATS_MAX_CONCURRENT_REBALANCES
+        .getValueAsInteger();
+    if (permits <= 0) {
+      permits = Math.max(2,
+          Runtime.getRuntime().availableProcessors() / 4);
+    }
+    this.histogramRebalanceSemaphore = new Semaphore(permits);
+
     linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
     dropDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
@@ -789,6 +830,11 @@ public abstract class AbstractStorage
       final var engine = Indexes.createIndexEngine(this, engineData);
 
       engine.load(engineData, atomicOperation);
+
+      // Wire histogram manager for B-tree engines
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+      }
 
       indexEngineNameMap.put(engineData.getName(), engine);
       while (engineData.getIndexId() >= indexEngines.size()) {
@@ -2035,6 +2081,27 @@ public abstract class AbstractStorage
               rollback(error, atomicOperation);
             } else {
               endTxCommit(atomicOperation);
+              try {
+                applyHistogramDeltas(atomicOperation);
+              } catch (final RuntimeException e) {
+                // Delta application is a cache-only operation — its failure
+                // must never mask a successful commit. The cache will be
+                // reconstructed from the .ixs page on next restart.
+                LogManager.instance()
+                    .warn(this,
+                        "Histogram delta application failed after successful commit",
+                        e);
+              }
+              try {
+                cleanupSnapshotIndex();
+              } catch (final RuntimeException e) {
+                // Cleanup is best-effort — its failure must never mask a successful commit.
+                // The commit is already durable (WAL flushed, pages applied). If cleanup
+                // throws, stale snapshot entries simply accumulate until the next successful
+                // cleanup pass.
+                LogManager.instance()
+                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
+              }
             }
           }
         } finally {
@@ -2102,6 +2169,37 @@ public abstract class AbstractStorage
         }
         case CLEAR -> {
           // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
+        }
+      }
+    }
+  }
+
+  /**
+   * Applies histogram deltas accumulated during the transaction to the
+   * in-memory CHM cache. Called after {@code endTxCommit()} succeeds so
+   * that the cache always reflects committed state only.
+   */
+  private void applyHistogramDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getHistogramDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().entrySet()) {
+      var engineId = entry.getKey();
+      var delta = entry.getValue();
+      // Engine may have been dropped concurrently — the commit is already
+      // durable, so the delta for a removed engine is stale and safe to skip.
+      // Safety: indexEngines is a plain ArrayList; concurrent structural
+      // modification is prevented by the stateLock read lock held on the
+      // commit path and the atomic operation serialization for index
+      // creation/deletion.
+      if (engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var mgr = btreeEngine.getHistogramManager();
+          if (mgr != null) {
+            mgr.applyDelta(delta);
+          }
         }
       }
     }
@@ -2179,6 +2277,12 @@ public abstract class AbstractStorage
         final var engine = Indexes.createIndexEngine(this, engineData);
 
         engine.load(engineData, atomicOperation);
+
+        // Wire histogram manager for B-tree engines (migration path —
+        // binary format version <= 15 has no .ixs files)
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+        }
 
         indexEngineNameMap.put(indexMetadata.getName(), engine);
         indexEngines.add(engine);
@@ -2268,6 +2372,14 @@ public abstract class AbstractStorage
               final var engine = Indexes.createIndexEngine(this, engineData);
 
               engine.create(atomicOperation, engineData);
+
+              // Create and wire histogram manager for B-tree engines
+              if (engine instanceof BTreeIndexEngine btreeEngine) {
+                var mgr = createAndWireHistogramManager(
+                    btreeEngine, engineData, atomicOperation);
+                mgr.createStatsFile(atomicOperation);
+              }
+
               indexEngineNameMap.put(indexMetadata.getName(), engine);
               indexEngines.add(engine);
 
@@ -2295,6 +2407,125 @@ public abstract class AbstractStorage
 
   public BinarySerializer<?> resolveObjectSerializer(final byte serializerId) {
     return componentsFactory.binarySerializerFactory.getObjectSerializer(serializerId);
+  }
+
+  /**
+   * Wires a histogram manager into a B-tree engine during database open.
+   * If the .ixs file exists, opens it; otherwise creates a new one with
+   * initial counters from the B-tree (migration path).
+   */
+  private void wireHistogramManagerOnLoad(
+      BTreeIndexEngine btreeEngine,
+      IndexEngineData engineData,
+      AtomicOperation atomicOperation) {
+    try {
+      var mgr = createAndWireHistogramManager(
+          btreeEngine, engineData, atomicOperation);
+      if (mgr.statsFileExists(atomicOperation)) {
+        // Normal path: .ixs file exists, load from it
+        mgr.openStatsFile(atomicOperation);
+      } else {
+        // Migration path: no .ixs file, create with counters from B-tree
+        long totalCount = btreeEngine.getTotalCount(atomicOperation);
+        long nullCount = btreeEngine.getNullCount(atomicOperation);
+        // For single-value: distinctCount == non-null count (each key is unique)
+        // For multi-value: distinctCount == non-null count (overestimates
+        // because the same key can map to multiple RIDs; corrected on first
+        // rebalance when exact NDV is computed from the key scan)
+        long distinctCount = totalCount - nullCount;
+        mgr.createStatsFileWithCounters(
+            atomicOperation, totalCount, distinctCount, nullCount);
+      }
+    } catch (IOException e) {
+      // Histogram manager failure must not prevent database open.
+      // Clean up any partially-populated cache entry and null out the
+      // partially-wired manager to avoid broken state (fileId == -1, no
+      // snapshot in cache) causing issues on onPut/onRemove.
+      histogramSnapshotCache.remove(engineData.getIndexId());
+      btreeEngine.setHistogramManager(null);
+      LogManager.instance().warn(
+          this,
+          "Failed to wire histogram manager for index '%s': %s",
+          engineData.getName(), e.getMessage());
+    }
+  }
+
+  /**
+   * Creates an {@link IndexHistogramManager}, wires it into the given
+   * B-tree engine, and returns it. The caller is responsible for calling
+   * {@code createStatsFile()}, {@code openStatsFile()}, or
+   * {@code createStatsFileWithCounters()} after this method returns.
+   *
+   * @param engine          the B-tree engine to wire the manager into
+   * @param engineData      engine metadata for serializer resolution
+   * @param atomicOperation current atomic operation (for binary format check)
+   */
+  private IndexHistogramManager createAndWireHistogramManager(
+      BTreeIndexEngine engine,
+      IndexEngineData engineData,
+      AtomicOperation atomicOperation) {
+    boolean isSingleValue = engine instanceof BTreeSingleValueIndexEngine;
+
+    // Determine the histogram key serializer: for composite indexes,
+    // boundaries are leading-field values, so we need the leading field's
+    // type serializer rather than the composite key serializer.
+    var keyTypes = engineData.getKeyTypes();
+    BinarySerializer<?> histogramKeySerializer;
+    byte histogramSerializerId;
+    if (keyTypes != null && keyTypes.length > 1) {
+      var leadingType = keyTypes[0];
+      if (leadingType == PropertyTypeInternal.STRING
+          && configuration.getBinaryFormatVersion(atomicOperation) >= 13) {
+        histogramKeySerializer = UTF8Serializer.INSTANCE;
+      } else {
+        histogramKeySerializer =
+            componentsFactory.binarySerializerFactory
+                .getObjectSerializer(leadingType);
+      }
+      histogramSerializerId = histogramKeySerializer.getId();
+    } else {
+      histogramSerializerId = engineData.getKeySerializedId();
+      histogramKeySerializer =
+          resolveObjectSerializer(histogramSerializerId);
+    }
+
+    var mgr = new IndexHistogramManager(
+        this,
+        engineData.getName(),
+        engineData.getIndexId(),
+        isSingleValue,
+        histogramSnapshotCache,
+        histogramKeySerializer,
+        componentsFactory.binarySerializerFactory,
+        histogramSerializerId);
+
+    int keyFieldCount = (keyTypes != null) ? keyTypes.length : 1;
+    mgr.setKeyFieldCount(keyFieldCount);
+
+    // Wire the sorted key stream supplier for background rebalance.
+    // Uses null atomic operation — the B-tree read path falls back to
+    // reading directly from the read cache without atomic consistency.
+    if (isSingleValue) {
+      mgr.setKeyStreamSupplier(
+          () -> ((BTreeSingleValueIndexEngine) engine).keyStream(null));
+    } else {
+      mgr.setKeyStreamSupplier(
+          () -> ((BTreeMultiValueIndexEngine) engine).keyStream(null));
+    }
+    engine.setHistogramManager(mgr);
+
+    // Propagate the rebalance semaphore to limit concurrent rebalance tasks.
+    mgr.setRebalanceSemaphore(histogramRebalanceSemaphore);
+
+    // Propagate the executor if already available (index created after
+    // database open). Before database open, histogramExecutor is null
+    // and setHistogramExecutor() will wire it for all engines.
+    var exec = histogramExecutor;
+    if (exec != null) {
+      mgr.setBackgroundExecutor(exec);
+    }
+
+    return mgr;
   }
 
   private static int generateIndexId(final int internalId, final BaseIndexEngine indexEngine) {
@@ -2377,14 +2608,22 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
 
+        final var engine = indexEngines.get(internalIndexId);
+        assert internalIndexId == engine.getId();
+
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
-              final var engine =
-                  deleteIndexEngineInternal(atomicOperation, internalIndexId);
-              final var engineName = engine.getName();
+              engine.delete(atomicOperation);
               ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engineName);
+                  .deleteIndexEngine(atomicOperation, engine.getName());
             });
+
+        // Update in-memory maps only AFTER the atomic operation commits
+        // successfully. If the atomic operation rolls back, the maps remain
+        // consistent so that addIndexEngine()'s "OLD INDEX FILE" recovery
+        // branch can find and clean up the stale engine.
+        indexEngines.set(internalIndexId, null);
+        indexEngineNameMap.remove(engine.getName());
 
       } catch (final IOException e) {
         throw BaseException.wrapException(new StorageException(name, "Error on index deletion"), e,
@@ -2401,19 +2640,6 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
-  }
-
-  private BaseIndexEngine deleteIndexEngineInternal(
-      final AtomicOperation atomicOperation, final int indexId)
-      throws IOException {
-    final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
-    indexEngines.set(indexId, null);
-    engine.delete(atomicOperation);
-
-    final var engineName = engine.getName();
-    indexEngineNameMap.remove(engineName);
-    return engine;
   }
 
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
@@ -2695,7 +2921,8 @@ public abstract class AbstractStorage
    * @param key       the key to put the value under.
    * @param value     the value to put.
    * @param validator the operation validator.
-   * @return {@code true} if the validator allowed the put, {@code false} otherwise.
+   * @return {@code true} if a new key was inserted, {@code false} if an existing key was updated
+   *     in-place or the validator rejected the operation (IGNORE).
    * @see IndexEngineValidator#validate(Object, Object, Object)
    */
   @SuppressWarnings("UnusedReturnValue")
@@ -3059,43 +3286,13 @@ public abstract class AbstractStorage
     try {
       stateLock.readLock().lock();
       try {
-
-        final var synchStartedAt = System.nanoTime();
-        final var lockId = atomicOperationsManager.freezeWriteOperations(null);
-        try {
-          checkOpennessAndMigration();
-
-          if (!isInError()) {
-            for (final var indexEngine : indexEngines) {
-              try {
-                if (indexEngine != null) {
-                  indexEngine.flush();
-                }
-              } catch (final Throwable t) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error while flushing index via index engine of class %s.",
-                        t,
-                        indexEngine.getClass().getSimpleName());
-              }
-            }
-
-            flushAllData();
-
-          } else {
-            LogManager.instance()
-                .error(
-                    this,
-                    "Sync can not be performed because of internal error in storage %s",
-                    null,
-                    this.name);
-          }
-
-        } finally {
-          atomicOperationsManager.unfreezeWriteOperations(lockId);
-          synchDuration.setNanos(System.nanoTime() - synchStartedAt);
+        // Flush dirty histogram stats before freezing — see
+        // flushDirtyHistograms() Javadoc for deadlock details.
+        if (!isInError()) {
+          flushDirtyHistograms();
         }
+
+        doSynch();
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3105,6 +3302,52 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * Core sync logic: freeze operations, flush engines and WAL, unfreeze.
+   * Extracted so that {@link #freeze} can call it after flushing histograms
+   * itself — calling {@link #synch()} from {@code freeze()} would deadlock
+   * because the frozen {@code OperationsFreezer} would block the histogram
+   * flush's {@code executeInsideAtomicOperation()} call.
+   */
+  private void doSynch() {
+    final var synchStartedAt = System.nanoTime();
+    final var lockId = atomicOperationsManager.freezeWriteOperations(null);
+    try {
+      checkOpennessAndMigration();
+
+      if (!isInError()) {
+        for (final var indexEngine : indexEngines) {
+          try {
+            if (indexEngine != null) {
+              indexEngine.flush();
+            }
+          } catch (final Throwable t) {
+            LogManager.instance()
+                .error(
+                    this,
+                    "Error while flushing index via index engine of class %s.",
+                    t,
+                    indexEngine.getClass().getSimpleName());
+          }
+        }
+
+        flushAllData();
+
+      } else {
+        LogManager.instance()
+            .error(
+                this,
+                "Sync can not be performed because of internal error in storage %s",
+                null,
+                this.name);
+      }
+
+    } finally {
+      atomicOperationsManager.unfreezeWriteOperations(lockId);
+      synchDuration.setNanos(System.nanoTime() - synchStartedAt);
     }
   }
 
@@ -3216,6 +3459,12 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
+        // Flush dirty histogram stats before freezing — see
+        // flushDirtyHistograms() Javadoc for deadlock details.
+        if (!isInError()) {
+          flushDirtyHistograms();
+        }
+
         if (throwException) {
           atomicOperationsManager.freezeWriteOperations(
               () -> new ModificationOperationProhibitedException(name,
@@ -3242,7 +3491,9 @@ public abstract class AbstractStorage
               new StorageException(name, "Error on freeze of storage '" + name + "'"), e, name);
         }
 
-        synch();
+        // Use doSynch() instead of synch() — histograms were already
+        // flushed above and the operations are already frozen by us.
+        doSynch();
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3607,6 +3858,11 @@ public abstract class AbstractStorage
         return;
       }
 
+      // Flush dirty histogram statistics to .ixs pages (Section 3.2).
+      // Runs before the WAL checkpoint so that the flushed pages are
+      // included in writeCache.syncDataFiles().
+      flushDirtyHistograms();
+
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
@@ -3694,6 +3950,106 @@ public abstract class AbstractStorage
     ridBag.confirmDelete();
   }
 
+  /**
+   * Iterates all B-tree index engines and flushes dirty histogram state
+   * to their .ixs pages. Called during fuzzy checkpoint, synch, close,
+   * and recovery.
+   *
+   * <p><b>Important:</b> this method must NOT be called inside a frozen
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local
+   * .paginated.atomicoperations.operationsfreezer.OperationsFreezer}
+   * scope. Each engine's flush creates its own AtomicOperation via
+   * {@code executeInsideAtomicOperation()}, which would deadlock if the
+   * freezer is already frozen.
+   *
+   * <p>Failures are logged but never propagated — histogram persistence is
+   * best-effort and must not block checkpoint or shutdown.
+   */
+  private void flushDirtyHistograms() {
+    for (var engine : indexEngines) {
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        var mgr = btreeEngine.getHistogramManager();
+        if (mgr != null) {
+          try {
+            mgr.flushIfDirty();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to flush histogram stats for engine %d (%s)"
+                    + " — histogram data may be stale after restart",
+                e, btreeEngine.getId(), mgr.getName());
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Waits for any in-progress background histogram rebalances to finish
+   * and permanently blocks future ones. Must be called before clearing
+   * index engines and deleting/closing the cache to prevent background
+   * rebalance threads from holding page references on deleted pages.
+   *
+   * <p>Uses {@link IndexHistogramManager#closeStatsFile()} which
+   * internally calls {@code waitForAndBlockRebalance()}, flushes dirty
+   * data, removes the cache entry, and resets the fileId.
+   */
+  private void cancelHistogramRebalances() {
+    for (var engine : indexEngines) {
+      if (engine instanceof BTreeIndexEngine btreeEngine) {
+        var mgr = btreeEngine.getHistogramManager();
+        if (mgr != null) {
+          try {
+            mgr.closeStatsFile();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to close histogram stats for engine %d (%s)",
+                e, btreeEngine.getId(), mgr.getName());
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Propagates a general-purpose executor to all histogram managers for
+   * background rebalance work. Called after the database is fully open.
+   * <p>
+   * <b>Important:</b> The executor must NOT be the {@code ioExecutor} used
+   * by {@code AsynchronousFileChannel} for I/O completions. Running blocking
+   * page reads on the ioExecutor deadlocks because the completion callbacks
+   * need the same thread pool.
+   * <p>
+   * Also triggers a proactive rebalance check on each manager — if mutations
+   * accumulated before a crash exceeded the threshold, a background rebalance
+   * is scheduled immediately.
+   *
+   * @param executor the general-purpose executor (must NOT be the ioExecutor
+   *                 used by AsynchronousFileChannel — see class Javadoc)
+   */
+  public void setHistogramExecutor(ExecutorService executor) {
+    this.histogramExecutor = executor;
+    stateLock.readLock().lock();
+    try {
+      for (var engine : indexEngines) {
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          var mgr = btreeEngine.getHistogramManager();
+          if (mgr != null) {
+            mgr.setBackgroundExecutor(executor);
+          }
+        }
+      }
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Flushes WAL, write cache, and cuts the log. Does <b>not</b> flush
+   * histogram data — callers that need histogram persistence must call
+   * {@link #flushDirtyHistograms()} separately <b>before</b> this method,
+   * and outside any frozen {@code OperationsFreezer} scope (see
+   * {@link #flushDirtyHistograms()} Javadoc for details).
+   */
   protected void flushAllData() {
     try {
       writeAheadLog.flush();
@@ -3937,6 +4293,7 @@ public abstract class AbstractStorage
           recoverListener.onStorageRecover();
         }
 
+        flushDirtyHistograms();
         flushAllData();
       } catch (final Exception e) {
         LogManager.instance().error(this, "Exception during storage data restore", e);
@@ -4309,6 +4666,10 @@ public abstract class AbstractStorage
       status = STATUS.CLOSING;
 
       if (!isInError()) {
+        // Cancel in-progress histogram rebalances, flush dirty data, and
+        // block future rebalances — must happen before flushAllData so
+        // that no background thread holds page references.
+        cancelHistogramRebalances();
         flushAllData();
       }
 
@@ -4392,6 +4753,13 @@ public abstract class AbstractStorage
     try {
       if (!isInError()) {
         preCloseSteps();
+
+        // Cancel any in-progress histogram rebalances and block future
+        // ones before clearing engines and deleting the cache. A running
+        // rebalance holds page read locks; deleting the cache while
+        // those locks are held causes "page is used" errors and JVM
+        // crashes.
+        cancelHistogramRebalances();
 
         for (final var engine : indexEngines) {
           if (engine != null
@@ -4928,6 +5296,13 @@ public abstract class AbstractStorage
     for (final var collectionId : collections.keySet()) {
       var bTree = linkCollectionsBTreeManager.getComponentByCollectionId(
           collectionId, atomicOperation);
+      // The B-tree should always exist: it is created with the collection
+      // (doAddCollection) and repaired during storage open
+      // (checkRidBagsPresence). lockCollections() already serializes
+      // concurrent commits to the same collection, so a null here would
+      // not cause a race — but it would indicate a bug elsewhere.
+      assert bTree != null
+          : "Link bag B-tree missing for collection " + collectionId;
       if (bTree != null) {
         atomicOperationsManager.acquireExclusiveLockTillOperationComplete(
             atomicOperation, bTree);

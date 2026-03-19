@@ -26,6 +26,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -54,8 +57,7 @@ public interface Index extends Comparable<Index> {
    * elements from which this index consist will be returned, otherwise single element (key type
    * obviously) will be returned.
    */
-  @Nullable
-  PropertyTypeInternal[] getKeyTypes();
+  @Nullable PropertyTypeInternal[] getKeyTypes();
 
   /**
    * Gets the set of records associated with the passed key.
@@ -168,7 +170,6 @@ public interface Index extends Comparable<Index> {
    * @return An EntityImpl object containing all the index properties
    */
   Map<String, Object> getConfiguration(DatabaseSessionEmbedded session);
-
 
   IndexDefinition getDefinition();
 
@@ -306,8 +307,7 @@ public interface Index extends Comparable<Index> {
   Stream<RawPair<Object, RID>> streamEntriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder);
 
-  @Nullable
-  static Identifiable securityFilterOnRead(DatabaseSessionEmbedded session, Index idx,
+  @Nullable static Identifiable securityFilterOnRead(DatabaseSessionEmbedded session, Index idx,
       Identifiable item) {
     if (idx.getDefinition() == null) {
       return item;
@@ -421,10 +421,31 @@ public interface Index extends Comparable<Index> {
 
   Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
 
+  /**
+   * Returns per-index statistics for cost-based query optimization, or
+   * {@code null} if statistics are not available for this index.
+   */
+  @Nullable IndexStatistics getStatistics(DatabaseSessionEmbedded session);
+
+  /**
+   * Returns the equi-depth histogram for this index, or {@code null} if no
+   * histogram is available (index type does not support histograms, or
+   * histogram has not been built yet).
+   */
+  @Nullable EquiDepthHistogram getHistogram(DatabaseSessionEmbedded session);
+
+  /**
+   * Triggers an explicit histogram analysis (rebuild) for this index.
+   * Called by the {@code ANALYZE INDEX} SQL command.
+   *
+   * @return the refreshed snapshot, or {@code null} if the index does not
+   *     support histograms
+   */
+  @Nullable HistogramSnapshot analyzeHistogram(DatabaseSessionEmbedded session);
+
   Index create(FrontendTransaction transaction, IndexMetadata metadata);
 
   int getIndexId();
 
-  @Nullable
-  RID getIdentity();
+  @Nullable RID getIdentity();
 }

@@ -20,12 +20,17 @@ public interface CellBTreeSingleValue<K> {
       int keySize)
       throws IOException;
 
-  @Nullable
-  RID get(K key, @Nonnull AtomicOperation atomicOperation);
+  @Nullable RID get(K key, @Nonnull AtomicOperation atomicOperation);
 
-  void put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
+  boolean put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
-  boolean validatedPut(
+  /**
+   * Puts a key-value pair after consulting the validator.
+   *
+   * @return {@code 1} if a new key was inserted, {@code 0} if an existing key was updated,
+   *     {@code -1} if the validator rejected the operation (IGNORE).
+   */
+  int validatedPut(
       AtomicOperation atomicOperation, K key, RID value,
       IndexEngineValidator<K, RID> validator)
       throws IOException;
@@ -42,8 +47,7 @@ public interface CellBTreeSingleValue<K> {
 
   long size(AtomicOperation atomicOperation);
 
-  @Nullable
-  RID remove(AtomicOperation atomicOperation, K key) throws IOException;
+  @Nullable RID remove(AtomicOperation atomicOperation, K key) throws IOException;
 
   Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation);
@@ -51,11 +55,9 @@ public interface CellBTreeSingleValue<K> {
   Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation);
 
-  @Nullable
-  K firstKey(AtomicOperation atomicOperation);
+  @Nullable K firstKey(AtomicOperation atomicOperation);
 
-  @Nullable
-  K lastKey(AtomicOperation atomicOperation);
+  @Nullable K lastKey(AtomicOperation atomicOperation);
 
   Stream<K> keyStream(AtomicOperation atomicOperation);
 

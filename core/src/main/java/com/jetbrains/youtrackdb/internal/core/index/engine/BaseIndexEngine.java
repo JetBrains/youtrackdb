@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 public interface BaseIndexEngine {
 
@@ -68,4 +69,23 @@ public interface BaseIndexEngine {
    * index engine.
    */
   boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
+
+  /**
+   * Returns per-index statistics for cost-based query optimization.
+   *
+   * <p>Default returns {@code null} — safe for engines that do not support
+   * histograms (e.g., hash indexes with no sorted key stream).
+   */
+  @Nullable default IndexStatistics getStatistics() {
+    return null;
+  }
+
+  /**
+   * Returns the equi-depth histogram for this index, or {@code null} if no
+   * histogram is available (engine does not support histograms, or histogram
+   * has not been built yet).
+   */
+  @Nullable default EquiDepthHistogram getHistogram() {
+    return null;
+  }
 }
