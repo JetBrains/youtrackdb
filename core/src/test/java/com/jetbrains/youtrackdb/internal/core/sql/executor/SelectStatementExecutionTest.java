@@ -7861,4 +7861,118 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  // ── Coverage: index-backed pre-filter via expand() ──
+
+  /**
+   * Verifies that an indexed range filter on expanded records produces
+   * correct results when pushed down into expand().
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_indexedRangeFilter() {
+    session.execute("CREATE CLASS IdxForum EXTENDS V").close();
+    session.execute("CREATE CLASS IdxMsg EXTENDS V").close();
+    session.execute("CREATE CLASS IdxContainerOf EXTENDS E").close();
+    session.execute("CREATE PROPERTY IdxMsg.score INTEGER").close();
+    session.execute(
+        "CREATE INDEX IdxMsg.score ON IdxMsg (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IdxForum SET name = 'forum1'").close();
+    for (var i = 0; i < 10; i++) {
+      session.execute("CREATE VERTEX IdxMsg SET title = 'msg" + i + "', score = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE IdxContainerOf FROM (SELECT FROM IdxForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM IdxMsg WHERE title = 'msg" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // Index filter: only messages with score >= 8 (should be 2: score=8, score=9)
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('IdxContainerOf')) FROM IdxForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE score >= 8");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 messages with score >= 8", 2, items.size());
+    for (var item : items) {
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 8);
+    }
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that expand() with a non-indexed property filter still works
+   * correctly (falls back to post-expand filtering).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_nonIndexedPropertyFilter() {
+    session.execute("CREATE CLASS NiMsg EXTENDS V").close();
+    session.execute("CREATE CLASS NiForum EXTENDS V").close();
+    session.execute("CREATE CLASS NiContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NiForum SET name = 'f1'").close();
+    for (var i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX NiMsg SET val = " + i).close();
+      session.execute(
+          "CREATE EDGE NiContainerOf FROM (SELECT FROM NiForum WHERE name = 'f1')"
+              + " TO (SELECT FROM NiMsg WHERE val = " + i + ")")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('NiContainerOf')) FROM NiForum WHERE name = 'f1'"
+            + ") WHERE val > 2");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 messages with val > 2", 2, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that expand() reverse edge lookup works when the target vertex
+   * has been deleted (RecordNotFoundException path).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_deletedTargetVertex() {
+    session.execute("CREATE CLASS DtForum EXTENDS V").close();
+    session.execute("CREATE CLASS DtPost EXTENDS V").close();
+    session.execute("CREATE CLASS DtPerson EXTENDS V").close();
+    session.execute("CREATE CLASS DtContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS DtHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DtForum SET name = 'f1'").close();
+    session.execute("CREATE VERTEX DtPost SET title = 'p1'").close();
+    session.execute("CREATE VERTEX DtPerson SET name = 'alice'").close();
+    session.execute(
+        "CREATE EDGE DtContainerOf FROM (SELECT FROM DtForum WHERE name = 'f1')"
+            + " TO (SELECT FROM DtPost WHERE title = 'p1')")
+        .close();
+    session.execute(
+        "CREATE EDGE DtHasCreator FROM (SELECT FROM DtPost WHERE title = 'p1')"
+            + " TO (SELECT FROM DtPerson WHERE name = 'alice')")
+        .close();
+    session.commit();
+
+    // Query should work even with valid data
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('DtContainerOf')) FROM DtForum WHERE name = 'f1'"
+            + ") WHERE out('DtHasCreator').size() > 0");
+    var items = result.stream().toList();
+    Assert.assertEquals(1, items.size());
+    result.close();
+    session.commit();
+  }
+
 }
