@@ -2,56 +2,69 @@ Read and follow the workflow for Phase 3 (Execution).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary, plan file structure, episode formats, execution log format,
-   complexity tiers, checklist decomposition rules, review iteration protocol
-2. `.claude/workflow/execution-orchestrator.md` — your
-   role as execution orchestrator: startup protocol, spawning track
-   orchestrators, user interaction model, cross-track impact monitoring,
-   strategy refresh, parallel track management, inline replanning (ESCALATE)
-3. `.claude/workflow/track-orchestrator.md` — track
-   orchestrator role (used when spawning track orchestrator teammates): track
-   review, step decomposition, step executor spawning, episode synthesis,
-   episode capture, track completion, message protocol
+   glossary, plan file structure, scope indicators, review iteration protocol
+2. `.claude/workflow/conventions-execution.md` — execution-specific:
+   episode formats, commit format, code review, complexity tiers,
+   checklist decomposition rules, session state detection, step file content
+3. `.claude/workflow/workflow.md` — session lifecycle,
+   startup protocol (auto-resume), strategy refresh, cross-track impact
+   monitoring, session boundary rules, failure handling, inline replanning
+   (ESCALATE), track completion protocol
+
+After determining which phase to execute, load the phase-specific document:
+- Phase A: `.claude/workflow/track-review.md`
+- Phase B: `.claude/workflow/step-implementation.md`
+- Phase C: `.claude/workflow/track-code-review.md`
+
+Do NOT load phase documents you won't use this session. Prompt files
+(in `.claude/workflow/prompts/`) are read only when spawning the specific
+sub-agent that needs them — do not pre-load them into the main session.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
-The implementation plan is at: adr/<dir-name>/implementation-plan.md
+The implementation plan is at: docs/adr/<dir-name>/implementation-plan.md
 
-You are the **execution orchestrator** — the team lead agent for Phase 3.
-Follow the startup protocol in `execution-orchestrator.md`:
+Follow the startup protocol in `workflow.md`:
 
-1. Read the plan file at `adr/<dir-name>/implementation-plan.md`.
+1. Read the plan file at `docs/adr/<dir-name>/implementation-plan.md`.
 2. Identify all tracks and their status (`[ ]` not started, `[x]` completed,
-   `[~]` skipped). Read track episodes from completed tracks if resuming.
-3. Build the dependency graph from track descriptions.
-4. Create the team (once per plan execution) using `TeamCreate` with the
-   directory name as the team name. Skip if resuming and the team already
-   exists.
-5. Identify the next track(s) to execute. If independent tracks exist with
-   no pending dependencies, propose parallel execution.
-6. Wait for user confirmation. The user may confirm, reorder, skip, or
-   override parallel/sequential recommendation.
-7. Spawn track orchestrator(s) as named teammates (in worktrees for parallel
-   tracks). Each track orchestrator receives:
-   - Track description from the plan
-   - Track episodes from all completed tracks
-   - Relevant decision records and architecture notes
-   - Step file path (`adr/<dir-name>/tracks/track-N.md`)
-   - The full track-orchestrator.md instructions
-8. Monitor step episodes from track orchestrators for cross-track impact.
-9. Present track results to the user at track boundaries.
-10. Run strategy refresh after each completed and user-approved track.
-11. Handle ESCALATE inline — no separate `/replan` command.
+   `[~]` skipped).
+3. Determine session state and auto-resume:
+   - **State A** (track just completed, needs strategy refresh): perform
+     strategy refresh, then proceed to Phase A of the next track.
+   - **State B** (fresh start): identify first uncompleted track, begin
+     Phase A (review + decomposition).
+   - **State C** (mid-track resume): read step file Progress section,
+     resume the next incomplete phase:
+     - `Review + decomposition` incomplete → resume Phase A
+     - Steps incomplete → run Phase B (check for orphan commits from
+       interrupted steps — see step-implementation.md §Phase B Resume)
+     - Steps done, code review incomplete → run Phase C
+     - All phases done → compile track episode, present to user, write
+       to plan file only after user approval
+4. Inform the user of the auto-resume decision. The user can override, but
+   by default proceed without waiting for confirmation.
+5. Load the phase-specific workflow document and execute that phase only.
+6. After the phase completes, end the session. Instruct the user to clear
+   context and re-run `/execute-tracks` for the next phase.
 
-User interaction happens **only** at track boundaries:
-- Track proposal: confirm, reorder, or skip
-- Track complete: approve, request fixes, or request rework
+Each session handles exactly ONE PHASE of one track:
+- Phase A → end session
+- Phase B → end session (or mid-phase checkpoint if 5+ steps done)
+- Phase C → end session
+- Track completion → end session after user approval
+
+User interaction happens at specific points:
+- Session start: auto-resume decision (confirm or override)
 - Strategy refresh: accept recommendation or override
+- Phase complete: user clears session, re-runs `/execute-tracks`
 - Cross-track impact detected: continue, pause, or escalate
-- Failure (unrecoverable): retry, adjust, or escalate
+- Track complete: approve, request fixes, or request rework
+- Step failure (2nd attempt): retry, adjust, or escalate
 
-Everything within a track executes autonomously: track reviews, step
-decomposition, step implementation, code review iterations, episode synthesis,
-and within-track adaptation.
+Everything within a phase executes autonomously: Phase A runs reviews (as
+sub-agents) and decomposes steps; Phase B implements steps with code review
+iterations (code-reviewer sub-agent) and episode production; Phase C runs
+track-level code review (sub-agent).
