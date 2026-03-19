@@ -52,6 +52,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
     return new LinkBagBucketPointer(linkBagId, 0);
   }
 
+  // TODO YTDB-545 Track 3: Replace exact-match lookup with prefix-based search once
+  //  real timestamps are written. Currently ts=0L works because all entries have ts=0.
   @Nullable @Override
   public LinkBagValue get(RID rid, AtomicOperation atomicOperation) {
     final var result = bTree.get(
@@ -61,6 +63,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
     return result;
   }
 
+  // TODO YTDB-545 Track 3: Pass commitTs instead of 0L once SI write path is wired.
   @Override
   public boolean put(AtomicOperation atomicOperation, RID rid, LinkBagValue value) {
     return bTree.put(
@@ -102,6 +105,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
     clear(atomicOperation);
   }
 
+  // TODO YTDB-545 Track 3: Replace with prefix-based lookup + tombstone once SI write path is wired.
   @Nullable @Override
   public LinkBagValue remove(AtomicOperation atomicOperation, RID rid) {
     return bTree.remove(
@@ -117,7 +121,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
       RangeResultListener<RID, LinkBagValue> listener, AtomicOperation atomicOperation) {
     try (final var stream =
         bTree.streamEntriesBetween(
-            new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition(), 0L),
+            new EdgeKey(
+                linkBagId, rid.getCollectionId(), rid.getCollectionPosition(), Long.MIN_VALUE),
             inclusive,
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
@@ -131,10 +136,14 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
   public Spliterator<BTreeReadEntry<RID>> spliteratorEntriesBetween(@Nonnull RID keyFrom,
       boolean fromInclusive, @Nonnull RID keyTo, boolean toInclusive, boolean ascSortOrder,
       AtomicOperation atomicOperation) {
+    // Use Long.MIN_VALUE/MAX_VALUE for ts bounds so the range captures all timestamps
+    // for the specified RIDs, regardless of which ts values the entries carry.
     var spliterator = bTree.spliteratorEntriesBetween(
-        new EdgeKey(linkBagId, keyFrom.getCollectionId(), keyFrom.getCollectionPosition(), 0L),
+        new EdgeKey(
+            linkBagId, keyFrom.getCollectionId(), keyFrom.getCollectionPosition(), Long.MIN_VALUE),
         fromInclusive,
-        new EdgeKey(linkBagId, keyTo.getCollectionId(), keyTo.getCollectionPosition(), 0L),
+        new EdgeKey(
+            linkBagId, keyTo.getCollectionId(), keyTo.getCollectionPosition(), Long.MAX_VALUE),
         toInclusive,
         ascSortOrder, atomicOperation);
     return new TransformingSpliterator(spliterator);
