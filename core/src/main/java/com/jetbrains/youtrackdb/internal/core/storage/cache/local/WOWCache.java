@@ -2496,6 +2496,8 @@ public final class WOWCache extends AbstractWriteCache
       dumpStackTrace(message);
       callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
     }
+    // StoreAndVerify: log only (via formatPageBrokenMessage), return broken page
+    // to caller for best-effort use.
   }
 
   private void assertPageIsBroken(long pageIndex, long fileId, PageFrame pageFrame) {
@@ -2508,6 +2510,8 @@ public final class WOWCache extends AbstractWriteCache
       dumpStackTrace(message);
       callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
     }
+    // StoreAndVerify: log only (via formatPageBrokenMessage), return broken page
+    // to caller for best-effort use.
   }
 
   private String formatPageBrokenMessage(long pageIndex, long fileId) {

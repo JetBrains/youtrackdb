@@ -32,7 +32,8 @@ public final class PageFrame {
   private final StampedLock stampedLock;
 
   // Page identity — set under exclusive lock when frame is assigned to a page.
-  // Read under optimistic stamp to detect frame reuse.
+  // Non-volatile: must only be read under optimistic stamp, shared lock, or
+  // exclusive lock. The StampedLock's memory fence ensures visibility.
   private long fileId;
   private int pageIndex;
 

@@ -126,9 +126,12 @@ public final class PageFramePool {
       PageFrame excess = pool.poll();
       if (excess != null) {
         poolSize.decrementAndGet();
-        // Exclusive lock above already invalidated all stamps on the released frame.
-        // If we're deallocating a different frame here, it was already pooled with
-        // invalidated stamps from its own release cycle.
+        // Deallocation of excess frames is safe because the reference-counting protocol
+        // in CachePointer guarantees no concurrent readers exist for pooled frames:
+        // a frame enters the pool only when CachePointer.decrementReferrer() drops
+        // referrersCount to 0, meaning all caches (ReadCache and WriteCache) have
+        // released their references. The exclusive lock acquired during this frame's
+        // own release cycle already invalidated all its outstanding optimistic stamps.
         allocatedFrames.remove(excess);
         allocator.deallocate(excess.getPointer());
       }
