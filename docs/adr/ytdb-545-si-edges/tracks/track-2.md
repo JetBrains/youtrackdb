@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -41,35 +41,23 @@
   > **Key files:** `AbstractStorage.java` (modified), `EdgeSnapshotIndexCleanupTest.java`
   > (new — 11 tests covering eviction, boundary conditions, tombstones, idempotence)
 
-- [ ] Step 3: Extend AtomicOperation interface and AtomicOperationBinaryTracking with edge snapshot methods
-  > Add 5 new methods to `AtomicOperation` interface (resolves T2):
-  > - `putEdgeSnapshotEntry(EdgeSnapshotKey key, LinkBagValue value)`
-  > - `getEdgeSnapshotEntry(EdgeSnapshotKey key): LinkBagValue`
-  > - `edgeSnapshotSubMapDescending(EdgeSnapshotKey from, EdgeSnapshotKey to):
-  >    Iterable<Map.Entry<EdgeSnapshotKey, LinkBagValue>>`
-  > - `putEdgeVisibilityEntry(EdgeVisibilityKey key, EdgeSnapshotKey value)`
-  > - `containsEdgeVisibilityEntry(EdgeVisibilityKey key): boolean`
+- [x] Step 3: Extend AtomicOperation interface and AtomicOperationBinaryTracking with edge snapshot methods
+  > **What was done:** Added 5 edge snapshot methods to `AtomicOperation` interface and
+  > implemented them in `AtomicOperationBinaryTracking` with lazily-allocated local overlay
+  > buffers (TreeMap for snapshot, HashMap for visibility). Made `MergingDescendingIterator`
+  > generic (`<K extends Comparable<K>, V>`) — clean conversion, no churn in existing code
+  > since only the class declaration and field types changed. Added `flushEdgeSnapshotBuffers()`
+  > and wired it into `commitChanges()` right after `flushSnapshotBuffers()`. Updated
+  > `AtomicOperationsManager.startAtomicOperation()` to pass the 3 new AbstractStorage fields.
+  > Updated `AtomicOperationSnapshotProxyTest` factory to compile with new constructor.
   >
-  > Implement in `AtomicOperationBinaryTracking`:
-  > - Add 3 constructor parameters: `sharedEdgeSnapshotIndex`, `sharedEdgeVisibilityIndex`,
-  >   `edgeSnapshotIndexSize` (all `@Nonnull`) — resolves R4.
-  > - Add lazily-allocated local overlay buffers (resolves T5):
-  >   `@Nullable TreeMap<EdgeSnapshotKey, LinkBagValue> localEdgeSnapshotBuffer`
-  >   `@Nullable HashMap<EdgeVisibilityKey, EdgeSnapshotKey> localEdgeVisibilityBuffer`
-  > - Implement all 5 methods following exact same pattern as collection snapshot methods
-  >   (lines 698-771).
-  > - For `edgeSnapshotSubMapDescending`, the `MergingDescendingIterator` is not generic
-  >   (typed to `SnapshotKey, PositionEntry`). Either make it generic:
-  >   `MergingDescendingIterator<K extends Comparable<K>, V>` or create a parallel
-  >   `EdgeMergingDescendingIterator` — resolves T9. Generic approach preferred if it
-  >   doesn't create excessive churn in existing code.
-  > - Add `flushEdgeSnapshotBuffers()` mirroring `flushSnapshotBuffers()` (lines 773-785).
+  > **What changed from the plan:** Step 4 originally included wiring the flush into
+  > `commitChanges()`, but this was done here since it was a natural part of the implementation.
+  > Step 4 is now focused on tests only.
   >
-  > Update `AtomicOperationsManager.startOperation()` to pass the 3 new `AbstractStorage`
-  > fields to the `AtomicOperationBinaryTracking` constructor. Update `storage.getXxx()` calls.
-  >
-  > **Files**: `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java` (modified),
-  > `AtomicOperationsManager.java` (modified)
+  > **Key files:** `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java`
+  > (modified), `AtomicOperationsManager.java` (modified),
+  > `AtomicOperationSnapshotProxyTest.java` (modified)
 
 - [ ] Step 4: Wire edge snapshot buffer flush into commit path
   > In `AtomicOperationBinaryTracking.commitChanges()`, call `flushEdgeSnapshotBuffers()`
