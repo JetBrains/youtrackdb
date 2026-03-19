@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -31,30 +31,23 @@
   > **Key files:** `PageFrame.java` (new), `PageFramePool.java` (new),
   > `PageFrameTest.java` (new), `PageFramePoolTest.java` (new)
 
-- [ ] Step 2: Add PageFrame support to CachePointer (dual-constructor migration)
-  > Add a second constructor to `CachePointer` accepting `PageFrame` + `PageFramePool`
-  > alongside the existing `Pointer` + `ByteBufferPool` constructor. This enables
-  > incremental caller migration without breaking existing code.
+- [x] Step 2: Add PageFrame support to CachePointer (dual-constructor migration)
+  > **What was done:** Added second constructor `CachePointer(PageFrame, PageFramePool,
+  > long, int)` with `pageFrame`/`framePool` final fields. `decrementReferrer()` routes
+  > to `framePool.release(pageFrame)` when the PageFrame constructor was used, or
+  > `bufferPool.release(pointer)` for the legacy path. Added `getPageFrame()` accessor.
+  > Disambiguated null sentinel in `AtomicOperationBinaryTracking` with explicit
+  > `(Pointer) null` cast. 8 tests covering constructor derivation, pool release routing,
+  > multi-ref counting, null sentinel, legacy compatibility, asymmetric null rejection,
+  > and negative coordinate validation.
   >
-  > New constructor: `CachePointer(PageFrame, PageFramePool, long fileId, int pageIndex)`
-  > - Stores `pageFrame` and `framePool` fields
-  > - Derives `pointer` from `pageFrame.getPointer()` (existing code still works via pointer)
-  > - `getPageFrame()` accessor for future Track 3 use
-  > - `getBuffer()` delegates through `pageFrame.getBuffer()` when pageFrame is present
+  > **What was discovered:** Both constructors match `(null, null, ...)` calls — added
+  > explicit `(Pointer)` cast at the one existing sentinel site. Code review caught
+  > potential silent memory leak from asymmetric `pageFrame != null, framePool == null`
+  > — added constructor guard.
   >
-  > Update `decrementReferrer()`: when `referrersCount` reaches 0 and `pageFrame != null`,
-  > call `framePool.release(pageFrame)` instead of `bufferPool.release(pointer)`.
-  >
-  > Handle null sentinel: `CachePointer(null, null, fileId, pageIndex)` still works (used
-  > by `AtomicOperationBinaryTracking` for metadata-only entries).
-  >
-  > CachePointer's `ReentrantReadWriteLock` and `version` field remain **unchanged** —
-  > lock delegation to PageFrame's StampedLock is deferred to Track 3.
-  >
-  > Tests: existing CachePointer tests pass unchanged. New tests verify PageFrame-based
-  > constructor, release lifecycle, null sentinel case.
-  >
-  > **Key files:** `CachePointer.java` (modified), CachePointer test (modified/new)
+  > **Key files:** `CachePointer.java` (modified), `AtomicOperationBinaryTracking.java`
+  > (modified), `CachePointerPageFrameTest.java` (new)
 
 - [ ] Step 3: Migrate callers to PageFrame-based CachePointer and remove old constructor
   > Update all CachePointer creation sites to use `PageFramePool` → `PageFrame` → new
