@@ -180,22 +180,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newEdge(Vertex from, Vertex to, SchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+  public Edge newEdge(Vertex from, Vertex to, String type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -210,7 +200,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newEdge(Vertex from, Vertex to) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

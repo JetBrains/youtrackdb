@@ -215,7 +215,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public Edge addEdge(Vertex to, String type) {
     checkForBinding();
-    return session.newStatefulEdge(this, to, type == null ? EdgeInternal.CLASS_NAME : type);
+    return session.newEdge(this, to, type == null ? EdgeInternal.CLASS_NAME : type);
   }
 
   @Override

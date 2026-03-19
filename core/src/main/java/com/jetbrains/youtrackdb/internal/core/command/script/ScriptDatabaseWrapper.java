@@ -89,11 +89,11 @@ public class ScriptDatabaseWrapper {
   }
 
   public Edge newEdge(Vertex from, Vertex to) {
-    return this.database.newStatefulEdge(from, to);
+    return this.database.newEdge(from, to);
   }
 
   public Edge newEdge(Vertex from, Vertex to, String edgeClassName) {
-    return this.database.newStatefulEdge(from, to, edgeClassName);
+    return this.database.newEdge(from, to, edgeClassName);
   }
 
   public void delete(DBRecord record) {

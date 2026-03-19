@@ -609,7 +609,7 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     foo = activeTx2.load(foo);
     var activeTx1 = session.getActiveTransaction();
     bar = activeTx1.load(bar);
-    session.newStatefulEdge(foo, bar, "Sees");
+    session.newEdge(foo, bar, "Sees");
     session.commit();
 
     session.begin();

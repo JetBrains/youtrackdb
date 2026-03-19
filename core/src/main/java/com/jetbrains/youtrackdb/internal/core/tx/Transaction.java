@@ -158,7 +158,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
+  Edge newEdge(Vertex from, Vertex to, SchemaClass type);
 
   /**
    * Creates a new Edge
@@ -168,29 +168,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  Edge newStatefulEdge(Vertex from, Vertex to, String type);
-
-  /**
-   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
-   * class.
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
-
-  /**
-   * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
-   * class.
-   *
-   * @param from the starting point vertex
-   * @param to   the endpoint vertex
-   * @param type the edge type
-   * @return the edge
-   */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type);
+  Edge newEdge(Vertex from, Vertex to, String type);
 
   /**
    * Creates a new Vertex of type V
@@ -220,7 +198,7 @@ public interface Transaction {
    * @param to   the endpoint vertex
    * @return the edge
    */
-  Edge newStatefulEdge(Vertex from, Vertex to);
+  Edge newEdge(Vertex from, Vertex to);
 
   /**
    * Loads the record by the Record ID.

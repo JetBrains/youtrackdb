@@ -61,16 +61,16 @@ public class SQLFunctionDijkstraTest {
     v3.setProperty("node_id", "C");
     v4.setProperty("node_id", "D");
 
-    var e1 = tx.newStatefulEdge(v1, v2, "weight");
+    var e1 = tx.newEdge(v1, v2, "weight");
     e1.setProperty("weight", 1.0f);
 
-    var e2 = tx.newStatefulEdge(v2, v3, "weight");
+    var e2 = tx.newEdge(v2, v3, "weight");
     e2.setProperty("weight", 1.0f);
 
-    var e3 = tx.newStatefulEdge(v1, v3, "weight");
+    var e3 = tx.newEdge(v1, v3, "weight");
     e3.setProperty("weight", 100.0f);
 
-    var e4 = tx.newStatefulEdge(v3, v4, "weight");
+    var e4 = tx.newEdge(v3, v4, "weight");
     e4.setProperty("weight", 1.0f);
     tx.commit();
   }
@@ -88,7 +88,7 @@ public class SQLFunctionDijkstraTest {
 
     final List<Vertex> result =
         functionDijkstra.execute(
-            null, null, null, new Object[]{v1, v4, "'weight'"}, context);
+            null, null, null, new Object[] {v1, v4, "'weight'"}, context);
 
     assertEquals(4, result.size());
     assertEquals(v1, result.get(0));

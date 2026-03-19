@@ -2474,7 +2474,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var activeTx = session.getActiveTransaction();
     doc2 = activeTx.load(doc2);
 
-    session.newStatefulEdge(doc1, doc2, edgeClass);
+    session.newEdge(doc1, doc2, edgeClass);
     session.commit();
 
     session.begin();

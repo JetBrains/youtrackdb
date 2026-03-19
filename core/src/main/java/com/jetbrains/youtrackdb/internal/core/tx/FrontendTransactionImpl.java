@@ -1589,27 +1589,15 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newEdge(Vertex from, Vertex to, SchemaClass type) {
     checkIfActive();
-    return session.newStatefulEdge(from, to, type);
+    return session.newEdge(from, to, type);
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
+  public Edge newEdge(Vertex from, Vertex to, String type) {
     checkIfActive();
-    return session.newStatefulEdge(from, to, type);
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
-    checkIfActive();
-    return session.newLightweightEdge(from, to, type);
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
-    checkIfActive();
-    return session.newLightweightEdge(from, to, type);
+    return session.newEdge(from, to, type);
   }
 
   @Override
@@ -1625,9 +1613,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public Edge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newEdge(Vertex from, Vertex to) {
     checkIfActive();
-    return session.newStatefulEdge(from, to);
+    return session.newEdge(from, to);
   }
 
   @Nonnull

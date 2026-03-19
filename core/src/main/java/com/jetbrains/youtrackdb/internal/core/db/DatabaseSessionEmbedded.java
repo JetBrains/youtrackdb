@@ -957,7 +957,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (cls.isEdgeType()) {
       throw new IllegalArgumentException(
           "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
-              + "please use newStatefulEdge() method");
+              + "please use newEdge() method");
     }
     var entity = new EntityImpl(new ChangeableRecordId(), this, className);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
@@ -1062,24 +1062,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return edge;
   }
 
-  public Edge newStatefulEdge(Vertex from, Vertex to, String type) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
-    if (cl == null || !cl.isEdgeType()) {
-      throw new IllegalArgumentException(type + " is not a regular edge class");
-    }
-    if (cl.isAbstract()) {
-      throw new IllegalArgumentException(
-          type + " is an abstract class and can not be used for creation of regular edge");
-    }
-
-    return (Edge) addEdgeInternal(from, to, type);
-  }
-
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+  public Edge newEdge(Vertex from, Vertex to, String type) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -1090,12 +1073,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
     if (cl.isAbstract()) {
       throw new IllegalArgumentException(
-          type + " is abstract. After edge unification, all edges are record-based "
-              + "and abstract classes cannot be used for edge creation. "
-              + "Use createEdgeClass() instead of createLightweightEdgeClass().");
+          type + " is an abstract class and cannot be used for edge creation");
     }
 
-    return addEdgeInternal(from, to, type);
+    return (Edge) addEdgeInternal(from, to, type);
   }
 
   @Nullable public RecordAbstract executeReadRecord(
@@ -2914,18 +2895,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newVertex(type.getName());
   }
 
-  public Edge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newEdge(Vertex from, Vertex to, SchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
-      return newStatefulEdge(from, to, "E");
+      return newEdge(from, to, "E");
     }
 
-    return newStatefulEdge(from, to, type.getName());
-  }
-
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
-    assert assertIfNotActive();
-    return newLightweightEdge(from, to, type.getName());
+    return newEdge(from, to, type.getName());
   }
 
   public RecordIteratorClass browseClass(final @Nonnull String className) {
@@ -3372,7 +3348,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     throw new IllegalStateException(
         "Legacy lightweight edges are no longer supported. "
-            + "All edges are now record-based. Use newStatefulEdge() instead.");
+            + "All edges are now record-based. Use newEdge() instead.");
   }
 
   public void queryStarted(String id, ResultSet resultSet) {
@@ -4465,8 +4441,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newVertex("V");
   }
 
-  public Edge newStatefulEdge(Vertex from, Vertex to) {
-    return newStatefulEdge(from, to, "E");
+  public Edge newEdge(Vertex from, Vertex to) {
+    return newEdge(from, to, "E");
   }
 
   public void command(String query, Object... args)

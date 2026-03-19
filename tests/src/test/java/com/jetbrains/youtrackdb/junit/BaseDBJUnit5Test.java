@@ -551,7 +551,7 @@ public abstract class BaseDBJUnit5Test extends BaseJUnit5Test {
     carNode = activeTx1.load(carNode);
     var activeTx = session.getActiveTransaction();
     motoNode = activeTx.load(motoNode);
-    session.newStatefulEdge(carNode, motoNode);
+    session.newEdge(carNode, motoNode);
 
     var result =
         session.query("select from GraphVehicle").stream().collect(Collectors.toList());

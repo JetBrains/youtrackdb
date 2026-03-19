@@ -523,7 +523,7 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
         var activeTx = session.getActiveTransaction();
         to = activeTx.load(motorcycle);
       }
-      session.newStatefulEdge(from, to);
+      session.newEdge(from, to);
     }
     session.commit();
   }

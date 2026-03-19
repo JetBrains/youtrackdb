@@ -262,7 +262,7 @@ public class SQLUpdateItem extends SimpleNode {
             fromVertex = edge.getVertex(Direction.OUT);
           }
 
-          var newEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
+          var newEdge = session.newEdge(fromVertex, toVertex, edge.getSchemaClass());
           var entityImpl = (EntityImpl) newEdge.asEntity();
 
           entityImpl.movePropertiesFromOtherEntity((EntityImpl)

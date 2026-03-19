@@ -781,8 +781,8 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
     final var target2 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
-    final var edge2 = session.newStatefulEdge(vertex, target2, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge2 = session.newEdge(vertex, target2, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());
@@ -820,7 +820,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -859,7 +859,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -903,7 +903,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -952,7 +952,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -993,7 +993,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());
@@ -1030,7 +1030,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());

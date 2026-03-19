@@ -719,7 +719,7 @@ public class TransactionTest {
     v1.setProperty("name", "Alice");
     var v2 = tx.newVertex("V");
     v2.setProperty("name", "Bob");
-    var edge = tx.newStatefulEdge(v1, v2, "E");
+    var edge = tx.newEdge(v1, v2, "E");
     edge.setProperty("since", 2020);
     var edgeRid = edge.getIdentity();
     tx.commit();
@@ -842,7 +842,7 @@ public class TransactionTest {
       var txWriter = db.begin();
       Vertex vFrom = txWriter.load(v1Rid);
       Vertex vTo = txWriter.load(v2Rid);
-      txWriter.newStatefulEdge(vFrom, vTo, "E");
+      txWriter.newEdge(vFrom, vTo, "E");
       txWriter.commit();
       db.getLocalCache().clear();
       writerCommitted.countDown();
@@ -881,7 +881,7 @@ public class TransactionTest {
       v1.setProperty("name", "X");
       var v2 = tx.newVertex("V");
       v2.setProperty("name", "Y");
-      var edge = tx.newStatefulEdge(v1, v2, "E");
+      var edge = tx.newEdge(v1, v2, "E");
       edge.setProperty("weight", 10);
       var v1Rid = v1.getIdentity();
       var edgeRid = edge.getIdentity();
@@ -896,7 +896,7 @@ public class TransactionTest {
           var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
           try {
             var txReader = dbReader.begin();
-            StatefulEdge eRead = txReader.loadEdge(edgeRid);
+            Edge eRead = txReader.loadEdge(edgeRid);
             Assert.assertEquals(10, (int) eRead.getProperty("weight"));
 
             readerStarted.countDown();
@@ -904,7 +904,7 @@ public class TransactionTest {
 
             // The edge was deleted by the writer, but our snapshot must still see it
             dbReader.getLocalCache().clear();
-            StatefulEdge eAfter = txReader.loadEdge(edgeRid);
+            Edge eAfter = txReader.loadEdge(edgeRid);
             Assert.assertNotNull(
                 "Snapshot isolation: deleted edge must still be visible",
                 eAfter);
@@ -927,7 +927,7 @@ public class TransactionTest {
 
       awaitOrFail(readerStarted);
       var txWriter = db.begin();
-      StatefulEdge eDel = txWriter.loadEdge(edgeRid);
+      Edge eDel = txWriter.loadEdge(edgeRid);
       txWriter.delete(eDel);
       txWriter.commit();
       db.getLocalCache().clear();
@@ -1622,7 +1622,7 @@ public class TransactionTest {
     var tx = db.begin();
     var v1 = tx.newVertex("V");
     var v2 = tx.newVertex("V");
-    var edge = tx.newStatefulEdge(v1, v2, "E");
+    var edge = tx.newEdge(v1, v2, "E");
     edge.setProperty("weight", 1);
     var edgeRid = edge.getIdentity();
     tx.commit();
@@ -1705,7 +1705,7 @@ public class TransactionTest {
       for (int i = 0; i < initialEdgeCount; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "target" + i);
-        tx.newStatefulEdge(v1, target, "E");
+        tx.newEdge(v1, target, "E");
         targets.add(target.getIdentity());
       }
       var v1Rid = v1.getIdentity();
@@ -1749,7 +1749,7 @@ public class TransactionTest {
       for (int i = 0; i < 2; i++) {
         var target = txWriter.newVertex("V");
         target.setProperty("name", "extra" + i);
-        txWriter.newStatefulEdge(vw, target, "E");
+        txWriter.newEdge(vw, target, "E");
       }
       txWriter.commit();
       db.getLocalCache().clear();
@@ -2560,7 +2560,7 @@ public class TransactionTest {
     for (int i = 0; i < 6; i += 2) {
       Vertex from = tx.load(vertexRids.get(i));
       Vertex to = tx.load(vertexRids.get(i + 1));
-      var e = tx.newStatefulEdge(from, to, "E");
+      var e = tx.newEdge(from, to, "E");
       e.setProperty("label", "initial");
       edgeRids.add(e.getIdentity());
     }

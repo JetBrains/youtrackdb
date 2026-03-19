@@ -135,52 +135,52 @@ public class SQLFunctionAstarTest {
     v6.setProperty("lon", -118.243685f);
     v6.setProperty("alt", 400);
 
-    var e1 = session.newStatefulEdge(v1, v2, "has_path");
+    var e1 = session.newEdge(v1, v2, "has_path");
     e1.setProperty("weight", 250.0f);
     e1.setProperty("ptype", "road");
-    var e2 = session.newStatefulEdge(v2, v3, "has_path");
+    var e2 = session.newEdge(v2, v3, "has_path");
     e2.setProperty("weight", 250.0f);
     e2.setProperty("ptype", "road");
-    var e3 = session.newStatefulEdge(v1, v3, "has_path");
+    var e3 = session.newEdge(v1, v3, "has_path");
     e3.setProperty("weight", 1000.0f);
     e3.setProperty("ptype", "road");
-    var e4 = session.newStatefulEdge(v3, v4, "has_path");
+    var e4 = session.newEdge(v3, v4, "has_path");
     e4.setProperty("weight", 250.0f);
     e4.setProperty("ptype", "road");
-    var e5 = session.newStatefulEdge(v2, v4, "has_path");
+    var e5 = session.newEdge(v2, v4, "has_path");
     e5.setProperty("weight", 600.0f);
     e5.setProperty("ptype", "road");
-    var e6 = session.newStatefulEdge(v4, v5, "has_path");
+    var e6 = session.newEdge(v4, v5, "has_path");
     e6.setProperty("weight", 400.0f);
     e6.setProperty("ptype", "road");
-    var e7 = session.newStatefulEdge(v5, v6, "has_path");
+    var e7 = session.newEdge(v5, v6, "has_path");
     e7.setProperty("weight", 300.0f);
     e7.setProperty("ptype", "road");
-    var e8 = session.newStatefulEdge(v3, v6, "has_path");
+    var e8 = session.newEdge(v3, v6, "has_path");
     e8.setProperty("weight", 200.0f);
     e8.setProperty("ptype", "road");
-    var e9 = session.newStatefulEdge(v4, v6, "has_path");
+    var e9 = session.newEdge(v4, v6, "has_path");
     e9.setProperty("weight", 900.0f);
     e9.setProperty("ptype", "road");
-    var e10 = session.newStatefulEdge(v2, v6, "has_path");
+    var e10 = session.newEdge(v2, v6, "has_path");
     e10.setProperty("weight", 2500.0f);
     e10.setProperty("ptype", "road");
-    var e11 = session.newStatefulEdge(v1, v5, "has_path");
+    var e11 = session.newEdge(v1, v5, "has_path");
     e11.setProperty("weight", 100.0f);
     e11.setProperty("ptype", "road");
-    var e12 = session.newStatefulEdge(v4, v1, "has_path");
+    var e12 = session.newEdge(v4, v1, "has_path");
     e12.setProperty("weight", 200.0f);
     e12.setProperty("ptype", "road");
-    var e13 = session.newStatefulEdge(v5, v3, "has_path");
+    var e13 = session.newEdge(v5, v3, "has_path");
     e13.setProperty("weight", 800.0f);
     e13.setProperty("ptype", "road");
-    var e14 = session.newStatefulEdge(v5, v2, "has_path");
+    var e14 = session.newEdge(v5, v2, "has_path");
     e14.setProperty("weight", 500.0f);
     e14.setProperty("ptype", "road");
-    var e15 = session.newStatefulEdge(v6, v5, "has_path");
+    var e15 = session.newEdge(v6, v5, "has_path");
     e15.setProperty("weight", 250.0f);
     e15.setProperty("ptype", "road");
-    var e16 = session.newStatefulEdge(v3, v1, "has_path");
+    var e16 = session.newEdge(v3, v1, "has_path");
     e16.setProperty("weight", 550.0f);
     e16.setProperty("ptype", "road");
     session.commit();
@@ -191,7 +191,7 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
     var ctx = new BasicCommandContext();
 
     session.begin();
@@ -206,7 +206,7 @@ public class SQLFunctionAstarTest {
 
     ctx.setDatabaseSession(session);
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v1, v4, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v1, v4, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -224,7 +224,7 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -237,7 +237,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v1, v6, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -253,8 +253,8 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -267,7 +267,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v1, v6, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -284,8 +284,8 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon", "alt"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon", "alt"});
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -298,7 +298,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v1, v6, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v1, v6, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -315,8 +315,8 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -329,7 +329,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v3, v5, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v3, v5, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -346,8 +346,8 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -366,7 +366,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -386,8 +386,8 @@ public class SQLFunctionAstarTest {
     Map<String, Object> options = new HashMap<String, Object>();
     options.put(SQLFunctionAstar.PARAM_DIRECTION, "out");
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, "EucliDEAN");
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
@@ -407,7 +407,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -428,8 +428,8 @@ public class SQLFunctionAstarTest {
     options.put(SQLFunctionAstar.PARAM_DIRECTION, Direction.OUT);
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
     options.put(SQLFunctionAstar.PARAM_TIE_BREAKER, false);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, HeuristicFormula.EUCLIDEANNOSQR);
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
@@ -449,7 +449,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -469,8 +469,8 @@ public class SQLFunctionAstarTest {
     options.put(SQLFunctionAstar.PARAM_DIRECTION, Direction.BOTH);
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
     options.put(SQLFunctionAstar.PARAM_TIE_BREAKER, false);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, HeuristicFormula.MAXAXIS);
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
@@ -484,7 +484,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -502,8 +502,8 @@ public class SQLFunctionAstarTest {
     options.put(SQLFunctionAstar.PARAM_DIRECTION, Direction.OUT);
     options.put(SQLFunctionAstar.PARAM_PARALLEL, true);
     options.put(SQLFunctionAstar.PARAM_TIE_BREAKER, false);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, HeuristicFormula.CUSTOM);
     options.put(SQLFunctionAstar.PARAM_CUSTOM_HEURISTIC_FORMULA, "myCustomHeuristic");
     var ctx = new BasicCommandContext();
@@ -524,7 +524,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -547,8 +547,8 @@ public class SQLFunctionAstarTest {
     options.put(SQLFunctionAstar.PARAM_TIE_BREAKER, false);
     options.put(SQLFunctionAstar.PARAM_EMPTY_IF_MAX_DEPTH, true);
     options.put(SQLFunctionAstar.PARAM_MAX_DEPTH, 3);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, HeuristicFormula.CUSTOM);
     options.put(SQLFunctionAstar.PARAM_CUSTOM_HEURISTIC_FORMULA, "myCustomHeuristic");
     var ctx = new BasicCommandContext();
@@ -561,7 +561,7 @@ public class SQLFunctionAstarTest {
     v1 = activeTx.load(v1);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
@@ -578,8 +578,8 @@ public class SQLFunctionAstarTest {
     options.put(SQLFunctionAstar.PARAM_TIE_BREAKER, false);
     options.put(SQLFunctionAstar.PARAM_EMPTY_IF_MAX_DEPTH, false);
     options.put(SQLFunctionAstar.PARAM_MAX_DEPTH, 3);
-    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[]{"has_path"});
-    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[]{"lat", "lon"});
+    options.put(SQLFunctionAstar.PARAM_EDGE_TYPE_NAMES, new String[] {"has_path"});
+    options.put(SQLFunctionAstar.PARAM_VERTEX_AXIS_NAMES, new String[] {"lat", "lon"});
     options.put(SQLFunctionAstar.PARAM_HEURISTIC_FORMULA, HeuristicFormula.CUSTOM);
     options.put(SQLFunctionAstar.PARAM_CUSTOM_HEURISTIC_FORMULA, "myCustomHeuristic");
     var ctx = new BasicCommandContext();
@@ -598,7 +598,7 @@ public class SQLFunctionAstarTest {
     v6 = activeTx.load(v6);
 
     final List<Vertex> result =
-        functionAstar.execute(null, null, null, new Object[]{v6, v1, "'weight'", options}, ctx);
+        functionAstar.execute(null, null, null, new Object[] {v6, v1, "'weight'", options}, ctx);
     try (var rs = session.query("select count(*) as count from has_path")) {
       assertEquals((Object) 16L, rs.next().getProperty("count"));
     }
