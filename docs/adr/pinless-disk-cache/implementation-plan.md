@@ -1733,13 +1733,30 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: PageFrame abstraction + PageFramePool
+- [x] Track 2: PageFrame abstraction + PageFramePool
   > Introduce `PageFrame` wrapping `Pointer` + `StampedLock` + page coordinates.
   > Replace `ByteBufferPool` with `PageFramePool`. Frames are pooled and never
   > deallocated during normal operation (protective memory allocation).
   > **Scope:** ~3-4 steps covering PageFrame class, PageFramePool, ByteBufferPool
   > migration, and caller updates (CachePointer, WOWCache, LockFreeReadCache,
   > MemoryFile)
+  >
+  > **Track episode:**
+  > Introduced `PageFrame` (wrapping `Pointer` + `StampedLock` + page coordinates)
+  > and `PageFramePool` (recycling frames with protective memory allocation).
+  > Migrated all 3 production `CachePointer` creation sites (WOWCache,
+  > LockFreeReadCache, MemoryFile) to use `PageFramePool.acquire()` →
+  > `new CachePointer(pageFrame, pool, ...)`. Added `pageFramePool()` lazy accessor
+  > on `ByteBufferPool` as the bridge. Key discoveries: (1) `PageFramePool.acquire()`
+  > must reset buffer position to 0 to match `ByteBufferPool` behavior,
+  > (2) `PageFramePool.clear()` needs an `allocatedFrames` tracking set to deallocate
+  > leaked frames at shutdown, (3) `release()` needed reordering to avoid pool-size
+  > accounting drift. The old `CachePointer(Pointer, ByteBufferPool)` constructor was
+  > retained for ~15 test files — removal deferred to future cleanup. No cross-track
+  > impact: Track 3 can proceed as planned since all production code now uses
+  > PageFrame-backed CachePointers.
+  >
+  > **Step file:** `tracks/track-2.md` (3 steps, 0 failed)
 
 - [ ] Track 3: CachePointer refactoring — delegate lock to PageFrame
   > Remove `ReentrantReadWriteLock` and `version` field from `CachePointer`.
