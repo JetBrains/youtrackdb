@@ -316,7 +316,7 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 4: Unify edge implementations and creation API
+- [x] Track 4: Unify edge implementations and creation API
   > Rename `StatefullEdgeEntityImpl` -> `EdgeEntityImpl` and
   > `YTDBStatefulEdgeImpl` -> `YTDBEdgeImpl`. Add read-time guard in `RidPair`
   > constructor for legacy `primaryRid == secondaryRid` pairs. Remove
@@ -339,6 +339,22 @@ graph TD
   > API unification, VertexEntityImpl link creation simplification,
   > DatabaseSession API unification
   > **Depends on:** Track 3
+  >
+  > **Track episode:**
+  > Unified edge implementations and creation API across 4 steps. Renamed
+  > `StatefullEdgeEntityImpl` → `EdgeEntityImpl` and `YTDBStatefulEdgeImpl`
+  > → `YTDBEdgeImpl`. Collapsed `addStateFulEdge()`/`addLightWeightEdge()`
+  > into single `addEdge()` on `Vertex`. Renamed `newStatefulEdge()` →
+  > `newEdge()` and deleted `newLightweightEdge()` from
+  > `DatabaseSessionEmbedded`/`Transaction`. Added `RidPair.validateEdgePair()`
+  > guard and deleted `ofSingle()`/`isLightweight()`.
+  >
+  > Key discovery: `RidPair` is used for both edge and non-edge LinkBag
+  > entries — non-edge entries legitimately have `primaryRid == secondaryRid`.
+  > Guard moved to explicit `validateEdgePair()` method instead of constructor
+  > guard. No downstream impact — Track 5 proceeds as planned.
+  >
+  > **Step file:** `tracks/track-4.md` (4 steps, 0 failed)
 
 - [ ] Track 5: Unify schema and edge lifecycle
   > Remove `Schema.createLightweightEdgeClass()` and its implementations.
