@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -73,13 +73,17 @@ Plan D4's proposed `BY_VERTEX`/`BY_EDGE` tokens are superseded by the simpler
   > **Key files:** `IndexDefinitionFactory.java` (modified),
   > `SQLCreateIndexTest.java` (modified, +3 tests)
 
-- [ ] Step 3: End-to-end CRUD and dual-index tests
-  > Full integration tests covering:
-  > - Create edges, verify secondary index is maintained (add/remove)
-  > - Query edges by opposite vertex RID via secondary index
-  > - Dual indexes: both primary (BY KEY) and secondary (BY VALUE) on same
-  >   field, verify both are updated correctly on edge add/remove
-  > - Delete edge → both indexes updated
-  > - Bulk operations: multiple edges to same vertex, verify all indexed
-  > - Persistence round-trip: create secondary index with data, close/reopen
-  >   database, verify index still functional
+- [x] Step 3: End-to-end CRUD and dual-index tests
+  > **What was done:** Created `LinkBagSecondaryIndexTest` with 8 integration tests
+  > covering dual primary+secondary index creation, entry removal, mixed/duplicate
+  > targets (NOTUNIQUE index deduplicates (key, docRID) pairs), incremental add via
+  > change tracking, entity deletion clearing both indexes, persistence round-trip
+  > (close/reopen), and transaction rollback. Added class to `EmbeddedTestSuite`.
+  >
+  > **What was discovered:** NOTUNIQUE indexes deduplicate (key, docRID) pairs —
+  > when two LinkBag entries in the same entity have the same secondaryRid, the
+  > secondary index stores 1 entry (not 2). This is consistent with how primary
+  > indexes work.
+  >
+  > **Key files:** `LinkBagSecondaryIndexTest.java` (new),
+  > `EmbeddedTestSuite.java` (modified)
