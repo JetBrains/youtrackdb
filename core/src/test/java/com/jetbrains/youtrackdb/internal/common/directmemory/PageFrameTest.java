@@ -269,48 +269,29 @@ public class PageFrameTest {
   // --- Eviction Stamp Invalidation ---
 
   @Test
-  public void testEvictionCycleInvalidatesOptimisticStamp() {
-    // Simulates the eviction path: an optimistic reader takes a stamp, then eviction
-    // acquires+releases the exclusive lock to invalidate stamps. The reader's validate()
-    // must return false after the eviction cycle.
+  public void testEvictionCycleInvalidatesOptimisticStampAndReassignsFrame() {
+    // Simulates the eviction path: an optimistic reader takes a stamp on a frame assigned
+    // to page (42, 7). Eviction acquires the exclusive lock, reassigns the frame to a
+    // different page (simulating pool reuse), and releases. The reader's validate() must
+    // return false, and the frame now serves a different page.
     var frame = new PageFrame(pointer);
+    long setupStamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(42, 7);
+    frame.releaseExclusiveLock(setupStamp);
+
     long optimisticStamp = frame.tryOptimisticRead();
     assertNotEquals(0, optimisticStamp);
 
-    // Eviction: acquire+release exclusive lock (stamp invalidation barrier)
+    // Eviction: acquire exclusive lock, reassign frame to different page
     long exclusiveStamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(99, 13);
     frame.releaseExclusiveLock(exclusiveStamp);
 
     // Reader detects the invalidation
     assertFalse(frame.validate(optimisticStamp));
-  }
-
-  @Test
-  public void testStampValidationDetectsModificationDuringCopy() {
-    // Simulates WOWCache copy-then-verify: acquire shared lock (get stamp), copy page data,
-    // release shared lock. Then a writer acquires exclusive lock and modifies the page.
-    // The stamp from the copy phase must fail validation.
-    var frame = new PageFrame(pointer);
-
-    // Copy phase: acquire shared lock, capture stamp
-    long sharedStamp = frame.acquireSharedLock();
-    frame.releaseSharedLock(sharedStamp);
-
-    // Writer modifies the page
-    long exclusiveStamp = frame.acquireExclusiveLock();
-    frame.releaseExclusiveLock(exclusiveStamp);
-
-    // Validation: stamp from copy phase is invalid because writer intervened.
-    // Note: we use tryOptimisticRead stamp here since shared lock stamps are not
-    // validated via validate(). The version-to-stamp migration uses the shared lock stamp
-    // stored in WritePageContainer and validates via PageFrame.validate(stamp).
-    // StampedLock.validate(sharedStamp) would throw IllegalMonitorStateException
-    // because the shared lock has been released. The actual validation in production
-    // uses stamps from tryOptimisticRead or validates the shared lock stamp directly.
-    long optimisticStamp = frame.tryOptimisticRead();
-    assertNotEquals(0, optimisticStamp);
-    // Without any intervening exclusive lock, the new stamp validates
-    assertTrue(frame.validate(optimisticStamp));
+    // Frame now serves a different page
+    assertEquals(99, frame.getFileId());
+    assertEquals(13, frame.getPageIndex());
   }
 
   @Test
