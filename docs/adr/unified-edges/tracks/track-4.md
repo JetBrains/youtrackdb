@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -60,19 +60,20 @@
   > `ScriptDatabaseWrapper.java` (modified), `SQLUpdateItem.java` (modified),
   > `VertexEntityImpl.java` (modified), plus 13 test files across core and tests modules
 
-- [ ] Step 4: RidPair legacy guard — add compact constructor, delete `ofSingle()` and `isLightweight()`
-  > Add compact constructor to `RidPair` record that throws
-  > `IllegalStateException` when `primaryRid.equals(secondaryRid)`, with
-  > descriptive message about legacy lightweight edges and YTDB-605.
+- [x] Step 4: RidPair legacy guard — add `validateEdgePair()`, delete `ofSingle()` and `isLightweight()`
+  > **What was done:** Deleted `RidPair.ofSingle()` and `RidPair.isLightweight()`.
+  > Added `validateEdgePair()` method that throws `IllegalStateException` when
+  > `primaryRid == secondaryRid`. Replaced `testOfSingleCreatesLightweightPair`
+  > with `testValidateEdgePairRejectsEqualRids`. Replaced all 10
+  > `isLightweight()` assertions in `DoubleSidedEdgeLinkBagTest` with
+  > `assertNotEquals(pair.primaryRid(), pair.secondaryRid())`.
   >
-  > Delete `RidPair.ofSingle()` factory method (no callers after Step 2
-  > deleted lightweight paths). Delete `RidPair.isLightweight()` method.
+  > **What changed from the plan:** The plan specified a compact constructor
+  > guard, but `RidPair` is used for both edge and non-edge LinkBag entries —
+  > non-edge entries legitimately have `primaryRid == secondaryRid`. Moved the
+  > guard to an explicit `validateEdgePair()` method instead. `EdgeIterator`
+  > already has an equivalent runtime guard (checks if loaded entity is a
+  > vertex instead of an edge record).
   >
-  > Update tests:
-  > - `VertexFromLinkBagIteratorTest.testOfSingleCreatesLightweightPair()` —
-  >   replace with test that verifies `new RidPair(rid, rid)` throws
-  >   `IllegalStateException`
-  > - `DoubleSidedEdgeLinkBagTest` — remove all `isLightweight()` assertions
-  >   (lines ~105, 122, 162, 179, 217, 285, 295, 336, 346, 822); replace
-  >   lightweight assertions with `assertNotEquals(pair.primaryRid(),
-  >   pair.secondaryRid())` where appropriate
+  > **Key files:** `RidPair.java` (modified), `VertexFromLinkBagIteratorTest.java`
+  > (modified), `DoubleSidedEdgeLinkBagTest.java` (modified)
