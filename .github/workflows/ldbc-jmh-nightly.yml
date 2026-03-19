@@ -16,7 +16,7 @@ on:
         default: 'develop'
 
 concurrency:
-  group: ldbc-jmh-nightly
+  group: ldbc-jmh-nightly-${{ github.event_name }}
   cancel-in-progress: false
 
 env:
@@ -50,9 +50,16 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          if [ -z "$SSH_PRIVATE_KEY" ]; then
+            echo "::error::SSH_PRIVATE_KEY secret is not set"
+            exit 1
+          fi
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          # Verify the key is valid
+          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
+          echo "SSH key fingerprint: $(ssh-keygen -lf ~/.ssh/id_ed25519)"
 
       - name: Install hcloud CLI
         run: |
@@ -80,14 +87,20 @@ jobs:
           echo "Server IP: $ip"
 
           # Wait for SSH to become available
+          ssh_ready=false
           for i in $(seq 1 30); do
             if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
                 root@"$ip" 'echo ok' 2>/dev/null; then
               echo "SSH ready after $i attempts"
+              ssh_ready=true
               break
             fi
             sleep 5
           done
+          if [ "$ssh_ready" != "true" ]; then
+            echo "::error::SSH connection to $ip failed after 30 attempts"
+            exit 1
+          fi
 
       - name: Install JDK 21 and tools
         run: |
@@ -115,6 +128,7 @@ jobs:
             git config --global user.email "bench@ci"
             git config --global user.name "bench"
             cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
+            git tag spotless-baseline
           '
 
       - name: Download LDBC dataset from S3
@@ -123,31 +137,35 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} "
+          SERVER_IP="${{ steps.server.outputs.ip }}"
+
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            'apt-get install -y -qq python3-pip > /dev/null 2>&1 && pip install --break-system-packages boto3 -q'
+
+          # Pipe the download script over SSH stdin to avoid YAML indentation issues
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
+          print('Downloading dataset from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
+              '/tmp/dataset.tar.zst')
+          print('Downloaded from S3')
+          PYEOF
+
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
             set -euo pipefail
-            apt-get install -y -qq python3-pip > /dev/null 2>&1
-            pip install --break-system-packages boto3 -q
-
-            python3 -c \"
-import boto3, os
-s3 = boto3.client('s3',
-    endpoint_url='${S3_ENDPOINT}',
-    aws_access_key_id='${AWS_ACCESS_KEY_ID}',
-    aws_secret_access_key='${AWS_SECRET_ACCESS_KEY}')
-os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
-print('Downloading dataset from S3...')
-s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
-    '/tmp/dataset.tar.zst')
-print('Downloaded from S3')
-\"
-
             cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1
             zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
             tar xf /tmp/dataset.tar
             rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
-            echo 'Dataset extracted'
+            echo "Dataset extracted"
             ls -la static/ dynamic/
-          "
+          '
 
       - name: Compile
         run: |
@@ -160,15 +178,17 @@ print('Downloaded from S3')
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
-              -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
+              -Djmh.args="LdbcSingleThread.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
           '
 
       - name: Run benchmarks
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
               -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
               2>&1 | tee /root/bench.log
           '
