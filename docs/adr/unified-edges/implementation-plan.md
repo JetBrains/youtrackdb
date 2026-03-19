@@ -313,6 +313,8 @@ graph TD
   > No cross-track impact — Track 4 proceeds as planned.
   >
   > **Step file:** `tracks/track-3.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 4: Unify edge implementations and creation API
   > Rename `StatefullEdgeEntityImpl` -> `EdgeEntityImpl` and
