@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -74,18 +74,17 @@
   > **Key files:** `AtomicOperationSnapshotProxyTest.java` (modified — 23 new tests,
   > from 52 to 75 total)
 
-- [ ] Step 5: Integration test for edge snapshot lifecycle (put → flush → cleanup)
-  > Write a focused integration test that exercises the full lifecycle:
-  > 1. Create edge snapshot and visibility entries via `AtomicOperation`
-  > 2. Commit the operation (flush to shared maps)
-  > 3. Verify entries are in shared maps with correct values
-  > 4. Advance LWM past the entries' `recordTs`
-  > 5. Call `evictStaleEdgeSnapshotEntries()` and verify entries are removed
-  > 6. Verify size counter decremented correctly
+- [x] Step 5: Integration test for edge snapshot lifecycle (put → flush → cleanup)
+  > **What was done:** Created `EdgeSnapshotLifecycleTest` with 9 integration tests
+  > verifying the full lifecycle at the shared-map level. Tests cover: populate → query
+  > → evict → verify cleanup, LWM boundary survival, multi-component independent
+  > eviction, mixed collection+edge scenarios (bidirectional isolation — evicting one
+  > doesn't affect the other), multi-transaction accumulation for the same logical edge,
+  > tombstone entry lifecycle, and descending subMap query pattern for newest-version
+  > lookup.
   >
-  > Also test:
-  > - Mixed scenario: both collection and edge snapshot entries in the same transaction
-  > - Edge entries survive cleanup when LWM is below their `recordTs`
-  > - Multiple edge entries for different components/ridBagIds cleaned independently
+  > **What changed from the plan:** Used shared maps directly rather than going through
+  > AtomicOperationBinaryTracking (which is package-private to `atomicoperations`). The
+  > commit flush pathway is already tested in AtomicOperationSnapshotProxyTest (Step 4).
   >
-  > **Files**: `EdgeSnapshotLifecycleTest.java` (new)
+  > **Key files:** `EdgeSnapshotLifecycleTest.java` (new — 9 tests)
