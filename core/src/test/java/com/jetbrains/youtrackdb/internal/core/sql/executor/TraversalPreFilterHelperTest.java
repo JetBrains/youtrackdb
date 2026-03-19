@@ -1,8 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import org.junit.After;
 import org.junit.Test;
 
@@ -200,5 +205,80 @@ public class TraversalPreFilterHelperTest {
 
     GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(200);
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(200);
+  }
+
+  // =========================================================================
+  // toRid — type-based RID extraction
+  // =========================================================================
+
+  /** Null input returns null. */
+  @Test
+  public void toRid_nullInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid(null)).isNull();
+  }
+
+  /** A RecordId (which implements RID) is returned directly. */
+  @Test
+  public void toRid_ridInput_returnsSameInstance() {
+    RID rid = new RecordId(10, 5);
+    assertThat(TraversalPreFilterHelper.toRid(rid)).isSameAs(rid);
+  }
+
+  /** An Identifiable returns its identity. */
+  @Test
+  public void toRid_identifiableInput_returnsIdentity() {
+    var rid = new RecordId(7, 3);
+    var identifiable = mock(Identifiable.class);
+    when(identifiable.getIdentity()).thenReturn(rid);
+
+    assertThat(TraversalPreFilterHelper.toRid(identifiable)).isSameAs(rid);
+  }
+
+  /** A non-RID, non-Identifiable object returns null. */
+  @Test
+  public void toRid_stringInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid("not-a-rid")).isNull();
+  }
+
+  /** An integer returns null. */
+  @Test
+  public void toRid_integerInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid(42)).isNull();
+  }
+
+  // =========================================================================
+  // intersect — delegation to RidSet.intersect
+  // =========================================================================
+
+  /** Both null returns null. */
+  @Test
+  public void intersect_bothNull_returnsNull() {
+    assertThat(TraversalPreFilterHelper.intersect(null, null)).isNull();
+  }
+
+  /** One null returns the other. */
+  @Test
+  public void intersect_oneNull_returnsOther() {
+    var set = new RidSet();
+    set.add(new RecordId(1, 1));
+    assertThat(TraversalPreFilterHelper.intersect(set, null)).isSameAs(set);
+    assertThat(TraversalPreFilterHelper.intersect(null, set)).isSameAs(set);
+  }
+
+  /** Two overlapping sets return the intersection. */
+  @Test
+  public void intersect_overlappingSets_returnsIntersection() {
+    var a = new RidSet();
+    a.add(new RecordId(10, 1));
+    a.add(new RecordId(10, 2));
+
+    var b = new RidSet();
+    b.add(new RecordId(10, 2));
+    b.add(new RecordId(10, 3));
+
+    var result = TraversalPreFilterHelper.intersect(a, b);
+    assertThat(result).isNotNull();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.contains(new RecordId(10, 2))).isTrue();
   }
 }
