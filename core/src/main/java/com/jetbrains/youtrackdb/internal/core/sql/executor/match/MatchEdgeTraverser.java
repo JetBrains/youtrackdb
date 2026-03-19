@@ -3,11 +3,15 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -16,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -99,6 +104,13 @@ public class MatchEdgeTraverser implements ExecutionStream {
 
   /** The AST path item describing the traversal method, filter, and WHILE clause. */
   protected SQLMatchPathItem item;
+
+  /**
+   * Pre-filter RIDs resolved from the {@link RidFilterDescriptor} attached to the
+   * current edge. Set by {@link #executeTraversal} before calling
+   * {@link #traversePatternEdge} so subclasses can access it.
+   */
+  @Nullable protected Set<RID> currentPreFilterRids;
 
   /** Lazily initialized stream of traversal results. */
   protected ExecutionStream downstream;
@@ -356,6 +368,12 @@ public class MatchEdgeTraverser implements ExecutionStream {
       // ---- Simple (single-hop) mode ----
       // The starting point is NOT included; only immediate neighbors that pass the
       // filter are returned.
+
+      // Pre-filter is resolved lazily inside traversePatternEdge() after
+      // the raw traversal result is available, so the actual link bag size
+      // can drive the adaptive abort decision.
+      this.currentPreFilterRids = null;
+
       var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
       // Skip FilterExecutionStream when no filter criteria exist
@@ -568,6 +586,15 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * The method temporarily sets the `$current` context variable to the starting point
    * so that the method implementation can reference it.
    */
+  /**
+   * Traverses the edge from the starting point. If a
+   * {@link RidFilterDescriptor} is attached to the current edge, it is
+   * resolved <em>after</em> the raw traversal so the actual link bag
+   * size is available for adaptive abort decisions.
+   *
+   * <p>Subclasses (e.g. {@link MatchFieldTraverser}) override this to
+   * implement non-edge traversals.
+   */
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
 
@@ -580,7 +607,38 @@ public class MatchEdgeTraverser implements ExecutionStream {
       iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT, prevCurrent);
     }
 
+    qR = applyPreFilter(qR, iCommandContext);
+
     return toExecutionStream(qR, iCommandContext.getDatabaseSession());
+  }
+
+  /**
+   * Resolves the intersection descriptor (if any) against the raw
+   * traversal result. Uses {@link EdgeTraversal#resolveWithCache} to
+   * avoid rebuilding the RidSet when the same descriptor key applies
+   * across multiple vertices. The per-vertex ratio check is performed
+   * here using the actual link bag size.
+   *
+   * <p>Sets {@link #currentPreFilterRids} for subclass access.
+   */
+  protected Object applyPreFilter(Object qR, CommandContext ctx) {
+    if (edge == null || edge.getIntersectionDescriptor() == null) {
+      return qR;
+    }
+    if (!(qR instanceof VertexFromLinkBagIterable vfli)) {
+      return qR;
+    }
+    int linkBagSize = vfli.size();
+    if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
+      return qR;
+    }
+    var ridSet = edge.resolveWithCache(ctx);
+    if (ridSet != null
+        && TraversalPreFilterHelper.passesRatioCheck(ridSet.size(), linkBagSize)) {
+      this.currentPreFilterRids = ridSet;
+      return vfli.withRidFilter(ridSet);
+    }
+    return qR;
   }
 
   /**

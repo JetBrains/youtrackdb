@@ -1,7 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import javax.annotation.Nullable;
 
 /**
  * A scheduled traversal of a single {@link PatternEdge} in a specific direction.
@@ -54,6 +58,24 @@ public class EdgeTraversal {
   private SQLWhereClause leftFilter;
 
   /**
+   * Pre-filter descriptor for adjacency list intersection. When set, the
+   * traverser resolves this descriptor at runtime to produce a {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet} that is
+   * applied to the edge traversal results, skipping vertices not in the set.
+   */
+  @Nullable private RidFilterDescriptor intersectionDescriptor;
+
+  /**
+   * Cached RidSet from the most recent {@link #resolveWithCache} call.
+   * Built with {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE} so only the
+   * absolute cap applies; per-vertex ratio checks are done externally.
+   */
+  @Nullable private RidSet cachedRidSet;
+
+  /** Cache key corresponding to {@link #cachedRidSet}. */
+  @Nullable private Object cachedResolveKey;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -87,6 +109,45 @@ public class EdgeTraversal {
     return leftFilter;
   }
 
+  @Nullable public RidFilterDescriptor getIntersectionDescriptor() {
+    return intersectionDescriptor;
+  }
+
+  public void setIntersectionDescriptor(
+      @Nullable RidFilterDescriptor intersectionDescriptor) {
+    this.intersectionDescriptor = intersectionDescriptor;
+  }
+
+  /**
+   * Resolves the intersection descriptor with caching. If the descriptor's
+   * {@link RidFilterDescriptor#cacheKey cache key} matches the previous
+   * call, the cached RidSet is returned without rebuilding.
+   *
+   * <p>The RidSet is built with {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE}
+   * so only the absolute cap applies. The caller must perform a per-vertex
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#passesRatioCheck
+   * ratio check} using the actual link bag size.
+   *
+   * @return the cached or freshly built RidSet, or {@code null} if the
+   *     descriptor resolves to too many entries (absolute cap exceeded)
+   */
+  @Nullable public RidSet resolveWithCache(CommandContext ctx) {
+    var desc = intersectionDescriptor;
+    if (desc == null) {
+      return null;
+    }
+    var key = desc.cacheKey(ctx);
+    if (key != null && key.equals(cachedResolveKey)) {
+      return cachedRidSet;
+    }
+    var ridSet = desc.resolve(ctx, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+    if (key != null) {
+      cachedResolveKey = key;
+      cachedRidSet = ridSet;
+    }
+    return ridSet;
+  }
+
   @Override
   public String toString() {
     return edge.toString();
@@ -105,6 +166,9 @@ public class EdgeTraversal {
     if (leftRid != null) {
       copy.leftRid = leftRid.copy();
     }
+    copy.intersectionDescriptor = intersectionDescriptor;
+    // Cache is intentionally not copied — stale data from a previous
+    // execution must not leak into a new plan instance.
     return copy;
   }
 }

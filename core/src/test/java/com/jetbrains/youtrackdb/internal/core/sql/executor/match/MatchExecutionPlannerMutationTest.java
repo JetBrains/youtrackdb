@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import java.util.List;
@@ -516,7 +517,8 @@ public class MatchExecutionPlannerMutationTest {
 
   private PatternEdge mockEdgeWithMethod(String methodName) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(methodName);
+    var id = new SQLIdentifier(methodName);
+    when(method.getMethodName()).thenReturn(id);
     when(method.getParams()).thenReturn(List.of());
     return mockEdge(method);
   }
@@ -524,7 +526,8 @@ public class MatchExecutionPlannerMutationTest {
   private PatternEdge mockEdgeWithMethodAndParam(
       String methodName, String paramString) {
     var method = mockMethodWithBaseExpression(paramString);
-    when(method.getMethodName()).thenReturn(methodName);
+    var id = new SQLIdentifier(methodName);
+    when(method.getMethodName()).thenReturn(id);
     return mockEdge(method);
   }
 

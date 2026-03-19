@@ -3601,4 +3601,320 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ====================================================================
+  // Back-reference intersection tests (MATCH adjacency list intersection)
+  // ====================================================================
+
+  /**
+   * Tests the core back-reference intersection optimization using a single
+   * connected pattern:
+   * {person}.in('HasCreator'){post}.in('ContainerOf'){forum}
+   *   .out('ContainerOf'){post2}.out('HasCreator'){creator,
+   *     where: (@rid = $matched.person.@rid)}
+   *
+   * Setup: Forum1 contains Post1, Post2, Post3.
+   * Post1 created by PersonA, Post2 by PersonB, Post3 by PersonA.
+   * The optimization pre-loads PersonA.in(HasCreator) and intersects it
+   * with Forum1.out(ContainerOf), so only posts by PersonA are loaded.
+   */
+  @Test
+  public void testMatchBackReferenceIntersection() {
+    session.execute("CREATE class MPersonV extends V").close();
+    session.execute("CREATE class MPostV extends V").close();
+    session.execute("CREATE class MForumV extends V").close();
+    session.execute("CREATE class MContainerOf extends E").close();
+    session.execute("CREATE class MHasCreator extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post1'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post2'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post3'").close();
+    session.execute("CREATE VERTEX MPersonV set name = 'PersonA'").close();
+    session.execute("CREATE VERTEX MPersonV set name = 'PersonB'").close();
+
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post2')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post3')")
+        .close();
+
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post1') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonA')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post2') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonB')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post3') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonA')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // Single connected pattern: person → posts → forum → all posts → creator = person
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonV, as: person, where: (name = 'PersonA')}"
+            + "   .in('MHasCreator'){as: post}"
+            + "   .in('MContainerOf'){as: forum}"
+            + "   .out('MContainerOf'){as: post2}"
+            + "   .out('MHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title as title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    // PersonA authored Post1 and Post3 in Forum1.
+    assertTrue("Should find Post1", titles.contains("Post1"));
+    assertTrue("Should find Post3", titles.contains("Post3"));
+    assertFalse("Should NOT find Post2", titles.contains("Post2"));
+    session.commit();
+  }
+
+  /**
+   * Tests that the back-reference intersection returns zero results when
+   * no posts in the forum belong to the target person. Uses a single
+   * connected pattern through a Knows edge.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionNoMatch() {
+    session.execute("CREATE class MPersonBV extends V").close();
+    session.execute("CREATE class MPostBV extends V").close();
+    session.execute("CREATE class MForumBV extends V").close();
+    session.execute("CREATE class MContainerOfB extends E").close();
+    session.execute("CREATE class MHasCreatorB extends E").close();
+    session.execute("CREATE class MKnowsB extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumBV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MPostBV set title = 'Post1'").close();
+    session.execute("CREATE VERTEX MPostBV set title = 'Post2'").close();
+    session.execute("CREATE VERTEX MPersonBV set name = 'PersonA'").close();
+    session.execute("CREATE VERTEX MPersonBV set name = 'PersonB'").close();
+
+    // PersonA knows PersonB
+    session.execute(
+        "CREATE EDGE MKnowsB from"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonB')")
+        .close();
+
+    // Forum1 contains Post1, Post2 — both by PersonA
+    session.execute(
+        "CREATE EDGE MContainerOfB from"
+            + " (SELECT FROM MForumBV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostBV WHERE title = 'Post1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfB from"
+            + " (SELECT FROM MForumBV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostBV WHERE title = 'Post2')")
+        .close();
+
+    session.execute(
+        "CREATE EDGE MHasCreatorB from"
+            + " (SELECT FROM MPostBV WHERE title = 'Post1') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorB from"
+            + " (SELECT FROM MPostBV WHERE title = 'Post2') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // PersonA → knows → PersonB. PersonB has no posts.
+    // Find PersonB's posts in Forum1 — none exist.
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonBV, as: starter, where: (name = 'PersonA')}"
+            + "   .out('MKnowsB'){as: friend}"
+            + "   .in('MHasCreatorB'){as: friendPost}"
+            + "   .in('MContainerOfB'){as: forum}"
+            + "   .out('MContainerOfB'){as: post}"
+            + "   .out('MHasCreatorB'){as: creator,"
+            + "     where: (@rid = $matched.friend.@rid)}"
+            + " RETURN post.title as title")
+        .toList();
+
+    // PersonB has no posts, so friendPost step yields nothing
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Tests back-reference intersection with multiple forums in a single
+   * connected pattern, verifying that each forum independently intersects
+   * its posts with the person's authored posts.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionMultipleForums() {
+    session.execute("CREATE class MPersonCV extends V").close();
+    session.execute("CREATE class MPostCV extends V").close();
+    session.execute("CREATE class MForumCV extends V").close();
+    session.execute("CREATE class MContainerOfC extends E").close();
+    session.execute("CREATE class MHasCreatorC extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumCV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MForumCV set name = 'Forum2'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P1'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P2'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P3'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P4'").close();
+    session.execute("CREATE VERTEX MPersonCV set name = 'Alice'").close();
+    session.execute("CREATE VERTEX MPersonCV set name = 'Bob'").close();
+
+    // Forum1 contains P1, P2; Forum2 contains P3, P4
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P2')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum2') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P3')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum2') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P4')")
+        .close();
+
+    // P1 by Alice, P2 by Bob, P3 by Alice, P4 by Bob
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P1') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P2') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P3') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P4') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Bob')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // person → posts → forums → all posts in forum → filter by person
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonCV, as: person, where: (name = 'Alice')}"
+            + "   .in('MHasCreatorC'){as: myPost}"
+            + "   .in('MContainerOfC'){as: forum}"
+            + "   .out('MContainerOfC'){as: post}"
+            + "   .out('MHasCreatorC'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN forum.name as forumName, post.title as title"
+            + " ORDER BY title")
+        .toList();
+
+    // Alice authored P1 (Forum1) and P3 (Forum2).
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    assertTrue("Should find P1", titles.contains("P1"));
+    assertTrue("Should find P3", titles.contains("P3"));
+    assertFalse("Should NOT find P2", titles.contains("P2"));
+    assertFalse("Should NOT find P4", titles.contains("P4"));
+    session.commit();
+  }
+
+  /**
+   * Tests that back-reference intersection works with in() traversal
+   * direction on the intermediate edge.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionReverseDirection() {
+    session.execute("CREATE class MNodeDV extends V").close();
+    session.execute("CREATE class MLinkD extends E").close();
+    session.execute("CREATE class MCreatedByD extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Container1'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Item1'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Item2'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Owner1'").close();
+
+    // Item1 -> Container1, Item2 -> Container1
+    session.execute(
+        "CREATE EDGE MLinkD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item1') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Container1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MLinkD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item2') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Container1')")
+        .close();
+
+    // Item1 created by Owner1
+    session.execute(
+        "CREATE EDGE MCreatedByD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item1') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Owner1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // owner → in(CreatedByD) → items → out(LinkD) → container
+    // → in(LinkD) → all items → out(CreatedByD) → filter by owner
+    var result = session.query(
+        "MATCH"
+            + " {class: MNodeDV, as: owner, where: (name = 'Owner1')}"
+            + "   .in('MCreatedByD'){as: myItem}"
+            + "   .out('MLinkD'){as: container}"
+            + "   .in('MLinkD'){as: item}"
+            + "   .out('MCreatedByD'){as: creator,"
+            + "     where: (@rid = $matched.owner.@rid)}"
+            + " RETURN item.name as itemName")
+        .toList();
+
+    // Owner1 created Item1. Item1 → Container1. Container1 ← Item1, Item2.
+    // Filter: creator must be Owner1. Only Item1 has CreatedByD → Owner1.
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("itemName"));
+    }
+    assertTrue("Should find Item1", names.contains("Item1"));
+    assertFalse("Should NOT find Item2", names.contains("Item2"));
+    session.commit();
+  }
+
 }
