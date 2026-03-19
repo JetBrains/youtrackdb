@@ -100,4 +100,45 @@ public class SecuritySharedTest extends DbTestBase {
             .get("database.class.Person"));
     session.commit();
   }
+
+  /// Verifies that dropUser correctly deletes a previously created user and returns true,
+  /// and returns false when attempting to drop a non-existent user.
+  @Test
+  public void testDropUser() {
+    var security = session.getSharedContext().getSecurity();
+
+    session.begin();
+    final var readerRole = security.getRole(session, "reader");
+    security.createUser(session, "tempUser", "password", new Role[] {readerRole});
+    session.commit();
+
+    session.begin();
+    Assert.assertNotNull(security.getUser(session, "tempUser"));
+    Assert.assertTrue(security.dropUser(session, "tempUser"));
+    session.commit();
+
+    session.begin();
+    Assert.assertNull(security.getUser(session, "tempUser"));
+    session.commit();
+  }
+
+  /// Verifies that incrementVersion (which recalculates filtered properties via an
+  /// internal query) does not leak an implicit transaction when called outside an
+  /// active transaction.
+  @Test
+  public void testIncrementVersionOutsideTxDoesNotLeakTransaction() {
+    var security = session.getSharedContext().getSecurity();
+
+    // No transaction is active before the call.
+    Assert.assertFalse("Expected no active tx before call", session.isTxActive());
+
+    // incrementVersion calls updateAllFilteredProperties → calculateAllFilteredProperties,
+    // which runs db.query(). That query starts an implicit transaction that must be
+    // rolled back in the finally block.
+    security.incrementVersion(session);
+
+    Assert.assertFalse(
+        "calculateAllFilteredProperties must not leak an implicit transaction",
+        session.isTxActive());
+  }
 }
