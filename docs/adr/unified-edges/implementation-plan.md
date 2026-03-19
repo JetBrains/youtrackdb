@@ -358,7 +358,7 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 5: Unify schema and edge lifecycle
+- [x] Track 5: Unify schema and edge lifecycle
   > Remove `Schema.createLightweightEdgeClass()` and its implementations.
   > Remove the `setAbstract()` enforcement that prevents concrete edge classes.
   > Unify edge iteration in `EdgeIterator` to remove the internal
@@ -377,6 +377,23 @@ graph TD
   > **Scope:** ~4 steps covering schema cleanup, iteration unification,
   > deletion simplification, verification
   > **Depends on:** Track 4
+  >
+  > **Track episode:**
+  > Removed `createLightweightEdgeClass()` from `Schema` API, deleted
+  > `VertexEntityImpl.EdgeType` enum and simplified edge property name
+  > resolution and SQL navigation functions, disabled `OPTIMIZE DATABASE
+  > -LWEDGES` command, and fixed `createLink()` single-Identifiable to
+  > LinkBag fallback to correctly resolve `secondaryRid` via edge record
+  > lookup. Cleaned up `GraphRepair` lightweight repair path and stale
+  > comments.
+  >
+  > Key discovery: The plan's original targets (EdgeIterator branching, edge
+  > deletion simplification) were already handled by Tracks 1-3. Track scope
+  > was redirected during review to actual remaining cleanup targets.
+  >
+  > No cross-track impact — Track 6 proceeds as planned.
+  >
+  > **Step file:** `tracks/track-5.md` (4 steps, 0 failed)
 
 - [ ] Track 6: Index by vertex support
   > Add "index by vertex" capability for LinkBag fields, allowing edges to be
