@@ -251,7 +251,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: Snapshot index infrastructure for link bag entries
+- [x] Track 2: Snapshot index infrastructure for link bag entries
   > **What**: Create the snapshot index types and plumbing for storing old
   > versions of link bag entries, following the same pattern as the collection
   > snapshot index but with edge-specific key types.
@@ -309,6 +309,22 @@ graph LR
   > **Scope:** ~5-6 steps covering new key types, AbstractStorage maps,
   > AtomicOperation interface methods, AtomicOperationBinaryTracking
   > implementation with local buffers, cleanup wiring, and unit tests
+  >
+  > **Track episode:**
+  > Built the complete snapshot index infrastructure for link bag entries,
+  > following the same pattern as the collection snapshot index but with
+  > edge-specific key types. Created `EdgeSnapshotKey` (5-field:
+  > componentId → ridBagId → targetCollection → targetPosition → version)
+  > and `EdgeVisibilityKey` (5-field with recordTs first for efficient LWM
+  > eviction). Added 3 shared maps to `AbstractStorage` with cleanup wired
+  > into the existing `cleanupSnapshotIndex()` flow. Extended
+  > `AtomicOperation` interface with 5 new methods and implemented local
+  > overlay buffers in `AtomicOperationBinaryTracking` with lazy allocation.
+  > Made `MergingDescendingIterator` generic to reuse for edge snapshot
+  > lookups. Fixed a pre-existing bug: missing `snapshotIndexSize` reset in
+  > the delete path. No plan deviations with cross-track impact.
+  >
+  > **Step file:** `tracks/track-2.md` (5 steps, 0 failed)
 
 - [ ] Track 3: SharedLinkBagBTree write path with SI
   > **What**: Modify the write operations (`put`, `remove`) in
