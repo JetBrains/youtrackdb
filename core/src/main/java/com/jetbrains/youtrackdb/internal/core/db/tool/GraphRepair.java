@@ -506,6 +506,7 @@ public class GraphRepair {
     }
   }
 
+  @SuppressWarnings("UnusedVariable")
   private boolean isEdgeBroken(
       DatabaseSessionEmbedded session, final Identifiable vertex,
       final String fieldName,
@@ -543,44 +544,10 @@ public class GraphRepair {
           broken = true;
         } else {
           if (immutableClass.isVertexType()) {
-            // VERTEX -> LIGHTWEIGHT EDGE
-            final var inverseFieldName =
-                getInverseConnectionFieldName(fieldName, true);
-
-            // CHECK THE VERTEX IS IN INVERSE EDGE CONTAINS
-            final var inverseEdgeContainer = record.getProperty(inverseFieldName);
-            if (inverseEdgeContainer == null)
-            // NULL CONTAINER
-            {
-              broken = true;
-            } else {
-
-              switch (inverseEdgeContainer) {
-                case Identifiable identifiable -> {
-                  if (!inverseEdgeContainer.equals(vertex))
-                  // NOT THE SAME
-                  {
-                    broken = true;
-                  }
-                }
-                case Collection<?> objects -> {
-                  if (!((Collection<?>) inverseEdgeContainer).contains(vertex))
-                  // NOT IN COLLECTION
-                  {
-                    broken = true;
-                  }
-                }
-                case LinkBag rids -> {
-                  if (!rids.contains(vertex.getIdentity()))
-                  // NOT IN RIDBAG
-                  {
-                    broken = true;
-                  }
-                }
-                default -> {
-                }
-              }
-            }
+            // After edge unification, vertex RIDs should not appear directly in
+            // edge LinkBags — all entries must be edge records. A vertex RID here
+            // indicates corruption (legacy lightweight edge data).
+            broken = true;
           } else {
             // EDGE -> REGULAR EDGE, OK
             if (record.isEdge()) {

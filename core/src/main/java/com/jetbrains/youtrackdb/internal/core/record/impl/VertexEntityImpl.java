@@ -655,8 +655,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         // In normal edge creation flow this branch is not reached because the first edge
         // creates a LinkBag directly (when propType is null or LINKBAG). It can only be
         // reached if the property was manually set to a single Identifiable externally.
-        // The existing foundId is added as lightweight (primary == secondary) since we
-        // have no secondary RID information for the pre-existing entry.
         if (prop != null && propType == PropertyType.LINK) {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
@@ -673,7 +671,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           outType = PropertyTypeInternal.LINKLIST;
         } else {
           final var bag = new LinkBag(fromVertex.getSession());
-          bag.add(foundId.getIdentity());
+          // Load the pre-existing edge record to determine the opposite vertex RID.
+          // The fieldName prefix determines the direction: out_ means the secondaryRid
+          // is the "in" vertex, in_ means it's the "out" vertex.
+          EntityImpl existingEdge =
+              session.getActiveTransaction().load(foundId);
+          var existingSecondaryRid = resolveSecondaryRid(existingEdge, fieldName);
+          bag.add(foundId.getIdentity(), existingSecondaryRid);
           bag.add(primaryIdentifiable.getIdentity(), secondaryIdentifiable.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
@@ -702,6 +706,25 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     {
       fromVertex.setPropertyInternal(fieldName, out, outType);
     }
+  }
+
+  /// Resolves the secondary RID (opposite vertex) for a pre-existing edge record
+  /// stored in a vertex LinkBag field. The fieldName prefix determines direction:
+  /// "out_" fields store the target vertex ("in"), "in_" fields store the source ("out").
+  private static RID resolveSecondaryRid(EntityImpl edgeRecord, String fieldName) {
+    String oppositeDirection;
+    if (fieldName.startsWith(DIRECTION_OUT_PREFIX)) {
+      oppositeDirection = Edge.DIRECTION_IN;
+    } else if (fieldName.startsWith(DIRECTION_IN_PREFIX)) {
+      oppositeDirection = Edge.DIRECTION_OUT;
+    } else {
+      throw new IllegalArgumentException("Unexpected edge field name: " + fieldName);
+    }
+    Identifiable oppositeVertex = edgeRecord.getPropertyInternal(oppositeDirection);
+    assert oppositeVertex != null
+        : "Edge record " + edgeRecord.getIdentity() + " has no "
+            + oppositeDirection + " vertex";
+    return oppositeVertex.getIdentity();
   }
 
   private static void removeLinkFromEdge(EntityImpl vertex, Edge edge,

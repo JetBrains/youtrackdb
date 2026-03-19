@@ -17,7 +17,7 @@ import javax.annotation.Nullable;
  * is the opposite vertex RID. Missing records are skipped gracefully.
  *
  * <p>Validates each {@link RidPair} via {@link RidPair#validateEdgePair()}
- * to detect legacy lightweight edges (where primaryRid == secondaryRid).
+ * to detect corrupt entries (where primaryRid == secondaryRid).
  *
  * <p>Requires an active transaction on the session.
  *
