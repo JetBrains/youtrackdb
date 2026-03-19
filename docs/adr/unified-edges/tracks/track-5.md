@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -54,15 +54,14 @@ remaining cleanup targets identified by the reviews:
   > **Key files:** `VertexEntityImpl.java` (modified),
   > `SQLGraphNavigationFunction.java` (modified)
 
-- [ ] Step 3: Disable `OPTIMIZE DATABASE LWEDGES` command
-  > Replace the body of `SQLOptimizeDatabaseStatement.optimizeEdges()` with
-  > a throw of `UnsupportedOperationException` explaining that lightweight
-  > edge conversion is no longer supported after edge unification. Keep the
-  > method and SQL parsing path intact (no grammar changes) — only the runtime
-  > behavior changes. Update or add a test verifying the exception is thrown.
+- [x] Step 3: Disable `OPTIMIZE DATABASE LWEDGES` command
+  > **What was done:** Replaced `optimizeEdges()` body with
+  > `UnsupportedOperationException` throw. Removed unused imports and dead
+  > `verbose()` method. Fixed pre-existing `"optimize databae"` typo. Updated
+  > test to verify the exception is thrown.
   >
-  > **Target files:** `SQLOptimizeDatabaseStatement.java` (modified),
-  > test file for the exception (new or modified)
+  > **Key files:** `SQLOptimizeDatabaseStatement.java` (modified),
+  > `OptimizeDatabaseExecutionTest.java` (modified)
 
 - [ ] Step 4: Fix `createLink()` fallback path and clean up `GraphRepair` lightweight references
   > Fix `VertexEntityImpl.createLink()` at line 682: the single-arg
