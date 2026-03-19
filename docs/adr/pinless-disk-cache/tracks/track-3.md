@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -31,43 +31,28 @@
   >
   > **Key files:** `PageFrame.java` (modified), `PageFrameTest.java` (modified)
 
-- [ ] Step 2: CachePointer — replace RRWL with PageFrame lock delegation + CacheEntry signature change
-  > **The big-bang signature change step.** All changes are mechanical (type signature
-  > propagation guided by compiler errors) but must happen atomically.
+- [x] Step 2: CachePointer — replace RRWL with PageFrame lock delegation + CacheEntry signature change
+  > **What was done:** Removed RRWL from CachePointer, delegated all lock methods to
+  > PageFrame's StampedLock. Changed CacheEntry interface: acquire methods return long
+  > stamps, releaseSharedLock takes stamp parameter. CacheEntryImpl stores exclusive stamp
+  > internally (single-writer safe). Propagated stamp-based API to all callers across 10 files
+  > including WOWCache (5 tryAcquireSharedLock sites), LockFreeReadCache, DiskStorage,
+  > DirectMemoryOnlyDiskCache, and WOWCacheTestIT.
   >
-  > **CachePointer changes:**
-  > - Remove `readWriteLock` field (ReentrantReadWriteLock)
-  > - Delegate `acquireExclusiveLock()` → `pageFrame.acquireExclusiveLock()` (returns long)
-  > - Delegate `releaseExclusiveLock(long stamp)` → `pageFrame.releaseExclusiveLock(stamp)`
-  > - Delegate `acquireSharedLock()` → `pageFrame.acquireSharedLock()` (returns long)
-  > - Delegate `releaseSharedLock(long stamp)` → `pageFrame.releaseSharedLock(stamp)`
-  > - Delegate `tryAcquireSharedLock()` → `pageFrame.tryAcquireSharedLock()` (returns long, 0 = failed)
-  > - Null pageFrame guard: throw `IllegalStateException("Lock on sentinel CachePointer")`
-  >   for sentinel/null-pageFrame path. Existing assert in AtomicOperationBinaryTracking
-  >   already enforces sentinels are never locked.
-  > - Keep `version` field temporarily (still incremented under exclusive lock for WOWCache
-  >   compatibility). Removed in Step 3.
-  > - Remove `isLockAcquiredByCurrentThread()` (RRWL-specific, replaced by PageFrame locking)
+  > **What changed from the plan:** CacheEntry.releaseExclusiveLock() remains parameterless
+  > (stamp stored internally in CacheEntryImpl) instead of taking a stamp parameter. This
+  > avoids threading stamps across loadForWrite/releaseFromWrite boundaries in ReadCache
+  > implementations. CacheEntry.releaseSharedLock(stamp) does take a stamp parameter because
+  > multiple threads hold shared locks on the same CacheEntry. Also removed cache-level shared
+  > lock from DirectMemoryOnlyDiskCache.loadForRead/releaseFromRead (aligned with
+  > LockFreeReadCache where components manage their own locks). tryAcquireSharedLock NOT added
+  > to CacheEntry interface (only used on CachePointer directly by WOWCache).
   >
-  > **CacheEntry interface changes:**
-  > - `void acquireExclusiveLock()` → `long acquireExclusiveLock()`
-  > - `void releaseExclusiveLock()` → `void releaseExclusiveLock(long stamp)`
-  > - `void acquireSharedLock()` → `long acquireSharedLock()`
-  > - `void releaseSharedLock()` → `void releaseSharedLock(long stamp)`
-  > - `boolean tryAcquireSharedLock()` → `long tryAcquireSharedLock()`
-  >
-  > **Caller propagation (capture stamp → pass to release):**
-  > - `CacheEntryImpl.java` — delegation update
-  > - `CacheEntryChanges.java` — delegation update
-  > - `DiskStorage.java` — lock call sites (~2 locations)
-  > - `LockFreeReadCache.java` — loadForWrite/releaseFromWrite
-  > - `WOWCache.java` — lock call signatures only (version logic unchanged)
-  > - `DirectMemoryOnlyDiskCache.java` — if it calls CacheEntry lock methods
-  >
-  > **Files**: `CachePointer.java`, `CacheEntry.java`, `CacheEntryImpl.java`,
-  > `CacheEntryChanges.java`, `DiskStorage.java`, `LockFreeReadCache.java`,
-  > `WOWCache.java`, `DirectMemoryOnlyDiskCache.java`
-  > (all modified; ~10 files, single semantic change)
+  > **Key files:** `CachePointer.java` (modified), `CacheEntry.java` (modified),
+  > `CacheEntryImpl.java` (modified), `CacheEntryChanges.java` (modified),
+  > `LockFreeReadCache.java` (modified), `WOWCache.java` (modified),
+  > `DiskStorage.java` (modified), `DirectMemoryOnlyDiskCache.java` (modified),
+  > `AtomicOperationBinaryTracking.java` (modified), `WOWCacheTestIT.java` (modified)
 
 - [ ] Step 3: WOWCache version → stamp migration
   > Replace the version-based copy-then-verify protocol with stamp-based validation.
