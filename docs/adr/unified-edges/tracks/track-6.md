@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -59,18 +59,19 @@ Plan D4's proposed `BY_VERTEX`/`BY_EDGE` tokens are superseded by the simpler
   > `SchemaPropertyLinkBagSecondaryAbstractIndexDefinition.java` (new),
   > `SchemaPropertyEmbeddedLinkBagSecondaryIndexDefinitionTest.java` (new)
 
-- [ ] Step 2: Route `BY VALUE` to secondary index in `IndexDefinitionFactory`
-  > Modify the LINKBAG branch in `createSingleFieldIndexDefinition()` (line
-  > 238-239) to check the `indexBy` parameter:
-  > - `INDEX_BY.VALUE` → create `PropertyLinkBagSecondaryIndexDefinition`
-  > - `INDEX_BY.KEY` or `null` → create `PropertyLinkBagIndexDefinition`
-  >   (existing behavior, backward compatible)
+- [x] Step 2: Route `BY VALUE` to secondary index in `IndexDefinitionFactory`
+  > **What was done:** Modified LINKBAG branch in `createSingleFieldIndexDefinition()`
+  > to check `indexBy == INDEX_BY.VALUE` and create `PropertyLinkBagSecondaryIndexDefinition`.
+  > Default/BY KEY path unchanged. Added 3 integration tests in `SQLCreateIndexTest`:
+  > BY VALUE creation, BY KEY creation, and persistence round-trip (close/reopen).
   >
-  > Add integration tests:
-  > - `CREATE INDEX ... ON ... (field BY VALUE)` creates secondary definition
-  > - `CREATE INDEX ... ON ... (field)` creates primary definition (default)
-  > - `CREATE INDEX ... ON ... (field BY KEY)` creates primary definition
-  > - DDL round-trip: create index → persist → reload → verify correct type
+  > **What was discovered:** The existing `extractMapIndexSpecifier()` already returns
+  > `INDEX_BY.KEY` as default for bare field names, so `null` indexBy never reaches the
+  > factory for SQL-parsed indexes. No grammar changes needed — `BY KEY`/`BY VALUE` syntax
+  > is already parsed for maps and works identically for LINKBAG.
+  >
+  > **Key files:** `IndexDefinitionFactory.java` (modified),
+  > `SQLCreateIndexTest.java` (modified, +3 tests)
 
 - [ ] Step 3: End-to-end CRUD and dual-index tests
   > Full integration tests covering:
