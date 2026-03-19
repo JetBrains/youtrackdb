@@ -14,7 +14,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Iterator over edges connected to a vertex, with optional label filtering.
+ * Iterator over edges connected to a vertex.
  * Loads edge records lazily and skips null/missing entries.
  */
 public class EdgeIterator implements Iterator<EdgeInternal>, Resettable, Sizeable {
@@ -62,6 +62,7 @@ public class EdgeIterator implements Iterator<EdgeInternal>, Resettable, Sizeabl
     if (iterator instanceof Resettable resettable) {
       resettable.reset();
       nextEdge = null;
+      return;
     }
     throw new UnsupportedOperationException("Reset is not supported");
   }
