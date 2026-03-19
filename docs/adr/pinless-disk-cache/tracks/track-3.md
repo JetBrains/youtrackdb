@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -54,25 +54,24 @@
   > `DiskStorage.java` (modified), `DirectMemoryOnlyDiskCache.java` (modified),
   > `AtomicOperationBinaryTracking.java` (modified), `WOWCacheTestIT.java` (modified)
 
-- [ ] Step 3: WOWCache version → stamp migration
-  > Replace the version-based copy-then-verify protocol with stamp-based validation.
+- [x] Step 3: WOWCache version → stamp migration
+  > **What was done:** Replaced CachePointer's version-based copy-then-verify with
+  > StampedLock stamp validation. WritePageContainer now stores `pageStamp` (the shared
+  > lock stamp from copy) instead of `pageVersion`. Three copy sites use the already-captured
+  > `sharedStamp`. removeWrittenPagesFromCache validates via `pageFrame.validate(stamp)` —
+  > no shared lock needed (just a volatile read). Removed `version` field and `getVersion()`
+  > from CachePointer. Made PageFrame constructor public. Legacy CachePointer constructor now
+  > creates standalone PageFrame for lock delegation (fixing test failures).
   >
-  > **Changes:**
-  > - Remove `version` field from `CachePointer` (and `getVersion()`/increment logic)
-  > - Update copy phase (3 sites: ~lines 2900, 3354, 3499): capture stamp from
-  >   `acquireSharedLock()`, store in `WritePageContainer` instead of version
-  > - Update `WritePageContainer` record: `long pageVersion` → `long pageStamp`
-  > - Update remove phase (`removeWrittenPagesFromCache`, ~line 3110): replace
-  >   `version == pointer.getVersion()` with `pageFrame.validate(chunkPage.pageStamp)`
-  > - Update `tryAcquireSharedLock` call sites in WOWCache (4 sites): change from
-  >   boolean-based `if (pointer.tryAcquireSharedLock())` to stamp-based
-  >   `long stamp = pointer.tryAcquireSharedLock(); if (stamp != 0)`
-  > - Add documentation comments explaining stamp validation equivalence:
-  >   "validate(stamp) returns false if any exclusive lock was acquired since stamp
-  >   was issued — identical to version mismatch, since version only increments under
-  >   exclusive lock"
+  > **What was discovered:** Legacy `CachePointer(Pointer, ByteBufferPool)` constructor was
+  > used by many tests and the LockFreeReadCacheBatchingTest mock WriteCache. These created
+  > CachePointers with null pageFrame, causing IllegalStateException on lock calls. Fixed by
+  > creating standalone (non-pooled) PageFrame in the legacy constructor when pointer is
+  > non-null. tryAcquireSharedLock sites were already updated in Step 2.
   >
-  > **Files**: `CachePointer.java` (modified — remove version), `WOWCache.java` (modified)
+  > **Key files:** `CachePointer.java` (modified), `WOWCache.java` (modified),
+  > `PageFrame.java` (modified — public constructor), `CachePointerPageFrameTest.java`
+  > (modified)
 
 - [ ] Step 4: Eviction path — stamp invalidation in WTinyLFUPolicy
   > Add exclusive lock cycle to eviction path to invalidate outstanding optimistic stamps
