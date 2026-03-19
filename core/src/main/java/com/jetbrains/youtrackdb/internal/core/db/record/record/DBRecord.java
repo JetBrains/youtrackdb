@@ -27,7 +27,7 @@ import javax.annotation.Nullable;
 /**
  * Generic record representation.
  */
-public interface DBRecord extends Identifiable, Element {
+public interface DBRecord extends Identifiable {
 
   /**
    * Returns true if the record is unloaded.

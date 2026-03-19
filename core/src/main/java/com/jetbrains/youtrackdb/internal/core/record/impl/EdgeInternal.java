@@ -1,12 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.ArrayList;
 import java.util.List;
 
-public interface EdgeInternal extends Edge, Relation<Vertex> {
+public interface EdgeInternal extends Edge {
   static void checkPropertyName(String name) {
     if (isEdgeConnectionProperty(name)) {
       throw new IllegalArgumentException(

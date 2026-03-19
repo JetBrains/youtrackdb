@@ -24,8 +24,8 @@ import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.common.util.SupportsContains;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeIterator;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -146,8 +146,7 @@ public class MultiCollectionIterator<T>
         if (isMapMode != valueIsAMap) {
           throw new IllegalStateException(
               "Type mismatch. Iterator is in " + (isMapMode ? "map" : "collection") + " mode,"
-                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode"
-          );
+                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode");
         }
       }
 
@@ -245,7 +244,7 @@ public class MultiCollectionIterator<T>
         if (o instanceof Set<?> || o instanceof LinkBag) {
           // OK
         } else
-          return o instanceof RelationsIteratorAbstract<?, ?>;
+          return o instanceof EdgeIterator;
       }
     }
 
@@ -256,8 +255,8 @@ public class MultiCollectionIterator<T>
   public boolean contains(final Object value) {
     for (var o : sources) {
       if (o != null) {
-        if (o instanceof RelationsIteratorAbstract<?, ?> bidirectionalLinkIterator) {
-          o = bidirectionalLinkIterator.getMultiValue();
+        if (o instanceof EdgeIterator edgeIterator) {
+          o = edgeIterator.getMultiValue();
         }
 
         if (o instanceof Collection<?>) {

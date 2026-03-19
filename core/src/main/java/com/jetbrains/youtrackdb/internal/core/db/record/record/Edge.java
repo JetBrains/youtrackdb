@@ -25,10 +25,10 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Represents a graph edge connecting two vertices. After unification, every Edge IS-A Entity
- * (has a record, RID, and properties) and IS-A Relation (has from/to vertices).
+ * Represents a graph edge connecting two vertices. Every Edge IS-A Entity (has a record, RID,
+ * and properties) with from/to vertex endpoints.
  */
-public interface Edge extends Entity, Relation<Vertex> {
+public interface Edge extends Entity {
 
   /**
    * The name of the class of the edge record
@@ -59,7 +59,6 @@ public interface Edge extends Entity, Relation<Vertex> {
    *
    * @return the vertex that this edge originates from
    */
-  @Override
   @Nullable Vertex getFrom();
 
   /**
@@ -74,7 +73,6 @@ public interface Edge extends Entity, Relation<Vertex> {
    *
    * @return the vertex that this edge connects to
    */
-  @Override
   @Nullable Vertex getTo();
 
   /**
@@ -83,16 +81,6 @@ public interface Edge extends Entity, Relation<Vertex> {
    * @return the identifiable object from where the edge connects to
    */
   @Nullable Identifiable getToLink();
-
-  /**
-   * Edges are never lightweight after unification — all edges have records. Returns false always.
-   * Kept as a default to satisfy {@link Relation#isLightweight()} until Relation is deleted
-   * (Track 3).
-   */
-  @Override
-  default boolean isLightweight() {
-    return false;
-  }
 
   /**
    * Retrieves the vertex connected to this edge in the specified direction.
@@ -133,7 +121,6 @@ public interface Edge extends Entity, Relation<Vertex> {
    * @param labels the labels to check
    * @return true if the labels match, false otherwise
    */
-  @Override
   boolean isLabeled(@Nonnull String[] labels);
 
   /**
@@ -166,16 +153,19 @@ public interface Edge extends Entity, Relation<Vertex> {
   @Nonnull
   String toJSON();
 
-  // --- Default methods resolving conflicts between Entity and Relation supertypes ---
+  /**
+   * Retrieves the vertex connected to this edge in the specified direction.
+   *
+   * @param dir the direction (IN or OUT)
+   * @return the vertex in the specified direction
+   */
+  Vertex getEntity(@Nonnull Direction dir);
 
   /**
-   * Returns this edge as an Entity. Resolves the conflict between Entity's default asEntity()
-   * and Relation's abstract asEntity().
+   * Returns the schema class name of this edge as its label.
+   *
+   * @return the edge label (schema class name)
    */
-  @Nonnull
-  @Override
-  default Entity asEntity() {
-    return this;
-  }
+  String label();
 
 }
