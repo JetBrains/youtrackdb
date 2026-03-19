@@ -86,7 +86,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation, IndexEngineData data) {
+  public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) {
     try {
       final var sbTypes = calculateTypes(data.getKeyTypes());
       svTree.create(
@@ -105,7 +105,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void delete(AtomicOperation atomicOperation) {
+  public void delete(@Nonnull AtomicOperation atomicOperation) {
     try {
       doClearSVTree(atomicOperation);
       svTree.delete(atomicOperation);
@@ -121,7 +121,7 @@ public final class BTreeMultiValueIndexEngine
     }
   }
 
-  private void doClearSVTree(final AtomicOperation atomicOperation) {
+  private void doClearSVTree(@Nonnull final AtomicOperation atomicOperation) {
     {
       final var firstKey = svTree.firstKey(atomicOperation);
       final var lastKey = svTree.lastKey(atomicOperation);
@@ -166,7 +166,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
+  public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
     var name = data.getName();
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
@@ -179,7 +179,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public boolean remove(final AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean remove(@Nonnull final AtomicOperation atomicOperation, Object key, RID value) {
     try {
       boolean removed;
       if (key != null) {
@@ -228,7 +228,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public void clear(Storage storage, AtomicOperation atomicOperation) {
+  public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     doClearSVTree(atomicOperation);
     var mgr = histogramManager;
     if (mgr != null) {
@@ -254,7 +254,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key, AtomicOperation atomicOperation) {
+  public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     if (key != null) {
       final var firstKey = convertToCompositeKey(key);
       final var lastKey = convertToCompositeKey(key);
@@ -275,7 +275,7 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = svTree.firstKey(atomicOperation);
     if (firstKey == null) {
       return emptyStream();
@@ -296,7 +296,7 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
     final var lastKey = svTree.lastKey(atomicOperation);
     if (lastKey == null) {
       return emptyStream();
@@ -306,12 +306,12 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
+  public Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation) {
     return svTree.keyStream(atomicOperation).map(BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
-  public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     boolean wasInsert;
     if (key != null) {
       try {
@@ -347,7 +347,7 @@ public final class BTreeMultiValueIndexEngine
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     // "from", "to" are null, then scan whole tree as for infinite range
     if (rangeFrom == null && rangeTo == null) {
       return mapSVStream(svTree.allEntries(atomicOperation));
@@ -385,7 +385,7 @@ public final class BTreeMultiValueIndexEngine
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = convertToCompositeKey(fromKey);
     return mapSVStream(
         svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder, atomicOperation));
@@ -396,7 +396,7 @@ public final class BTreeMultiValueIndexEngine
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     final var lastKey = convertToCompositeKey(toKey);
     return mapSVStream(
         svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder, atomicOperation));
@@ -404,16 +404,16 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     return svTreeEntries(atomicOperation);
   }
 
-  private long svTreeEntries(AtomicOperation atomicOperation) {
+  private long svTreeEntries(@Nonnull AtomicOperation atomicOperation) {
     return svTree.size(atomicOperation) + nullTree.size(atomicOperation);
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+  public boolean acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation) {
     svTree.acquireAtomicExclusiveLock(atomicOperation);
     nullTree.acquireAtomicExclusiveLock(atomicOperation);
 

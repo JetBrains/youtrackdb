@@ -148,7 +148,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   @Override
   public void create(
-      final AtomicOperation atomicOperation,
+      @Nonnull final AtomicOperation atomicOperation,
       final BinarySerializer<K> keySerializer,
       final PropertyTypeInternal[] keyTypes,
       final int keySize) {
@@ -242,14 +242,14 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public boolean put(final AtomicOperation atomicOperation,
+  public boolean put(@Nonnull final AtomicOperation atomicOperation,
       final K key, final RID value) {
     return update(atomicOperation, key, value, null) > 0;
   }
 
   @Override
   public int validatedPut(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       final K key,
       final RID value,
       final IndexEngineValidator<K, RID> validator) {
@@ -257,7 +257,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   private int update(
-      final AtomicOperation atomicOperation,
+      @Nonnull final AtomicOperation atomicOperation,
       final K k,
       final RID rid,
       final IndexEngineValidator<K, RID> validator) {
@@ -434,7 +434,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public void delete(final AtomicOperation atomicOperation) {
+  public void delete(@Nonnull final AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -474,7 +474,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public long size(AtomicOperation atomicOperation) {
+  public long size(@Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         try (final var entryPointCacheEntry =
@@ -493,7 +493,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public RID remove(final AtomicOperation atomicOperation, final K key) {
+  public RID remove(@Nonnull final AtomicOperation atomicOperation, final K key) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -976,7 +976,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Override
   public Stream<RawPair<K, RID>> iterateEntriesMinor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> {
       if (!ascSortOrder) {
         return StreamSupport.stream(
@@ -991,7 +991,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Override
   public Stream<RawPair<K, RID>> iterateEntriesMajor(
       final K key, final boolean inclusive, final boolean ascSortOrder,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> {
       if (ascSortOrder) {
         return StreamSupport.stream(
@@ -1003,7 +1003,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  @Nullable public K firstKey(AtomicOperation atomicOperation) {
+  @Nullable public K firstKey(@Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
@@ -1029,7 +1029,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  @Nullable public K lastKey(AtomicOperation atomicOperation) {
+  @Nullable public K lastKey(@Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
@@ -1054,7 +1054,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public Stream<K> keyStream(AtomicOperation atomicOperation) {
+  public Stream<K> keyStream(@Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> StreamSupport.stream(
         new SpliteratorForward<>(this, null, null,
             false, false, atomicOperation),
@@ -1063,7 +1063,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   @Override
-  public Stream<RawPair<K, RID>> allEntries(AtomicOperation atomicOperation) {
+  public Stream<RawPair<K, RID>> allEntries(@Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> StreamSupport.stream(
         new SpliteratorForward<>(this, null, null, false,
             false, atomicOperation),
@@ -1076,7 +1076,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       final boolean fromInclusive,
       final K keyTo,
       final boolean toInclusive,
-      final boolean ascSortOrder, AtomicOperation atomicOperation) {
+      final boolean ascSortOrder, @Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> {
       if (ascSortOrder) {
         return StreamSupport.stream(

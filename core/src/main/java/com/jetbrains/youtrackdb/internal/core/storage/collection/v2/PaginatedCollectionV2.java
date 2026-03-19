@@ -300,7 +300,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public boolean exists(AtomicOperation atomicOperation) {
+  public boolean exists(@Nonnull AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this,
         () -> isFileExists(atomicOperation, getFullName()));
   }
@@ -344,7 +344,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation) {
+  public void create(@Nonnull AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -362,7 +362,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void open(AtomicOperation atomicOperation) {
+  public void open(@Nonnull AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -456,7 +456,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void delete(AtomicOperation atomicOperation) {
+  public void delete(@Nonnull AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -489,7 +489,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public PhysicalPosition allocatePosition(
-      final byte recordType, AtomicOperation atomicOperation) {
+      final byte recordType, @Nonnull AtomicOperation atomicOperation) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -883,7 +883,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   @Nonnull
-  public RawBuffer readRecord(final long collectionPosition, AtomicOperation atomicOperation)
+  public RawBuffer readRecord(final long collectionPosition,
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this,
         () -> doReadRecord(collectionPosition, atomicOperation));
@@ -1198,7 +1199,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public boolean deleteRecord(AtomicOperation atomicOperation, final long collectionPosition) {
+  public boolean deleteRecord(@Nonnull AtomicOperation atomicOperation,
+      final long collectionPosition) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -1267,7 +1269,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final long collectionPosition,
       final byte[] content,
       final byte recordType,
-      final AtomicOperation atomicOperation) {
+      @Nonnull final AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -1407,7 +1409,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public void updateRecordVersion(long collectionPosition,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -1458,7 +1460,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Nullable @Override
   public PhysicalPosition getPhysicalPosition(final PhysicalPosition position,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var collectionPosition = position.collectionPosition;
@@ -1501,7 +1503,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public boolean exists(long collectionPosition, AtomicOperation atomicOperation)
+  public boolean exists(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var positionEntry =
@@ -1522,7 +1524,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getEntries(AtomicOperation atomicOperation) {
+  public long getEntries(@Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         var snapshot = atomicOperation.getAtomicOperationsSnapshot();
@@ -1848,13 +1850,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public long getFirstPosition(AtomicOperation atomicOperation) throws IOException {
+  public long getFirstPosition(@Nonnull AtomicOperation atomicOperation) throws IOException {
     return atomicOperationsManager.executeReadOperation(this,
         () -> collectionPositionMap.getFirstPosition(atomicOperation));
   }
 
   @Override
-  public long getLastPosition(AtomicOperation atomicOperation) throws IOException {
+  public long getLastPosition(@Nonnull AtomicOperation atomicOperation) throws IOException {
     return atomicOperationsManager.executeReadOperation(this,
         () -> collectionPositionMap.getLastPosition(atomicOperation));
   }
@@ -1890,7 +1892,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public PhysicalPosition[] higherPositions(final PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var collectionPositions =
@@ -1902,7 +1904,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public PhysicalPosition[] ceilingPositions(final PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var collectionPositions =
@@ -1914,7 +1916,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public PhysicalPosition[] lowerPositions(final PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var collectionPositions =
@@ -1926,7 +1928,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public PhysicalPosition[] floorPositions(final PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var collectionPositions =
@@ -2142,7 +2144,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public RECORD_STATUS getRecordStatus(final long collectionPosition,
-      AtomicOperation atomicOperation) throws IOException {
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
     acquireSharedLock();
     try {
       final var status = collectionPositionMap.getStatus(collectionPosition, atomicOperation);
@@ -2199,7 +2201,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+  public void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation) {
     atomicOperationsManager.acquireExclusiveLockTillOperationComplete(atomicOperation, this);
   }
 
@@ -2212,7 +2214,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public CollectionBrowsePage nextPage(
       long prevPagePosition,
       final boolean forwards,
-      AtomicOperation atomicOperation) throws IOException {
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
     final long effectivePrevPagePosition = prevPagePosition < 0 ? -1 : prevPagePosition;
     return atomicOperationsManager.executeReadOperation(this, () -> {
       final var nextPositions = forwards ? collectionPositionMap.higherPositionsEntries(

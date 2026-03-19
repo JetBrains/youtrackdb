@@ -108,33 +108,35 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   }
 
   protected <T> T calculateInsideComponentOperation(
-      final AtomicOperation atomicOperation, final TxFunction<T> function) {
+      @Nonnull final AtomicOperation atomicOperation, final TxFunction<T> function) {
     return atomicOperationsManager.calculateInsideComponentOperation(
         atomicOperation, this, function);
   }
 
   protected void executeInsideComponentOperation(
-      final AtomicOperation operation, final TxConsumer consumer) {
+      @Nonnull final AtomicOperation operation, final TxConsumer consumer) {
     atomicOperationsManager.executeInsideComponentOperation(operation, this, consumer);
   }
 
-  protected long getFilledUpTo(final AtomicOperation atomicOperation, final long fileId) {
+  protected long getFilledUpTo(@Nonnull final AtomicOperation atomicOperation, final long fileId) {
     assert atomicOperation != null;
     return atomicOperation.filledUpTo(fileId);
   }
 
   protected static CacheEntry loadPageForWrite(
-      final AtomicOperation atomicOperation,
+      @Nonnull final AtomicOperation atomicOperation,
       final long fileId,
       final long pageIndex,
       final boolean verifyCheckSum)
       throws IOException {
+    assert atomicOperation != null;
     return atomicOperation.loadPageForWrite(fileId, pageIndex, 1, verifyCheckSum);
   }
 
   protected CacheEntry loadOrAddPageForWrite(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
+    assert atomicOperation != null;
     var entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
     if (entry == null) {
       entry = addPage(atomicOperation, fileId);
@@ -143,54 +145,56 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   }
 
   protected CacheEntry loadPageForRead(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.loadPageForRead(fileId, pageIndex);
   }
 
-  protected CacheEntry addPage(final AtomicOperation atomicOperation, final long fileId)
+  protected CacheEntry addPage(@Nonnull final AtomicOperation atomicOperation, final long fileId)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.addPage(fileId);
   }
 
   protected void releasePageFromWrite(
-      final AtomicOperation atomicOperation, final CacheEntry cacheEntry) throws IOException {
+      @Nonnull final AtomicOperation atomicOperation, final CacheEntry cacheEntry)
+      throws IOException {
     assert atomicOperation != null;
     atomicOperation.releasePageFromWrite(cacheEntry);
   }
 
   protected void releasePageFromRead(
-      final AtomicOperation atomicOperation, final CacheEntry cacheEntry) {
+      @Nonnull final AtomicOperation atomicOperation, final CacheEntry cacheEntry) {
     assert atomicOperation != null;
     atomicOperation.releasePageFromRead(cacheEntry);
   }
 
-  protected long addFile(final AtomicOperation atomicOperation, final String fileName)
+  protected long addFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.addFile(fileName);
   }
 
-  protected long openFile(final AtomicOperation atomicOperation, final String fileName)
+  protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.loadFile(fileName);
   }
 
-  protected void deleteFile(final AtomicOperation atomicOperation, final long fileId)
+  protected void deleteFile(@Nonnull final AtomicOperation atomicOperation, final long fileId)
       throws IOException {
     assert atomicOperation != null;
     atomicOperation.deleteFile(fileId);
   }
 
-  protected boolean isFileExists(final AtomicOperation atomicOperation, final String fileName) {
+  protected boolean isFileExists(
+      @Nonnull final AtomicOperation atomicOperation, final String fileName) {
     assert atomicOperation != null;
     return atomicOperation.isFileExists(fileName);
   }
 
-  protected void truncateFile(final AtomicOperation atomicOperation, final long filedId)
+  protected void truncateFile(@Nonnull final AtomicOperation atomicOperation, final long filedId)
       throws IOException {
     assert atomicOperation != null;
     atomicOperation.truncateFile(filedId);
