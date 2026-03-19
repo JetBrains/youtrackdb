@@ -79,12 +79,12 @@ public final class PageFramePool {
         if (clear) {
           frame.clear();
         }
+        // Reset buffer position to 0 — callers expect a clean buffer state.
+        frame.getBuffer().position(0);
       } finally {
         frame.releaseExclusiveLock(stamp);
       }
 
-      // Reset buffer position to 0 — callers expect a clean buffer state.
-      frame.getBuffer().position(0);
       return frame;
     }
 
@@ -148,7 +148,8 @@ public final class PageFramePool {
    * shutdown when no concurrent access to the pool or its frames is possible.
    */
   public void clear() {
-    // Drain the pool queue first
+    // Drain pool queue to maintain poolSize counter; actual deallocation
+    // happens below via allocatedFrames which covers both pooled and leaked frames.
     PageFrame frame;
     while ((frame = pool.poll()) != null) {
       poolSize.decrementAndGet();
