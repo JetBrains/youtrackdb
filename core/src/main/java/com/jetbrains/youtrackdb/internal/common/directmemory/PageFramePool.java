@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.common.directmemory;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -26,6 +29,12 @@ public final class PageFramePool {
   private final int maxPoolSize;
   private final int pageSize;
   private final DirectMemoryAllocator allocator;
+
+  // Tracks all frames allocated by this pool that have not been deallocated.
+  // This includes both in-use frames (held by CachePointers) and pooled frames.
+  // Used by clear() to deallocate leaked frames that were never returned to the pool.
+  private final Set<PageFrame> allocatedFrames =
+      Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   /**
    * Creates a new PageFramePool.
@@ -74,12 +83,18 @@ public final class PageFramePool {
         frame.releaseExclusiveLock(stamp);
       }
 
+      // Reset buffer position to 0 — callers expect a clean buffer state.
+      frame.getBuffer().position(0);
       return frame;
     }
 
     // Allocate new frame
     Pointer ptr = allocator.allocate(pageSize, clear, intention);
-    return new PageFrame(ptr);
+    var newFrame = new PageFrame(ptr);
+    allocatedFrames.add(newFrame);
+    // Reset buffer position to 0 — the allocator doesn't guarantee position state.
+    newFrame.getBuffer().position(0);
+    return newFrame;
   }
 
   /**
@@ -114,6 +129,7 @@ public final class PageFramePool {
         // Exclusive lock above already invalidated all stamps on the released frame.
         // If we're deallocating a different frame here, it was already pooled with
         // invalidated stamps from its own release cycle.
+        allocatedFrames.remove(excess);
         allocator.deallocate(excess.getPointer());
       }
     }
@@ -127,14 +143,21 @@ public final class PageFramePool {
   }
 
   /**
-   * Clears the pool, deallocating all pooled frames. Must only be called during shutdown
-   * when no concurrent access to the pool or its frames is possible.
+   * Clears the pool and deallocates all frames — both pooled frames and any frames still
+   * in use (leaked CachePointers that were never released). Must only be called during
+   * shutdown when no concurrent access to the pool or its frames is possible.
    */
   public void clear() {
+    // Drain the pool queue first
     PageFrame frame;
     while ((frame = pool.poll()) != null) {
       poolSize.decrementAndGet();
-      allocator.deallocate(frame.getPointer());
     }
+
+    // Deallocate ALL frames ever allocated by this pool (pooled + leaked).
+    for (var allocated : allocatedFrames) {
+      allocator.deallocate(allocated.getPointer());
+    }
+    allocatedFrames.clear();
   }
 }

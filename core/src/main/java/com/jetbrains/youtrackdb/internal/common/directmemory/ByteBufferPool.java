@@ -46,6 +46,12 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
       GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.getValueAsBoolean();
 
   /**
+   * Lazily-initialized PageFramePool backed by the same page size and allocator.
+   * Guarded by double-checked locking via volatile.
+   */
+  private volatile PageFramePool pageFramePool;
+
+  /**
    * Holder for singleton instance. We use {@link AtomicReference} instead of static constructor to
    * avoid throwing of exceptions in static initializers.
    */
@@ -194,13 +200,32 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
   }
 
   /**
+   * Returns a {@link PageFramePool} backed by the same page size, allocator, and pool limit.
+   * The pool is created lazily on first call and cached for subsequent calls.
+   */
+  public PageFramePool pageFramePool() {
+    var pool = this.pageFramePool;
+    if (pool != null) {
+      return pool;
+    }
+    synchronized (this) {
+      pool = this.pageFramePool;
+      if (pool != null) {
+        return pool;
+      }
+      this.pageFramePool = new PageFramePool(pageSize, allocator, poolSize);
+      return this.pageFramePool;
+    }
+  }
+
+  /**
    * Checks whether there are not released buffers in the pool
    */
   public void checkMemoryLeaks() {
     var detected = false;
     if (TRACK) {
       for (var entry : pointerMapping.entrySet()) {
-        final var iAdditionalArgs = new Object[]{System.identityHashCode(entry.getKey())};
+        final var iAdditionalArgs = new Object[] {System.identityHashCode(entry.getKey())};
         LogManager.instance()
             .error(
                 this,
@@ -230,6 +255,11 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
     }
 
     pointerMapping.clear();
+
+    var framePool = this.pageFramePool;
+    if (framePool != null) {
+      framePool.clear();
+    }
   }
 
   /**

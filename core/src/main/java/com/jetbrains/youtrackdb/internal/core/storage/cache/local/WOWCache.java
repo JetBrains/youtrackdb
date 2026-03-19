@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -393,6 +395,7 @@ public final class WOWCache extends AbstractWriteCache
    * not have deallocator.
    */
   private final ByteBufferPool bufferPool;
+  private final PageFramePool pageFramePool;
 
   private final String storageName;
   private final String doubleWriteLogFileName;
@@ -492,6 +495,7 @@ public final class WOWCache extends AbstractWriteCache
       this.pageSize = pageSize;
       this.writeAheadLog = writeAheadLog;
       this.bufferPool = bufferPool;
+      this.pageFramePool = bufferPool.pageFramePool();
 
       this.checksumMode = checksumMode;
       this.exclusiveWriteCacheMaxSize = normalizeMemory(exclusiveWriteCacheMaxSize, pageSize);
@@ -2419,8 +2423,8 @@ public final class WOWCache extends AbstractWriteCache
 
         // if page is not stored in the file may be page is stored in double write log
         if (fileClassic.getFileSize() >= pageEndPosition) {
-          var pointer = bufferPool.acquireDirect(true, Intention.LOAD_PAGE_FROM_DISK);
-          var buffer = pointer.getNativeByteBuffer();
+          var pageFrame = pageFramePool.acquire(true, Intention.LOAD_PAGE_FROM_DISK);
+          var buffer = pageFrame.getBuffer();
 
           assert buffer.position() == 0;
           assert buffer.order() == ByteOrder.nativeOrder();
@@ -2437,23 +2441,23 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                assertPageIsBroken(pageIndex, fileId, pointer);
+                assertPageIsBroken(pageIndex, fileId, pageFrame);
               } else {
-                bufferPool.release(pointer);
-
-                buffer = doubleWritePointer.getNativeByteBuffer();
-                assert buffer.position() == 0;
-                pointer = doubleWritePointer;
+                // Copy recovered data from double-write log into the PageFrame's buffer
+                // and release the temporary double-write pointer back to ByteBufferPool.
+                var dblBuffer = doubleWritePointer.getNativeByteBuffer();
+                buffer.put(0, dblBuffer, 0, dblBuffer.capacity());
+                bufferPool.release(doubleWritePointer);
 
                 if (!verifyMagicChecksumAndDecryptPage(buffer, internalFileId, pageIndex)) {
-                  assertPageIsBroken(pageIndex, fileId, pointer);
+                  assertPageIsBroken(pageIndex, fileId, pageFrame);
                 }
               }
             }
           }
 
           buffer.position(0);
-          return new CachePointer(pointer, bufferPool, fileId, (int) pageIndex);
+          return new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
         } else {
           final var pointer =
               doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
@@ -2483,13 +2487,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void assertPageIsBroken(long pageIndex, long fileId, Pointer pointer) {
-    final var message =
-        "Magic number or check sum verification failed for page `"
-            + pageIndex
-            + "` of `"
-            + fileNameById(fileId)
-            + "`.";
-    LogManager.instance().error(this, "%s", null, message);
+    final var message = formatPageBrokenMessage(pageIndex, fileId);
 
     if (checksumMode == ChecksumMode.StoreAndThrow) {
       bufferPool.release(pointer);
@@ -2498,6 +2496,29 @@ public final class WOWCache extends AbstractWriteCache
       dumpStackTrace(message);
       callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
     }
+  }
+
+  private void assertPageIsBroken(long pageIndex, long fileId, PageFrame pageFrame) {
+    final var message = formatPageBrokenMessage(pageIndex, fileId);
+
+    if (checksumMode == ChecksumMode.StoreAndThrow) {
+      pageFramePool.release(pageFrame);
+      throw new StorageException(storageName, message);
+    } else if (checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode) {
+      dumpStackTrace(message);
+      callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
+    }
+  }
+
+  private String formatPageBrokenMessage(long pageIndex, long fileId) {
+    final var message =
+        "Magic number or check sum verification failed for page `"
+            + pageIndex
+            + "` of `"
+            + fileNameById(fileId)
+            + "`.";
+    LogManager.instance().error(this, "%s", null, message);
+    return message;
   }
 
   private void addMagicChecksumAndEncryption(
