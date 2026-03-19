@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,24 +14,19 @@
 
 ## Steps
 
-- [ ] Step 1: Prefix lookup helper in SharedLinkBagBTree
-  > Implement `findCurrentEntry(AtomicOperation, long ridBagId,
-  > int targetCollection, long targetPosition)` that finds the current
-  > (single) B-tree entry for a logical edge using prefix range search.
+- [x] Step 1: Prefix lookup helper in SharedLinkBagBTree
+  > **What was done:** Added `findCurrentEntry(AtomicOperation, long ridBagId,
+  > int targetCollection, long targetPosition)` to `SharedLinkBagBTree`.
+  > Searches with `EdgeKey(ridBagId, tc, tp, Long.MIN_VALUE)` via `findBucket`,
+  > checks the entry at the insertion point, and falls back to the right
+  > sibling's first entry when the insertion point falls at the bucket
+  > boundary. Extracted `checkEntryPrefix` helper for the 3-field match check.
+  > 19 tests covering empty tree, boundary ts values, non-matching prefixes,
+  > tombstones, first/last entries, post-split lookups (200-500 entries), and
+  > each individual field-mismatch branch.
   >
-  > **Approach**: Create search key `EdgeKey(ridBagId, tc, tp, Long.MIN_VALUE)`
-  > and call `findBucket(searchKey)`. Since `ts` is the last comparison
-  > component, the insertion point lands at the first entry with matching
-  > `(ridBagId, tc, tp)` prefix. Check the entry at the insertion point —
-  > if its first 3 fields match, that's the current entry. Return
-  > `@Nullable RawPair<EdgeKey, LinkBagValue>` (null if not found).
-  >
-  > **Tests**: Empty tree returns null; single entry found; entry not found
-  > (different ridBagId/tc/tp); boundary conditions (first/last entry in
-  > bucket); entry after bucket split.
-  >
-  > **Files**: `SharedLinkBagBTree.java` (modified), test file (new or
-  > modified)
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreeFindCurrentEntryTest.java` (new)
 
 - [ ] Step 2: SharedLinkBagBTree.put() with snapshot preservation
   > Modify `put()` to use `findCurrentEntry()` and preserve old versions
