@@ -73,7 +73,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Exception during loading of rid bag " + getFullName()), e, storage.getName());
+              "Exception during loading of rid bag " + getFullName()),
+          e, storage.getName());
     } finally {
       releaseExclusiveLock();
     }
@@ -90,6 +91,98 @@ public final class SharedLinkBagBTree extends DurableComponent {
             releaseExclusiveLock();
           }
         });
+  }
+
+  /**
+   * Finds the current (single) B-tree entry for a logical edge identified by
+   * the 3-tuple {@code (ridBagId, targetCollection, targetPosition)}, regardless
+   * of its timestamp.
+   *
+   * <p>Since {@code ts} is the last comparison component in {@link EdgeKey}, a
+   * prefix range search with {@code Long.MIN_VALUE} as the timestamp positions
+   * us at or just before any entry with matching 3-tuple prefix. The
+   * single-version invariant guarantees at most one B-tree entry per logical
+   * edge, so checking the entry at the insertion point (and the right sibling's
+   * first entry when the insertion point falls at the end of the bucket) is
+   * sufficient.
+   *
+   * @return the current entry (key + value), or {@code null} if no entry exists
+   *     for this logical edge
+   */
+  @Nullable public RawPair<EdgeKey, LinkBagValue> findCurrentEntry(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        final var searchKey =
+            new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+        final var result = findBucket(searchKey, atomicOperation);
+
+        final int candidateIndex;
+        if (result.getItemIndex() >= 0) {
+          candidateIndex = result.getItemIndex();
+        } else {
+          candidateIndex = -result.getItemIndex() - 1;
+        }
+
+        try (final var cacheEntry =
+            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+          final var bucket = new Bucket(cacheEntry);
+
+          if (candidateIndex < bucket.size()) {
+            return checkEntryPrefix(
+                bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
+          }
+
+          // Insertion point is at the end of this bucket. The matching entry
+          // may be the first entry on the right sibling page (can happen when
+          // a bucket split placed the separator between Long.MIN_VALUE and the
+          // actual ts).
+          final long rightSibling = bucket.getRightSibling();
+          if (rightSibling < 0) {
+            return null;
+          }
+
+          try (final var siblingCacheEntry =
+              loadPageForRead(atomicOperation, fileId, rightSibling)) {
+            final var siblingBucket = new Bucket(siblingCacheEntry);
+            if (siblingBucket.isEmpty()) {
+              return null;
+            }
+            return checkEntryPrefix(
+                siblingBucket, 0, ridBagId, targetCollection, targetPosition);
+          }
+        }
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during prefix lookup in rid bag btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
+
+  /**
+   * Checks whether the entry at {@code index} in the given bucket matches the
+   * 3-tuple prefix. Returns the key-value pair if it matches, {@code null}
+   * otherwise.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> checkEntryPrefix(
+      final Bucket bucket,
+      final int index,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var entry = bucket.getEntry(index, serializerFactory);
+    final var key = entry.getKey();
+    if (key.ridBagId == ridBagId
+        && key.targetCollection == targetCollection
+        && key.targetPosition == targetPosition) {
+      return new RawPair<>(key, entry.getValue());
+    }
+    return null;
   }
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
@@ -207,8 +300,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  @Nullable
-  public EdgeKey firstKey(AtomicOperation atomicOperation) {
+  @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
@@ -227,7 +319,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Error during finding first key in btree [" + getName() + "]"), e,
+              "Error during finding first key in btree [" + getName() + "]"),
+          e,
           storage.getName());
     }
   }
@@ -292,8 +385,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  @Nullable
-  public EdgeKey lastKey(AtomicOperation atomicOperation) {
+  @Nullable public EdgeKey lastKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
@@ -822,11 +914,13 @@ public final class SharedLinkBagBTree extends DurableComponent {
       if (ascSortOrder) {
         return StreamSupport.stream(
             iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       } else {
         return StreamSupport.stream(
             iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       }
     });
   }
@@ -839,13 +933,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> {
       if (ascSortOrder) {
-        return
-            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation);
+        return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+            atomicOperation);
       } else {
-        return
-            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation);
+        return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+            atomicOperation);
       }
     });
   }
