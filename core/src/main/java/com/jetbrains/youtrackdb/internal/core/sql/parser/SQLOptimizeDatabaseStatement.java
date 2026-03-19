@@ -32,7 +32,7 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
   public ExecutionStream executeSimple(CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     var result = new ResultInternal(db);
-    result.setProperty("operation", "optimize databae");
+    result.setProperty("operation", "optimize database");
 
     if (isOptimizeEdges()) {
       var edges = optimizeEdges(db);
@@ -84,15 +84,6 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
       }
     }
     return false;
-  }
-
-  private boolean verbose() {
-    for (var option : options) {
-      if (option.name.getStringValue().equalsIgnoreCase("NOVERBOSE")) {
-        return false;
-      }
-    }
-    return true;
   }
 
   @Override
