@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
@@ -53,6 +54,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -3209,6 +3211,11 @@ public class SelectExecutionPlanner {
         }
       }
 
+      // Step 4b: Infer target class from edge schema if not found via @class
+      if (className == null) {
+        className = inferTargetClassFromExpandEdgeSchema(info, plan);
+      }
+
       // Step 5: Try to find an index for the push-down filter
       IndexSearchDescriptor indexDescriptor = null;
       if (pushDownWhere != null && className != null) {
@@ -3260,6 +3267,150 @@ public class SelectExecutionPlanner {
   @Nullable private IndexSearchDescriptor tryBuildExpandIndexDescriptor(
       SQLWhereClause pushDownWhere, String className, CommandContext ctx) {
     return TraversalPreFilterHelper.findIndexForFilter(pushDownWhere, className, ctx);
+  }
+
+  /**
+   * Infers the target vertex class from the edge schema when the outer WHERE does
+   * not contain an explicit {@code @class = 'X'} filter.
+   *
+   * <p>For a subquery like {@code SELECT expand(in('HAS_CREATOR')) FROM Person},
+   * the edge class {@code HAS_CREATOR} may declare linked classes on its {@code out}
+   * and {@code in} properties. The target class of the expansion is the endpoint
+   * opposite to the traversal direction:
+   * <ul>
+   *   <li>{@code in('X')} follows incoming edges → targets are the {@code out}
+   *       endpoint → {@code edgeClass.getPropertyInternal("out").getLinkedClass()}</li>
+   *   <li>{@code out('X')} follows outgoing edges → targets are the {@code in}
+   *       endpoint → {@code edgeClass.getPropertyInternal("in").getLinkedClass()}</li>
+   * </ul>
+   *
+   * @return the inferred class name, or {@code null} if inference is not possible
+   */
+  @Nullable private static String inferTargetClassFromExpandEdgeSchema(
+      QueryPlanningInfo info, SelectExecutionPlan plan) {
+    var funcCall = extractExpandTraversalFunction(info);
+    if (funcCall == null) {
+      return null;
+    }
+
+    var directionName = extractTraversalDirection(funcCall);
+    if (directionName == null) {
+      return null;
+    }
+
+    var edgeClassName = extractEdgeClassName(funcCall);
+    if (edgeClassName == null) {
+      return null;
+    }
+
+    return lookupLinkedClassName(edgeClassName, directionName, plan);
+  }
+
+  /**
+   * Extracts the {@code in(...)} or {@code out(...)} function call from the inner
+   * subquery's expand projection. Returns {@code null} if the query structure does
+   * not match the expected {@code SELECT expand(in/out('EdgeClass')) FROM ...} pattern.
+   */
+  @Nullable private static SQLFunctionCall extractExpandTraversalFunction(
+      QueryPlanningInfo info) {
+    if (info.target == null) {
+      return null;
+    }
+    var fromItem = info.target.getItem();
+    if (fromItem == null || fromItem.getStatement() == null) {
+      return null;
+    }
+    if (!(fromItem.getStatement() instanceof SQLSelectStatement selectStmt)) {
+      return null;
+    }
+    var projection = selectStmt.getProjection();
+    if (projection == null || !projection.isExpand()) {
+      return null;
+    }
+
+    var expandExpr = projection.getExpandContent();
+    if (expandExpr == null
+        || expandExpr.getItems() == null
+        || expandExpr.getItems().isEmpty()) {
+      return null;
+    }
+    var contentExpr = expandExpr.getItems().getFirst().getExpression();
+    if (contentExpr == null) {
+      return null;
+    }
+    if (!(contentExpr.getMathExpression() instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    var identifier = base.getIdentifier();
+    if (identifier == null || identifier.getLevelZero() == null) {
+      return null;
+    }
+    return identifier.getLevelZero().getFunctionCall();
+  }
+
+  /**
+   * Returns the traversal direction ({@code "in"} or {@code "out"}) from the
+   * function call, or {@code null} if the function is not a recognized traversal.
+   */
+  @Nullable private static String extractTraversalDirection(
+      SQLFunctionCall funcCall) {
+    if (funcCall.getName() == null) {
+      return null;
+    }
+    var name = funcCall.getName().getStringValue();
+    if (name == null) {
+      return null;
+    }
+    name = name.toLowerCase(Locale.ROOT);
+    if ("in".equals(name) || "out".equals(name)) {
+      return name;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts the edge class name string from the first parameter of the traversal
+   * function call (e.g. {@code 'HAS_CREATOR'} from {@code in('HAS_CREATOR')}).
+   * Returns {@code null} if the parameter cannot be evaluated to a string.
+   */
+  @Nullable private static String extractEdgeClassName(SQLFunctionCall funcCall) {
+    if (funcCall.getParams() == null || funcCall.getParams().isEmpty()) {
+      return null;
+    }
+    try {
+      var value = funcCall.getParams().getFirst()
+          .execute((Result) null, new BasicCommandContext());
+      return value instanceof String s ? s : null;
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Looks up the linked class name from the edge schema. For {@code in('X')},
+   * the targets are the {@code out} endpoint; for {@code out('X')}, the targets
+   * are the {@code in} endpoint.
+   */
+  @Nullable private static String lookupLinkedClassName(
+      String edgeClassName, String direction, SelectExecutionPlan plan) {
+    var ctx = plan.getContext();
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
+    var edgeClass = schema.getClassInternal(edgeClassName);
+    if (edgeClass == null) {
+      return null;
+    }
+    var targetPropName = "in".equals(direction) ? "out" : "in";
+    var prop = edgeClass.getPropertyInternal(targetPropName);
+    if (prop == null || prop.getLinkedClass() == null) {
+      return null;
+    }
+    return prop.getLinkedClass().getName();
   }
 
   /**

@@ -36,7 +36,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGetInternalPropertyE
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collection;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -7975,4 +7977,116 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Verifies index-assisted date range filtering via edge schema class inference.
+   * The outer WHERE has {@code creationDate >= X AND creationDate < Y} but NO
+   * {@code @class = ...} filter. The planner should infer the target class from
+   * the edge schema ({@code EiHasCreator.out LINK EiMessage}) and use the
+   * {@code EiMessage.creationDate} index for pre-filtering.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_indexViaEdgeSchemaInference() {
+    session.execute("CREATE CLASS EiPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EiMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY EiMessage.creationDate DATETIME").close();
+    session.execute(
+        "CREATE INDEX EiMessage.creationDate ON EiMessage (creationDate) NOTUNIQUE").close();
+
+    session.execute("CREATE CLASS EiHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY EiHasCreator.out LINK EiMessage").close();
+    session.execute("CREATE PROPERTY EiHasCreator.in LINK EiPerson").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX EiPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 10; i++) {
+      var date = new GregorianCalendar(2024, i, 1).getTime();
+      session.execute("CREATE VERTEX EiMessage SET creationDate = ?", date).close();
+      session.execute(
+          "CREATE EDGE EiHasCreator FROM (SELECT FROM EiMessage"
+              + " WHERE creationDate = ?) TO ?",
+          date, personRid)
+          .close();
+    }
+    session.commit();
+
+    // Query: all messages by alice created in Q1-Q2 2024 (Jan-Jun)
+    session.begin();
+    var startDate = new GregorianCalendar(2024, Calendar.JANUARY, 1).getTime();
+    var endDate = new GregorianCalendar(2024, Calendar.JULY, 1).getTime();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('EiHasCreator')) FROM EiPerson WHERE @rid = ?"
+            + ") WHERE creationDate >= ? AND creationDate < ?",
+        personRid, startDate, endDate);
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 6 messages (Jan-Jun)", 6, items.size());
+    for (var item : items) {
+      Assert.assertEquals("EiMessage", item.asEntity().getSchemaClassName());
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Index pre-filter should fire via edge-inferred class, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that without linked class declarations on the edge schema, the planner
+   * cannot infer the target class and thus does NOT use an index pre-filter.
+   * The query still returns correct results via a generic push-down filter.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_noEdgeSchemaLinkNoIndex() {
+    session.execute("CREATE CLASS NlPerson EXTENDS V").close();
+    session.execute("CREATE CLASS NlMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY NlMessage.creationDate DATETIME").close();
+    session.execute(
+        "CREATE INDEX NlMessage.creationDate ON NlMessage (creationDate) NOTUNIQUE").close();
+
+    // Edge WITHOUT linked class declarations
+    session.execute("CREATE CLASS NlHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX NlPerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 6; i++) {
+      var date = new GregorianCalendar(2024, i, 1).getTime();
+      session.execute("CREATE VERTEX NlMessage SET creationDate = ?", date).close();
+      session.execute(
+          "CREATE EDGE NlHasCreator FROM (SELECT FROM NlMessage"
+              + " WHERE creationDate = ?) TO ?",
+          date, personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var startDate = new GregorianCalendar(2024, Calendar.JANUARY, 1).getTime();
+    var endDate = new GregorianCalendar(2024, Calendar.APRIL, 1).getTime();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('NlHasCreator')) FROM NlPerson WHERE @rid = ?"
+            + ") WHERE creationDate >= ? AND creationDate < ?",
+        personRid, startDate, endDate);
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 messages (Jan-Mar)", 3, items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertFalse(
+        "Index pre-filter should NOT fire without edge schema link, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
 }
