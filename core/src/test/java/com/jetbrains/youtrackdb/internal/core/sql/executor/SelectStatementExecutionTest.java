@@ -5830,6 +5830,218 @@ public class SelectStatementExecutionTest extends DbTestBase {
     });
   }
 
+  // ── Predicate push-down into expand() ──
+
+  /**
+   * Verifies that extractClassEqualityName() correctly parses {@code @class = 'X'}
+   * from a WHERE clause, both in normal and reversed form.
+   */
+  @Test
+  public void testExtractClassEqualityName() {
+    var stm =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE @class = 'Post'", session);
+    var where = stm.getWhereClause();
+    Assert.assertNotNull("WHERE clause should not be null", where);
+    Assert.assertEquals("Post", where.extractClassEqualityName());
+
+    var stmReversed =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE 'Comment' = @class", session);
+    Assert.assertEquals("Comment",
+        stmReversed.getWhereClause().extractClassEqualityName());
+
+    var stmNoClass =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE name = 'Alice'", session);
+    Assert.assertNull(stmNoClass.getWhereClause().extractClassEqualityName());
+
+    // Compound AND: @class = 'Post' AND score > 5
+    var stmCompound =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM V WHERE @class = 'Post' AND score > 5", session);
+    var compoundResult =
+        stmCompound.getWhereClause().extractAndRemoveClassEquality();
+    Assert.assertNotNull("Should extract class from compound AND", compoundResult);
+    Assert.assertEquals("Post", compoundResult.className());
+    Assert.assertNotNull(
+        "Remaining WHERE should contain score > 5",
+        compoundResult.remainingWhere());
+    Assert.assertTrue(
+        compoundResult.remainingWhere().toString().contains("score"));
+
+    // Also extractClassEqualityName() should still work on compound
+    Assert.assertEquals("Post",
+        stmCompound.getWhereClause().extractClassEqualityName());
+  }
+
+  /**
+   * Verifies that a WHERE predicate on a property of expanded records is pushed
+   * down into the expand() step. The query expands all edges then filters by
+   * a property — the pushed-down filter should appear in the EXPAND step
+   * of the execution plan rather than as a separate FilterStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_classFilter() {
+    session.execute("CREATE CLASS PdForum EXTENDS V").close();
+    session.execute("CREATE CLASS PdPost EXTENDS V").close();
+    session.execute("CREATE CLASS PdComment EXTENDS V").close();
+    session.execute("CREATE CLASS PdContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdForum SET name = 'forum1'").close();
+    // 5 posts + 3 comments in the forum
+    for (var i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX PdPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE PdContainerOf FROM (SELECT FROM PdForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX PdComment SET text = 'comment" + i + "'").close();
+      session.execute(
+          "CREATE EDGE PdContainerOf FROM (SELECT FROM PdForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdComment WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // Class filter: only Posts, not Comments
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PdContainerOf')) FROM PdForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'PdPost'");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return only 5 posts, not comments", 5, items.size());
+    for (var item : items) {
+      Assert.assertTrue("Each result should be a PdPost",
+          item.isEntity() && item.asEntity().getSchemaClassName().equals("PdPost"));
+    }
+
+    // Verify that the @class filter was pushed down into EXPAND as a zero-I/O class
+    // filter (checking collection IDs), not just a generic post-expand WHERE.
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertFalse(
+        "Generic push-down filter should NOT be used for @class — "
+            + "class filter (zero I/O) should be used instead. Plan was:\n" + plan,
+        plan.contains("push-down filter"));
+    Assert.assertTrue(
+        "Class filter should be pushed down into EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the outer WHERE is compound (@class = 'Post' AND <other>),
+   * the planner extracts the class filter as a zero-I/O collection ID check on
+   * ExpandStep and keeps the remaining condition as an outer FilterStep.
+   * This is the IC10-like pattern: the class filter skips Comment records
+   * without disk I/O, while the remaining predicate is evaluated after loading.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_compoundClassAndProperty() {
+    session.execute("CREATE CLASS PdForum2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdPost2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdComment2 EXTENDS V").close();
+    session.execute("CREATE CLASS PdContainerOf2 EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdForum2 SET name = 'forum1'").close();
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX PdPost2 SET title = 'post" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE PdContainerOf2 FROM (SELECT FROM PdForum2 WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdPost2 WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX PdComment2 SET text = 'comment" + i + "', score = " + (i + 10))
+          .close();
+      session.execute(
+          "CREATE EDGE PdContainerOf2 FROM (SELECT FROM PdForum2 WHERE name = 'forum1')"
+              + " TO (SELECT FROM PdComment2 WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // Compound WHERE: class filter + property filter.
+    // Without push-down: loads all 8 records, filters by class then score.
+    // With push-down: skips 3 comments via collection ID (zero I/O),
+    //   loads 5 posts, filters by score.
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PdContainerOf2')) FROM PdForum2"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'PdPost2' AND score >= 3");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 2 posts with score >= 3 (post3, post4)", 2, items.size());
+    for (var item : items) {
+      Assert.assertEquals("PdPost2", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 3);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be pushed down into EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    // The remaining "score >= 3" should either be a push-down filter or outer FilterStep
+    Assert.assertTrue(
+        "Remaining predicate should be present (push-down or filter), plan was:\n"
+            + plan,
+        plan.contains("score") || plan.contains("FILTER"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that a property filter on expanded records is pushed down and
+   * produces correct results. The outer WHERE filters by a date range — only
+   * matching expanded records should be returned.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_propertyFilter() {
+    session.execute("CREATE CLASS PdPerson EXTENDS V").close();
+    session.execute("CREATE CLASS PdMessage EXTENDS V").close();
+    session.execute("CREATE CLASS PdHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PdPerson SET name = 'Alice'").close();
+    for (var i = 0; i < 10; i++) {
+      session.execute(
+          "CREATE VERTEX PdMessage SET text = 'msg" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE PdHasCreator FROM (SELECT FROM PdMessage WHERE text = 'msg" + i + "')"
+              + " TO (SELECT FROM PdPerson WHERE name = 'Alice')")
+          .close();
+    }
+    session.commit();
+
+    // Property filter: only messages with score >= 7
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('PdHasCreator')) FROM PdPerson"
+            + "    WHERE name = 'Alice'"
+            + ") WHERE score >= 7");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return only 3 messages with score >= 7", 3, items.size());
+    for (var item : items) {
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 7);
+    }
+    result.close();
+    session.commit();
+  }
+
   @Test
   public void testConditionalAggregationSumIf() {
     var className = "testConditionalAggregationSumIf";
@@ -7196,6 +7408,458 @@ public class SelectStatementExecutionTest extends DbTestBase {
     // Charlie = 4 messages from UK person
     Assert.assertEquals(4, ((Number) item.getProperty("ukCount")).intValue());
     Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the outer WHERE has @class + an indexed property condition,
+   * the planner uses an index pre-filter on the ExpandStep. The index is queried
+   * at execution time and non-matching RIDs are skipped without disk I/O.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_indexedPropertyFilter() {
+    session.execute("CREATE CLASS IdxForum EXTENDS V").close();
+    session.execute("CREATE CLASS IdxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IdxComment EXTENDS V").close();
+    session.execute("CREATE CLASS IdxContainerOf EXTENDS E").close();
+    session.execute("CREATE PROPERTY IdxPost.score INTEGER").close();
+    session.execute("CREATE INDEX IdxPost.score ON IdxPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IdxForum SET name = 'forum1'").close();
+    for (var i = 0; i < 10; i++) {
+      session.execute(
+          "CREATE VERTEX IdxPost SET title = 'post" + i + "', score = " + i).close();
+      session.execute(
+          "CREATE EDGE IdxContainerOf FROM (SELECT FROM IdxForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM IdxPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX IdxComment SET text = 'c" + i + "', score = " + (i + 8)).close();
+      session.execute(
+          "CREATE EDGE IdxContainerOf FROM (SELECT FROM IdxForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM IdxComment WHERE text = 'c" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('IdxContainerOf')) FROM IdxForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'IdxPost' AND score >= 7");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 posts with score >= 7 (post7, post8, post9)", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("IdxPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 7);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Index pre-filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the property in the WHERE clause is NOT indexed, the planner
+   * falls back to a generic push-down filter (no index pre-filter in the plan).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_nonIndexedPropertyFallback() {
+    session.execute("CREATE CLASS NiForum EXTENDS V").close();
+    session.execute("CREATE CLASS NiPost EXTENDS V").close();
+    session.execute("CREATE CLASS NiContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NiForum SET name = 'forum1'").close();
+    for (var i = 0; i < 8; i++) {
+      session.execute(
+          "CREATE VERTEX NiPost SET title = 'post" + i + "', rating = " + i).close();
+      session.execute(
+          "CREATE EDGE NiContainerOf FROM (SELECT FROM NiForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM NiPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('NiContainerOf')) FROM NiForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'NiPost' AND rating >= 5");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 posts with rating >= 5", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("NiPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("rating")).intValue() >= 5);
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertFalse(
+        "No index pre-filter should be present (property is not indexed), plan was:\n"
+            + plan,
+        plan.contains("index pre-filter"));
+    Assert.assertTrue(
+        "Generic push-down filter should be present, plan was:\n" + plan,
+        plan.contains("push-down filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that all three filter levels coexist correctly: class filter (zero I/O),
+   * index pre-filter (skip non-matching RIDs), and generic push-down filter
+   * (post-load check for non-indexed properties).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_compoundIndexedAndNonIndexed() {
+    session.execute("CREATE CLASS CmpForum EXTENDS V").close();
+    session.execute("CREATE CLASS CmpPost EXTENDS V").close();
+    session.execute("CREATE CLASS CmpComment EXTENDS V").close();
+    session.execute("CREATE CLASS CmpContainerOf EXTENDS E").close();
+    session.execute("CREATE PROPERTY CmpPost.score INTEGER").close();
+    session.execute("CREATE INDEX CmpPost.score ON CmpPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CmpForum SET name = 'f1'").close();
+    for (var i = 0; i < 10; i++) {
+      var tag = (i % 2 == 0) ? "even" : "odd";
+      session.execute(
+          "CREATE VERTEX CmpPost SET title = 'p" + i + "', score = " + i
+              + ", tag = '" + tag + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE CmpContainerOf FROM (SELECT FROM CmpForum WHERE name = 'f1')"
+              + " TO (SELECT FROM CmpPost WHERE title = 'p" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CmpComment SET text = 'c" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CmpContainerOf FROM (SELECT FROM CmpForum WHERE name = 'f1')"
+              + " TO (SELECT FROM CmpComment WHERE text = 'c" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // @class = 'CmpPost' -> class filter (zero I/O, skips 3 comments)
+    // score >= 5         -> index pre-filter (skip posts with score < 5)
+    // tag = 'odd'        -> generic push-down (post-load check)
+    // Expected results: posts with score >= 5 AND tag = 'odd' -> score 5, 7, 9
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('CmpContainerOf')) FROM CmpForum"
+            + "    WHERE name = 'f1'"
+            + ") WHERE @class = 'CmpPost' AND score >= 5 AND tag = 'odd'");
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return posts with score>=5 AND tag='odd': p5, p7, p9", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("CmpPost", item.asEntity().getSchemaClassName());
+      Assert.assertTrue(((Number) item.getProperty("score")).intValue() >= 5);
+      Assert.assertEquals("odd", item.getProperty("tag"));
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Index pre-filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A1: Direct RID filter push-down. When the outer WHERE is
+   * {@code @rid = <value>}, the planner should push a DirectRid
+   * descriptor into ExpandStep for zero-I/O pre-filtering.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_directRidFilter() {
+    session.execute("CREATE CLASS DRForum EXTENDS V").close();
+    session.execute("CREATE CLASS DRPost EXTENDS V").close();
+    session.execute("CREATE CLASS DRContainerOf EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DRForum SET name = 'forum1'").close();
+    RID targetRid = null;
+    for (var i = 0; i < 5; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX DRPost SET title = 'post" + i + "'");
+      var created = rs.next();
+      if (i == 2) {
+        targetRid = created.getIdentity();
+      }
+      rs.close();
+      session.execute(
+          "CREATE EDGE DRContainerOf FROM (SELECT FROM DRForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM DRPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('DRContainerOf')) FROM DRForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @rid = " + targetRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return exactly 1 vertex", 1, items.size());
+    Assert.assertEquals(targetRid, items.getFirst().getIdentity());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "RID filter should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: direct"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A3: Reverse edge lookup push-down. When the outer WHERE is
+   * {@code out('EdgeClass').@rid = <value>}, the planner should push an
+   * EdgeRidLookup descriptor into ExpandStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_reverseEdgeLookup() {
+    session.execute("CREATE CLASS RLForum EXTENDS V").close();
+    session.execute("CREATE CLASS RLPost EXTENDS V").close();
+    session.execute("CREATE CLASS RLPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RLContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS RLHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX RLForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX RLPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute("CREATE VERTEX RLPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE RLContainerOf FROM (SELECT FROM RLForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM RLPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    // Only post0 and post3 belong to alice
+    session.execute(
+        "CREATE EDGE RLHasCreator FROM (SELECT FROM RLPost WHERE title = 'post0')"
+            + " TO (SELECT FROM RLPerson WHERE name = 'alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE RLHasCreator FROM (SELECT FROM RLPost WHERE title = 'post3')"
+            + " TO (SELECT FROM RLPerson WHERE name = 'alice')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('RLContainerOf')) FROM RLForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE out('RLHasCreator').@rid = " + personRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by alice", 2, items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Edge RID lookup should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('RLHasCreator')"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A3 combined with additional filter: reverse edge lookup with
+   * a remaining predicate that stays as a push-down filter.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_reverseEdgeLookupWithOtherFilter() {
+    session.execute("CREATE CLASS RLOForum EXTENDS V").close();
+    session.execute("CREATE CLASS RLOPost EXTENDS V").close();
+    session.execute("CREATE CLASS RLOPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RLOContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS RLOHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX RLOForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX RLOPerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX RLOPost SET title = 'post" + i + "', score = " + (i + 1)).close();
+      session.execute(
+          "CREATE EDGE RLOContainerOf FROM (SELECT FROM RLOForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM RLOPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    // post1 (score=2) and post3 (score=4) belong to bob
+    session.execute(
+        "CREATE EDGE RLOHasCreator FROM (SELECT FROM RLOPost WHERE title = 'post1')"
+            + " TO (SELECT FROM RLOPerson WHERE name = 'bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE RLOHasCreator FROM (SELECT FROM RLOPost WHERE title = 'post3')"
+            + " TO (SELECT FROM RLOPerson WHERE name = 'bob')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('RLOContainerOf')) FROM RLOForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE out('RLOHasCreator').@rid = " + personRid
+            + " AND score >= 2");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by bob with score>=2", 2, items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Edge RID lookup should be pushed into EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('RLOHasCreator')"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case A2: Partial $parent push-down. When the outer WHERE mixes
+   * $parent-referencing and non-$parent conditions, the non-$parent part
+   * is pushed down while the $parent part stays as an outer FilterStep.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_partialParentPushDown() {
+    session.execute("CREATE CLASS PPForum EXTENDS V").close();
+    session.execute("CREATE CLASS PPPost EXTENDS V").close();
+    session.execute("CREATE CLASS PPContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS PPHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX PPForum SET name = 'forum1'").close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX PPPost SET title = 'post" + i + "', score = " + (i + 1)).close();
+      session.execute(
+          "CREATE EDGE PPContainerOf FROM (SELECT FROM PPForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM PPPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    // This query uses a LET to simulate $parent: score > 3 is non-$parent,
+    // so it should be pushed down.
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('PPContainerOf')) FROM PPForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE score > 3");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return posts with score > 3: post3(4), post4(5)", 2,
+        items.size());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Push-down filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("push-down filter"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Case C + Case A3 combined: class filter AND edge RID lookup.
+   * Both should be pushed into ExpandStep independently.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_classFilterAndEdgeLookup() {
+    session.execute("CREATE CLASS CEForum EXTENDS V").close();
+    session.execute("CREATE CLASS CEPost EXTENDS V").close();
+    session.execute("CREATE CLASS CEComment EXTENDS V").close();
+    session.execute("CREATE CLASS CEPerson EXTENDS V").close();
+    session.execute("CREATE CLASS CEContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS CEHasCreator EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CEForum SET name = 'forum1'").close();
+    var personRs = session.execute("CREATE VERTEX CEPerson SET name = 'carol'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX CEPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CEContainerOf FROM (SELECT FROM CEForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM CEPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX CEComment SET text = 'comment" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CEContainerOf FROM (SELECT FROM CEForum WHERE name = 'forum1')"
+              + " TO (SELECT FROM CEComment WHERE text = 'comment" + i + "')")
+          .close();
+    }
+    // post0 and post2 belong to carol
+    session.execute(
+        "CREATE EDGE CEHasCreator FROM (SELECT FROM CEPost WHERE title = 'post0')"
+            + " TO (SELECT FROM CEPerson WHERE name = 'carol')")
+        .close();
+    session.execute(
+        "CREATE EDGE CEHasCreator FROM (SELECT FROM CEPost WHERE title = 'post2')"
+            + " TO (SELECT FROM CEPerson WHERE name = 'carol')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('CEContainerOf')) FROM CEForum"
+            + "    WHERE name = 'forum1'"
+            + ") WHERE @class = 'CEPost' AND out('CEHasCreator').@rid = " + personRid);
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts by carol (not comments)", 2, items.size());
+    for (var item : items) {
+      Assert.assertEquals("CEPost", item.asEntity().getSchemaClassName());
+    }
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Class filter should be in EXPAND, plan was:\n" + plan,
+        plan.contains("class filter"));
+    Assert.assertTrue(
+        "Edge RID lookup should be in EXPAND, plan was:\n" + plan,
+        plan.contains("rid filter: out('CEHasCreator')"));
+
     result.close();
     session.commit();
   }

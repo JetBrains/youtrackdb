@@ -159,7 +159,7 @@ public class SQLValueExpression extends SQLExpression {
 
   @Override
   @Nullable
-  List<String> getMatchPatternInvolvedAliases() {
+  public List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
 

@@ -328,7 +328,8 @@ public class EstimateEdgeCostTest {
     // quote-stripping branch must NOT be entered — returns as-is.
     // Kills boundary mutation on "raw.length() >= 2".
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("X");
@@ -343,9 +344,9 @@ public class EstimateEdgeCostTest {
 
   @Test
   public void extractEdgeClassName_emptyString_returnsEmpty() {
-    // Empty raw string (length 0 < 2) — returns as-is without stripping.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("");
@@ -360,10 +361,9 @@ public class EstimateEdgeCostTest {
 
   @Test
   public void extractEdgeClassName_mismatchedQuotes_returnsRaw() {
-    // When first and last quotes don't match (e.g., "'Knows\""),
-    // the quote-stripping condition fails — returns raw string.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("'Knows\"");
@@ -379,9 +379,9 @@ public class EstimateEdgeCostTest {
 
   @Test
   public void extractEdgeClassName_nullRaw_returnsNull() {
-    // When base.toString() returns null, the null check on raw prevents NPE.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(null);
@@ -396,10 +396,9 @@ public class EstimateEdgeCostTest {
 
   @Test
   public void extractEdgeClassName_twoCharQuoted_returnsEmpty() {
-    // Exactly 2 chars with matching quotes: "''" → empty string after strip.
-    // This is the boundary: length == 2 satisfies >= 2.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("''");
@@ -559,14 +558,16 @@ public class EstimateEdgeCostTest {
 
   private SQLMethodCall mockMethodCallNoParams(String methodName) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(methodName);
+    var id = new SQLIdentifier(methodName);
+    when(method.getMethodName()).thenReturn(id);
     when(method.getParams()).thenReturn(List.of());
     return method;
   }
 
   private SQLMethodCall mockMethodCall(String methodName, String paramString) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(methodName);
+    var id = new SQLIdentifier(methodName);
+    when(method.getMethodName()).thenReturn(id);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(paramString);

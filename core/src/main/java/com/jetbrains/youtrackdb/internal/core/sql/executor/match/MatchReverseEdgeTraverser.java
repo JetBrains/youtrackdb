@@ -69,14 +69,17 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
   /**
    * Calls `executeReverse()` on the path item's method instead of `execute()`,
    * effectively walking the edge in the opposite direction (e.g. `out()` becomes an
-   * incoming traversal).
+   * incoming traversal). Delegates to {@link #applyPreFilter} for adaptive
+   * RidSet resolution using the actual link bag size.
    */
   @Override
   protected ExecutionStream traversePatternEdge(
       Result startingPoint, CommandContext iCommandContext) {
-
     assert startingPoint != null : "starting point must not be null";
     var qR = this.item.getMethod().executeReverse(startingPoint, iCommandContext);
+
+    qR = applyPreFilter(qR, iCommandContext);
+
     return toExecutionStream(qR, iCommandContext.getDatabaseSession());
   }
 

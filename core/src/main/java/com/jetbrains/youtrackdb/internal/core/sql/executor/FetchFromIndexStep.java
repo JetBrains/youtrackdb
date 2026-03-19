@@ -233,7 +233,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    *
    * @return a list of streams, each producing key-RID pairs from the index
    */
-  private static List<Stream<RawPair<Object, RID>>> init(
+  static List<Stream<RawPair<Object, RID>>> init(
       IndexSearchDescriptor desc, boolean isOrderAsc, CommandContext ctx) {
 
     var index = desc.getIndex();
@@ -366,8 +366,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * records where the indexed field is null. These must be included in a full index scan
    * to return complete results.
    */
-  @Nullable
-  private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
+  @Nullable private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
       Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
       return null;
@@ -646,8 +645,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * @param types     the index field types, one per key position
    * @return the converted value, or {@code null} if the input was null
    */
-  @Nullable
-  private static Object convertToIndexDefinitionTypes(
+  @Nullable private static Object convertToIndexDefinitionTypes(
       DatabaseSessionEmbedded session, SQLBooleanExpression condition, Object val,
       PropertyTypeInternal[] types) {
     if (val == null) {
@@ -670,8 +668,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
               Map<Object, Object> newValue = new HashMap<>();
               newValue.put(result.get(j), "");
               result.set(j, newValue);
-            } else if (binCond.getOperator()
-                instanceof SQLContainsValueOperator) {
+            } else if (binCond.getOperator() instanceof SQLContainsValueOperator) {
               Map<Object, Object> newValue = new HashMap<>();
               newValue.put("", result.get(j));
               result.set(j, newValue);

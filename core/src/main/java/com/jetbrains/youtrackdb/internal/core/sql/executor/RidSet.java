@@ -199,4 +199,46 @@ public class RidSet implements Set<RID> {
     content.clear();
     negatives.clear();
   }
+
+  /**
+   * Computes the intersection of two {@link RidSet}s directly at the bitmap
+   * level, avoiding per-element iteration and intermediate {@link RID}
+   * object allocation. Uses {@link Roaring64Bitmap#and} for each shared
+   * collection ID.
+   *
+   * @return intersection result, or {@code null} if both inputs are {@code null}
+   */
+  @Nullable public static RidSet intersect(@Nullable RidSet a, @Nullable RidSet b) {
+    if (a == null) {
+      return b;
+    }
+    if (b == null) {
+      return a;
+    }
+
+    var result = new RidSet();
+
+    // Bitmap-level intersection per collection ID
+    var smaller = a.content.size() <= b.content.size() ? a : b;
+    var larger = a.content.size() <= b.content.size() ? b : a;
+    for (var entry : smaller.content.int2ObjectEntrySet()) {
+      var collectionId = entry.getIntKey();
+      var otherBitmap = larger.content.get(collectionId);
+      if (otherBitmap != null) {
+        var intersection = Roaring64Bitmap.and(entry.getValue(), otherBitmap);
+        if (!intersection.isEmpty()) {
+          result.content.put(collectionId, intersection);
+        }
+      }
+    }
+
+    // Intersect negative RIDs (fallback to HashSet intersection)
+    for (var rid : a.negatives) {
+      if (b.negatives.contains(rid)) {
+        result.negatives.add(rid);
+      }
+    }
+
+    return result;
+  }
 }
