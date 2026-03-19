@@ -397,7 +397,7 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 6: Index by vertex support
+- [x] Track 6: Index by vertex support
   > Add "index by vertex" capability for LinkBag fields, allowing edges to be
   > indexed by the opposite vertex RID (`secondaryRid`) in addition to the
   > existing edge RID (`primaryRid`) index.
@@ -436,6 +436,25 @@ graph TD
   > IndexDefinitionFactory registration, SQL grammar extension, index
   > maintenance wiring, CRUD tests
   > **Depends on:** Track 5
+  >
+  > **Track episode:**
+  > Added "index by vertex" capability for LinkBag fields via a new
+  > `PropertyLinkBagSecondaryIndexDefinition` that indexes `secondaryRid`
+  > (opposite vertex RID) instead of `primaryRid` (edge RID). Reused the
+  > existing `BY KEY`/`BY VALUE` SQL syntax rather than introducing new
+  > `BY_VERTEX`/`BY_EDGE` grammar tokens — plan D4's grammar proposal was
+  > superseded by this simpler approach. Index maintenance piggybacks on
+  > `MultiValueChangeEvent` (which already carries both RIDs) and runs
+  > inside the existing WAL atomic operation.
+  >
+  > Key discovery: Plan D4's proposed grammar extension was unnecessary.
+  > The existing `BY KEY`/`BY VALUE` map index syntax already works for
+  > LINKBAG fields — `extractMapIndexSpecifier()` parses it, and the
+  > `indexBy` parameter was already threaded through to
+  > `createSingleFieldIndexDefinition()` but ignored for LINKBAG. No
+  > parser regeneration needed.
+  >
+  > **Step file:** `tracks/track-6.md` (3 steps, 0 failed)
 
 - [ ] Track 7: Verification, API cleanup, and documentation
   > Verify all SQL statements, Gremlin integration, and TinkerPop Cucumber
