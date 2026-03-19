@@ -355,6 +355,8 @@ graph TD
   > guard. No downstream impact — Track 5 proceeds as planned.
   >
   > **Step file:** `tracks/track-4.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 5: Unify schema and edge lifecycle
   > Remove `Schema.createLightweightEdgeClass()` and its implementations.
