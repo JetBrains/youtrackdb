@@ -88,16 +88,19 @@ public class PatternNode {
 
   /**
    * Creates a shallow copy of this node. The copy shares the same edge **items** and
-   * target nodes — only the {@code out} edge set is re-created via {@link #addEdge}.
+   * target nodes — only the {@code out} edge set is re-created.
    * <p>
-   * The {@code in} set of the copy is **not** populated because incoming edges are owned
-   * by their source nodes. When copying a full {@link Pattern}, the caller must rebuild
-   * the {@code in} sets by iterating over all nodes' {@code out} edges — which
-   * {@link #addEdge} already does for the target node. Therefore, when copying an
-   * entire graph node-by-node, the {@code in} sets are reconstructed automatically as
-   * each source node's edges are re-added. For standalone single-node copies (e.g. in
+   * The copy's edges reference the original target nodes but do <b>not</b> modify
+   * those target nodes' {@code in} sets. This is critical for thread safety: cached
+   * execution plans are shared across threads via {@code YqlExecutionPlanCache}, and
+   * multiple threads may copy the same plan concurrently. Using {@link #addEdge} here
+   * would mutate the original target nodes' {@code in} sets (a non-thread-safe
+   * {@code LinkedHashSet}), causing {@code HashMap} corruption under concurrent access.
+   * <p>
+   * The {@code in} set of the copy is left empty because incoming edges are owned
+   * by their source nodes. For standalone single-node copies (e.g. in
    * {@link MatchFirstStep#copy}), the {@code in} set is not needed because the copy
-   * is used only to carry the alias and optional flag.
+   * is used only to carry the alias, optional flag, and outgoing edges.
    */
   public PatternNode copy() {
     var copy = new PatternNode();
@@ -105,7 +108,11 @@ public class PatternNode {
     copy.optional = optional;
 
     for (var edge : out) {
-      copy.addEdge(edge.item, edge.in);
+      var edgeCopy = new PatternEdge();
+      edgeCopy.item = edge.item;
+      edgeCopy.out = copy;
+      edgeCopy.in = edge.in;
+      copy.out.add(edgeCopy);
     }
 
     return copy;

@@ -36,12 +36,19 @@ For **jmh-ldbc** specifically:
 
 ### Step 1: Provision the server
 
+**Naming convention**: Use `jmh-bench-<branch>` for the server and `jmh-bench-key-<branch>` for the SSH key, where `<branch>` is the current git branch name (sanitized: lowercase, slashes replaced with dashes, truncated to keep total name under 63 chars). This avoids conflicts when multiple benchmark runs execute concurrently on different branches.
+
 ```bash
+# Determine branch-based names
+BRANCH=$(git rev-parse --abbrev-ref HEAD | tr '[:upper:]/' '[:lower:]-' | cut -c1-40)
+SERVER_NAME="jmh-bench-${BRANCH}"
+KEY_NAME="jmh-bench-key-${BRANCH}"
+
 # Upload local SSH public key
-hcloud ssh-key create --name jmh-bench-key --public-key-from-file ~/.ssh/id_ed25519.pub
+hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file ~/.ssh/id_ed25519.pub
 
 # Create CCX33: 8 dedicated AMD vCPUs, 32 GB RAM, Falkenstein DC
-hcloud server create --name jmh-bench --type ccx33 --image ubuntu-24.04 --location fsn1 --ssh-key jmh-bench-key
+hcloud server create --name "$SERVER_NAME" --type ccx33 --image ubuntu-24.04 --location fsn1 --ssh-key "$KEY_NAME"
 ```
 
 Record the IPv4 address from the output. Wait ~15 seconds for the server to boot before attempting SSH.
@@ -223,11 +230,11 @@ cp /tmp/claude-code-results.json <module>/<name>-results-ccx33.json
 
 ### Step 8: Destroy the server
 
-Always clean up to avoid charges:
+Always clean up to avoid charges. Use the same branch-based names from Step 1:
 
 ```bash
-hcloud server delete jmh-bench
-hcloud ssh-key delete jmh-bench-key
+hcloud server delete "$SERVER_NAME"
+hcloud ssh-key delete "$KEY_NAME"
 ```
 
 ### Step 9: Compare results
