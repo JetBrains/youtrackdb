@@ -129,18 +129,30 @@ public class EdgeKeyTest {
   }
 
   /**
-   * hashCode must differ for keys with different ts (not guaranteed by contract but strongly
-   * expected for quality hash distribution).
+   * equals(null) must return false, equals(different type) must return false.
    */
   @Test
-  public void testHashCodeDiffersForDifferentTs() {
-    var key1 = new EdgeKey(10, 20, 30, 100L);
-    var key2 = new EdgeKey(10, 20, 30, 200L);
+  public void testEqualsWithNullAndDifferentType() {
+    var key = new EdgeKey(10, 20, 30, 100L);
 
-    // While hash collisions are technically possible, for these specific inputs with a
-    // well-implemented hash function, they should differ.
-    assertNotEquals("hashCode should differ for keys with different ts",
-        key1.hashCode(), key2.hashCode());
+    assertNotEquals(key, null);
+    assertNotEquals(key, "not an EdgeKey");
+  }
+
+  /**
+   * compareTo(other) == 0 must be consistent with equals(other).
+   */
+  @Test
+  public void testCompareToConsistentWithEquals() {
+    var key1 = new EdgeKey(10, 20, 30, 100L);
+    var key2 = new EdgeKey(10, 20, 30, 100L);
+
+    assertEquals("compareTo == 0 implies equals", key1, key2);
+    assertEquals("equals implies compareTo == 0", 0, key1.compareTo(key2));
+
+    var key3 = new EdgeKey(10, 20, 30, 200L);
+    assertNotEquals("not equals implies compareTo != 0", key1, key3);
+    assertNotEquals("compareTo != 0 implies not equals", 0, key1.compareTo(key3));
   }
 
   /**
@@ -175,13 +187,10 @@ public class EdgeKeyTest {
 
     var keys = new ArrayList<>(map.keySet());
 
-    // First 3 entries should be the same logical edge, ordered by ts ascending
-    assertEquals(100L, keys.get(0).ts);
-    assertEquals(200L, keys.get(1).ts);
-    assertEquals(300L, keys.get(2).ts);
-
-    // The different logical edge (targetPosition=31) should come after targetPosition=30
-    assertEquals(31, keys.get(3).targetPosition);
+    assertEquals(new EdgeKey(10, 20, 30, 100L), keys.get(0));
+    assertEquals(new EdgeKey(10, 20, 30, 200L), keys.get(1));
+    assertEquals(new EdgeKey(10, 20, 30, 300L), keys.get(2));
+    assertEquals(new EdgeKey(10, 20, 31, 50L), keys.get(3));
   }
 
   /**
@@ -198,12 +207,10 @@ public class EdgeKeyTest {
 
     Collections.sort(keys);
 
-    // Expected order: ridBagId=5 first, then ridBagId=10 with targetCollection=10,
-    // then ridBagId=10/tc=20/ts=100, then ridBagId=10/tc=20/ts=200
-    assertEquals(5, keys.get(0).ridBagId);
-    assertEquals(10, keys.get(1).targetCollection);
-    assertEquals(100L, keys.get(2).ts);
-    assertEquals(200L, keys.get(3).ts);
+    assertEquals(new EdgeKey(5, 20, 30, 100L), keys.get(0));
+    assertEquals(new EdgeKey(10, 10, 30, 100L), keys.get(1));
+    assertEquals(new EdgeKey(10, 20, 30, 100L), keys.get(2));
+    assertEquals(new EdgeKey(10, 20, 30, 200L), keys.get(3));
   }
 
   // --- toString test ---
