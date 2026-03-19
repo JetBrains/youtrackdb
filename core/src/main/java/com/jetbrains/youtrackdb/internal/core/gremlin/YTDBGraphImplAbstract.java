@@ -163,7 +163,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     return elements(
         tx.getDatabaseSession(),
         SchemaClass.EDGE_CLASS_NAME,
-        entity -> new YTDBStatefulEdgeImpl(this, entity.asEdge()),
+        entity -> new YTDBEdgeImpl(this, entity.asEdge()),
         edgeIds);
   }
 

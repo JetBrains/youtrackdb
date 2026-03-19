@@ -5,8 +5,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -24,14 +24,14 @@ public final class GremlinResultMapper {
   }
 
   /// Main entry point — recursively converts any value into its Gremlin representation.
-  /// Vertices become [YTDBVertexImpl], edges become [YTDBStatefulEdgeImpl],
+  /// Vertices become [YTDBVertexImpl], edges become [YTDBEdgeImpl],
   /// Results are unwrapped, and collections/maps are recursively mapped.
   @Nullable public static Object toGremlinValue(
       YTDBGraphInternal graph, ImmutableSchema schema, Object value) {
     return switch (value) {
       case null -> null;
       case Vertex vertex -> new YTDBVertexImpl(graph, vertex);
-      case Edge edge -> new YTDBStatefulEdgeImpl(graph, edge);
+      case Edge edge -> new YTDBEdgeImpl(graph, edge);
       case Entity entity -> mapEntity(graph, entity);
       case Identifiable identifiable -> wrapRid(graph, schema, identifiable.getIdentity());
       case Result result -> mapResult(graph, schema, result);
@@ -59,7 +59,7 @@ public final class GremlinResultMapper {
     if (entity.isVertex()) {
       return new YTDBVertexImpl(graph, entity.asVertex());
     } else if (entity.isEdge()) {
-      return new YTDBStatefulEdgeImpl(graph, entity.asEdge());
+      return new YTDBEdgeImpl(graph, entity.asEdge());
     }
 
     throw new IllegalStateException(
@@ -84,7 +84,7 @@ public final class GremlinResultMapper {
     return mapped;
   }
 
-  /// Resolves a [RID] to [YTDBVertexImpl] or [YTDBStatefulEdgeImpl] via the cached schema.
+  /// Resolves a [RID] to [YTDBVertexImpl] or [YTDBEdgeImpl] via the cached schema.
   private static Object wrapRid(YTDBGraphInternal graph, ImmutableSchema schema, RID rid) {
     var cls = schema.getClassByCollectionId(rid.getCollectionId());
 
@@ -98,7 +98,7 @@ public final class GremlinResultMapper {
     }
 
     if (cls.isEdgeType()) {
-      return new YTDBStatefulEdgeImpl(graph, rid);
+      return new YTDBEdgeImpl(graph, rid);
     }
 
     throw new IllegalStateException("Unsupported schema class " + cls.getName());

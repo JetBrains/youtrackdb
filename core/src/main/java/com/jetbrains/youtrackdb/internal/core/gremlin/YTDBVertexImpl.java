@@ -98,7 +98,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
                 .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
                 .iterator())
             .filter(e -> e != null && e.getFrom() != null && e.getTo() != null)
-            .map(e -> new YTDBStatefulEdgeImpl(graph, e));
+            .map(e -> new YTDBEdgeImpl(graph, e));
 
     return edgeStream.collect(Collectors.toList()).iterator();
   }
@@ -139,7 +139,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
     var ytdbEdge = vertex.addStateFulEdge(
         ((YTDBElementImpl) inVertex).getRawEntity().asVertex(),
         label);
-    var edge = new YTDBStatefulEdgeImpl(graph, ytdbEdge);
+    var edge = new YTDBEdgeImpl(graph, ytdbEdge);
     ElementHelper.attachProperties(edge, keyValues);
 
     return edge;

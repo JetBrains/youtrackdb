@@ -14,16 +14,16 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal {
+public class EdgeEntityImpl extends EntityImpl implements EdgeInternal {
 
   public static final byte RECORD_TYPE = 'e';
 
-  public StatefullEdgeEntityImpl(@Nonnull RecordIdInternal recordId,
+  public EdgeEntityImpl(@Nonnull RecordIdInternal recordId,
       @Nonnull DatabaseSessionEmbedded session, String iClassName) {
     super(recordId, session, iClassName);
   }
 
-  public StatefullEdgeEntityImpl(DatabaseSessionEmbedded database, RecordIdInternal rid) {
+  public EdgeEntityImpl(DatabaseSessionEmbedded database, RecordIdInternal rid) {
     super(database, rid);
   }
 

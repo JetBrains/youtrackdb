@@ -109,7 +109,6 @@ public class EntityHelper {
     }
   }
 
-
   @SuppressWarnings("TypeParameterUnusedInFormals")
   public static <RET> RET getFieldValue(DatabaseSessionEmbedded db, Object value,
       final String iFieldName) {
@@ -119,8 +118,7 @@ public class EntityHelper {
     return getFieldValue(db, value, iFieldName, context);
   }
 
-  @Nullable
-  @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
+  @Nullable @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
   public static <RET> RET getFieldValue(
       DatabaseSessionEmbedded session, Object value, final String iFieldName,
       @Nonnull final CommandContext iContext) {
@@ -493,7 +491,7 @@ public class EntityHelper {
               value = method.execute(value,
                   currentRecord != null ? transaction.loadEntity(currentRecord) : null, iContext,
                   value,
-                  new Object[]{});
+                  new Object[] {});
               executedMethod = true;
             }
           }
@@ -641,8 +639,7 @@ public class EntityHelper {
     return true;
   }
 
-  @Nullable
-  protected static Object getIndexPart(final CommandContext iContext, final String indexPart) {
+  @Nullable protected static Object getIndexPart(final CommandContext iContext, final String indexPart) {
     Object index = indexPart;
     if (indexPart.indexOf(',') == -1
         && (indexPart.charAt(0) == '"' || indexPart.charAt(0) == '\'')) {
@@ -661,8 +658,7 @@ public class EntityHelper {
     return index;
   }
 
-  @Nullable
-  @SuppressWarnings("unchecked")
+  @Nullable @SuppressWarnings("unchecked")
   protected static Object filterItem(
       DatabaseSessionEmbedded db, final String iConditionFieldName,
       final Object iConditionFieldValue, final Object iValue) {
@@ -709,8 +705,7 @@ public class EntityHelper {
    * @param iKey Field(s) to retrieve. If are multiple fields, then the dot must be used as
    *             separator
    */
-  @Nullable
-  @SuppressWarnings("unchecked")
+  @Nullable @SuppressWarnings("unchecked")
   public static Object getMapEntry(DatabaseSessionEmbedded session, final Map<String, ?> iMap,
       final Object iKey) {
     if (iMap == null || iKey == null) {
@@ -743,8 +738,7 @@ public class EntityHelper {
     }
   }
 
-  @Nullable
-  public static Object getResultEntry(DatabaseSessionEmbedded session, final Result result,
+  @Nullable public static Object getResultEntry(DatabaseSessionEmbedded session, final Result result,
       final Object iKey) {
     if (result == null || iKey == null) {
       return null;
@@ -778,8 +772,7 @@ public class EntityHelper {
     }
   }
 
-  @Nullable
-  public static Object getIdentifiableValue(@Nonnull DatabaseSessionEmbedded session,
+  @Nullable public static Object getIdentifiableValue(@Nonnull DatabaseSessionEmbedded session,
       final Identifiable current,
       final String iFieldName) {
     if (iFieldName == null) {
@@ -803,8 +796,7 @@ public class EntityHelper {
     }
   }
 
-  @Nullable
-  public static Object getRecordAttribute(Identifiable current, String iFieldName) {
+  @Nullable public static Object getRecordAttribute(Identifiable current, String iFieldName) {
     if (!iFieldName.isEmpty()) {
       final var begin = iFieldName.charAt(0);
       if (begin == '@') {
@@ -857,8 +849,7 @@ public class EntityHelper {
     }
   }
 
-  @Nullable
-  public static Object evaluateFunction(
+  @Nullable public static Object evaluateFunction(
       final Object currentValue, final String iFunction, final CommandContext iContext) {
     if (currentValue == null) {
       return null;
@@ -1243,7 +1234,7 @@ public class EntityHelper {
 
   public static boolean isEntity(byte recordType) {
     return (recordType == EntityImpl.RECORD_TYPE || recordType == VertexEntityImpl.RECORD_TYPE ||
-        recordType == StatefullEdgeEntityImpl.RECORD_TYPE);
+        recordType == EdgeEntityImpl.RECORD_TYPE);
   }
 
   public static boolean compareBags(

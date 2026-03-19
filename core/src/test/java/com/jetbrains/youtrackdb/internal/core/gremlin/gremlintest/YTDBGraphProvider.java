@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBPropertyImpl;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
@@ -23,7 +23,6 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Graph.Features;
 import org.junit.AssumptionViolatedException;
-
 
 public class YTDBGraphProvider extends AbstractGraphProvider {
 
@@ -45,7 +44,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
         YTDBElementImpl.class,
-        YTDBStatefulEdgeImpl.class,
+        YTDBEdgeImpl.class,
         YTDBGraphEmbedded.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,

@@ -105,11 +105,11 @@ import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrackdb.internal.core.schedule.SchedulerImpl;
@@ -987,7 +987,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return entity;
   }
 
-  public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
+  public EdgeEntityImpl newEdgeInternal(final String className) {
     var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
@@ -995,12 +995,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (!cls.isEdgeType()) {
       throw new IllegalArgumentException(
           "The class " + cls.getName()
-              + " is not an edge type and cannot be used to create a stateful edge, "
+              + " is not an edge type and cannot be used to create an edge, "
               + "please use newInstance() method");
     }
 
     checkSecurity(ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
-    var edge = new StatefullEdgeEntityImpl(new ChangeableRecordId(), this, className);
+    var edge = new EdgeEntityImpl(new ChangeableRecordId(), this, className);
     currentTx.addRecordOperation(edge, RecordOperation.CREATED);
 
     edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
@@ -1046,17 +1046,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     // All edges are record-based: primary RID is the edge record,
     // secondary RID is the opposite vertex
-    var statefulEdge = newStatefulEdgeInternal(className);
+    var edgeEntity = newEdgeInternal(className);
     var tx = getActiveTransaction();
-    statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
-    statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
+    edgeEntity.setPropertyInternal(EdgeInternal.DIRECTION_OUT, tx.load(toVertex));
+    edgeEntity.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
 
     // OUT-VERTEX ---> edge record as primary, IN-VERTEX as secondary
-    VertexEntityImpl.createLink(this, outEntity, statefulEdge, inEntity, outFieldName);
+    VertexEntityImpl.createLink(this, outEntity, edgeEntity, inEntity, outFieldName);
 
     // IN-VERTEX ---> edge record as primary, OUT-VERTEX as secondary
-    VertexEntityImpl.createLink(this, inEntity, statefulEdge, outEntity, inFieldName);
-    edge = statefulEdge;
+    VertexEntityImpl.createLink(this, inEntity, edgeEntity, outEntity, inFieldName);
+    edge = edgeEntity;
     // OK
 
     return edge;
@@ -3947,7 +3947,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (entity.isVertex()) {
       VertexEntityImpl.deleteLinks(entity.asVertex());
     } else if (entity.isEdge()) {
-      StatefullEdgeEntityImpl.deleteLinks(this, entity.asEdge());
+      EdgeEntityImpl.deleteLinks(this, entity.asEdge());
     }
   }
 
