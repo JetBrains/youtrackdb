@@ -115,56 +115,69 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var searchKey =
-            new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
-        final var result = findBucket(searchKey, atomicOperation);
-
-        final int candidateIndex;
-        if (result.getItemIndex() >= 0) {
-          candidateIndex = result.getItemIndex();
-        } else {
-          candidateIndex = -result.getItemIndex() - 1;
-        }
-
-        try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-          final var bucket = new Bucket(cacheEntry);
-
-          if (candidateIndex < bucket.size()) {
-            return checkEntryPrefix(
-                bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
-          }
-
-          // Insertion point is at the end of this bucket. The matching entry
-          // may be the first entry on the right sibling page (can happen when
-          // a bucket split placed the separator between Long.MIN_VALUE and the
-          // actual ts). One hop is sufficient because the single-version
-          // invariant guarantees at most one entry per 3-tuple prefix, and
-          // findBucket lands us in the correct neighborhood.
-          final long rightSibling = bucket.getRightSibling();
-          if (rightSibling < 0) {
-            return null;
-          }
-
-          try (final var siblingCacheEntry =
-              loadPageForRead(atomicOperation, fileId, rightSibling)) {
-            final var siblingBucket = new Bucket(siblingCacheEntry);
-            // Empty leaf buckets should not exist in a well-formed B-tree
-            // (only transiently during splits). This is a safety net.
-            if (siblingBucket.isEmpty()) {
-              return null;
-            }
-            return checkEntryPrefix(
-                siblingBucket, 0, ridBagId, targetCollection, targetPosition);
-          }
-        }
-      });
+      return atomicOperationsManager.executeReadOperation(this,
+          () -> findCurrentEntryInternal(atomicOperation, ridBagId, targetCollection,
+              targetPosition));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during prefix lookup in rid bag btree [" + getName() + "]"),
           e, storage.getName());
+    }
+  }
+
+  /**
+   * Internal prefix lookup — callable inside both read operations and write
+   * operations (when the exclusive lock is already held). See
+   * {@link #findCurrentEntry} for the algorithm description.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findCurrentEntryInternal(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) throws IOException {
+    final var searchKey =
+        new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    final var result = findBucket(searchKey, atomicOperation);
+
+    final int candidateIndex;
+    if (result.getItemIndex() >= 0) {
+      candidateIndex = result.getItemIndex();
+    } else {
+      candidateIndex = -result.getItemIndex() - 1;
+    }
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+
+      if (candidateIndex < bucket.size()) {
+        return checkEntryPrefix(
+            bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
+      }
+
+      // Insertion point is at the end of this bucket. The matching entry
+      // may be the first entry on the right sibling page (can happen when
+      // a bucket split placed the separator between Long.MIN_VALUE and the
+      // actual ts). One hop is sufficient because the single-version
+      // invariant guarantees at most one entry per 3-tuple prefix, and
+      // findBucket lands us in the correct neighborhood.
+      final long rightSibling = bucket.getRightSibling();
+      if (rightSibling < 0) {
+        return null;
+      }
+
+      try (final var siblingCacheEntry =
+          loadPageForRead(atomicOperation, fileId, rightSibling)) {
+        final var siblingBucket = new Bucket(siblingCacheEntry);
+        // Empty leaf buckets should not exist in a well-formed B-tree
+        // (only transiently during splits). This is a safety net.
+        if (siblingBucket.isEmpty()) {
+          return null;
+        }
+        return checkEntryPrefix(
+            siblingBucket, 0, ridBagId, targetCollection, targetPosition);
+      }
     }
   }
 
@@ -218,9 +231,34 @@ public final class SharedLinkBagBTree extends DurableComponent {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
-          final boolean result;
+          boolean result;
+          boolean crossTxReplacement = false;
           acquireExclusiveLock();
           try {
+            // SI: check for existing entry with same logical edge but
+            // possibly different ts (cross-transaction update).
+            final var existing = findCurrentEntryInternal(
+                atomicOperation, key.ridBagId, key.targetCollection, key.targetPosition);
+            if (existing != null && existing.first().ts != key.ts) {
+              // Cross-transaction update: preserve old version in snapshot
+              // index, then remove the old entry so the insert below proceeds
+              // as a fresh insert. The net tree size stays the same
+              // (removeEntryByKey decrements, insert below increments).
+              final var oldKey = existing.first();
+              final var oldValue = existing.second();
+
+              assert key.ts > oldKey.ts
+                  : "version monotonicity violated: newTs=" + key.ts + " <= oldTs=" + oldKey.ts;
+
+              preserveInSnapshot(atomicOperation, oldKey, oldValue);
+              removeEntryByKey(atomicOperation, oldKey);
+              crossTxReplacement = true;
+            }
+
+            // Standard insert/update logic. After cross-tx snapshot
+            // preservation, the old entry is gone and findBucketForUpdate
+            // will find the insertion point for the new key. For same-ts
+            // overwrites, findBucketForUpdate finds the exact key.
             final var serializedKey =
                 EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key,
                     (Object[]) null);
@@ -300,8 +338,58 @@ public final class SharedLinkBagBTree extends DurableComponent {
             releaseExclusiveLock();
           }
 
+          // Cross-tx replacement: the standard logic sees the new key as a
+          // fresh insert (result=true) because the old entry was removed.
+          // Override to false — logically this is a replacement.
+          if (crossTxReplacement) {
+            result = false;
+          }
           return result;
         });
+  }
+
+  /**
+   * Preserves the given entry in the edge snapshot and visibility indexes.
+   * Called before modifying or removing a B-tree entry in a cross-transaction
+   * update, so older transactions can still read the old version.
+   */
+  private void preserveInSnapshot(
+      final AtomicOperation atomicOperation,
+      final EdgeKey oldKey,
+      final LinkBagValue oldValue) {
+    final int componentId = (int) getFileId();
+    final var snapshotKey = new EdgeSnapshotKey(
+        componentId, oldKey.ridBagId, oldKey.targetCollection,
+        oldKey.targetPosition, oldKey.ts);
+
+    atomicOperation.putEdgeSnapshotEntry(snapshotKey, oldValue);
+    atomicOperation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(oldKey.ts, componentId, oldKey.ridBagId,
+            oldKey.targetCollection, oldKey.targetPosition),
+        snapshotKey);
+  }
+
+  /**
+   * Removes a B-tree entry by exact key. Used internally within write
+   * operations that already hold the exclusive lock. Decrements the tree size.
+   */
+  private void removeEntryByKey(
+      final AtomicOperation atomicOperation,
+      final EdgeKey key) throws IOException {
+    final var searchResult = findBucket(key, atomicOperation);
+    assert searchResult.getItemIndex() >= 0
+        : "removeEntryByKey: entry not found for key " + key;
+
+    final var serializedKey =
+        EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key);
+    try (final var cacheEntry =
+        loadPageForWrite(atomicOperation, fileId, searchResult.getPageIndex(), true)) {
+      final var bucket = new Bucket(cacheEntry);
+      final var rawValue =
+          bucket.getRawValue(searchResult.getItemIndex(), serializerFactory);
+      bucket.removeLeafEntry(searchResult.getItemIndex(), serializedKey.length, rawValue.length);
+      updateSize(-1, atomicOperation);
+    }
   }
 
   @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
