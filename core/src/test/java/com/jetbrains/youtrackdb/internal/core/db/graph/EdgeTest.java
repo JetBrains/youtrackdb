@@ -15,7 +15,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class LightWeightEdgesTest {
+public class EdgeTest {
 
   private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;

@@ -4473,10 +4473,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return edgeClass;
   }
 
-  public SchemaClass createLightweightEdgeClass(String className) {
-    return createAbstractClass(className, SchemaClass.EDGE_CLASS_NAME);
-  }
-
   public SchemaClass getClass(String className) {
     var schema = getSchema();
     return schema.getClass(className);

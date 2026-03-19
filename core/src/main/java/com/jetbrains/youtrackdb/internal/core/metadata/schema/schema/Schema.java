@@ -57,7 +57,7 @@ public interface Schema {
   }
 
   /**
-   * Creates a non-abstract new edge class (a class that extends E)
+   * Creates a new edge class (a class that extends E) with in/out link properties.
    *
    * @param className the class name
    * @return The object representing the class in the schema
@@ -73,24 +73,11 @@ public interface Schema {
     return edgeClass;
   }
 
-  /**
-   * Creates a new edge class for lightweight edge (an abstract class that extends E)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
-  default SchemaClass createLightweightEdgeClass(String className) {
-    return createAbstractClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
-  }
-
   void dropClass(String iClassName);
 
   boolean existsClass(String iClassName);
 
-  @Nullable
-  SchemaClass getClass(Class<?> iClass);
+  @Nullable SchemaClass getClass(Class<?> iClass);
 
   /**
    * Returns the SchemaClass instance by class name.
@@ -123,8 +110,7 @@ public interface Schema {
 
   int getVersion();
 
-  @Nullable
-  SchemaClass getClassByCollectionId(int collectionId);
+  @Nullable SchemaClass getClassByCollectionId(int collectionId);
 
   GlobalProperty getGlobalPropertyById(int id);
 
