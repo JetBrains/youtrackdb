@@ -1331,7 +1331,7 @@ public class MatchExecutionPlanner {
    * Returns the edge class name from an {@link EdgeTraversal}'s path item
    * method, or {@code null} if none is specified.
    */
-  @Nullable private static String getEdgeClassName(EdgeTraversal et) {
+  @Nullable static String getEdgeClassName(EdgeTraversal et) {
     var method = et.edge.item.getMethod();
     if (method == null) {
       return null;
@@ -1358,7 +1358,7 @@ public class MatchExecutionPlanner {
    * Returns the traversal direction ({@code "out"} or {@code "in"}) for the
    * given edge traversal, considering the scheduled direction.
    */
-  @Nullable private static String getEdgeDirection(EdgeTraversal et) {
+  @Nullable static String getEdgeDirection(EdgeTraversal et) {
     var method = et.edge.item.getMethod();
     if (method == null || method.getMethodName() == null) {
       return null;

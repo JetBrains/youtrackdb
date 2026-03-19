@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -10,9 +11,14 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.DirectRid;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.EdgeRidLookup;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import org.junit.Test;
 
@@ -178,5 +184,136 @@ public class EdgeTraversalCacheTest {
     assertThat(second).isNull();
 
     verify(desc, times(1)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+  }
+
+  // =========================================================================
+  // DirectRid — cacheKey() and resolve()
+  // =========================================================================
+
+  /**
+   * {@link DirectRid#cacheKey} always returns null — singleton sets are
+   * trivial to rebuild and not worth caching.
+   */
+  @Test
+  public void directRid_cacheKey_returnsNull() {
+    var expr = mock(SQLExpression.class);
+    var desc = new DirectRid(expr);
+    assertThat(desc.cacheKey(new BasicCommandContext())).isNull();
+  }
+
+  /**
+   * {@link DirectRid#resolve} returns a singleton set when the expression
+   * evaluates to a valid RID.
+   */
+  @Test
+  public void directRid_resolve_validRid_returnsSingleton() {
+    var expr = mock(SQLExpression.class);
+    var rid = new RecordId(10, 5);
+    when(expr.execute(nullable(Result.class), any())).thenReturn(rid);
+
+    var desc = new DirectRid(expr);
+    var result = desc.resolve(new BasicCommandContext(),
+        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+
+    assertThat(result).isNotNull();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.contains(rid)).isTrue();
+  }
+
+  /**
+   * {@link DirectRid#resolve} returns null when the expression evaluates
+   * to a non-RID value (e.g. a String).
+   */
+  @Test
+  public void directRid_resolve_nonRid_returnsNull() {
+    var expr = mock(SQLExpression.class);
+    when(expr.execute(nullable(Result.class), any())).thenReturn("not-a-rid");
+
+    var desc = new DirectRid(expr);
+    var result = desc.resolve(new BasicCommandContext(),
+        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+
+    assertThat(result).isNull();
+  }
+
+  /**
+   * {@link DirectRid#resolve} returns null when the expression evaluates
+   * to null.
+   */
+  @Test
+  public void directRid_resolve_nullValue_returnsNull() {
+    var expr = mock(SQLExpression.class);
+    when(expr.execute(nullable(Result.class), any())).thenReturn(null);
+
+    var desc = new DirectRid(expr);
+    var result = desc.resolve(new BasicCommandContext(),
+        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+
+    assertThat(result).isNull();
+  }
+
+  // =========================================================================
+  // EdgeRidLookup — cacheKey()
+  // =========================================================================
+
+  /**
+   * {@link EdgeRidLookup#cacheKey} returns the resolved RID when the
+   * expression evaluates to a RID.
+   */
+  @Test
+  public void edgeRidLookup_cacheKey_validRid_returnsRid() {
+    var expr = mock(SQLExpression.class);
+    var rid = new RecordId(5, 1);
+    when(expr.execute(nullable(Result.class), any())).thenReturn(rid);
+
+    var desc = new EdgeRidLookup("KNOWS", "out", expr);
+    var key = desc.cacheKey(new BasicCommandContext());
+
+    assertThat(key).isEqualTo(rid);
+  }
+
+  /**
+   * {@link EdgeRidLookup#cacheKey} returns null when the expression
+   * evaluates to a non-RID.
+   */
+  @Test
+  public void edgeRidLookup_cacheKey_nonRid_returnsNull() {
+    var expr = mock(SQLExpression.class);
+    when(expr.execute(nullable(Result.class), any())).thenReturn(42);
+
+    var desc = new EdgeRidLookup("KNOWS", "out", expr);
+    var key = desc.cacheKey(new BasicCommandContext());
+
+    assertThat(key).isNull();
+  }
+
+  // =========================================================================
+  // IndexLookup — cacheKey()
+  // =========================================================================
+
+  /**
+   * {@link IndexLookup#cacheKey} returns a non-null sentinel constant.
+   */
+  @Test
+  public void indexLookup_cacheKey_returnsSentinel() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    var desc = new IndexLookup(indexDesc);
+    var key = desc.cacheKey(new BasicCommandContext());
+
+    assertThat(key).isNotNull();
+    assertThat(key).isEqualTo(IndexLookup.class);
+  }
+
+  /**
+   * Two calls to {@link IndexLookup#cacheKey} return equal objects,
+   * confirming that the sentinel is stable.
+   */
+  @Test
+  public void indexLookup_cacheKey_isStable() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    var desc = new IndexLookup(indexDesc);
+    var ctx = new BasicCommandContext();
+
+    assertThat(desc.cacheKey(ctx)).isEqualTo(desc.cacheKey(ctx));
   }
 }

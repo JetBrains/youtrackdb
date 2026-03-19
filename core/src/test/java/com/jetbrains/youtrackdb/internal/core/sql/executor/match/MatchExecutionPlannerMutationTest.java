@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -19,7 +20,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
 import java.util.List;
 import java.util.Map;
 import org.junit.Before;
@@ -550,4 +553,216 @@ public class MatchExecutionPlannerMutationTest {
     when(method.getParams()).thenReturn(List.of(param));
     return method;
   }
+
+  // =========================================================================
+  // getEdgeClassName — covers lines 1334-1355
+  // =========================================================================
+
+  /**
+   * When the edge has no method, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_nullMethod_returnsNull() {
+    var et = makeEdgeTraversal(null, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When the method has null params, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_nullParams_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getParams()).thenReturn(null);
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When the method has empty params, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_emptyParams_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getParams()).thenReturn(List.of());
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When the param's math expression is not an SQLBaseExpression,
+   * getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_nonBaseExpression_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(mock(SQLMathExpression.class));
+    when(method.getParams()).thenReturn(List.of(param));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When the base expression has a modifier, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_baseWithModifier_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    var base = mock(SQLBaseExpression.class);
+    when(base.getModifier()).thenReturn(mock(SQLModifier.class));
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+    when(method.getParams()).thenReturn(List.of(param));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When execute() returns a valid string, getEdgeClassName returns it.
+   */
+  @Test
+  public void getEdgeClassName_validString_returnsClassName() {
+    var method = mock(SQLMethodCall.class);
+    var base = mock(SQLBaseExpression.class);
+    when(base.getModifier()).thenReturn(null);
+    when(base.execute(nullable(Result.class), any())).thenReturn("KNOWS");
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+    when(method.getParams()).thenReturn(List.of(param));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isEqualTo("KNOWS");
+  }
+
+  /**
+   * When execute() returns an empty string, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_emptyString_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    var base = mock(SQLBaseExpression.class);
+    when(base.getModifier()).thenReturn(null);
+    when(base.execute(nullable(Result.class), any())).thenReturn("");
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+    when(method.getParams()).thenReturn(List.of(param));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  /**
+   * When execute() returns a non-String, getEdgeClassName returns null.
+   */
+  @Test
+  public void getEdgeClassName_nonStringValue_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    var base = mock(SQLBaseExpression.class);
+    when(base.getModifier()).thenReturn(null);
+    when(base.execute(nullable(Result.class), any())).thenReturn(123);
+    var param = mock(SQLExpression.class);
+    when(param.getMathExpression()).thenReturn(base);
+    when(method.getParams()).thenReturn(List.of(param));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeClassName(et)).isNull();
+  }
+
+  // =========================================================================
+  // getEdgeDirection — covers lines 1361-1377
+  // =========================================================================
+
+  /**
+   * When the edge has no method, getEdgeDirection returns null.
+   */
+  @Test
+  public void getEdgeDirection_nullMethod_returnsNull() {
+    var et = makeEdgeTraversal(null, true);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isNull();
+  }
+
+  /**
+   * When the method name is null, getEdgeDirection returns null.
+   */
+  @Test
+  public void getEdgeDirection_nullMethodName_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(null);
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isNull();
+  }
+
+  /**
+   * For forward (out=true) traversal with "out" method, returns "out".
+   */
+  @Test
+  public void getEdgeDirection_forwardOut_returnsOut() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("out");
+  }
+
+  /**
+   * For forward (out=true) traversal with "in" method, returns "in".
+   */
+  @Test
+  public void getEdgeDirection_forwardIn_returnsIn() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("in"));
+    var et = makeEdgeTraversal(method, true);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("in");
+  }
+
+  /**
+   * For reversed (out=false) traversal with "out" method, direction
+   * is flipped to "in".
+   */
+  @Test
+  public void getEdgeDirection_reversedOut_returnsIn() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    var et = makeEdgeTraversal(method, false);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("in");
+  }
+
+  /**
+   * For reversed (out=false) traversal with "in" method, direction
+   * is flipped to "out".
+   */
+  @Test
+  public void getEdgeDirection_reversedIn_returnsOut() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("in"));
+    var et = makeEdgeTraversal(method, false);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("out");
+  }
+
+  /**
+   * For reversed (out=false) traversal with "both" method, direction
+   * stays "both" (default case — no flip).
+   */
+  @Test
+  public void getEdgeDirection_reversedBoth_returnsBoth() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("both"));
+    var et = makeEdgeTraversal(method, false);
+    assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("both");
+  }
+
+  /**
+   * Creates an EdgeTraversal with the given method and direction.
+   */
+  private EdgeTraversal makeEdgeTraversal(SQLMethodCall method, boolean out) {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+
+    var item = mock(SQLMatchPathItem.class);
+    when(item.getMethod()).thenReturn(method);
+    nodeA.addEdge(item, nodeB);
+    var patternEdge = nodeA.out.iterator().next();
+
+    return new EdgeTraversal(patternEdge, out);
+  }
+
 }
