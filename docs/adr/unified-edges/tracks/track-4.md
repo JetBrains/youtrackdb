@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,21 +14,22 @@
 
 ## Steps
 
-- [ ] Step 1: Rename `StatefullEdgeEntityImpl` to `EdgeEntityImpl` and `YTDBStatefulEdgeImpl` to `YTDBEdgeImpl`
-  > Rename the core edge implementation class `StatefullEdgeEntityImpl` ->
-  > `EdgeEntityImpl` (fixing the typo) in its definition and all references:
-  > `DatabaseSessionEmbedded` (import, `newStatefulEdgeInternal()`, `deleteLinks()`,
-  > `addEdgeInternal()`), `RecordFactoryManager` (record type registration),
-  > `EntityHelper` (record type check), `JSONSerializerJackson` (record type),
-  > `SQLRecordAttribute` (record type). Also rename `newStatefulEdgeInternal()`
-  > to `newEdgeInternal()`.
+- [x] Step 1: Rename `StatefullEdgeEntityImpl` to `EdgeEntityImpl` and `YTDBStatefulEdgeImpl` to `YTDBEdgeImpl`
+  > **What was done:** Renamed `StatefullEdgeEntityImpl` → `EdgeEntityImpl` (file +
+  > class + all 6 referencing files), `YTDBStatefulEdgeImpl` → `YTDBEdgeImpl`
+  > (file + class + all 7 referencing files), and `newStatefulEdgeInternal()` →
+  > `newEdgeInternal()` in `DatabaseSessionEmbedded` + `JSONSerializerJackson`.
+  > Updated error message and local variable name (`statefulEdge` → `edgeEntity`)
+  > in `addEdgeInternal()`. Review fix: renamed record type label from
+  > `"statefulEdge"` to `"edge"` in `RecordFactoryManager`.
   >
-  > Rename the Gremlin layer class `YTDBStatefulEdgeImpl` -> `YTDBEdgeImpl` and
-  > update all references: `YTDBVertexImpl`, `YTDBPropertyImpl`,
-  > `YTDBGraphImplAbstract`, `YTDBGraphStep`, `GremlinResultMapper`,
-  > `GremlinResultMapperTest`, `YTDBGraphProvider`.
-  >
-  > Pure rename refactor — no behavioral changes.
+  > **Key files:** `EdgeEntityImpl.java` (renamed), `YTDBEdgeImpl.java` (renamed),
+  > `DatabaseSessionEmbedded.java` (modified), `RecordFactoryManager.java` (modified),
+  > `EntityHelper.java` (modified), `JSONSerializerJackson.java` (modified),
+  > `SQLRecordAttribute.java` (modified), `YTDBGraphStep.java` (modified),
+  > `GremlinResultMapper.java` (modified), `YTDBVertexImpl.java` (modified),
+  > `YTDBPropertyImpl.java` (modified), `YTDBGraphImplAbstract.java` (modified),
+  > `GremlinResultMapperTest.java` (modified), `YTDBGraphProvider.java` (modified)
 
 - [ ] Step 2: Unify Vertex edge creation API — collapse `addStateFulEdge()` and `addLightWeightEdge()` into `addEdge()`
   > In `Vertex.java` interface: delete `addStateFulEdge(Vertex to)` (callers
