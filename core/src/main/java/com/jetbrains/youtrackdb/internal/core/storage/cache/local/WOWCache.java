@@ -3115,6 +3115,8 @@ public final class WOWCache extends AbstractWriteCache
             // and validate(stamp) detects any exclusive lock acquisition since the stamp.
             final var pageFrame = pointer.getPageFrame();
             assert pageFrame != null : "Write cache page must have a PageFrame";
+            // validate() works on released read stamps — it checks only the write-lock
+            // sequence counter, not whether the read lock is still held.
             if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)) {
               var removed = writeCachePages.remove(pageKey);
               if (removed == null) {

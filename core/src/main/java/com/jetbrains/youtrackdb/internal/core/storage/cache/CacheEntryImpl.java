@@ -125,6 +125,7 @@ public class CacheEntryImpl implements CacheEntry {
   @Override
   public void releaseExclusiveLock() {
     long stamp = exclusiveLockStamp;
+    assert stamp != 0 : "releaseExclusiveLock() called without a prior acquireExclusiveLock()";
     exclusiveLockStamp = 0;
     dataPointer.releaseExclusiveLock(stamp);
   }
