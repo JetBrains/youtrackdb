@@ -152,8 +152,7 @@ public class TransactionRidAllocationTest {
     DatabaseSessionEmbedded second;
     youTrackDB.create("secondTest", DatabaseType.MEMORY, "admin", ADMIN_PASSWORD, "admin");
     second =
-        (DatabaseSessionEmbedded)
-            youTrackDB.open("secondTest", "admin", ADMIN_PASSWORD);
+        (DatabaseSessionEmbedded) youTrackDB.open("secondTest", "admin", ADMIN_PASSWORD);
     // THIS OFFSET FIRST DB FROM THE SECOND
     for (var i = 0; i < 20; i++) {
       second.begin();
@@ -202,7 +201,7 @@ public class TransactionRidAllocationTest {
     var v0 = db.newVertex("V");
     for (var i = 0; i < 20; i++) {
       var v = db.newVertex("V");
-      var edge = v0.addStateFulEdge(v);
+      var edge = v0.addEdge(v);
       orecords.add(edge);
       orecords.add(v);
     }

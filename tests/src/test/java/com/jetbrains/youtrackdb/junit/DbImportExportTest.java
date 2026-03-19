@@ -326,8 +326,8 @@ public class DbImportExportTest extends BaseDBJUnit5Test
         final var v3 = tx.newVertex(vClass);
         v3.setProperty("no", 3);
 
-        v1.addStateFulEdge(v2, eClass).setProperty("lbl", "1to2");
-        v2.addStateFulEdge(v1, eClass).setProperty("lbl", "2to1");
+        v1.addEdge(v2, eClass).setProperty("lbl", "1to2");
+        v2.addEdge(v1, eClass).setProperty("lbl", "2to1");
 
         v1.addEdge(v3, leClass);
         v3.addEdge(v2, leClass);

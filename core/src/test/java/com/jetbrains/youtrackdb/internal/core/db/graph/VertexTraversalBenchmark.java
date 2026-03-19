@@ -71,7 +71,7 @@ public class VertexTraversalBenchmark {
     var center = tx.newVertex("CenterVertex");
     for (var i = 0; i < OUTER_VERTEX_COUNT; i++) {
       var outer = tx.newVertex("OuterVertex");
-      center.addStateFulEdge(outer, "HeavyEdge");
+      center.addEdge(outer, "HeavyEdge");
     }
     tx.commit();
 

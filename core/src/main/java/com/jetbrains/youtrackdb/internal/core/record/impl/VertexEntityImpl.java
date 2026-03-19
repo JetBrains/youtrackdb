@@ -208,28 +208,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public Edge addStateFulEdge(Vertex to) {
+  public Edge addEdge(Vertex to) {
     return addEdge(to, EdgeInternal.CLASS_NAME);
   }
 
   @Override
   public Edge addEdge(Vertex to, String type) {
     checkForBinding();
-    // After edge unification, all edges are record-based — route everything
-    // through newStatefulEdge(). Abstract edge classes are rejected there.
     return session.newStatefulEdge(this, to, type == null ? EdgeInternal.CLASS_NAME : type);
-  }
-
-  @Override
-  public Edge addStateFulEdge(Vertex to, String label) {
-    checkForBinding();
-    return session.newStatefulEdge(this, to, label == null ? EdgeInternal.CLASS_NAME : label);
-  }
-
-  @Override
-  public Edge addLightWeightEdge(Vertex to, String label) {
-    checkForBinding();
-    return session.newLightweightEdge(this, to, label);
   }
 
   @Override
@@ -242,32 +228,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
 
     return addEdge(to, className);
-  }
-
-  @Override
-  public Edge addStateFulEdge(Vertex to, SchemaClass label) {
-    final String className;
-
-    if (label != null) {
-      className = label.getName();
-    } else {
-      className = EdgeInternal.CLASS_NAME;
-    }
-
-    return addStateFulEdge(to, className);
-  }
-
-  @Override
-  public Edge addLightWeightEdge(Vertex to, SchemaClass label) {
-    final String className;
-
-    if (label != null) {
-      className = label.getName();
-    } else {
-      className = EdgeInternal.CLASS_NAME;
-    }
-
-    return addLightWeightEdge(to, className);
   }
 
   @Override
@@ -644,33 +604,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   /**
-   * Creates a lightweight link between a vertex and the opposite vertex.
-   * For lightweight edges, both primary and secondary RIDs in the LinkBag point to the same
-   * opposite vertex (i.e. RidPair(vertexRid, vertexRid)). This overload should only be used
-   * for lightweight edges; for heavyweight edges use the 5-parameter overload that accepts
-   * separate primary (edge record) and secondary (opposite vertex) identifiables.
-   *
-   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, Identifiable, String)
-   */
-  public static void createLink(
-      DatabaseSessionEmbedded session, final EntityImpl fromVertex, final Identifiable to,
-      final String fieldName) {
-    createLink(session, fromVertex, to, to, fieldName);
-  }
-
-  /**
    * Creates a link between a vertex and a graph element, storing both primary and secondary
-   * RIDs in the LinkBag. For heavyweight edges, the primary RID is the edge record and the
-   * secondary RID is the opposite vertex (i.e. RidPair(edgeRid, oppositeVertexRid)).
-   * For lightweight edges, both RIDs point to the same opposite vertex.
+   * RIDs in the LinkBag. The primary RID is the edge record and the secondary RID is the
+   * opposite vertex (i.e. RidPair(edgeRid, oppositeVertexRid)).
    *
    * @param session the database session
    * @param fromVertex the vertex to add the link to
-   * @param primaryIdentifiable the primary identifiable to store (edge record for heavyweight,
-   *     opposite vertex for lightweight)
+   * @param primaryIdentifiable the primary identifiable to store (edge record)
    * @param secondaryIdentifiable the secondary identifiable (opposite vertex)
    * @param fieldName the edge field name (e.g. "out_E" or "in_E")
-   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, String)
    */
   public static void createLink(
       DatabaseSessionEmbedded session, final EntityImpl fromVertex,

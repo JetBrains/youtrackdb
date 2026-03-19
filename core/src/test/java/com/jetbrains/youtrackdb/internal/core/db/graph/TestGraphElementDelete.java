@@ -44,7 +44,7 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();
@@ -67,7 +67,7 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();
@@ -84,7 +84,7 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();

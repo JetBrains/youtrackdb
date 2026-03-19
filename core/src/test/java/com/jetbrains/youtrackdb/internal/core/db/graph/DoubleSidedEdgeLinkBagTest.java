@@ -77,7 +77,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
     var edgeRid = edge.getIdentity();
 
     tx.commit();
@@ -135,7 +135,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "LightEdge");
+    var edge = outVertex.addEdge(inVertex, "LightEdge");
     var edgeRid = edge.getIdentity();
 
     tx.commit();
@@ -193,8 +193,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
 
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
 
     var edge1Rid = edge1.getIdentity();
     var edge2Rid = edge2.getIdentity();
@@ -265,9 +265,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var inVertexLight = tx.newVertex("TestVertex");
     var inVertexHeavy = tx.newVertex("TestVertex");
 
-    var lightEdge = outVertex.addStateFulEdge(inVertexLight, "LightEdge");
+    var lightEdge = outVertex.addEdge(inVertexLight, "LightEdge");
     var lightEdgeRid = lightEdge.getIdentity();
-    var heavyEdge = outVertex.addStateFulEdge(inVertexHeavy, "HeavyEdge");
+    var heavyEdge = outVertex.addEdge(inVertexHeavy, "HeavyEdge");
     var heavyEdgeRid = heavyEdge.getIdentity();
 
     tx.commit();
@@ -309,7 +309,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
@@ -360,7 +360,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
@@ -417,7 +417,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
@@ -448,7 +448,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var heavyTarget = tx.newVertex("TestVertex");
     var lightTarget = tx.newVertex("TestVertex");
 
-    outVertex.addStateFulEdge(heavyTarget, "HeavyEdge");
+    outVertex.addEdge(heavyTarget, "HeavyEdge");
     outVertex.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
@@ -486,8 +486,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var vertexC = tx.newVertex("TestVertex");
 
     // A --HeavyEdge--> B, C --HeavyEdge--> A
-    vertexA.addStateFulEdge(vertexB, "HeavyEdge");
-    vertexC.addStateFulEdge(vertexA, "HeavyEdge");
+    vertexA.addEdge(vertexB, "HeavyEdge");
+    vertexC.addEdge(vertexA, "HeavyEdge");
 
     tx.commit();
 
@@ -523,7 +523,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var heavyTarget = tx.newVertex("TestVertex");
     var lightTarget = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(heavyTarget, "HeavyEdge");
+    center.addEdge(heavyTarget, "HeavyEdge");
     center.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
@@ -561,9 +561,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var target2 = tx.newVertex("TestVertex");
     var target3 = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(target1, "HeavyEdge");
-    center.addStateFulEdge(target2, "HeavyEdge");
-    center.addStateFulEdge(target3, "HeavyEdge");
+    center.addEdge(target1, "HeavyEdge");
+    center.addEdge(target2, "HeavyEdge");
+    center.addEdge(target3, "HeavyEdge");
 
     tx.commit();
 
@@ -620,7 +620,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
@@ -663,7 +663,7 @@ public class DoubleSidedEdgeLinkBagTest {
     tx = session.begin();
     var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
     var loadedIn = tx.load(inVertex.getIdentity()).asVertex();
-    loadedOut.addStateFulEdge(loadedIn, "HeavyEdge");
+    loadedOut.addEdge(loadedIn, "HeavyEdge");
     tx.rollback();
 
     // After rollback, the vertex should have no edges
@@ -685,14 +685,14 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
+    outVertex.addEdge(inVertex1, "HeavyEdge");
     tx.commit();
 
     // In a new transaction, add another edge then rollback
     tx = session.begin();
     var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
     var loadedIn2 = tx.load(inVertex2.getIdentity()).asVertex();
-    loadedOut.addStateFulEdge(loadedIn2, "HeavyEdge");
+    loadedOut.addEdge(loadedIn2, "HeavyEdge");
     tx.rollback();
 
     // After rollback, only the original edge should remain
@@ -721,7 +721,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     // Remove the edge within the same transaction
     edge.delete();
@@ -747,9 +747,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var lightTarget = tx.newVertex("TestVertex");
     var heavySource = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(heavyTarget, "HeavyEdge");
+    center.addEdge(heavyTarget, "HeavyEdge");
     center.addEdge(lightTarget, "LightEdge");
-    heavySource.addStateFulEdge(center, "HeavyEdge");
+    heavySource.addEdge(center, "HeavyEdge");
 
     tx.commit();
 
@@ -788,7 +788,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     tx.commit();
@@ -841,7 +841,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     var centerRid = center.getIdentity();
@@ -889,7 +889,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     tx.commit();
@@ -929,7 +929,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
 
     var vertex = tx.newVertex("TestVertex");
-    vertex.addStateFulEdge(vertex, "HeavyEdge");
+    vertex.addEdge(vertex, "HeavyEdge");
 
     tx.commit();
 
@@ -974,8 +974,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var target1 = tx.newVertex("TestVertex");
     var target2 = tx.newVertex("TestVertex");
 
-    vertex.addStateFulEdge(target1, "HeavyEdge");
-    vertex.addStateFulEdge(target2, "HeavyEdge");
+    vertex.addEdge(target1, "HeavyEdge");
+    vertex.addEdge(target2, "HeavyEdge");
 
     tx.commit();
 
@@ -1004,9 +1004,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var target2 = tx.newVertex("TestVertex");
     var target3 = tx.newVertex("TestVertex");
 
-    vertex.addStateFulEdge(target1, "HeavyEdge");
-    vertex.addStateFulEdge(target2, "HeavyEdge");
-    vertex.addStateFulEdge(target3, "HeavyEdge");
+    vertex.addEdge(target1, "HeavyEdge");
+    vertex.addEdge(target2, "HeavyEdge");
+    vertex.addEdge(target3, "HeavyEdge");
 
     tx.commit();
 
@@ -1052,9 +1052,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    // addStateFulEdge stores the edge RID as a single LINK (not a LinkBag)
+    // addEdge stores the edge RID as a single LINK (not a LinkBag)
     // because the property is typed as LINK
-    outVertex.addStateFulEdge(inVertex, "LinkEdge");
+    outVertex.addEdge(inVertex, "LinkEdge");
     tx.commit();
 
     tx = session.begin();
@@ -1098,8 +1098,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
 
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
 
     var edge1Rid = edge1.getIdentity();
     var edge2Rid = edge2.getIdentity();
@@ -1153,8 +1153,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
     tx.commit();
 
     tx = session.begin();
@@ -1197,7 +1197,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
     var edgeRid = edge.getIdentity();
     tx.commit();
 
@@ -1244,7 +1244,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
 
-    var edge = outVertex.addStateFulEdge(inVertex, "LightEdge");
+    var edge = outVertex.addEdge(inVertex, "LightEdge");
 
     var edgeRid = edge.getIdentity();
     var inVertexRid = inVertex.getIdentity();
@@ -1295,7 +1295,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
     tx.commit();
@@ -1347,7 +1347,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
     tx.commit();

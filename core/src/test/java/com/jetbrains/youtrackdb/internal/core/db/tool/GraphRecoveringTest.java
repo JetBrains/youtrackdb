@@ -73,7 +73,7 @@ public class GraphRecoveringTest {
     var v2 = tx.newVertex("V2");
     v2.setProperty("key", 2);
 
-    v0.addStateFulEdge(v1);
+    v0.addEdge(v1);
     v1.addEdge(v2, "E1");
     v2.addEdge(v0, "E2");
 

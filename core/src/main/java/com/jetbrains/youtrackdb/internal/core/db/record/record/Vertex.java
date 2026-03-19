@@ -120,86 +120,34 @@ public interface Vertex extends Entity {
   Iterable<Vertex> getVertices(Direction direction, SchemaClass... label);
 
   /**
-   * Adds a stateful edge between the current vertex and the specified vertex. Edge will be created
+   * Adds an edge between the current vertex and the specified vertex. Edge will be created
    * without any specific label. It is recommended to use labeled edges instead.
    *
    * @param to the vertex to which the edge is connected
    * @return the created edge
    * @see Schema#createEdgeClass(String)
    */
-  Edge addStateFulEdge(Vertex to);
+  Edge addEdge(Vertex to);
 
   /**
-   * Adds an edge between the current vertex and the specified vertex. If label of this edge is
-   * related to abstract class it will be created as lightweight edge, otherwise as stateful edge.
+   * Adds an edge between the current vertex and the specified vertex with the given label.
    *
    * @param to    the vertex to which the edge is connected
-   * @param label the label of the edge (optional)
+   * @param label the label of the edge
    * @return the created edge
    * @see Schema#createEdgeClass(String)
-   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, String label);
 
   /**
-   * Adds a stateful edge between the current vertex and the specified vertex with the given label.
-   * Label of this edge should be related to  non-abstract class (class with given name should
-   * exist).
+   * Adds an edge between the current vertex and the specified vertex with the given label.
    *
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
    * @see Schema#createEdgeClass(String)
-   */
-  Edge addStateFulEdge(Vertex to, String label);
-
-  /**
-   * Adds a lightweight edge (one that does not require associated record) between the current
-   * vertex and the specified vertex. Label of this edge should be related to abstract class (class
-   * with given name should exist).
-   *
-   * @param to    the vertex to which the edge is connected
-   * @param label the label of the edge (optional)
-   * @return the created edge
-   * @see Schema#createLightweightEdgeClass(String)
-   */
-  Edge addLightWeightEdge(Vertex to, String label);
-
-  /**
-   * Adds an edge between the current vertex and the specified vertex with the given label. If label
-   * of this edge is related to abstract class it will be created as lightweight edge, otherwise as
-   * stateful edge.
-   *
-   * @param to    the vertex to which the edge is connected
-   * @param label the label of the edge
-   * @return the created edge
-   * @see Schema#createEdgeClass(String)
-   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, SchemaClass label);
-
-  /**
-   * Adds a stateful edge between the current vertex and the specified vertex with the given label.
-   * Label of this edge should be related to non-abstract class (class with given name should
-   * exist).
-   *
-   * @param to    the vertex to which the edge is connected
-   * @param label the label of the edge
-   * @return the created edge
-   */
-  Edge addStateFulEdge(Vertex to, SchemaClass label);
-
-  /**
-   * Adds a lightweight edge (one that does not require associated record) between the current
-   * vertex and the specified vertex with the given label. Label of this edge should be related to
-   * abstract class.
-   *
-   * @param to    the vertex to which the edge is connected
-   * @param label the label of the edge
-   * @return the created edge
-   * @see Schema#createLightweightEdgeClass(String)
-   */
-  Edge addLightWeightEdge(Vertex to, SchemaClass label);
 
   /**
    * Removes all edges connected to the vertex in the given direction.

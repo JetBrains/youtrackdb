@@ -5099,7 +5099,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       var v1 = transaction.newVertex(vertexClass);
       var v2 = transaction.newVertex(vertexClass);
 
-      var edge = v1.addStateFulEdge(v2, edgeClass);
+      var edge = v1.addEdge(v2, edgeClass);
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
@@ -5158,7 +5158,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       var v1 = transaction.newVertex(vertexClass);
       var v2 = transaction.newVertex(vertexClass);
 
-      var edge = v1.addStateFulEdge(v2, edgeClass);
+      var edge = v1.addEdge(v2, edgeClass);
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
     });
@@ -5202,7 +5202,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5261,7 +5261,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5306,7 +5306,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5366,7 +5366,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5410,7 +5410,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5454,7 +5454,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -5505,7 +5505,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};

@@ -136,7 +136,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
     }
 
     var vertex = getRawEntity().asVertex();
-    var ytdbEdge = vertex.addStateFulEdge(
+    var ytdbEdge = vertex.addEdge(
         ((YTDBElementImpl) inVertex).getRawEntity().asVertex(),
         label);
     var edge = new YTDBEdgeImpl(graph, ytdbEdge);
