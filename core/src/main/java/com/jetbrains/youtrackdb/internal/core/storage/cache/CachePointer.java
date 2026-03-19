@@ -115,6 +115,11 @@ public final class CachePointer {
       @Nullable final PageFramePool framePool,
       final long fileId,
       final int pageIndex) {
+    if ((pageFrame == null) != (framePool == null)) {
+      throw new IllegalArgumentException(
+          "pageFrame and framePool must both be null or both non-null");
+    }
+
     this.pointer = pageFrame != null ? pageFrame.getPointer() : null;
     this.bufferPool = null;
     this.pageFrame = pageFrame;

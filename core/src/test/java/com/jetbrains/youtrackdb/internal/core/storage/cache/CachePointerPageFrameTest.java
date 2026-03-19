@@ -129,4 +129,31 @@ public class CachePointerPageFrameTest {
     var cachePointer = new CachePointer((Pointer) null, null, 10, 5);
     assertNull(cachePointer.getPageFrame());
   }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testRejectsPageFrameWithoutPool() {
+    // Verifies that passing a non-null pageFrame with a null framePool is rejected.
+    // This asymmetric case would cause a silent memory leak in decrementReferrer().
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+    try {
+      new CachePointer(frame, null, 10, 5);
+    } finally {
+      pool.release(frame);
+      pool.clear();
+    }
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testRejectsNegativeFileIdPageFrameConstructor() {
+    // Verifies that the PageFrame constructor rejects negative fileId.
+    new CachePointer((PageFrame) null, null, -1, 5);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testRejectsNegativePageIndexPageFrameConstructor() {
+    // Verifies that the PageFrame constructor rejects negative pageIndex.
+    new CachePointer((PageFrame) null, null, 10, -1);
+  }
 }
