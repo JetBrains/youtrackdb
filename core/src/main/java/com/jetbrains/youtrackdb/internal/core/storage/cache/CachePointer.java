@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.nio.ByteBuffer;
@@ -60,6 +62,10 @@ public final class CachePointer {
   private final Pointer pointer;
   private final ByteBufferPool bufferPool;
 
+  // PageFrame-based fields (null when using legacy Pointer+ByteBufferPool constructor)
+  @Nullable private final PageFrame pageFrame;
+  @Nullable private final PageFramePool framePool;
+
   private long version;
 
   private final long fileId;
@@ -76,6 +82,43 @@ public final class CachePointer {
       final int pageIndex) {
     this.pointer = pointer;
     this.bufferPool = bufferPool;
+    this.pageFrame = null;
+    this.framePool = null;
+
+    if (fileId < 0) {
+      throw new IllegalStateException("File id has invalid value " + fileId);
+    }
+
+    if (pageIndex < 0) {
+      throw new IllegalStateException("Page index has invalid value " + pageIndex);
+    }
+
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
+  }
+
+  /**
+   * Creates a CachePointer backed by a {@link PageFrame}. The pointer is derived from the
+   * PageFrame's underlying Pointer. When {@code referrersCount} reaches 0, the frame is
+   * released back to the {@link PageFramePool} instead of the ByteBufferPool.
+   *
+   * <p>The {@code pageFrame} and {@code framePool} parameters may both be {@code null} for
+   * sentinel CachePointers (e.g., in AtomicOperationBinaryTracking for metadata-only entries).
+   *
+   * @param pageFrame the page frame wrapping native memory (nullable for sentinel)
+   * @param framePool the pool to return the frame to on release (nullable for sentinel)
+   * @param fileId    file identifier (must be >= 0)
+   * @param pageIndex page index within file (must be >= 0)
+   */
+  public CachePointer(
+      @Nullable final PageFrame pageFrame,
+      @Nullable final PageFramePool framePool,
+      final long fileId,
+      final int pageIndex) {
+    this.pointer = pageFrame != null ? pageFrame.getPointer() : null;
+    this.bufferPool = null;
+    this.pageFrame = pageFrame;
+    this.framePool = framePool;
 
     if (fileId < 0) {
       throw new IllegalStateException("File id has invalid value " + fileId);
@@ -225,7 +268,11 @@ public final class CachePointer {
   public void decrementReferrer() {
     final var rf = REFERRERS_COUNT_UPDATER.decrementAndGet(this);
     if (rf == 0 && pointer != null) {
-      bufferPool.release(pointer);
+      if (pageFrame != null && framePool != null) {
+        framePool.release(pageFrame);
+      } else if (bufferPool != null) {
+        bufferPool.release(pointer);
+      }
     }
 
     if (rf < 0) {
@@ -234,8 +281,7 @@ public final class CachePointer {
     }
   }
 
-  @Nullable
-  public ByteBuffer getBuffer() {
+  @Nullable public ByteBuffer getBuffer() {
     if (pointer == null) {
       return null;
     }
@@ -245,6 +291,14 @@ public final class CachePointer {
 
   public Pointer getPointer() {
     return pointer;
+  }
+
+  /**
+   * Returns the underlying PageFrame, or {@code null} if this CachePointer was created
+   * with the legacy Pointer+ByteBufferPool constructor or is a sentinel.
+   */
+  @Nullable public PageFrame getPageFrame() {
+    return pageFrame;
   }
 
   public void acquireExclusiveLock() {

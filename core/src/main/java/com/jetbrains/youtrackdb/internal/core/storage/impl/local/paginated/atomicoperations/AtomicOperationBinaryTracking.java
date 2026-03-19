@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -333,7 +334,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         new CacheEntryImpl(
             fileId,
             (int) filledUpTo,
-            new CachePointer(null, null, fileId, (int) filledUpTo),
+            new CachePointer((Pointer) null, null, fileId, (int) filledUpTo),
             false,
             readCache);
     return pageChangesContainer;
