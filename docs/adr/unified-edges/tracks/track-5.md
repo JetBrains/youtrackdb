@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -63,18 +63,16 @@ remaining cleanup targets identified by the reviews:
   > **Key files:** `SQLOptimizeDatabaseStatement.java` (modified),
   > `OptimizeDatabaseExecutionTest.java` (modified)
 
-- [ ] Step 4: Fix `createLink()` fallback path and clean up `GraphRepair` lightweight references
-  > Fix `VertexEntityImpl.createLink()` at line 682: the single-arg
-  > `bag.add(foundId.getIdentity())` creates a `RidPair(rid, rid)` —
-  > invalid for edge LinkBags. Determine the correct secondary RID for
-  > the pre-existing entry (load the edge record to find the opposite
-  > vertex, or if the entry is a vertex RID, treat it as corruption).
-  > Clean up `GraphRepair.repairEdge()` lightweight repair path (line
-  > 545-546) — replace with corruption detection since lightweight edges
-  > no longer exist. Update stale "lightweight" comments in
-  > `PropertyLinkBagIndexDefinition`, `VertexFromLinkBagIterator`, and
-  > `VertexEntityImpl`.
+- [x] Step 4: Fix `createLink()` fallback path and clean up `GraphRepair` lightweight references
+  > **What was done:** Fixed `VertexEntityImpl.createLink()` single-Identifiable
+  > to LinkBag conversion: added `resolveSecondaryRid()` helper that loads the
+  > pre-existing edge record and reads the opposite vertex from the `in`/`out`
+  > property based on the field name prefix. Simplified `GraphRepair.isEdgeBroken()`
+  > vertex branch to mark vertex RIDs in edge LinkBags as corruption. Updated
+  > stale lightweight comments in `PropertyLinkBagIndexDefinition` and
+  > `VertexFromLinkBagIterator`. Code review replaced assert with explicit
+  > `IllegalStateException` null check in `resolveSecondaryRid()`.
   >
-  > **Target files:** `VertexEntityImpl.java` (modified),
-  > `GraphRepair.java` (modified), `PropertyLinkBagIndexDefinition.java`
-  > (comments), `VertexFromLinkBagIterator.java` (comments)
+  > **Key files:** `VertexEntityImpl.java` (modified), `GraphRepair.java`
+  > (modified), `PropertyLinkBagIndexDefinition.java` (modified),
+  > `VertexFromLinkBagIterator.java` (modified)
