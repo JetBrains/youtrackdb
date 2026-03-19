@@ -303,7 +303,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
       var toLoadPropertyNames = getAllPossibleEdgePropertyNames(
-          schema, direction, EdgeType.BOTH, labels);
+          schema, direction, labels);
 
       if (toLoadPropertyNames != null) {
         deserializeProperties(toLoadPropertyNames.toArray(new String[] {}));
@@ -383,7 +383,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   /// As each label is represented by a class and the class may have subclasses, those subclasses
   /// are also considered and added to the list of possible edge labels.
   @Nullable public static List<String> getAllPossibleEdgePropertyNames(
-      Schema schema, final Direction direction, EdgeType edgeType,
+      Schema schema, final Direction direction,
       String... labels) {
     if (labels == null) {
       return null;
@@ -396,12 +396,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
       if (clazz != null) {
         if (!clazz.isEdgeType()) {
-          continue;
-        }
-
-        if (edgeType == EdgeType.LIGHTWEIGHT && !clazz.isAbstract()) {
-          continue;
-        } else if (edgeType == EdgeType.STATEFUL && clazz.isAbstract()) {
           continue;
         }
 
@@ -752,7 +746,4 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     removeLinkFromEdge((EntityImpl) vertex, edge, Direction.OUT);
   }
 
-  public enum EdgeType {
-    LIGHTWEIGHT, STATEFUL, BOTH
-  }
 }
