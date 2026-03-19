@@ -893,6 +893,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   void flushEdgeSnapshotBuffers() {
     if (localEdgeSnapshotBuffer != null) {
+      // Approximate count — same semantics as flushSnapshotBuffers: slight overcounting is
+      // harmless (just triggers cleanup slightly earlier). The size counter drives the combined
+      // threshold check in cleanupSnapshotIndex(); visibility entries are not counted because
+      // eviction uses headMap range scans on the sorted map, not a size check.
       edgeSnapshotIndexSize.addAndGet(localEdgeSnapshotBuffer.size());
       sharedEdgeSnapshotIndex.putAll(localEdgeSnapshotBuffer);
     }
