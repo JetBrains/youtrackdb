@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -59,30 +59,20 @@
   > (modified), `AtomicOperationsManager.java` (modified),
   > `AtomicOperationSnapshotProxyTest.java` (modified)
 
-- [ ] Step 4: Wire edge snapshot buffer flush into commit path
-  > In `AtomicOperationBinaryTracking.commitChanges()`, call `flushEdgeSnapshotBuffers()`
-  > immediately after `flushSnapshotBuffers()` (line 576), inside the `if (!rollback)` block.
-  > This ensures edge snapshot entries are visible in shared maps before page changes are
-  > applied to cache (resolves R3).
+- [x] Step 4: Add edge snapshot proxy tests
+  > **What was done:** Added 23 tests to `AtomicOperationSnapshotProxyTest` covering all 5
+  > edge snapshot methods: put/get/subMapDescending for edge snapshots, put/contains for
+  > edge visibility. Tests cover local buffer behavior, shared map fallback,
+  > local-shadows-shared, merged descending iteration, flush to shared maps with size
+  > counter verification, commit path integration, rollback discards, and deactivated
+  > operation rejection for all 5 methods.
   >
-  > On rollback, local edge buffers are discarded — the write-nothing-on-error pattern applies
-  > identically.
+  > **What changed from the plan:** The flush wiring into commitChanges was already done
+  > in Step 3, so this step focused entirely on tests. Updated setUp() to use shared edge
+  > snapshot fields accessible to tests for verification.
   >
-  > Add tests in `AtomicOperationSnapshotProxyTest` (or new test class):
-  > - `putEdgeSnapshotEntry` / `getEdgeSnapshotEntry` local buffer behavior
-  > - `getEdgeSnapshotEntry` falls back to shared map
-  > - Local entry shadows shared entry with same key
-  > - `edgeSnapshotSubMapDescending` merges local and shared in descending order
-  > - `putEdgeVisibilityEntry` / `containsEdgeVisibilityEntry` local and shared behavior
-  > - `flushEdgeSnapshotBuffers` moves local entries to shared maps and increments size counter
-  > - Full commit path test: put entries, commit, verify entries in shared maps
-  > - Rollback discards local edge buffers (entries not in shared maps after rollback)
-  >
-  > Update the test factory `createOperation()` in `AtomicOperationSnapshotProxyTest` to pass
-  > the 3 new constructor parameters.
-  >
-  > **Files**: `AtomicOperationBinaryTracking.java` (modified),
-  > `AtomicOperationSnapshotProxyTest.java` (modified)
+  > **Key files:** `AtomicOperationSnapshotProxyTest.java` (modified — 23 new tests,
+  > from 52 to 75 total)
 
 - [ ] Step 5: Integration test for edge snapshot lifecycle (put → flush → cleanup)
   > Write a focused integration test that exercises the full lifecycle:
