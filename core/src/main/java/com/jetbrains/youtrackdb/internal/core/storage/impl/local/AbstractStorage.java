@@ -4803,8 +4803,10 @@ public abstract class AbstractStorage
         indexEngineNameMap.clear();
         sharedSnapshotIndex.clear();
         visibilityIndex.clear();
+        snapshotIndexSize.set(0);
         sharedEdgeSnapshotIndex.clear();
         edgeVisibilityIndex.clear();
+        edgeSnapshotIndexSize.set(0);
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
