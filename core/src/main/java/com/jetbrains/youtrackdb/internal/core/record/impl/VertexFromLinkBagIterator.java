@@ -13,9 +13,11 @@ import javax.annotation.Nullable;
 
 /**
  * Iterator that loads vertices directly from LinkBag's secondary RIDs,
- * bypassing edge record loading. For heavyweight edges, the secondary RID
- * is the opposite vertex; for lightweight edges, both primary and secondary
- * RIDs point to the opposite vertex. Missing records are skipped gracefully.
+ * bypassing edge record loading. The secondary RID in each {@link RidPair}
+ * is the opposite vertex RID. Missing records are skipped gracefully.
+ *
+ * <p>Validates each {@link RidPair} via {@link RidPair#validateEdgePair()}
+ * to detect legacy lightweight edges (where primaryRid == secondaryRid).
  *
  * <p>Requires an active transaction on the session.
  *
@@ -30,8 +32,7 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
   @Nonnull
   private final DatabaseSessionEmbedded session;
   private final int size;
-  @Nullable
-  private Vertex nextVertex;
+  @Nullable private Vertex nextVertex;
 
   public VertexFromLinkBagIterator(
       @Nonnull Iterator<RidPair> ridPairIterator,
@@ -60,8 +61,8 @@ public class VertexFromLinkBagIterator implements Iterator<Vertex>, Sizeable {
     throw new NoSuchElementException();
   }
 
-  @Nullable
-  private Vertex loadVertex(RidPair ridPair) {
+  @Nullable private Vertex loadVertex(RidPair ridPair) {
+    ridPair.validateEdgePair();
     try {
       var transaction = session.getActiveTransaction();
       var entity = transaction.loadEntity(ridPair.secondaryRid());

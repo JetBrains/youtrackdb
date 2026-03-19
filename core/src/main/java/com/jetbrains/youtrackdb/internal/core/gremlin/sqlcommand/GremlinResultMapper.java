@@ -63,7 +63,7 @@ public final class GremlinResultMapper {
     }
 
     throw new IllegalStateException(
-        "Only vertices and stateful edges are supported in Gremlin results");
+        "Only vertices and edges are supported in Gremlin results");
   }
 
   /// Converts a [Result] — dispatches to entity/identifiable/property-map handling.
