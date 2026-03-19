@@ -50,8 +50,10 @@ public class CacheEntryImpl implements CacheEntry {
   private boolean allocatedPage;
 
   // Stamp from the last acquireExclusiveLock() call. Safe to store because the exclusive lock
-  // is single-writer — only one thread holds it at a time. Shared lock stamps are NOT stored
-  // because multiple threads can hold shared locks on the same CacheEntry concurrently.
+  // is single-writer — only one thread holds it at a time. Not volatile: the StampedLock's
+  // memory barriers provide happens-before between acquire and release on the same thread.
+  // Shared lock stamps are NOT stored because multiple threads can hold shared locks
+  // on the same CacheEntry concurrently.
   private long exclusiveLockStamp;
 
   private final boolean insideCache;

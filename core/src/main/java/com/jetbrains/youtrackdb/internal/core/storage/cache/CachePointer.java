@@ -63,6 +63,9 @@ public final class CachePointer {
   @Nullable private final PageFrame pageFrame;
   @Nullable private final PageFramePool framePool;
 
+  // Written under exclusive lock, read under shared lock. Visibility guaranteed by
+  // PageFrame's StampedLock memory barriers (unlockWrite happens-before readLock).
+  // TODO: Remove in Step 3 — replaced by stamp-based validation.
   private long version;
 
   private final long fileId;
