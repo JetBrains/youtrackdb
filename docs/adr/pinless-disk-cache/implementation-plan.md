@@ -1714,6 +1714,76 @@ Phase 5: Remove component-level read lock from happy path
   `StampedLock` → `ReentrantReadWriteLock` (read lock only on fallback, write lock
   for structural ops)
 
+## Checklist
+
+- [x] Track 1: Remove legacy null checks in DurableComponent
+  > Remove dead-code `atomicOperation == null` branches in DurableComponent read
+  > methods. Add `@Nonnull` annotations to all `AtomicOperation` parameters across
+  > public interfaces and implementation classes. Prerequisite cleanup before
+  > introducing the optimistic read path.
+  > **Scope:** ~1 step covering null-branch removal and @Nonnull propagation
+  >
+  > **Track episode:**
+  > Removed 5 dead-code null branches in DurableComponent read methods, replaced
+  > with assertions. Added @Nonnull annotations to AtomicOperation parameters across
+  > 8 public interfaces and DurableComponent/implementation classes. Straightforward
+  > cleanup with no surprises or cross-track impact.
+  >
+  > **Step file:** `tracks/track-1.md` (1 step, 0 failed)
+
+- [ ] Track 2: PageFrame abstraction + PageFramePool
+  > Introduce `PageFrame` wrapping `Pointer` + `StampedLock` + page coordinates.
+  > Replace `ByteBufferPool` with `PageFramePool`. Frames are pooled and never
+  > deallocated during normal operation (protective memory allocation).
+  > **Scope:** ~3-4 steps covering PageFrame class, PageFramePool, ByteBufferPool
+  > migration, and caller updates (CachePointer, WOWCache, LockFreeReadCache,
+  > MemoryFile)
+
+- [ ] Track 3: CachePointer refactoring — delegate lock to PageFrame
+  > Remove `ReentrantReadWriteLock` and `version` field from `CachePointer`.
+  > Delegate all locking to PageFrame's StampedLock. Update eviction path to
+  > invalidate stamps. Migrate WOWCache copy-then-verify from version field to
+  > StampedLock stamp. Large blast radius due to lock signature changes.
+  > **Scope:** ~5-7 steps covering CachePointer rewrite, lock signature propagation
+  > (CacheEntry, CacheEntryImpl, DurablePage, AtomicOperation, DiskStorage),
+  > eviction path update, WOWCache version→stamp migration, reentrancy audit
+  > **Depends on:** Track 2
+
+- [ ] Track 4: Optimistic read infrastructure
+  > Add OptimisticReadScope, OptimisticReadFailedException, PageView, optimistic
+  > lookup in LockFreeReadCache, DurablePage speculative-read constructor with
+  > defensive allocation guards, and DurableComponent helpers
+  > (loadPageOptimistic, executeOptimisticStorageRead).
+  > **Scope:** ~5-6 steps covering OptimisticReadScope, PageView,
+  > LockFreeReadCache optimistic lookup, DurablePage PageView constructor +
+  > guardSize, DurableComponent helpers, AtomicOperation integration
+  > **Depends on:** Track 3
+
+- [ ] Track 5: Migrate DurableComponent read operations
+  > Migrate B-tree reads (highest impact), collection reads (single-page),
+  > free space map reads, and DurablePage subclass constructors to use the
+  > optimistic path. Each component migrated independently.
+  > **Scope:** ~5-7 steps covering B-tree get/findBucket/cursor, collection
+  > readRecord + position map, free space map findFreePage, DurablePage
+  > subclass constructors
+  > **Depends on:** Track 4
+
+- [ ] Track 6: Handle AtomicOperation with local WAL changes
+  > Add hasChangesForPage check to loadPageOptimistic so pages with active
+  > WAL changes in the current AtomicOperation fall back to the CAS-pinned path.
+  > **Scope:** ~1-2 steps covering AtomicOperation interface addition and
+  > DurableComponent integration
+  > **Depends on:** Track 4
+
+- [ ] Track 7: Remove component-level read lock from happy path
+  > Replace StampedLock with ReentrantReadWriteLock in SharedResourceAbstract.
+  > Make set-once fields volatile. Remove executeStorageRead wrappers. Read lock
+  > only on fallback path. Eliminate AtomicOperationsManager read dispatch.
+  > **Scope:** ~4-6 steps covering SharedResourceAbstract RRWL migration,
+  > volatile field annotations, wrapper removal per component,
+  > AtomicOperationsManager cleanup
+  > **Depends on:** Track 5, Track 6
+
 ## Testing Strategy
 
 ### Current State
