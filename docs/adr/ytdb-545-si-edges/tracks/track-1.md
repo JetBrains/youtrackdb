@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,7 +13,7 @@
 
 ## Steps
 
-- [ ] Step 1: Fix EdgeKeySerializer.doGetObjectSize offset bug and add `ts` to EdgeKey
+- [x] Step 1: Fix EdgeKeySerializer.doGetObjectSize offset bug and add `ts` to EdgeKey
   > Fix the pre-existing offset tracking bug in `EdgeKeySerializer.doGetObjectSize(byte[], int,
   > BinarySerializerFactory)` where the second field reads from `startPosition` instead of
   > `startPosition + size`. Then add `long ts` as the 4th field to `EdgeKey` — update
@@ -31,6 +31,22 @@
   >
   > **Files**: `EdgeKey.java`, `EdgeKeySerializer.java`, `IsolatedLinkBagBTreeImpl.java`,
   > `LinkCollectionsBTreeManagerShared.java`, `EdgeKeySerializerTest.java`, `BTreeTestIT.java`
+  >
+  > **What was done:** Added `long ts` as the 4th field to `EdgeKey` with correct comparison,
+  > equality, and hashing. Updated `EdgeKeySerializer` across all 7 code paths to
+  > serialize/deserialize `ts` using `LongSerializer`. Fixed the pre-existing offset bug in
+  > `doGetObjectSize` where `IntSerializer` size was read from `startPosition` instead of
+  > `startPosition + size`. Updated ~40 call sites across production and test code. Added 6
+  > new serializer test cases including boundary values and a regression test that verifies
+  > size consistency across all 5 size computation paths.
+  >
+  > **What was discovered:** Code review caught that `spliteratorEntriesBetween` and
+  > `loadEntriesMajor` needed `Long.MIN_VALUE`/`Long.MAX_VALUE` for ts bounds (not `0L`)
+  > to correctly capture all timestamps in range queries. Fixed in review.
+  >
+  > **Key files:** `EdgeKey.java` (modified), `EdgeKeySerializer.java` (modified),
+  > `IsolatedLinkBagBTreeImpl.java` (modified), `LinkCollectionsBTreeManagerShared.java`
+  > (modified), `EdgeKeySerializerTest.java` (modified), `BTreeTestIT.java` (modified)
 
 - [ ] Step 2: Add `tombstone` field to LinkBagValue and update LinkBagValueSerializer
   > Add `boolean tombstone` field to the `LinkBagValue` record as the 4th component. Update
