@@ -247,8 +247,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
               final var oldKey = existing.first();
               final var oldValue = existing.second();
 
-              assert key.ts > oldKey.ts
-                  : "version monotonicity violated: newTs=" + key.ts + " <= oldTs=" + oldKey.ts;
+              if (key.ts <= oldKey.ts) {
+                throw new StorageException(storage.getName(),
+                    "Version monotonicity violated in link bag btree [" + getName()
+                        + "]: newTs=" + key.ts + " <= oldTs=" + oldKey.ts);
+              }
 
               preserveInSnapshot(atomicOperation, oldKey, oldValue);
               removeEntryByKey(atomicOperation, oldKey);
@@ -334,16 +337,17 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (sizeDiff != 0) {
               updateSize(sizeDiff, atomicOperation);
             }
+
+            // Cross-tx replacement: the standard logic sees the new key as
+            // a fresh insert (result=true) because the old entry was removed.
+            // Override to false — logically this is a replacement.
+            if (crossTxReplacement) {
+              result = false;
+            }
           } finally {
             releaseExclusiveLock();
           }
 
-          // Cross-tx replacement: the standard logic sees the new key as a
-          // fresh insert (result=true) because the old entry was removed.
-          // Override to false — logically this is a replacement.
-          if (crossTxReplacement) {
-            result = false;
-          }
           return result;
         });
   }
@@ -377,8 +381,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final AtomicOperation atomicOperation,
       final EdgeKey key) throws IOException {
     final var searchResult = findBucket(key, atomicOperation);
-    assert searchResult.getItemIndex() >= 0
-        : "removeEntryByKey: entry not found for key " + key;
+    if (searchResult.getItemIndex() < 0) {
+      throw new StorageException(storage.getName(),
+          "removeEntryByKey: entry not found in link bag btree [" + getName()
+              + "] for key " + key);
+    }
 
     final var serializedKey =
         EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key);
