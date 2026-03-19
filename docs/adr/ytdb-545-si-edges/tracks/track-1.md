@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -48,7 +48,7 @@
   > `IsolatedLinkBagBTreeImpl.java` (modified), `LinkCollectionsBTreeManagerShared.java`
   > (modified), `EdgeKeySerializerTest.java` (modified), `BTreeTestIT.java` (modified)
 
-- [ ] Step 2: Add `tombstone` field to LinkBagValue and update LinkBagValueSerializer
+- [x] Step 2: Add `tombstone` field to LinkBagValue and update LinkBagValueSerializer
   > Add `boolean tombstone` field to the `LinkBagValue` record as the 4th component. Update
   > the compact constructor validation (no assertion needed for boolean — it's always valid).
   > Update `LinkBagValueSerializer` to serialize the tombstone as a single byte (0/1) appended
@@ -62,6 +62,16 @@
   >
   > **Files**: `LinkBagValue.java`, `LinkBagValueSerializer.java`,
   > `LinkBagUpdateSerializationOperation.java`, `LinkBagValueTest.java`, `BTreeTestIT.java`
+  >
+  > **What was done:** Added `boolean tombstone` as the 4th field to the `LinkBagValue` record.
+  > Updated `LinkBagValueSerializer` across all 7 code paths to serialize tombstone as a single
+  > byte (0=live, 1=tombstone) with a `TOMBSTONE_BYTE_SIZE` constant. Updated all call sites
+  > (~25 across production and test code) to pass `false`. Added 5 new test cases covering
+  > tombstone=true/false round-trips, size consistency, and ByteBuffer streaming/offset paths.
+  >
+  > **Key files:** `LinkBagValue.java` (modified), `LinkBagValueSerializer.java` (modified),
+  > `LinkBagUpdateSerializationOperation.java` (modified), `LinkBagValueTest.java` (modified),
+  > `BTreeTestIT.java` (modified)
 
 - [ ] Step 3: Add comprehensive EdgeKey ordering and LinkBagValue tombstone tests
   > Add focused unit tests validating the new EdgeKey comparison semantics and tombstone
