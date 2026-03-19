@@ -1630,7 +1630,7 @@ public class MatchExecutionPlanner {
           (com.jetbrains.youtrackdb.internal.core.query.Result) null,
           new BasicCommandContext());
       return value instanceof String s ? s : null;
-    } catch (Exception e) {
+    } catch (CommandExecutionException e) {
       return null;
     }
   }
