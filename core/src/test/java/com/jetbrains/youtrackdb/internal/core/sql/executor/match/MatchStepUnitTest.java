@@ -2181,9 +2181,9 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
-  /** Verifies toOResultInternal wraps a Relation into a ResultInternal. */
+  /** Verifies toOResultInternal wraps an Edge into a ResultInternal. */
   @Test
-  public void testToOResultInternalRelation() {
+  public void testToOResultInternalEdge() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("TestEdge", "E");
 
@@ -2381,9 +2381,9 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
-  /** Verifies dispatchTraversalResult handles a single Relation. */
+  /** Verifies dispatchTraversalResult handles a single Edge. */
   @Test
-  public void testDispatchSingleRelation() {
+  public void testDispatchSingleEdge() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("DispatchRelEdge", "E");
 
@@ -2404,11 +2404,11 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies dispatchTraversalResult handles a single Relation with a filter
+   * Verifies dispatchTraversalResult handles a single Edge with a filter
    * that rejects it.
    */
   @Test
-  public void testDispatchSingleRelationRejected() {
+  public void testDispatchSingleEdgeRejected() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("DispatchRelEdge2", "E");
 

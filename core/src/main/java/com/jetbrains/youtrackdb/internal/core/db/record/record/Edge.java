@@ -154,14 +154,6 @@ public interface Edge extends Entity {
   String toJSON();
 
   /**
-   * Retrieves the vertex connected to this edge in the specified direction.
-   *
-   * @param dir the direction (IN or OUT)
-   * @return the vertex in the specified direction
-   */
-  Vertex getEntity(@Nonnull Direction dir);
-
-  /**
    * Returns the schema class name of this edge as its label.
    *
    * @return the edge label (schema class name)

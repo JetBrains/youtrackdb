@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -64,11 +63,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal 
     }
 
     return false;
-  }
-
-  @Override
-  public Vertex getEntity(@Nonnull Direction dir) {
-    return getVertex(dir);
   }
 
   @Nullable @Override
