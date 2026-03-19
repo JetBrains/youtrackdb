@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -73,19 +73,14 @@
   > `PageFrame.java` (modified — public constructor), `CachePointerPageFrameTest.java`
   > (modified)
 
-- [ ] Step 4: Eviction path — stamp invalidation in WTinyLFUPolicy
-  > Add exclusive lock cycle to eviction path to invalidate outstanding optimistic stamps
-  > before the ReadCache drops its CachePointer reference.
+- [x] Step 4: Eviction path — stamp invalidation in WTinyLFUPolicy
+  > **What was done:** Added exclusive lock acquire+release cycle at all 3 eviction sites
+  > (purgeEden victim, purgeEden candidate, onRemove) to bump StampedLock state and
+  > invalidate outstanding optimistic stamps before decrementReadersReferrer(). Extracted
+  > `invalidateStampsAndRelease()` helper method with full Javadoc to consolidate the
+  > pattern and prevent future eviction paths from missing the stamp invalidation.
   >
-  > **Changes in WTinyLFUPolicy:**
-  > - `purgeEden()`: after `victim.freeze()` + CHM removal + `victim.makeDead()`,
-  >   acquire+release exclusive lock on CachePointer before `decrementReadersReferrer()`
-  > - `onRemove()`: same pattern for direct eviction
-  > - Add comments explaining: "The exclusive lock cycle bumps the StampedLock state,
-  >   invalidating all outstanding optimistic stamps. This is the first invalidation barrier.
-  >   PageFramePool.release() provides a second barrier when referrer count reaches 0."
-  >
-  > **Files**: `WTinyLFUPolicy.java` (modified)
+  > **Key files:** `WTinyLFUPolicy.java` (modified)
 
 - [ ] Step 5: Reentrancy audit + test hardening + cleanup
   > **Reentrancy audit:**
