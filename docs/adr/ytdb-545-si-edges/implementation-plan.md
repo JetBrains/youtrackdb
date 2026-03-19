@@ -248,6 +248,8 @@ graph LR
   > code review.
   >
   > **Step file:** `tracks/track-1.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: Snapshot index infrastructure for link bag entries
   > **What**: Create the snapshot index types and plumbing for storing old
