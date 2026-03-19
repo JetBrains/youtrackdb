@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -28,33 +28,29 @@
   > **Key files:** `SharedLinkBagBTree.java` (modified),
   > `SharedLinkBagBTreeFindCurrentEntryTest.java` (new)
 
-- [ ] Step 2: SharedLinkBagBTree.put() with snapshot preservation
-  > Modify `put()` to use `findCurrentEntry()` and preserve old versions
-  > in the snapshot index before modifying the B-tree.
+- [x] Step 2: SharedLinkBagBTree.put() with snapshot preservation
+  > **What was done:** Modified `put()` to detect cross-transaction updates
+  > via `findCurrentEntryInternal` prefix lookup. When an existing entry has
+  > a different ts, the old version is preserved in snapshot + visibility
+  > indexes via `preserveInSnapshot`, then removed via `removeEntryByKey`,
+  > before the standard insert logic runs. Same-ts overwrites skip snapshot
+  > preservation. Extracted `findCurrentEntryInternal` from `findCurrentEntry`
+  > for use within write operations (no `executeReadOperation` wrapper).
+  > Added `crossTxReplacement` flag to override `put()` return value.
+  > 8 tests covering new inserts, cross-tx updates (snapshot verification,
+  > tree size, multiple sequential updates), same-ts overwrites, independent
+  > edge preservation, tombstone preservation, and post-split cross-tx updates.
   >
-  > **Approach**:
-  > 1. Call `findCurrentEntry()` to find existing entry for the logical edge.
-  > 2. If found and `oldTs != newTs` (different transaction):
-  >    - Construct `EdgeSnapshotKey(getFileId(), ridBagId, tc, tp, oldTs)`
-  >    - Call `atomicOp.putEdgeSnapshotEntry(snapshotKey, oldValue)`
-  >    - Construct `EdgeVisibilityKey(oldTs, getFileId(), ridBagId, tc, tp)`
-  >    - Call `atomicOp.putEdgeVisibilityEntry(visKey, snapshotKey)`
-  >    - Remove old entry from B-tree
-  >    - Insert new entry with `EdgeKey(..., newTs)` and new value
-  > 3. If found and `oldTs == newTs` (same-transaction overwrite):
-  >    - Update in place without snapshot preservation
-  >    - Apply existing size-based optimization (updateValue if same length)
-  > 4. If not found: insert new entry directly.
+  > **What was discovered:** Cross-transaction updates must be tested across
+  > separate atomic operations (matching production semantics). Within a single
+  > uncommitted atomic operation, `findCurrentEntryInternal` cannot find
+  > entries written by a previous `put()` call because B-tree page reads
+  > within `calculateInsideComponentOperation` don't see uncommitted writes
+  > from the same operation. This is correct behavior — in production, the
+  > initial insert is always committed before a cross-tx update happens.
   >
-  > **Key detail**: `newTs` comes from the EdgeKey parameter's `ts()` field
-  > (caller constructs EdgeKey with commitTs). `componentId` = `getFileId()`.
-  > Assert `newTs >= oldTs` for version monotonicity.
-  >
-  > **Tests**: New entry (no old version); update with newer ts (snapshot
-  > preserved); same-ts overwrite (no snapshot); verify snapshot index
-  > contains old value after put; verify visibility index entry created.
-  >
-  > **Files**: `SharedLinkBagBTree.java` (modified), test file (modified)
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreePutSITest.java` (new)
 
 - [ ] Step 3: SharedLinkBagBTree.remove() with tombstones
   > Modify `remove()` to create tombstone entries instead of physically
