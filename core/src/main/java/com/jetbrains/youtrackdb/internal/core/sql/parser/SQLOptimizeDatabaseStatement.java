@@ -2,12 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -75,83 +71,10 @@ public class SQLOptimizeDatabaseStatement extends SQLSimpleExecStatement {
   }
 
   private String optimizeEdges(DatabaseSessionEmbedded db) {
-    long transformed = 0;
-    final var totalEdges = db.approximateCountClass("E");
-    long browsedEdges = 0;
-    long lastLapBrowsed = 0;
-    var lastLapTime = System.currentTimeMillis();
-
-    try (var iter = db.browseClass("E")) {
-      while (iter.hasNext()) {
-        var entity = iter.next();
-        if (Thread.currentThread().isInterrupted()) {
-          break;
-        }
-
-        browsedEdges++;
-
-        if (entity != null) {
-          if (entity.getPropertiesCount() == 2) {
-            final RID edgeIdentity = entity.getIdentity();
-
-            final EntityImpl outV = entity.getPropertyInternal("out");
-            final EntityImpl inV = entity.getPropertyInternal("in");
-
-            // OUTGOING
-            final var outField = outV.getPropertyInternal("out_" + entity.getSchemaClassName());
-            if (outField instanceof LinkBag) {
-              final var it = ((LinkBag) outField).iterator();
-              while (it.hasNext()) {
-                var v = it.next();
-                if (edgeIdentity.equals(v)) {
-                  // REPLACE EDGE RID WITH IN-VERTEX RID
-                  it.remove();
-                  ((LinkBag) outField).add(inV.getIdentity());
-                  break;
-                }
-              }
-            }
-
-            // INCOMING
-            final var inField = inV.getPropertyInternal("in_" + entity.getSchemaClassName());
-            if (outField instanceof LinkBag) {
-              final var it = ((LinkBag) inField).iterator();
-              while (it.hasNext()) {
-                var v = it.next();
-                if (edgeIdentity.equals(v)) {
-                  // REPLACE EDGE RID WITH IN-VERTEX RID
-                  it.remove();
-                  ((LinkBag) inField).add(outV.getIdentity());
-                  break;
-                }
-              }
-            }
-
-            entity.delete();
-
-            final var now = System.currentTimeMillis();
-
-            if (verbose() && (now - lastLapTime > 2000)) {
-              final var elapsed = now - lastLapTime;
-
-              LogManager.instance()
-                  .info(
-                      this,
-                      "Browsed %,d of %,d edges, transformed %,d so far (%,d edges/sec)",
-                      browsedEdges,
-                      totalEdges,
-                      transformed,
-                      (((browsedEdges - lastLapBrowsed) * 1000 / elapsed)));
-
-              lastLapTime = System.currentTimeMillis();
-              lastLapBrowsed = browsedEdges;
-            }
-          }
-        }
-      }
-    }
-
-    return "Transformed " + transformed + " regular edges in lightweight edges";
+    throw new UnsupportedOperationException(
+        "OPTIMIZE DATABASE -LWEDGES is no longer supported. "
+            + "Lightweight edge conversion was removed after edge unification — "
+            + "all edges are now record-based.");
   }
 
   private boolean isOptimizeEdges() {
