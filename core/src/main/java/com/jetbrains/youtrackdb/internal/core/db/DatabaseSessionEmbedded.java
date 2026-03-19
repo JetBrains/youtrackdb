@@ -31,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
@@ -82,8 +84,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
@@ -141,11 +143,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -168,24 +170,16 @@ import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     implements AutoCloseable, QueryLifecycleListener {
 
   @SuppressWarnings("unused")
   public enum STATUS {
-    OPEN,
-    CLOSED,
-    IMPORTING
+    OPEN, CLOSED, IMPORTING
   }
 
   public enum ATTRIBUTES {
-    DATEFORMAT,
-    DATE_TIME_FORMAT,
-    TIMEZONE,
-    LOCALE_COUNTRY,
-    LOCALE_LANGUAGE,
-    CHARSET,
+    DATEFORMAT, DATE_TIME_FORMAT, TIMEZONE, LOCALE_COUNTRY, LOCALE_LANGUAGE, CHARSET,
   }
 
   public enum ATTRIBUTES_INTERNAL {
@@ -195,15 +189,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public record TransactionMeters(
       TimeRate totalTransactions,
       TimeRate writeTransactions,
-      TimeRate writeRollbackTransactions
-  ) {
+      TimeRate writeRollbackTransactions) {
 
     @SuppressWarnings("unused")
     public static TransactionMeters NOOP = new TransactionMeters(
         TimeRate.NOOP,
         TimeRate.NOOP,
-        TimeRate.NOOP
-    );
+        TimeRate.NOOP);
   }
 
   private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
@@ -282,8 +274,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       this.transactionMeters = new TransactionMeters(
           metrics.databaseMetric(CoreMetrics.TRANSACTION_RATE, getDatabaseName()),
           metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getDatabaseName()),
-          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getDatabaseName())
-      );
+          metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getDatabaseName()));
 
       this.resultSetReportThreshold =
           getConfiguration().getValueAsInteger(
@@ -293,7 +284,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       activeSession.remove();
       throw BaseException.wrapException(
           new DatabaseException(
-              getDatabaseName(), "Error on opening database "), t, getDatabaseName());
+              getDatabaseName(), "Error on opening database "),
+          t, getDatabaseName());
     }
   }
 
@@ -419,7 +411,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
   public void internalCreate(YouTrackDBConfigImpl config, SharedContext ctx) {
     storage.setRecordSerializer(serializer.toString(), serializer.getCurrentVersion());
     storage.setProperty(SQLStatement.CUSTOM_STRICT_SQL, "true");
@@ -441,7 +432,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
-        it.hasNext(); ) {
+        it.hasNext();) {
       it.next().onCreate(this);
     }
   }
@@ -726,8 +717,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
       getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        var statement = (parsedStatement != null) ? parsedStatement :
-            SQLEngine.parse(stringStatement, this);
+        var statement =
+            (parsedStatement != null) ? parsedStatement : SQLEngine.parse(stringStatement, this);
         ResultSet original;
         switch (args) {
           case Map<?, ?> map -> {
@@ -735,7 +726,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           }
           case Object[] objects -> original = statement.execute(this, objects, true);
           case null -> original = statement.execute(this, (Object[]) null, true);
-          default -> original = statement.execute(this, new Object[]{args}, true);
+          default -> original = statement.execute(this, new Object[] {args}, true);
         }
 
         if (!statement.isIdempotent()) {
@@ -896,12 +887,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
   public YouTrackDBConfig getConfig() {
     assert assertIfNotActive();
     return config;
   }
-
 
   public void addBlobCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
@@ -944,7 +933,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     return blob;
   }
-
 
   /**
    * Creates a entity with specific class.
@@ -1128,12 +1116,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return addEdgeInternal(from, to, type, false);
   }
 
-  @Nullable
-  public RecordAbstract executeReadRecord(
+  @Nullable public RecordAbstract executeReadRecord(
       @Nonnull RecordIdInternal rid,
       @Nullable RawBuffer prefetchedBuffer,
-      boolean throwExceptionIfRecordNotFound
-  ) {
+      boolean throwExceptionIfRecordNotFound) {
     checkOpenness();
 
     getMetadata().makeThreadLocalSchemaSnapshot();
@@ -1236,7 +1222,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       if (rid.isTemporary()) {
         throw BaseException.wrapException(
             new DatabaseException(getDatabaseName(),
-                "Error on retrieving record using temporary RID: " + rid), t, getDatabaseName());
+                "Error on retrieving record using temporary RID: " + rid),
+            t, getDatabaseName());
       } else {
         throw BaseException.wrapException(
             new DatabaseException(getDatabaseName(),
@@ -1252,8 +1239,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  @Nullable
-  private RecordAbstract createRecordNotFoundResult(RecordIdInternal rid,
+  @Nullable private RecordAbstract createRecordNotFoundResult(RecordIdInternal rid,
       boolean throwExceptionIfRecordNotFound) {
     if (throwExceptionIfRecordNotFound) {
       throw new RecordNotFoundException(getDatabaseName(), rid);
@@ -1337,7 +1323,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new FrontendTransactionImpl(this, txId, true);
   }
 
-
   public void setNoTxMode() {
     if (!(currentTx instanceof FrontendTransactionNoTx)) {
       currentTx = new FrontendTransactionNoTx(this);
@@ -1374,7 +1359,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     currentTx = new FrontendTransactionNoTx(this);
   }
-
 
   /**
    * Deletes a entity. Behavior depends by the current running transaction if any. If no transaction
@@ -1550,7 +1534,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(TYPE.READ, identifiable);
   }
 
-
   public UUID uuid() {
     assert assertIfNotActive();
     checkOpenness();
@@ -1655,7 +1638,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   }
 
-
   public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
     assert assertIfNotActive();
 
@@ -1725,7 +1707,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return getCollectionNameById(collectionId);
     }
   }
-
 
   public boolean executeExists(@Nonnull RID rid) {
     assert assertIfNotActive();
@@ -2163,8 +2144,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         ibuFileRemover);
   }
 
-  @Nullable
-  public TimeZone getDatabaseTimeZone() {
+  @Nullable public TimeZone getDatabaseTimeZone() {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2251,7 +2231,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
   @SuppressWarnings("unused")
   public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
@@ -2321,7 +2300,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     try (var iteratorCollection = new RecordIteratorCollection<>(this, id, true)) {
 
-      final var count = new long[]{0};
+      final var count = new long[] {0};
       executeInTxBatches(iteratorCollection, (session, record) -> {
         delete(record);
         count[0]++;
@@ -2351,16 +2330,15 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private void wakeupOnOpenDbLifecycleListeners() {
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
-        it.hasNext(); ) {
+        it.hasNext();) {
       it.next().onOpen(this);
     }
   }
 
-
   private void wakeupOnCloseDbLifecycleListeners() {
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
-        it.hasNext(); ) {
+        it.hasNext();) {
       it.next().onClose(this);
     }
   }
@@ -2424,8 +2402,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @SuppressWarnings("unused")
-  @Nullable
-  public String getCurrentUserName() {
+  @Nullable public String getCurrentUserName() {
     var user = getCurrentUser();
     if (user == null) {
       return null;
@@ -2510,7 +2487,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return localCache;
   }
 
-
   @Nonnull
   public RID refreshRid(@Nonnull RID rid) {
     if (rid.isPersistent()) {
@@ -2525,7 +2501,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     return record.record.getIdentity();
   }
-
 
   public List<RecordHook> getHooks() {
     assert assertIfNotActive();
@@ -2607,8 +2582,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
   }
 
-  @Nullable
-  public ContextConfiguration getConfiguration() {
+  @Nullable public ContextConfiguration getConfiguration() {
     assert assertIfNotActive();
 
     return storage.getContextConfiguration();
@@ -2627,7 +2601,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public String getDatabaseName() {
     return storage.getName();
   }
-
 
   public String getURL() {
     if (url == null) {
@@ -2671,8 +2644,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return storage.getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
   }
 
-  @Nullable
-  public String getCollectionNameById(final int collectionId) {
+  @Nullable public String getCollectionNameById(final int collectionId) {
     if (collectionId < 0) {
       return null;
     }
@@ -2747,7 +2719,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     throw new IllegalArgumentException("attribute is not supported: " + attribute);
   }
 
-
   public FrontendTransaction getTransactionInternal() {
     assert assertIfNotActive();
     return currentTx;
@@ -2762,7 +2733,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     return getMetadata().getSchema();
   }
-
 
   @Nonnull
   @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"}) // Intentional convenience cast API
@@ -2804,7 +2774,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     return prefetchRecords;
   }
-
 
   public int assignAndCheckCollection(DBRecord record) {
     assert assertIfNotActive();
@@ -2880,7 +2849,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return collectionId;
   }
 
-
   @SuppressWarnings("UnusedReturnValue")
   public int begin(FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
@@ -2909,7 +2877,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return currentTx.beginInternal();
   }
 
-
   /**
    * Creates a new EntityImpl.
    */
@@ -2917,7 +2884,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     return newInstance(Entity.DEFAULT_CLASS_NAME);
   }
-
 
   public Entity newEntity() {
     assert assertIfNotActive();
@@ -2966,7 +2932,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return newVertex(type.getName());
   }
 
-
   public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
@@ -2980,7 +2945,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     return newLightweightEdge(from, to, type.getName());
   }
-
 
   public RecordIteratorClass browseClass(final @Nonnull String className) {
     assert assertIfNotActive();
@@ -3158,6 +3122,23 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public Map<RID, RID> commit() {
+    return commitImpl(null, null, null);
+  }
+
+  /// Commit the current transaction with transaction metrics collection enabled.
+  /// The listener, mode, and tracking ID are passed through to the frontend
+  /// transaction so that timing data is captured around the storage commit.
+  public void monitoredCommit(
+      @Nonnull TransactionMetricsListener listener,
+      @Nonnull QueryMonitoringMode mode,
+      @Nonnull String trackingId) {
+    commitImpl(listener, mode, trackingId);
+  }
+
+  private Map<RID, RID> commitImpl(
+      @Nullable TransactionMetricsListener listener,
+      @Nullable QueryMonitoringMode mode,
+      @Nullable String trackingId) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -3190,7 +3171,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw e;
     }
     try {
-      return currentTx.commitInternal();
+      if (listener != null) {
+        assert mode != null && trackingId != null;
+        return currentTx.monitoredCommitInternal(listener, mode, trackingId);
+      } else {
+        return currentTx.commitInternal();
+      }
     } catch (RuntimeException e) {
 
       if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
@@ -3245,7 +3231,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
   public final void beforeRollbackOperations() {
     assert assertIfNotActive();
     for (var listener : browseListeners()) {
@@ -3269,7 +3254,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // WAKE UP LISTENERS
     }
   }
-
 
   @SuppressWarnings("unused")
   public CurrentStorageComponentsFactory getStorageVersions() {
@@ -3398,12 +3382,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return getMetadata().getSchema().getBlobCollections().toIntArray();
   }
 
-
   public SharedContext getSharedContext() {
     assert assertIfNotActive();
     return sharedContext;
   }
-
 
   public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
     assert assertIfNotActive();
@@ -3415,7 +3397,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     return new EdgeImpl(this, from, to, clazz);
   }
-
 
   public void queryStarted(String id, ResultSet resultSet) {
     assert assertIfNotActive();
@@ -3487,14 +3468,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return clazz != null && clazz.isVertexType();
   }
 
-
   public <X extends Exception> void executeInTx(
       @Nonnull TxConsumer<Transaction, X> code) throws X {
     executeInTxInternal(code::accept);
   }
 
-  @Nullable
-  public <R, X extends Exception> R computeInTx(
+  @Nullable public <R, X extends Exception> R computeInTx(
       TxFunction<Transaction, R, X> supplier) throws X {
     return computeInTxInternal(supplier::apply);
   }
@@ -3548,7 +3527,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     });
   }
 
-
   @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
       TxBiConsumer<Transaction, T, X> consumer) throws X {
@@ -3556,7 +3534,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     forEachInTx(iterable.iterator(), consumer);
   }
-
 
   @SuppressWarnings("unused")
   public <T, X extends Exception> void forEachInTx(Stream<T> stream,
@@ -3567,7 +3544,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       forEachInTx(s.iterator(), consumer);
     }
   }
-
 
   public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
@@ -3678,7 +3654,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-
   public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
       TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
     assert assertIfNotActive();
@@ -3687,7 +3662,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       executeInTxBatchesInternal(stream.iterator(), consumer);
     }
   }
-
 
   public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
       throws X {
@@ -3900,7 +3874,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return new EntityLinkSetImpl(this);
   }
 
-
   public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
     assert assertIfNotActive();
 
@@ -3975,8 +3948,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     throw new DatabaseException(this, "There is no active transaction in session");
   }
 
-  @Nullable
-  public FrontendTransactionImpl getActiveTransactionOrNull() {
+  @Nullable public FrontendTransactionImpl getActiveTransactionOrNull() {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -4234,7 +4206,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         recordId,
         (key, value) -> {
           if (value == null) {
-            return new int[]{-1};
+            return new int[] {-1};
           } else {
             value[0]--;
             if (value[0] == 0) {
@@ -4251,7 +4223,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         recordId,
         (key, value) -> {
           if (value == null) {
-            return new int[]{1};
+            return new int[] {1};
           } else {
             value[0]++;
             return value;
@@ -4433,8 +4405,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   // --- Default methods migrated from DatabaseSessionEmbedded ---
 
   @SuppressWarnings("unused")
-  @Nullable
-  public <R> R transaction(Function<Transaction, R> action) {
+  @Nullable public <R> R transaction(Function<Transaction, R> action) {
     return computeInTx(action::apply);
   }
 
@@ -4454,8 +4425,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     throw new UnsupportedOperationException();
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     try {
       return load(recordId);

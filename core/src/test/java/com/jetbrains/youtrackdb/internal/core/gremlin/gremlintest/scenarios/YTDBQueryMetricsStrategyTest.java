@@ -154,6 +154,27 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).isNull();
   }
 
+  // Buggy query listener must not break the traversal or transaction.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void testListenerExceptionDoesNotBreakTraversal() throws Exception {
+    QueryMetricsListener throwingListener = (queryDetails, startedAtMillis, executionTimeNanos) -> {
+      throw new RuntimeException("Listener bug");
+    };
+
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(throwingListener);
+
+    g.tx().open();
+    // The traversal should complete normally despite the listener throwing.
+    try (var q = g.V().hasLabel("person")) {
+      assertThat(q.toList().isEmpty()).isFalse();
+    }
+    // Commit should succeed.
+    g.tx().commit();
+  }
+
   @SuppressWarnings({"unchecked", "resource"})
   @Test
   @LoadGraphWith(MODERN)

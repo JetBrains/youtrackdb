@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDB
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBPropertiesProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBQueryMetricsStrategyTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTransactionMetricsListenerTest;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComparabilitySemanticsTest;
@@ -86,7 +87,7 @@ public class YTDBGremlinProcessTests {
   // but at the moment there are some scenarios that can be run only in remote mode or only
   // in embedded mode.
 
-  private static final Class<?>[] commonTests = new Class<?>[]{
+  private static final Class<?>[] commonTests = new Class<?>[] {
       // branch
       BranchTest.Traversals.class,
       ChooseTest.Traversals.class,
@@ -187,14 +188,15 @@ public class YTDBGremlinProcessTests {
       YTDBAddVertexProcessTest.class
   };
 
-  private static final Class<?>[] remoteOnlyTests = new Class<?>[]{
+  private static final Class<?>[] remoteOnlyTests = new Class<?>[] {
       // This test fails in embedded mode at the moment. It looks like
       // ID conversion semantics are different in server and embedded modes.
       YTDBTemporaryRidConversionTest.Traversals.class,
   };
 
-  private static final Class<?>[] embeddedOnlyTests = new Class<?>[]{
-      YTDBQueryMetricsStrategyTest.class
+  private static final Class<?>[] embeddedOnlyTests = new Class<?>[] {
+      YTDBQueryMetricsStrategyTest.class,
+      YTDBTransactionMetricsListenerTest.class
   };
 
   static final Class<?>[] embeddedTests = commonTestsPlusAdditional(embeddedOnlyTests);
