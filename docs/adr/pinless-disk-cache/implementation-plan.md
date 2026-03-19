@@ -1730,6 +1730,8 @@ Phase 5: Remove component-level read lock from happy path
   > cleanup with no surprises or cross-track impact.
   >
   > **Step file:** `tracks/track-1.md` (1 step, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: PageFrame abstraction + PageFramePool
   > Introduce `PageFrame` wrapping `Pointer` + `StampedLock` + page coordinates.
