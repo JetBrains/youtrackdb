@@ -3114,6 +3114,7 @@ public final class WOWCache extends AbstractWriteCache
             // the old version comparison: version only incremented under exclusive lock,
             // and validate(stamp) detects any exclusive lock acquisition since the stamp.
             final var pageFrame = pointer.getPageFrame();
+            assert pageFrame != null : "Write cache page must have a PageFrame";
             if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)) {
               var removed = writeCachePages.remove(pageKey);
               if (removed == null) {
@@ -3124,6 +3125,9 @@ public final class WOWCache extends AbstractWriteCache
 
               pointer.decrementWritersReferrer();
               pointer.setWritersListener(null);
+            var removed = writeCachePages.remove(pageKey);
+            if (removed == null) {
+              throw new IllegalStateException("Page is not found in write cache");
             }
           } finally {
             lock.unlock();

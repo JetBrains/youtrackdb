@@ -59,7 +59,10 @@ public final class CachePointer {
   private final Pointer pointer;
   private final ByteBufferPool bufferPool;
 
-  // PageFrame-based fields (null when using legacy Pointer+ByteBufferPool constructor)
+  // pageFrame is null only for sentinel CachePointers (null pointer). For legacy
+  // Pointer+ByteBufferPool constructor with non-null pointer, a standalone PageFrame
+  // is created for lock delegation.
+  // framePool is null for both sentinels and legacy-constructed CachePointers.
   @Nullable private final PageFrame pageFrame;
   @Nullable private final PageFramePool framePool;
 
@@ -287,8 +290,8 @@ public final class CachePointer {
   }
 
   /**
-   * Returns the underlying PageFrame, or {@code null} if this CachePointer was created
-   * with the legacy Pointer+ByteBufferPool constructor or is a sentinel.
+   * Returns the underlying PageFrame, or {@code null} for sentinel CachePointers
+   * (those created with a null pointer).
    */
   @Nullable public PageFrame getPageFrame() {
     return pageFrame;
