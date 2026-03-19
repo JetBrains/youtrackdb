@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -46,24 +46,18 @@ Plan D4's proposed `BY_VERTEX`/`BY_EDGE` tokens are superseded by the simpler
 
 ## Steps
 
-- [ ] Step 1: Create `PropertyLinkBagSecondaryIndexDefinition` class
-  > Create new class extending `PropertyIndexDefinition` implementing
-  > `IndexDefinitionMultiValue`. Key methods:
-  > - `processChangeEvent()` — uses `changeEvent.getValue()` (secondaryRid)
-  >   instead of `changeEvent.getKey()` (primaryRid) for ADD/REMOVE
-  > - `createSingleValue()` — converts secondaryRid to LINK type
-  > - `createValue(List)` — iterates LinkBag, extracts `secondaryRid` from
-  >   each `RidPair`
-  > - `createValue(Object...)` — same extraction for varargs path
-  > - `getDocumentValueToIndex()` — reads entity's LinkBag field and extracts
-  >   secondaryRid values
-  > - `getFieldsToIndex()` — returns `field + " by value"` for DDL round-trip
-  > - `toCreateIndexDDL()` — includes `by value` in the DDL string
-  > - No-arg constructor for reflection-based deserialization
+- [x] Step 1: Create `PropertyLinkBagSecondaryIndexDefinition` class
+  > **What was done:** Created `PropertyLinkBagSecondaryIndexDefinition` extending
+  > `PropertyIndexDefinition` + `IndexDefinitionMultiValue`. Extracts `secondaryRid`
+  > (opposite vertex RID) from LinkBag entries instead of `primaryRid` (edge RID).
+  > Uses `getValue()` for ADD and `getOldValue()` for REMOVE in `processChangeEvent()`.
+  > Overrides `getFieldsToIndex()` → `"field by value"` and `toCreateIndexDDL()` for
+  > DDL round-trip. Added null guards, `equals`/`hashCode` override (getClass-based
+  > to distinguish from primary), and 23 unit tests in abstract base + embedded variant.
   >
-  > Model on existing `PropertyLinkBagIndexDefinition` — same structure, but
-  > extracting `secondaryRid` everywhere the primary extracts `primaryRid`.
-  > Unit tests for the definition class in isolation.
+  > **Key files:** `PropertyLinkBagSecondaryIndexDefinition.java` (new),
+  > `SchemaPropertyLinkBagSecondaryAbstractIndexDefinition.java` (new),
+  > `SchemaPropertyEmbeddedLinkBagSecondaryIndexDefinitionTest.java` (new)
 
 - [ ] Step 2: Route `BY VALUE` to secondary index in `IndexDefinitionFactory`
   > Modify the LINKBAG branch in `createSingleFieldIndexDefinition()` (line
