@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -32,18 +32,15 @@ remaining cleanup targets identified by the reviews:
 
 ## Steps
 
-- [ ] Step 1: Remove `createLightweightEdgeClass()` from Schema API
-  > Delete `createLightweightEdgeClass()` from `Schema.java` interface (default
-  > method). Search for and update/remove all callers across the codebase.
-  > Update `createEdgeClass()` Javadoc to remove the "non-abstract" qualifier
-  > (only meaningful in contrast with the removed method). Rename test files
-  > `LightWeightEdgesTest` -> `EdgeTest` and `CreateLightWeightEdgesSQLTest`
-  > -> `CreateEdgesSQLTest` since they already use `createEdgeClass()` and
-  > their names are misleading.
+- [x] Step 1: Remove `createLightweightEdgeClass()` from Schema API
+  > **What was done:** Deleted `createLightweightEdgeClass()` from `Schema.java`
+  > (default method) and `DatabaseSessionEmbedded.java`. Updated `createEdgeClass()`
+  > Javadoc. Renamed `LightWeightEdgesTest` → `EdgeTest` and
+  > `CreateLightWeightEdgesSQLTest` → `CreateEdgesSQLTest` (class names updated).
+  > Code review renamed `testSimpleLightWeight()` → `testSimpleEdge()`.
   >
-  > **Target files:** `Schema.java`, test callers (if any),
-  > `LightWeightEdgesTest.java` (rename), `CreateLightWeightEdgesSQLTest.java`
-  > (rename)
+  > **Key files:** `Schema.java` (modified), `DatabaseSessionEmbedded.java`
+  > (modified), `EdgeTest.java` (renamed), `CreateEdgesSQLTest.java` (renamed)
 
 - [ ] Step 2: Delete `EdgeType` enum, simplify `getAllPossibleEdgePropertyNames()` and SQL navigation
   > Delete `VertexEntityImpl.EdgeType` enum (LIGHTWEIGHT, STATEFUL, BOTH).
