@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -47,20 +47,18 @@
   > `GraphRecoveringTest.java` (modified), `MatchPlanCacheBenchmark.java` (modified),
   > `VertexTraversalBenchmark.java` (modified), `DbImportExportTest.java` (modified)
 
-- [ ] Step 3: Unify DatabaseSession edge creation — remove `newLightweightEdge()`, rename `newStatefulEdge()` to `newEdge()`
-  > In `DatabaseSessionEmbedded.java`: delete `newLightweightEdge(Vertex, String)`
-  > (line ~1080), `newLightweightEdge(Vertex, SchemaClass)` (line ~2924), and
-  > `newLightweightEdgeInternal()` (line ~3348). Rename `newStatefulEdge()` overloads
-  > to `newEdge()`: `newStatefulEdge(Vertex, Vertex, String)` -> `newEdge(...)`,
-  > `newStatefulEdge(Vertex, Vertex, SchemaClass)` -> `newEdge(...)`,
-  > `newStatefulEdge(Vertex, Vertex)` -> `newEdge(...)`. Rename
-  > `newEdgeInternal()` return type from `StatefullEdgeEntityImpl` to
-  > `EdgeEntityImpl` (from Step 1 rename). Update `addEdgeInternal()` to call
-  > `newEdge()`-family methods. Update the error message in line ~958 that
-  > references `newStatefulEdge()`.
+- [x] Step 3: Unify DatabaseSession edge creation — remove `newLightweightEdge()`, rename `newStatefulEdge()` to `newEdge()`
+  > **What was done:** Renamed `newStatefulEdge()` → `newEdge()` (3 overloads) across
+  > `Transaction`, `DatabaseSessionEmbedded`, `FrontendTransactionImpl`,
+  > `FrontendTransactionNoTx`. Deleted `newLightweightEdge()` (2 overloads) from all
+  > layers. Deleted dead `newLightweightEdgeInternal()` tombstone method (review fix).
+  > Updated `ScriptDatabaseWrapper`, `SQLUpdateItem`, `VertexEntityImpl`, and all
+  > callers across 13 test files. Updated error messages to reference `newEdge()`.
   >
-  > Update all callers of renamed methods: `VertexEntityImpl.addEdge()` calls
-  > `session.newStatefulEdge()` -> `session.newEdge()`.
+  > **Key files:** `Transaction.java` (modified), `DatabaseSessionEmbedded.java` (modified),
+  > `FrontendTransactionImpl.java` (modified), `FrontendTransactionNoTx.java` (modified),
+  > `ScriptDatabaseWrapper.java` (modified), `SQLUpdateItem.java` (modified),
+  > `VertexEntityImpl.java` (modified), plus 13 test files across core and tests modules
 
 - [ ] Step 4: RidPair legacy guard — add compact constructor, delete `ofSingle()` and `isLightweight()`
   > Add compact constructor to `RidPair` record that throws
