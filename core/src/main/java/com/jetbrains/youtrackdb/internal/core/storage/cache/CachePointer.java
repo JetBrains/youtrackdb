@@ -32,6 +32,20 @@ import javax.annotation.Nullable;
 /**
  * Reference-counted pointer to a cached page in the disk cache.
  *
+ * <p>Lock methods delegate to the underlying {@link PageFrame}'s {@code StampedLock}.
+ * Lock ordering (must be respected to avoid deadlock):
+ * <ol>
+ *   <li>Component-level SharedResource lock (e.g., B-tree, collection)</li>
+ *   <li>lockManager group lock (per pageKey, in WOWCache)</li>
+ *   <li>PageFrame StampedLock (via CachePointer/CacheEntry lock methods)</li>
+ * </ol>
+ *
+ * <p>{@code StampedLock} is non-reentrant — the same PageFrame must never be locked twice
+ * in the same call chain. All code paths acquire at most one PageFrame lock at a time.
+ *
+ * <p>Lifetime invariant: each active CachePointer has at most one PageFrame. The PageFrame
+ * is returned to the {@link PageFramePool} when all referrers release (referrersCount → 0).
+ *
  * @since 05.08.13
  */
 public final class CachePointer {
