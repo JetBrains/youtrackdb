@@ -263,7 +263,7 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 3: Delete Relation hierarchy
+- [x] Track 3: Delete Relation hierarchy
   > Eliminate the entire `Relation` type hierarchy and everything that depends
   > on it: `Element.java`, `EdgeInternal.java`,
   > `LightweightRelationImpl.java`, `RelationsIteratorAbstract.java`,
@@ -290,6 +290,29 @@ graph TD
   > SQL/MATCH Relation removal, Relation hierarchy atomic deletion,
   > ResultInternal relation field cleanup
   > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Eliminated the entire `Relation` type hierarchy across 4 steps. Removed
+  > `Relation<?>` dispatch from 9 SQL move functions, 3 MATCH traversers,
+  > and `ResultInternal`. Deleted `EntityImpl.getEntities()`/
+  > `getBidirectionalLinks()` and dependent `EntityRelationsIterable`/
+  > `EntityRelationsIterator`. Reparameterized `BidirectionalLinksIterable`/
+  > `BidirectionalLinkToEntityIterator` from generic `Relation<T>` to
+  > concrete `Edge`/`Vertex`. Removed `ResultInternal.relation` field and
+  > `isRelation()`/`asRelation()` from all interfaces. Inlined
+  > `RelationsIteratorAbstract` into `EdgeIterator` and `RelationsIterable`
+  > into `EdgeIterable`, removing dead fields and the unused `filter()`
+  > method. Deleted 7 files: `Relation.java`, `Element.java`,
+  > `LightweightRelationImpl.java`, `RelationsIteratorAbstract.java`,
+  > `RelationsIterable.java`, `EntityRelationsIterable.java`,
+  > `EntityRelationsIterator.java`.
+  >
+  > Key discovery: `getEntity(Direction)` inherited from `Relation` had zero
+  > callers — deleted as dead API rather than migrating to `Edge`.
+  >
+  > No cross-track impact — Track 4 proceeds as planned.
+  >
+  > **Step file:** `tracks/track-3.md` (4 steps, 0 failed)
 
 - [ ] Track 4: Unify edge implementations and creation API
   > Rename `StatefullEdgeEntityImpl` -> `EdgeEntityImpl` and
