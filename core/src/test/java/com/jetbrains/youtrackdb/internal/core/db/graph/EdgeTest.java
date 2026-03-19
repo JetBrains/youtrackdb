@@ -32,7 +32,7 @@ public class EdgeTest {
   }
 
   @Test
-  public void testSimpleLightWeight() {
+  public void testSimpleEdge() {
     var tx = session.begin();
     var v = tx.newVertex("Vertex");
     var v1 = tx.newVertex("Vertex");
