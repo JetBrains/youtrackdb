@@ -60,7 +60,7 @@ public class RecordFactoryManager {
         VertexEntityImpl.class,
         (rid, database) -> new VertexEntityImpl(database, rid));
     declareRecordType(EdgeEntityImpl.RECORD_TYPE,
-        "statefulEdge",
+        "edge",
         EdgeEntityImpl.class,
         (rid, database) -> new EdgeEntityImpl(database, rid));
     declareRecordType(
