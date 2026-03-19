@@ -1784,6 +1784,8 @@ Phase 5: Remove component-level read lock from happy path
   > impact — Track 4 can proceed as planned.
   >
   > **Step file:** `tracks/track-3.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 4: Optimistic read infrastructure
   > Add OptimisticReadScope, OptimisticReadFailedException, PageView, optimistic
