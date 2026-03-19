@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -31,21 +31,21 @@
   > `YTDBPropertyImpl.java` (modified), `YTDBGraphImplAbstract.java` (modified),
   > `GremlinResultMapperTest.java` (modified), `YTDBGraphProvider.java` (modified)
 
-- [ ] Step 2: Unify Vertex edge creation API — collapse `addStateFulEdge()` and `addLightWeightEdge()` into `addEdge()`
-  > In `Vertex.java` interface: delete `addStateFulEdge(Vertex to)` (callers
-  > already route through `addEdge()`), delete `addStateFulEdge(Vertex, String)`,
-  > `addStateFulEdge(Vertex, SchemaClass)`, `addLightWeightEdge(Vertex, String)`,
-  > `addLightWeightEdge(Vertex, SchemaClass)`. Add `addEdge(Vertex to)` no-label
-  > overload. Result: 3 `addEdge()` overloads.
+- [x] Step 2: Unify Vertex edge creation API — collapse `addStateFulEdge()` and `addLightWeightEdge()` into `addEdge()`
+  > **What was done:** Collapsed 5 methods (`addStateFulEdge` x3, `addLightWeightEdge` x2)
+  > into 3 `addEdge()` overloads on the `Vertex` interface. Deleted all implementations
+  > in `VertexEntityImpl`. Deleted 4-param `createLink()` overload (lightweight-only,
+  > zero callers). Updated Gremlin layer caller in `YTDBVertexImpl` and all test callers
+  > across 10 test files. Updated 5-param `createLink()` Javadoc to remove lightweight
+  > references.
   >
-  > In `VertexEntityImpl.java`: delete `addStateFulEdge()` implementations (3),
-  > delete `addLightWeightEdge()` implementations (2), add `addEdge(Vertex to)`
-  > implementation delegating to `addEdge(to, EdgeInternal.CLASS_NAME)`. Delete
-  > 4-param `createLink()` overload (only called from lightweight paths).
-  > Update 5-param `createLink()` Javadoc to remove lightweight references.
-  >
-  > Update any external callers of deleted methods (search for
-  > `addStateFulEdge` and `addLightWeightEdge` across test and production code).
+  > **Key files:** `Vertex.java` (modified), `VertexEntityImpl.java` (modified),
+  > `YTDBVertexImpl.java` (modified), `DoubleSidedEdgeLinkBagTest.java` (modified),
+  > `TestGraphElementDelete.java` (modified), `TestGraphOperations.java` (modified),
+  > `SelectStatementExecutionTest.java` (modified), `MatchStatementExecutionNewTest.java`
+  > (modified), `TransactionRidAllocationTest.java` (modified),
+  > `GraphRecoveringTest.java` (modified), `MatchPlanCacheBenchmark.java` (modified),
+  > `VertexTraversalBenchmark.java` (modified), `DbImportExportTest.java` (modified)
 
 - [ ] Step 3: Unify DatabaseSession edge creation — remove `newLightweightEdge()`, rename `newStatefulEdge()` to `newEdge()`
   > In `DatabaseSessionEmbedded.java`: delete `newLightweightEdge(Vertex, String)`
