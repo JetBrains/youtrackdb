@@ -53,7 +53,8 @@ public class AtomicOperationSnapshotProxyTest {
     var snapshot = new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet());
     return new AtomicOperationBinaryTracking(
         readCache, writeCache, 1, snapshot,
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong());
   }
 
   // --- putSnapshotEntry / getSnapshotEntry ---
@@ -435,44 +436,39 @@ public class AtomicOperationSnapshotProxyTest {
   @Test
   public void testDeactivatedOperationRejectsSnapshotPut() {
     operation.deactivate();
-    assertThatThrownBy(() ->
-        operation.putSnapshotEntry(
-            new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L)))
+    assertThatThrownBy(() -> operation.putSnapshotEntry(
+        new SnapshotKey(1, 50L, 10L), new PositionEntry(1L, 0, 10L)))
         .isInstanceOf(DatabaseException.class);
   }
 
   @Test
   public void testDeactivatedOperationRejectsSnapshotGet() {
     operation.deactivate();
-    assertThatThrownBy(() ->
-        operation.getSnapshotEntry(new SnapshotKey(1, 50L, 10L)))
+    assertThatThrownBy(() -> operation.getSnapshotEntry(new SnapshotKey(1, 50L, 10L)))
         .isInstanceOf(DatabaseException.class);
   }
 
   @Test
   public void testDeactivatedOperationRejectsSubMapDescending() {
     operation.deactivate();
-    assertThatThrownBy(() ->
-        operation.snapshotSubMapDescending(
-            new SnapshotKey(1, 50L, Long.MIN_VALUE),
-            new SnapshotKey(1, 50L, Long.MAX_VALUE)))
+    assertThatThrownBy(() -> operation.snapshotSubMapDescending(
+        new SnapshotKey(1, 50L, Long.MIN_VALUE),
+        new SnapshotKey(1, 50L, Long.MAX_VALUE)))
         .isInstanceOf(DatabaseException.class);
   }
 
   @Test
   public void testDeactivatedOperationRejectsVisibilityPut() {
     operation.deactivate();
-    assertThatThrownBy(() ->
-        operation.putVisibilityEntry(
-            new VisibilityKey(100L, 1, 50L), new SnapshotKey(1, 50L, 10L)))
+    assertThatThrownBy(() -> operation.putVisibilityEntry(
+        new VisibilityKey(100L, 1, 50L), new SnapshotKey(1, 50L, 10L)))
         .isInstanceOf(DatabaseException.class);
   }
 
   @Test
   public void testDeactivatedOperationRejectsVisibilityContains() {
     operation.deactivate();
-    assertThatThrownBy(() ->
-        operation.containsVisibilityEntry(new VisibilityKey(100L, 1, 50L)))
+    assertThatThrownBy(() -> operation.containsVisibilityEntry(new VisibilityKey(100L, 1, 50L)))
         .isInstanceOf(DatabaseException.class);
   }
 

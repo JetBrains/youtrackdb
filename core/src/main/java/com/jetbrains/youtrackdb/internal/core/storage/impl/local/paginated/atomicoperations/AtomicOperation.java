@@ -9,6 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
@@ -126,6 +129,41 @@ public interface AtomicOperation {
    */
   @Nonnull
   HistogramDeltaHolder getOrCreateHistogramDeltas();
+
+  // --- Edge snapshot methods (parallel to collection snapshot methods above) ---
+
+  /**
+   * Buffers an edge snapshot entry locally. The entry is flushed to the shared edge snapshot
+   * index during {@link #commitChanges(long, WriteAheadLog)}, before page changes are applied.
+   */
+  void putEdgeSnapshotEntry(EdgeSnapshotKey key, LinkBagValue value);
+
+  /**
+   * Retrieves an edge snapshot entry, checking the local buffer first, then the shared index.
+   *
+   * @return the entry, or {@code null} if not found in either layer
+   */
+  LinkBagValue getEdgeSnapshotEntry(EdgeSnapshotKey key);
+
+  /**
+   * Returns edge snapshot entries from both the local buffer and the shared edge snapshot index
+   * in the range {@code [fromInclusive, toInclusive]} in <b>descending</b> key order. Local
+   * buffer entries shadow shared entries with the same key. The returned iterable is lazy.
+   */
+  Iterable<Map.Entry<EdgeSnapshotKey, LinkBagValue>> edgeSnapshotSubMapDescending(
+      EdgeSnapshotKey fromInclusive, EdgeSnapshotKey toInclusive);
+
+  /**
+   * Buffers an edge visibility entry locally. The entry is flushed to the shared edge
+   * visibility index during {@link #commitChanges(long, WriteAheadLog)}.
+   */
+  void putEdgeVisibilityEntry(EdgeVisibilityKey key, EdgeSnapshotKey value);
+
+  /**
+   * Checks whether an edge visibility entry exists, checking the local buffer first, then the
+   * shared index.
+   */
+  boolean containsEdgeVisibilityEntry(EdgeVisibilityKey key);
 
   @SuppressWarnings("unused")
   boolean isActive();
