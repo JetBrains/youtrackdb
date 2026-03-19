@@ -156,7 +156,6 @@ public abstract class SchemaPropertyLinkBagSecondaryAbstractIndexDefinition exte
         RecordIdInternal.fromString("#1:13", false),
         RecordIdInternal.fromString("#1:51", false));
 
-    session.begin();
     final var document = (EntityImpl) session.newEntity();
 
     document.setProperty("fOne", ridBag);
@@ -172,7 +171,6 @@ public abstract class SchemaPropertyLinkBagSecondaryAbstractIndexDefinition exte
     Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:51", false)));
 
     assertEmbedded(ridBag);
-    session.rollback();
   }
 
   // --- processChangeEvent ADD tests (uses getValue() = secondaryRid) ---
@@ -538,39 +536,18 @@ public abstract class SchemaPropertyLinkBagSecondaryAbstractIndexDefinition exte
         keysToRemove.isEmpty());
   }
 
-  // --- equals/hashCode tests ---
-
   /**
-   * Verifies that a secondary index definition does not consider itself equal to a primary
-   * one with the same className and field, since they index different RIDs.
-   *
-   * <p>Note: the parent class PropertyIndexDefinition.equals() uses instanceof, so
-   * primary.equals(secondary) returns true. This asymmetry is a pre-existing limitation
-   * of the parent. The secondary direction (secondary.equals(primary) == false) is the
-   * one we enforce here, and it's sufficient because indexes are identified by name, not
-   * by definition equality.
+   * Verifies that toCreateIndexDDL correctly places "by value" before collate when a
+   * non-default collate is set, producing valid DDL for round-trip.
    */
   @Test
-  public void testNotEqualToPrimaryIndexDefinition() {
-    var primary = new PropertyLinkBagIndexDefinition("testClass", "fOne");
-    var secondary = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
-
-    Assert.assertNotEquals("Secondary must not equal primary",
-        secondary, primary);
-    Assert.assertNotEquals("Hash codes should differ",
-        primary.hashCode(), secondary.hashCode());
-  }
-
-  /**
-   * Verifies that two secondary index definitions with the same className and field are equal.
-   */
-  @Test
-  public void testEqualsForSameClassAndField() {
-    var secondary1 = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
-    var secondary2 = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
-
-    Assert.assertEquals(secondary1, secondary2);
-    Assert.assertEquals(secondary1.hashCode(), secondary2.hashCode());
+  public void testToCreateIndexDDLWithCollate() {
+    var indexWithCollate = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
+    indexWithCollate.setCollate("ci");
+    var ddl = indexWithCollate.toCreateIndexDDL("testIdx", "NOTUNIQUE", null);
+    Assert.assertEquals(
+        "create index `testIdx` on `testClass` ( `fOne` by value collate ci ) NOTUNIQUE",
+        ddl);
   }
 
   abstract void assertEmbedded(LinkBag linkBag);

@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index;
 
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -132,38 +133,23 @@ public class PropertyLinkBagSecondaryIndexDefinition extends PropertyIndexDefini
 
   @Override
   public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    final var ddl = createIndexDDLWithoutFieldType(indexName, indexType, engine);
-    // Insert "by value" before the closing parenthesis that createIndexDDLWithoutFieldType
-    // already wrote. The parent method produces: ... ( `field` ) TYPE ...
-    // We need: ... ( `field` by value ) TYPE ...
-    var closeParenIdx = ddl.indexOf("` )");
-    if (closeParenIdx >= 0) {
-      ddl.insert(closeParenIdx + 1, " by value");
+    // Build DDL from scratch (like PropertyMapIndexDefinition) rather than post-processing
+    // the parent's string, which breaks when collate is present.
+    final var ddl = new StringBuilder("create index `");
+
+    ddl.append(indexName).append("` on `");
+    ddl.append(className).append("` ( `").append(field).append("` by value");
+
+    if (!collate.getName().equals(DefaultCollate.NAME)) {
+      ddl.append(" collate ").append(collate.getName());
+    }
+
+    ddl.append(" ) ");
+    ddl.append(indexType);
+
+    if (engine != null) {
+      ddl.append(" ENGINE  ").append(engine);
     }
     return ddl.toString();
-  }
-
-  @Override
-  @SuppressWarnings("EqualsGetClass")
-  public boolean equals(final Object o) {
-    if (this == o) {
-      return true;
-    }
-    // Exact class match required: a secondary index definition must not equal a primary
-    // one even when className, field, and keyType match. Using getClass() instead of
-    // instanceof is deliberate — the parent PropertyIndexDefinition.equals() uses
-    // instanceof, which would make a primary definition equal to a secondary one.
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-    return super.equals(o);
-  }
-
-  @Override
-  public int hashCode() {
-    // Include the class identity to distinguish from PropertyLinkBagIndexDefinition
-    var result = super.hashCode();
-    result = 31 * result + getClass().getName().hashCode();
-    return result;
   }
 }
