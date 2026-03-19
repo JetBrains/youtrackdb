@@ -1760,7 +1760,7 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 3: CachePointer refactoring — delegate lock to PageFrame
+- [x] Track 3: CachePointer refactoring — delegate lock to PageFrame
   > Remove `ReentrantReadWriteLock` and `version` field from `CachePointer`.
   > Delegate all locking to PageFrame's StampedLock. Update eviction path to
   > invalidate stamps. Migrate WOWCache copy-then-verify from version field to
@@ -1769,6 +1769,21 @@ Phase 5: Remove component-level read lock from happy path
   > (CacheEntry, CacheEntryImpl, DurablePage, AtomicOperation, DiskStorage),
   > eviction path update, WOWCache version→stamp migration, reentrancy audit
   > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Replaced RRWL and version field in CachePointer with full delegation to
+  > PageFrame's StampedLock. Changed CacheEntry interface: acquire methods return
+  > long stamps, releaseSharedLock takes stamp parameter (exclusive stamp stored
+  > internally — single-writer safe). Migrated WOWCache copy-then-verify from
+  > version comparison to StampedLock.validate(stamp). Added stamp invalidation
+  > cycle to all 3 eviction sites in WTinyLFUPolicy. Reentrancy audit of 17 lock
+  > sites across 6 classes confirmed strict lock hierarchy with no nesting risk.
+  > Added tryAcquireSharedLock/tryAcquireExclusiveLock to PageFrame (review-found
+  > gap — 4 WOWCache call sites needed it). Legacy CachePointer(Pointer,
+  > ByteBufferPool) constructor retained for test compatibility. No cross-track
+  > impact — Track 4 can proceed as planned.
+  >
+  > **Step file:** `tracks/track-3.md` (5 steps, 0 failed)
 
 - [ ] Track 4: Optimistic read infrastructure
   > Add OptimisticReadScope, OptimisticReadFailedException, PageView, optimistic
