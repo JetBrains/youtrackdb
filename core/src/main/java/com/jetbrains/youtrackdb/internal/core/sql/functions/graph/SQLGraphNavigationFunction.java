@@ -22,8 +22,9 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
   /// function to return the same result.
   ///
   /// Those properties are returned only if property values are mapped directly to the function
-  /// result. For example, the `out` function will return `null` for vertex entities because
-  /// vertex-to-vertex navigation requires loading the edge record to resolve the opposite vertex.
+  /// result. For example, `outE` returns edge LinkBag property names for vertex entities,
+  /// and `out` returns the same properties since the RidPair's secondaryRid provides direct
+  /// access to the opposite vertex without loading the edge record.
   ///
   /// SQL engine treats each of those properties in the list as a collection of the `rid`s of some
   /// of the supported types.
