@@ -110,7 +110,7 @@ public class BTreeTestIT {
       final var key = new EdgeKey(42, index % 32000, index, 0L);
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation, key,
-              new LinkBagValue(index + 1, 0, 0)));
+              new LinkBagValue(index + 1, 0, 0, false)));
 
       if (firstKey == null) {
         firstKey = key;
@@ -163,7 +163,7 @@ public class BTreeTestIT {
           atomicOperation -> {
             var val = random.nextInt(Integer.MAX_VALUE);
             final var key = new EdgeKey(42, val, val, 0L);
-            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0));
+            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0, false));
 
             keys.add(key);
             Assert.assertEquals(bTree.get(key, atomicOperation).counter(), val);
@@ -197,7 +197,7 @@ public class BTreeTestIT {
             } while (val < 0);
 
             final var key = new EdgeKey(42, val, val, 0L);
-            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0));
+            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0, false));
 
             keys.add(key);
             Assert.assertEquals(bTree.get(key, atomicOperation).counter(), val);
@@ -222,7 +222,7 @@ public class BTreeTestIT {
       final var val = i;
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation, key,
-              new LinkBagValue(val, 0, 0)));
+              new LinkBagValue(val, 0, 0, false)));
       keys.add(key);
     }
 
@@ -272,7 +272,7 @@ public class BTreeTestIT {
       var key = new EdgeKey(42, val, val, 0L);
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation, key,
-              new LinkBagValue(val, 0, 0)));
+              new LinkBagValue(val, 0, 0, false)));
       keys.add(key);
 
       atomicOperationsManager.executeInsideAtomicOperation(
@@ -320,7 +320,7 @@ public class BTreeTestIT {
 
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation, key,
-              new LinkBagValue(val, 0, 0)));
+              new LinkBagValue(val, 0, 0, false)));
     }
 
     for (var i = 0; i < keysCount; i++) {
@@ -354,7 +354,7 @@ public class BTreeTestIT {
       final var key = new EdgeKey(42, i, i, 0L);
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation, key,
-              new LinkBagValue((int) (key.targetCollection % 5), 0, 0)));
+              new LinkBagValue((int) (key.targetCollection % 5), 0, 0, false)));
 
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> Assert
           .assertEquals(bTree.get(key, atomicOperation).counter(), key.targetCollection % 5));
@@ -375,7 +375,7 @@ public class BTreeTestIT {
             if (index % 2 == 0) {
               final var key = new EdgeKey(42, index + keysCount, index + keysCount, 0L);
               bTree.put(atomicOperation, key,
-                  new LinkBagValue((index + keysCount) % 5, 0, 0));
+                  new LinkBagValue((index + keysCount) % 5, 0, 0, false));
             }
           });
     }
@@ -417,7 +417,7 @@ public class BTreeTestIT {
             final var val = random.nextInt(Integer.MAX_VALUE);
             final var key = new EdgeKey(42, val, val % 64937, 0L);
 
-            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0));
+            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0, false));
             keyValues.put(key, val);
           });
 
@@ -511,7 +511,7 @@ public class BTreeTestIT {
             final var val = random.nextInt(Integer.MAX_VALUE);
 
             var key = new EdgeKey(42, val, val % 64937, 0L);
-            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0));
+            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0, false));
             keyValues.put(key, val);
           });
 
@@ -594,7 +594,7 @@ public class BTreeTestIT {
           atomicOperation -> {
             var val = random.nextInt(Integer.MAX_VALUE);
             var key = new EdgeKey(42, val, val % 64937, 0L);
-            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0));
+            bTree.put(atomicOperation, key, new LinkBagValue(val, 0, 0, false));
             keyValues.put(key, val);
           });
 

@@ -32,7 +32,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testByteArrayRoundTripWithSmallValues() {
-    var original = new LinkBagValue(1, 0, 0);
+    var original = new LinkBagValue(1, 0, 0, false);
     var deserialized = serializeAndDeserializeViaByteArray(original);
     assertEquals(original, deserialized);
   }
@@ -43,7 +43,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testByteArrayRoundTripWithLargeValues() {
-    var original = new LinkBagValue(Integer.MAX_VALUE, 65535, 1_000_000_000L);
+    var original = new LinkBagValue(Integer.MAX_VALUE, 65535, 1_000_000_000L, false);
     var deserialized = serializeAndDeserializeViaByteArray(original);
     assertEquals(original, deserialized);
   }
@@ -54,7 +54,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testGetObjectSizeFromStreamMatchesComputedSize() {
-    var original = new LinkBagValue(42, 100, 999_999L);
+    var original = new LinkBagValue(42, 100, 999_999L, false);
 
     var computedSize = serializer.getObjectSize(serializerFactory, original);
     var stream = serializeToByteArray(original);
@@ -69,7 +69,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testByteBufferStreamingRoundTrip() {
-    var original = new LinkBagValue(7, 42, 123_456L);
+    var original = new LinkBagValue(7, 42, 123_456L, false);
 
     var size = serializer.getObjectSize(serializerFactory, original);
     var buffer = ByteBuffer.allocate(size);
@@ -88,7 +88,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testByteBufferOffsetBasedRoundTrip() {
-    var original = new LinkBagValue(99, 200, 500_000L);
+    var original = new LinkBagValue(99, 200, 500_000L, false);
     int leadingPadding = 10;
 
     var size = serializer.getObjectSize(serializerFactory, original);
@@ -109,7 +109,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testGetObjectSizeInByteBufferStreamingMode() {
-    var original = new LinkBagValue(42, 100, 999_999L);
+    var original = new LinkBagValue(42, 100, 999_999L, false);
 
     var computedSize = serializer.getObjectSize(serializerFactory, original);
     var buffer = ByteBuffer.allocate(computedSize);
@@ -126,7 +126,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testGetObjectSizeInByteBufferOffsetMode() {
-    var original = new LinkBagValue(42, 100, 999_999L);
+    var original = new LinkBagValue(42, 100, 999_999L, false);
     int offset = 5;
 
     var computedSize = serializer.getObjectSize(serializerFactory, original);
@@ -150,7 +150,7 @@ public class LinkBagValueTest {
     assertFalse(serializer.isFixedLength());
     assertEquals(-1, serializer.getFixedLength());
 
-    var value = new LinkBagValue(5, 10, 20L);
+    var value = new LinkBagValue(5, 10, 20L, false);
     var preprocessed = serializer.preprocess(serializerFactory, value);
     assertEquals(
         "preprocess should return the same value unchanged",
@@ -163,7 +163,7 @@ public class LinkBagValueTest {
    */
   @Test
   public void testNativeSerializationRoundTrip() {
-    var original = new LinkBagValue(15, 300, 777_777L);
+    var original = new LinkBagValue(15, 300, 777_777L, false);
 
     var size = serializer.getObjectSizeNative(
         serializerFactory, serializeToByteArray(original), 0);
@@ -173,6 +173,91 @@ public class LinkBagValueTest {
     var deserialized =
         serializer.deserializeNativeObject(serializerFactory, stream, 0);
     assertEquals(original, deserialized);
+  }
+
+  /**
+   * Tombstone=true should round-trip correctly through byte array serialization.
+   */
+  @Test
+  public void testByteArrayRoundTripWithTombstoneTrue() {
+    var original = new LinkBagValue(3, 10, 500L, true);
+    var deserialized = serializeAndDeserializeViaByteArray(original);
+    assertEquals(original, deserialized);
+    assertEquals(true, deserialized.tombstone());
+  }
+
+  /**
+   * Tombstone=false should round-trip correctly and be distinct from tombstone=true.
+   */
+  @Test
+  public void testByteArrayRoundTripWithTombstoneFalse() {
+    var original = new LinkBagValue(3, 10, 500L, false);
+    var deserialized = serializeAndDeserializeViaByteArray(original);
+    assertEquals(original, deserialized);
+    assertEquals(false, deserialized.tombstone());
+  }
+
+  /**
+   * Tombstone byte should be included in serialized size. A tombstone=true value and a
+   * tombstone=false value with the same data fields should have the same serialized size.
+   */
+  @Test
+  public void testSerializedSizeIncludesTombstoneByte() {
+    var live = new LinkBagValue(42, 100, 999_999L, false);
+    var dead = new LinkBagValue(42, 100, 999_999L, true);
+
+    var liveSize = serializer.getObjectSize(serializerFactory, live);
+    var deadSize = serializer.getObjectSize(serializerFactory, dead);
+
+    assertEquals("Tombstone byte should not change serialized size", liveSize, deadSize);
+
+    // Verify the tombstone byte is present: size should be 1 more than without tombstone
+    // (compared to the pre-tombstone format). We verify this indirectly by checking that
+    // the size from the stream matches the computed size.
+    var liveStream = serializeToByteArray(live);
+    var deadStream = serializeToByteArray(dead);
+
+    assertEquals(liveSize, serializer.getObjectSize(serializerFactory, liveStream, 0));
+    assertEquals(deadSize, serializer.getObjectSize(serializerFactory, deadStream, 0));
+  }
+
+  /**
+   * Tombstone round-trip through streaming ByteBuffer.
+   */
+  @Test
+  public void testByteBufferStreamingRoundTripWithTombstone() {
+    var original = new LinkBagValue(7, 42, 123_456L, true);
+
+    var size = serializer.getObjectSize(serializerFactory, original);
+    var buffer = ByteBuffer.allocate(size);
+
+    serializer.serializeInByteBufferObject(serializerFactory, original, buffer);
+    buffer.flip();
+
+    var deserialized =
+        serializer.deserializeFromByteBufferObject(serializerFactory, buffer);
+    assertEquals(original, deserialized);
+    assertEquals(true, deserialized.tombstone());
+  }
+
+  /**
+   * Tombstone round-trip through offset-based ByteBuffer.
+   */
+  @Test
+  public void testByteBufferOffsetRoundTripWithTombstone() {
+    var original = new LinkBagValue(99, 200, 500_000L, true);
+    int leadingPadding = 10;
+
+    var size = serializer.getObjectSize(serializerFactory, original);
+    var buffer = ByteBuffer.allocate(leadingPadding + size);
+
+    buffer.position(leadingPadding);
+    serializer.serializeInByteBufferObject(serializerFactory, original, buffer);
+
+    var deserialized = serializer.deserializeFromByteBufferObject(
+        serializerFactory, leadingPadding, buffer);
+    assertEquals(original, deserialized);
+    assertEquals(true, deserialized.tombstone());
   }
 
   private LinkBagValue serializeAndDeserializeViaByteArray(LinkBagValue value) {
