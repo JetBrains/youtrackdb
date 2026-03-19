@@ -64,13 +64,21 @@ public class PropertyLinkBagSecondaryIndexDefinition extends PropertyIndexDefini
     switch (changeEvent.getChangeType()) {
       case ADD -> {
         // Index by secondaryRid (the opposite vertex RID) from the change event value.
-        var secondaryKey = createSingleValue(transaction, changeEvent.getValue());
+        var value = changeEvent.getValue();
+        if (value == null) {
+          return;
+        }
+        var secondaryKey = createSingleValue(transaction, value);
         processAdd(secondaryKey, keysToAdd, keysToRemove);
       }
       case REMOVE -> {
         // Remove index entry by secondaryRid. On REMOVE events, getValue() is null;
         // the old secondaryRid is in getOldValue().
-        var secondaryKey = createSingleValue(transaction, changeEvent.getOldValue());
+        var oldValue = changeEvent.getOldValue();
+        if (oldValue == null) {
+          return;
+        }
+        var secondaryKey = createSingleValue(transaction, oldValue);
         processRemoval(secondaryKey, keysToAdd, keysToRemove);
       }
       default ->
@@ -124,14 +132,38 @@ public class PropertyLinkBagSecondaryIndexDefinition extends PropertyIndexDefini
 
   @Override
   public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    final var ddl = new StringBuilder("create index `");
-    ddl.append(indexName).append("` on `");
-    ddl.append(className).append("` ( `").append(field).append("` by value ) ");
-    ddl.append(indexType);
-
-    if (engine != null) {
-      ddl.append(" ENGINE  ").append(engine);
+    final var ddl = createIndexDDLWithoutFieldType(indexName, indexType, engine);
+    // Insert "by value" before the closing parenthesis that createIndexDDLWithoutFieldType
+    // already wrote. The parent method produces: ... ( `field` ) TYPE ...
+    // We need: ... ( `field` by value ) TYPE ...
+    var closeParenIdx = ddl.indexOf("` )");
+    if (closeParenIdx >= 0) {
+      ddl.insert(closeParenIdx + 1, " by value");
     }
     return ddl.toString();
+  }
+
+  @Override
+  @SuppressWarnings("EqualsGetClass")
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    // Exact class match required: a secondary index definition must not equal a primary
+    // one even when className, field, and keyType match. Using getClass() instead of
+    // instanceof is deliberate — the parent PropertyIndexDefinition.equals() uses
+    // instanceof, which would make a primary definition equal to a secondary one.
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    return super.equals(o);
+  }
+
+  @Override
+  public int hashCode() {
+    // Include the class identity to distinguish from PropertyLinkBagIndexDefinition
+    var result = super.hashCode();
+    result = 31 * result + getClass().getName().hashCode();
+    return result;
   }
 }

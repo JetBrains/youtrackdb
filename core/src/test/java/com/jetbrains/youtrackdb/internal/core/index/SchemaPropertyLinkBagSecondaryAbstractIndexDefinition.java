@@ -433,5 +433,145 @@ public abstract class SchemaPropertyLinkBagSecondaryAbstractIndexDefinition exte
         ddl);
   }
 
+  // --- UPDATE change type test ---
+
+  /**
+   * Verifies that UPDATE change type throws IllegalArgumentException, since LINKBAG
+   * index definitions only handle ADD and REMOVE.
+   */
+  @Test(expected = IllegalArgumentException.class)
+  public void testProcessChangeEventUpdateThrows() {
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
+    keysToAdd.defaultReturnValue(-1);
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
+    keysToRemove.defaultReturnValue(-1);
+
+    final var event = new MultiValueChangeEvent<Identifiable, Identifiable>(
+        ChangeType.UPDATE,
+        RecordIdInternal.fromString("#1:12", false),
+        RecordIdInternal.fromString("#1:50", false),
+        RecordIdInternal.fromString("#1:51", false));
+
+    propertyIndex.processChangeEvent(
+        session.getActiveTransaction(), event, keysToAdd, keysToRemove);
+  }
+
+  // --- Empty LinkBag tests ---
+
+  /**
+   * Verifies that createValue returns an empty collection for an empty LinkBag.
+   */
+  @Test
+  public void testCreateValueEmptyLinkBag() {
+    var ridBag = new LinkBag(session);
+
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Collections.singletonList(ridBag));
+
+    Assert.assertTrue(result instanceof Collection);
+    Assert.assertTrue(((Collection<?>) result).isEmpty());
+
+    assertEmbedded(ridBag);
+  }
+
+  /**
+   * Verifies that createValue(Object...) returns an empty collection for an empty LinkBag.
+   */
+  @Test
+  public void testCreateValueArrayParamsEmptyLinkBag() {
+    var ridBag = new LinkBag(session);
+
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), ridBag);
+
+    Assert.assertTrue(result instanceof Collection);
+    Assert.assertTrue(((Collection<?>) result).isEmpty());
+
+    assertEmbedded(ridBag);
+  }
+
+  // --- Null value guard tests ---
+
+  /**
+   * Verifies that ADD event with null value is safely ignored (no NPE).
+   */
+  @Test
+  public void testProcessChangeEventAddWithNullValueIsIgnored() {
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
+    keysToAdd.defaultReturnValue(-1);
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
+    keysToRemove.defaultReturnValue(-1);
+
+    // 3-arg constructor: value defaults to the third arg which we pass as null
+    final var event = new MultiValueChangeEvent<Identifiable, Identifiable>(
+        ChangeType.ADD,
+        RecordIdInternal.fromString("#1:12", false),
+        null);
+
+    propertyIndex.processChangeEvent(
+        session.getActiveTransaction(), event, keysToAdd, keysToRemove);
+
+    Assert.assertTrue("Null value ADD should produce no index entries", keysToAdd.isEmpty());
+    Assert.assertTrue(keysToRemove.isEmpty());
+  }
+
+  /**
+   * Verifies that REMOVE event with null oldValue is safely ignored (no NPE).
+   */
+  @Test
+  public void testProcessChangeEventRemoveWithNullOldValueIsIgnored() {
+    final var keysToAdd = new Object2IntOpenHashMap<Object>();
+    keysToAdd.defaultReturnValue(-1);
+    final var keysToRemove = new Object2IntOpenHashMap<Object>();
+    keysToRemove.defaultReturnValue(-1);
+
+    // 3-arg constructor: value=null, oldValue defaults to null
+    final var event = new MultiValueChangeEvent<Identifiable, Identifiable>(
+        ChangeType.REMOVE,
+        RecordIdInternal.fromString("#1:12", false),
+        null);
+
+    propertyIndex.processChangeEvent(
+        session.getActiveTransaction(), event, keysToAdd, keysToRemove);
+
+    Assert.assertTrue(keysToAdd.isEmpty());
+    Assert.assertTrue("Null oldValue REMOVE should produce no index entries",
+        keysToRemove.isEmpty());
+  }
+
+  // --- equals/hashCode tests ---
+
+  /**
+   * Verifies that a secondary index definition does not consider itself equal to a primary
+   * one with the same className and field, since they index different RIDs.
+   *
+   * <p>Note: the parent class PropertyIndexDefinition.equals() uses instanceof, so
+   * primary.equals(secondary) returns true. This asymmetry is a pre-existing limitation
+   * of the parent. The secondary direction (secondary.equals(primary) == false) is the
+   * one we enforce here, and it's sufficient because indexes are identified by name, not
+   * by definition equality.
+   */
+  @Test
+  public void testNotEqualToPrimaryIndexDefinition() {
+    var primary = new PropertyLinkBagIndexDefinition("testClass", "fOne");
+    var secondary = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
+
+    Assert.assertNotEquals("Secondary must not equal primary",
+        secondary, primary);
+    Assert.assertNotEquals("Hash codes should differ",
+        primary.hashCode(), secondary.hashCode());
+  }
+
+  /**
+   * Verifies that two secondary index definitions with the same className and field are equal.
+   */
+  @Test
+  public void testEqualsForSameClassAndField() {
+    var secondary1 = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
+    var secondary2 = new PropertyLinkBagSecondaryIndexDefinition("testClass", "fOne");
+
+    Assert.assertEquals(secondary1, secondary2);
+    Assert.assertEquals(secondary1.hashCode(), secondary2.hashCode());
+  }
+
   abstract void assertEmbedded(LinkBag linkBag);
 }
