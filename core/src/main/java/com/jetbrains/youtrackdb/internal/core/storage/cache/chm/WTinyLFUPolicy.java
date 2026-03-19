@@ -127,6 +127,12 @@ public final class WTinyLFUPolicy {
 
             final var pointer = victim.getCachePointer();
 
+            // Acquire+release exclusive lock to bump the StampedLock state, invalidating
+            // all outstanding optimistic stamps. This is the first invalidation barrier.
+            // PageFramePool.release() provides a second barrier when referrer count reaches 0.
+            long stamp = pointer.acquireExclusiveLock();
+            pointer.releaseExclusiveLock(stamp);
+
             pointer.decrementReadersReferrer();
             victim.clearCachePointer();
           } else {
@@ -142,6 +148,10 @@ public final class WTinyLFUPolicy {
             }
 
             final var pointer = candidate.getCachePointer();
+
+            // Acquire+release exclusive lock to invalidate outstanding optimistic stamps.
+            long stamp = pointer.acquireExclusiveLock();
+            pointer.releaseExclusiveLock(stamp);
 
             pointer.decrementReadersReferrer();
             candidate.clearCachePointer();
@@ -169,6 +179,13 @@ public final class WTinyLFUPolicy {
     cacheEntry.makeDead();
 
     final var cachePointer = cacheEntry.getCachePointer();
+
+    // Acquire+release exclusive lock to invalidate outstanding optimistic stamps
+    // before the ReadCache drops its referrer. This is the first invalidation barrier.
+    // PageFramePool.release() provides a second barrier when referrer count reaches 0.
+    long stamp = cachePointer.acquireExclusiveLock();
+    cachePointer.releaseExclusiveLock(stamp);
+
     cachePointer.decrementReadersReferrer();
     cacheEntry.clearCachePointer();
   }
