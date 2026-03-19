@@ -127,6 +127,7 @@ reviews (track-review.md), and track-level code review.
   - `R1, R2, ...` for risk review
   - `A1, A2, ...` for adversarial review
   - `C1, C2, ...` for track-level code review
+  - `Q1, Q2, ...` for track-level test quality review
 - If blockers persist after 3 iterations, escalate
 - Severity levels: **blocker** / **should-fix** / **suggestion** / **skip** (track reviews only — recommends skipping the entire track)
 
