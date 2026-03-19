@@ -1488,13 +1488,15 @@ public class MatchExecutionPlanner {
       // Try to resolve the comparison value at plan time. Only literal values
       // can be resolved — parameterized queries (e.g. :startDate) depend on
       // runtime input parameters which are not available during planning.
+      // Catches RuntimeException (not just CommandExecutionException) because
+      // execute() with a null Result/context can also throw NPE, ClassCastException,
+      // etc. for expressions that reference runtime state. All such failures
+      // are non-fatal — they simply mean the value cannot be resolved at plan time.
       Object value;
       try {
         value = binary.getRight().execute(
             (com.jetbrains.youtrackdb.internal.core.query.Result) null, null);
-      } catch (Exception e) {
-        // Expression requires runtime context (e.g. input parameters, $matched
-        // references, function calls). Fall back to non-histogram estimation.
+      } catch (RuntimeException e) {
         value = null;
       }
       if (value == null) {
@@ -1620,7 +1622,17 @@ public class MatchExecutionPlanner {
     return identifier.getSuffix().getRecordAttribute();
   }
 
-  /** Evaluates an expression and returns the result as a String, or null. */
+  /**
+   * Evaluates an expression and returns the result as a String, or null.
+   *
+   * <p>Catches {@link RuntimeException} (not just {@link CommandExecutionException})
+   * because {@code execute()} is called at plan time with a null {@code Result} and
+   * a bare {@link BasicCommandContext}. Expressions that reference runtime state
+   * ({@code $matched}, {@code $parent}, input parameters, record fields) may throw
+   * {@code NullPointerException}, {@code ClassCastException}, or other unchecked
+   * exceptions in addition to {@code CommandExecutionException}. All such failures
+   * are non-fatal — they simply mean the value cannot be resolved at plan time.
+   */
   @Nullable private static String evaluateAsString(@Nullable SQLExpression expr) {
     if (expr == null) {
       return null;
@@ -1630,7 +1642,7 @@ public class MatchExecutionPlanner {
           (com.jetbrains.youtrackdb.internal.core.query.Result) null,
           new BasicCommandContext());
       return value instanceof String s ? s : null;
-    } catch (CommandExecutionException e) {
+    } catch (RuntimeException e) {
       return null;
     }
   }
@@ -1689,14 +1701,15 @@ public class MatchExecutionPlanner {
     }
     var firstParam = params.getFirst();
 
-    // Try evaluating the expression first (handles all literal types cleanly)
+    // Try evaluating the expression first (handles all literal types cleanly).
+    // Catches RuntimeException: execute() with null Result / bare context can
+    // throw NPE, ClassCastException, etc. — not just CommandExecutionException.
     try {
       var value = firstParam.execute((Result) null, new BasicCommandContext());
       if (value instanceof String s) {
         return s;
       }
-    } catch (CommandExecutionException e) {
-      // Expression may require a full context — fall through to toString fallback.
+    } catch (RuntimeException e) {
       if (logger.isTraceEnabled()) {
         logger.trace("Could not evaluate edge class parameter, "
             + "falling back to toString", e);
