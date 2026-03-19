@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/5 complete)
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -23,17 +23,13 @@
 
 ## Steps
 
-- [ ] Step 1: Add tryAcquireSharedLock and tryAcquireExclusiveLock to PageFrame
-  > Add non-blocking lock acquisition methods to `PageFrame`:
-  > - `tryAcquireSharedLock()` → delegates to `stampedLock.tryReadLock()`, returns long stamp (0 = failed)
-  > - `tryAcquireExclusiveLock()` → delegates to `stampedLock.tryWriteLock()`, returns long stamp (0 = failed)
+- [x] Step 1: Add tryAcquireSharedLock and tryAcquireExclusiveLock to PageFrame
+  > **What was done:** Added `tryAcquireSharedLock()` and `tryAcquireExclusiveLock()`
+  > to PageFrame, delegating to `StampedLock.tryReadLock()` / `tryWriteLock()`.
+  > Added 9 unit tests covering success/failure paths, contention, stamp validity,
+  > shared lock coexistence, and optimistic stamp invalidation semantics.
   >
-  > Add unit tests covering: successful acquisition returns non-zero stamp, failed
-  > acquisition under contention returns 0, acquired stamps are valid for release,
-  > tryAcquireSharedLock coexists with other shared locks, tryAcquireExclusiveLock
-  > fails when shared lock is held.
-  >
-  > **Files**: `PageFrame.java` (modified), `PageFrameTest.java` (modified)
+  > **Key files:** `PageFrame.java` (modified), `PageFrameTest.java` (modified)
 
 - [ ] Step 2: CachePointer — replace RRWL with PageFrame lock delegation + CacheEntry signature change
   > **The big-bang signature change step.** All changes are mechanical (type signature
