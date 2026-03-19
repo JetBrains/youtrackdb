@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -42,19 +42,16 @@ remaining cleanup targets identified by the reviews:
   > **Key files:** `Schema.java` (modified), `DatabaseSessionEmbedded.java`
   > (modified), `EdgeTest.java` (renamed), `CreateEdgesSQLTest.java` (renamed)
 
-- [ ] Step 2: Delete `EdgeType` enum, simplify `getAllPossibleEdgePropertyNames()` and SQL navigation
-  > Delete `VertexEntityImpl.EdgeType` enum (LIGHTWEIGHT, STATEFUL, BOTH).
-  > Simplify `getAllPossibleEdgePropertyNames()` to remove the
-  > `isAbstract()`-based filtering — after unification, all edge classes
-  > (abstract or concrete) should be included. Update
-  > `SQLGraphNavigationFunction.propertiesForV2ENavigation()` and
-  > `propertiesForV2VNavigation()` to call the simplified method without
-  > `EdgeType`. Remove stale lightweight comments from
-  > `SQLGraphNavigationFunction`. This addresses the blocker (T5-2/R7):
-  > the `LIGHTWEIGHT` filter would return empty results after
-  > `createLightweightEdgeClass()` removal.
+- [x] Step 2: Delete `EdgeType` enum, simplify `getAllPossibleEdgePropertyNames()` and SQL navigation
+  > **What was done:** Deleted `VertexEntityImpl.EdgeType` enum and removed
+  > `EdgeType` parameter from `getAllPossibleEdgePropertyNames()`. Removed
+  > `isAbstract()`-based filtering — all edge classes included unconditionally.
+  > Updated both `propertiesForV2ENavigation()` and `propertiesForV2VNavigation()`
+  > in `SQLGraphNavigationFunction`. V2V for vertex entities now returns edge
+  > property names (same as V2E) since `RidPair.secondaryRid` provides the
+  > opposite vertex. Updated stale Javadoc on `propertyNamesForIndexCandidates`.
   >
-  > **Target files:** `VertexEntityImpl.java` (modified),
+  > **Key files:** `VertexEntityImpl.java` (modified),
   > `SQLGraphNavigationFunction.java` (modified)
 
 - [ ] Step 3: Disable `OPTIMIZE DATABASE LWEDGES` command
