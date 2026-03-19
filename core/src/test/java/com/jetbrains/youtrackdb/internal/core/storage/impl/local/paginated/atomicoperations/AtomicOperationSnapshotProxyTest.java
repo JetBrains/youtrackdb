@@ -19,6 +19,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.IOException;
 import java.util.AbstractMap;
@@ -37,12 +40,18 @@ public class AtomicOperationSnapshotProxyTest {
 
   private ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex;
   private ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex;
+  private ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex;
+  private ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex;
+  private AtomicLong edgeSnapshotIndexSize;
   private AtomicOperationBinaryTracking operation;
 
   @Before
   public void setUp() {
     sharedSnapshotIndex = new ConcurrentSkipListMap<>();
     sharedVisibilityIndex = new ConcurrentSkipListMap<>();
+    sharedEdgeSnapshotIndex = new ConcurrentSkipListMap<>();
+    sharedEdgeVisibilityIndex = new ConcurrentSkipListMap<>();
+    edgeSnapshotIndexSize = new AtomicLong();
     operation = createOperation();
   }
 
@@ -54,7 +63,7 @@ public class AtomicOperationSnapshotProxyTest {
     return new AtomicOperationBinaryTracking(
         readCache, writeCache, 1, snapshot,
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
-        new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong());
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
   }
 
   // --- putSnapshotEntry / getSnapshotEntry ---
@@ -907,6 +916,289 @@ public class AtomicOperationSnapshotProxyTest {
     assertThat(sharedVisibilityIndex).isEmpty();
   }
 
+  // === Edge snapshot methods ===
+
+  // --- putEdgeSnapshotEntry / getEdgeSnapshotEntry ---
+
+  @Test
+  public void testPutAndGetEdgeSnapshotEntry() {
+    var key = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
+    var value = new LinkBagValue(1, 10, 200L, false);
+
+    operation.putEdgeSnapshotEntry(key, value);
+
+    assertThat(operation.getEdgeSnapshotEntry(key)).isEqualTo(value);
+  }
+
+  @Test
+  public void testGetEdgeSnapshotEntryFallsBackToSharedMap() {
+    var key = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
+    var value = new LinkBagValue(1, 10, 200L, false);
+    sharedEdgeSnapshotIndex.put(key, value);
+
+    assertThat(operation.getEdgeSnapshotEntry(key)).isEqualTo(value);
+  }
+
+  @Test
+  public void testGetEdgeSnapshotEntryReturnsNullWhenNotFound() {
+    assertThat(operation.getEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L))).isNull();
+  }
+
+  @Test
+  public void testLocalEdgeSnapshotBufferShadowsSharedMap() {
+    var key = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
+    var sharedValue = new LinkBagValue(1, 10, 200L, false);
+    var localValue = new LinkBagValue(2, 10, 200L, true);
+    sharedEdgeSnapshotIndex.put(key, sharedValue);
+
+    operation.putEdgeSnapshotEntry(key, localValue);
+
+    assertThat(operation.getEdgeSnapshotEntry(key)).isEqualTo(localValue);
+  }
+
+  @Test
+  public void testGetEdgeSnapshotEntryLocalBufferExistsButKeyMissing() {
+    // Allocate local buffer with one key, look up a different key — falls back to shared
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+    var sharedValue = new LinkBagValue(2, 20, 300L, false);
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 20, 300L, 5L), sharedValue);
+
+    assertThat(operation.getEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 20, 300L, 5L))).isEqualTo(sharedValue);
+  }
+
+  // --- putEdgeVisibilityEntry / containsEdgeVisibilityEntry ---
+
+  @Test
+  public void testPutAndContainsEdgeVisibilityEntry() {
+    var key = new EdgeVisibilityKey(100L, 1, 50L, 10, 200L);
+    var value = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
+
+    operation.putEdgeVisibilityEntry(key, value);
+
+    assertThat(operation.containsEdgeVisibilityEntry(key)).isTrue();
+  }
+
+  @Test
+  public void testContainsEdgeVisibilityEntryFallsBackToSharedMap() {
+    var key = new EdgeVisibilityKey(100L, 1, 50L, 10, 200L);
+    sharedEdgeVisibilityIndex.put(key, new EdgeSnapshotKey(1, 50L, 10, 200L, 5L));
+
+    assertThat(operation.containsEdgeVisibilityEntry(key)).isTrue();
+  }
+
+  @Test
+  public void testContainsEdgeVisibilityEntryReturnsFalseWhenNotFound() {
+    assertThat(operation.containsEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L))).isFalse();
+  }
+
+  @Test
+  public void testContainsEdgeVisibilityEntryLocalBufferExistsButKeyMissing() {
+    operation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L));
+    sharedEdgeVisibilityIndex.put(
+        new EdgeVisibilityKey(200L, 1, 50L, 20, 300L),
+        new EdgeSnapshotKey(1, 50L, 20, 300L, 8L));
+
+    assertThat(operation.containsEdgeVisibilityEntry(
+        new EdgeVisibilityKey(200L, 1, 50L, 20, 300L))).isTrue();
+    assertThat(operation.containsEdgeVisibilityEntry(
+        new EdgeVisibilityKey(300L, 1, 50L, 30, 400L))).isFalse();
+  }
+
+  // --- edgeSnapshotSubMapDescending ---
+
+  @Test
+  public void testEdgeSubMapDescendingNoLocalEntries() {
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 1L), new LinkBagValue(1, 10, 200L, false));
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+
+    var from = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MIN_VALUE);
+    var to = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MAX_VALUE);
+    var result = collectEdgeKeys(operation.edgeSnapshotSubMapDescending(from, to));
+
+    assertThat(result).containsExactly(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 1L));
+  }
+
+  @Test
+  public void testEdgeSubMapDescendingMergedView() {
+    // Shared: versions 1, 5
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 1L), new LinkBagValue(1, 10, 200L, false));
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+    // Local: versions 3, 7
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 3L), new LinkBagValue(2, 10, 200L, false));
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 7L), new LinkBagValue(2, 10, 200L, false));
+
+    var from = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MIN_VALUE);
+    var to = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MAX_VALUE);
+    var result = collectEdgeKeys(operation.edgeSnapshotSubMapDescending(from, to));
+
+    assertThat(result).containsExactly(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 7L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 3L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 1L));
+  }
+
+  @Test
+  public void testEdgeSubMapDescendingLocalShadowsSharedOnEqualKey() {
+    var key = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
+    var sharedValue = new LinkBagValue(1, 10, 200L, false);
+    var localValue = new LinkBagValue(2, 10, 200L, true);
+    sharedEdgeSnapshotIndex.put(key, sharedValue);
+    operation.putEdgeSnapshotEntry(key, localValue);
+
+    var from = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MIN_VALUE);
+    var to = new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MAX_VALUE);
+    var result = new ArrayList<Map.Entry<EdgeSnapshotKey, LinkBagValue>>();
+    for (var entry : operation.edgeSnapshotSubMapDescending(from, to)) {
+      result.add(entry);
+    }
+
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).getValue()).isEqualTo(localValue);
+  }
+
+  @Test
+  public void testEdgeSubMapDescendingEmptyRange() {
+    sharedEdgeSnapshotIndex.put(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+
+    // Query a different ridBag — should be empty
+    var from = new EdgeSnapshotKey(1, 60L, 10, 200L, Long.MIN_VALUE);
+    var to = new EdgeSnapshotKey(1, 60L, 10, 200L, Long.MAX_VALUE);
+    var result = collectEdgeKeys(operation.edgeSnapshotSubMapDescending(from, to));
+
+    assertThat(result).isEmpty();
+  }
+
+  // --- flushEdgeSnapshotBuffers ---
+
+  @Test
+  public void testFlushEdgeSnapshotBuffers() {
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+    operation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L));
+
+    operation.flushEdgeSnapshotBuffers();
+
+    assertThat(sharedEdgeSnapshotIndex).hasSize(1);
+    assertThat(sharedEdgeVisibilityIndex).hasSize(1);
+    assertThat(edgeSnapshotIndexSize.get()).isEqualTo(1L);
+  }
+
+  @Test
+  public void testFlushEdgeSnapshotBuffersWithNullBuffers() {
+    // No edge puts — both buffers null
+    operation.flushEdgeSnapshotBuffers();
+
+    assertThat(sharedEdgeSnapshotIndex).isEmpty();
+    assertThat(sharedEdgeVisibilityIndex).isEmpty();
+    assertThat(edgeSnapshotIndexSize.get()).isEqualTo(0L);
+  }
+
+  @Test
+  public void testCommitFlushesEdgeSnapshotBuffers() throws IOException {
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+    operation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L));
+
+    assertThat(sharedEdgeSnapshotIndex).isEmpty();
+    operation.commitChanges(42L, createMockWal());
+
+    assertThat(sharedEdgeSnapshotIndex).hasSize(1);
+    assertThat(sharedEdgeVisibilityIndex).hasSize(1);
+    assertThat(edgeSnapshotIndexSize.get()).isEqualTo(1L);
+  }
+
+  @Test
+  public void testRollbackDiscardsEdgeSnapshotBuffers() {
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+    operation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L));
+
+    operation.deactivate();
+
+    assertThat(sharedEdgeSnapshotIndex).isEmpty();
+    assertThat(sharedEdgeVisibilityIndex).isEmpty();
+    assertThat(edgeSnapshotIndexSize.get()).isEqualTo(0L);
+  }
+
+  @Test
+  public void testRollbackFlagPreventsEdgeSnapshotFlush() throws IOException {
+    operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false));
+
+    operation.rollbackInProgress();
+    operation.commitChanges(42L, createMockWal());
+
+    assertThat(sharedEdgeSnapshotIndex).isEmpty();
+    assertThat(edgeSnapshotIndexSize.get()).isEqualTo(0L);
+  }
+
+  // --- Deactivated operation rejects edge methods ---
+
+  @Test
+  public void testDeactivatedOperationRejectsEdgeSnapshotPut() {
+    operation.deactivate();
+    assertThatThrownBy(() -> operation.putEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L), new LinkBagValue(1, 10, 200L, false)))
+        .isInstanceOf(DatabaseException.class);
+  }
+
+  @Test
+  public void testDeactivatedOperationRejectsEdgeSnapshotGet() {
+    operation.deactivate();
+    assertThatThrownBy(() -> operation.getEdgeSnapshotEntry(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L)))
+        .isInstanceOf(DatabaseException.class);
+  }
+
+  @Test
+  public void testDeactivatedOperationRejectsEdgeSubMapDescending() {
+    operation.deactivate();
+    assertThatThrownBy(() -> operation.edgeSnapshotSubMapDescending(
+        new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MIN_VALUE),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, Long.MAX_VALUE)))
+        .isInstanceOf(DatabaseException.class);
+  }
+
+  @Test
+  public void testDeactivatedOperationRejectsEdgeVisibilityPut() {
+    operation.deactivate();
+    assertThatThrownBy(() -> operation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L),
+        new EdgeSnapshotKey(1, 50L, 10, 200L, 5L)))
+        .isInstanceOf(DatabaseException.class);
+  }
+
+  @Test
+  public void testDeactivatedOperationRejectsEdgeVisibilityContains() {
+    operation.deactivate();
+    assertThatThrownBy(() -> operation.containsEdgeVisibilityEntry(
+        new EdgeVisibilityKey(100L, 1, 50L, 10, 200L)))
+        .isInstanceOf(DatabaseException.class);
+  }
+
   // --- Helper methods ---
 
   private static WriteAheadLog createMockWal() throws IOException {
@@ -939,5 +1231,14 @@ public class AtomicOperationSnapshotProxyTest {
   private static Map.Entry<SnapshotKey, PositionEntry> entry(
       SnapshotKey key, PositionEntry value) {
     return new AbstractMap.SimpleImmutableEntry<>(key, value);
+  }
+
+  private static List<EdgeSnapshotKey> collectEdgeKeys(
+      Iterable<Map.Entry<EdgeSnapshotKey, LinkBagValue>> iterable) {
+    var keys = new ArrayList<EdgeSnapshotKey>();
+    for (var entry : iterable) {
+      keys.add(entry.getKey());
+    }
+    return keys;
   }
 }
