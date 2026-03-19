@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -103,35 +103,35 @@
   > **Key files:** `EdgeIterator.java` (modified), `EdgeIterable.java`
   > (modified), `VertexEntityImpl.java` (modified)
 
-- [ ] Step 4: Remove Relation<Vertex> from Edge/EdgeInternal hierarchy; delete Relation and all dependent types
-  > Final atomic deletion of the Relation type hierarchy and all types
-  > that exist only to support it.
+- [x] Step 4: Remove Relation<Vertex> from Edge/EdgeInternal hierarchy; delete Relation and all dependent types
+  > **What was done:** Removed `extends Relation<Vertex>` from `Edge` and
+  > `EdgeInternal` interfaces. Removed `extends Element` from `DBRecord`.
+  > Removed `isLightweight()` default from `Edge`. Added `label()` to
+  > `Edge` (previously inherited from `Relation`). Deleted 5 files:
+  > `Relation.java`, `Element.java`, `LightweightRelationImpl.java`,
+  > `RelationsIteratorAbstract.java`, `RelationsIterable.java`. Updated
+  > `MultiCollectionIterator` to reference `EdgeIterator` instead of
+  > `RelationsIteratorAbstract`. Review fix: removed dead
+  > `getEntity(Direction)` from `Edge` and `StatefullEdgeEntityImpl`
+  > (duplicated `getVertex(Direction)` with zero callers), fixed broken
+  > `{@link Relation}` in `MatchMultiEdgeTraverser` Javadoc, renamed
+  > 3 test methods in `MatchStepUnitTest` from "Relation" to "Edge".
   >
-  > **Edge.java:**
-  > - Remove `extends Relation<Vertex>` from Edge interface declaration
-  > - Move methods inherited from Relation to Edge as abstract/default:
-  >   `getFrom()`, `getTo()`, `isLabeled()`, `getEntity()`, `label()`
-  > - Remove `isLightweight()` default (no longer meaningful without
-  >   Relation)
+  > **What was discovered:** `getEntity(Direction)` from `Relation` had
+  > zero callers — `StatefullEdgeEntityImpl.getEntity()` simply delegated
+  > to `getVertex()`. Rather than moving it to `Edge`, it was deleted
+  > entirely as dead API.
   >
-  > **EdgeInternal.java:**
-  > - Remove `extends Relation<Vertex>` — keep as marker interface
-  >   extending Edge, retain static utility methods
+  > **What changed from the plan:** `EntityRelationsIterator.java` and
+  > `EntityRelationsIterable.java` were already deleted in Step 1 (review
+  > fix), so they did not need deletion here. `getEntity(Direction)` was
+  > not moved to `Edge` — it was removed as dead code instead.
   >
-  > **DBRecord.java:**
-  > - Remove `extends Element` — Element marker becomes unnecessary
-  >
-  > **Files to delete:**
-  > - `Relation.java` — interface
-  > - `Element.java` — marker interface (only extended by DBRecord after
-  >   Relation deletion)
-  > - `LightweightRelationImpl.java` — only created by
-  >   EntityRelationsIterator (dead since Step 1)
-  > - `EntityRelationsIterator.java` — only used by
-  >   EntityImpl.getBidirectionalLinksInternal() (deleted in Step 1)
-  > - `EntityRelationsIterable.java` — only used by
-  >   EntityImpl.getBidirectionalLinksInternal() (deleted in Step 1)
-  > - `RelationsIteratorAbstract.java` — only extended by
-  >   EntityRelationsIterator (after Step 3 inlining)
-  > - `RelationsIterable.java` — only extended by
-  >   EntityRelationsIterable (after Step 3 inlining)
+  > **Key files:** `Edge.java` (modified), `EdgeInternal.java` (modified),
+  > `DBRecord.java` (modified), `MultiCollectionIterator.java` (modified),
+  > `StatefullEdgeEntityImpl.java` (modified),
+  > `MatchMultiEdgeTraverser.java` (modified),
+  > `MatchStepUnitTest.java` (modified), `Relation.java` (deleted),
+  > `Element.java` (deleted), `LightweightRelationImpl.java` (deleted),
+  > `RelationsIteratorAbstract.java` (deleted),
+  > `RelationsIterable.java` (deleted)
