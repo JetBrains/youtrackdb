@@ -139,6 +139,27 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     return (List) steps;
   }
 
+  /**
+   * Replaces the first step in the chain with the given step, rewiring
+   * the {@code prev}/{@code next} pointers so the rest of the chain
+   * continues to work. Used by {@link MaterializedLetGroupStep} to swap
+   * a {@link SubQueryStep} with a {@link ListSourceStep}.
+   */
+  public void replaceFirstStep(ExecutionStepInternal replacement) {
+    if (steps.isEmpty()) {
+      return;
+    }
+    replacement.setPrevious(null);
+    if (steps.size() > 1) {
+      var second = steps.get(1);
+      second.setPrevious(replacement);
+      replacement.setNext(second);
+    } else {
+      lastStep = replacement;
+    }
+    steps.set(0, replacement);
+  }
+
   public void setSteps(List<ExecutionStepInternal> steps) {
     this.steps = steps;
     if (!steps.isEmpty()) {

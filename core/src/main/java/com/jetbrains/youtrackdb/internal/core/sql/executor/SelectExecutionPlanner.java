@@ -53,6 +53,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1701,24 +1702,96 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    // this could be invoked multiple times
-    // so it can be optimized
-    // checking whether the execution plan already contains some LET steps
-    // and in case skip
-    if (info.perRecordLetClause != null) {
-      var items = info.perRecordLetClause.getItems();
-      items = sortLet(items, this.statement.getLetClause());
+    if (info.perRecordLetClause == null) {
+      return;
+    }
+    var items = info.perRecordLetClause.getItems();
+    items = sortLet(items, this.statement.getLetClause());
 
-      for (var item : items) {
-        if (item.getExpression() != null) {
-          plan.chain(
-              new LetExpressionStep(
-                  item.getVarName(), item.getExpression(), ctx, profilingEnabled));
-        } else {
-          plan.chain(new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
+    var sharedGroups = detectSharedLetBases(items);
+    var alreadyGrouped = new HashSet<SQLLetItem>();
+
+    for (var item : items) {
+      if (alreadyGrouped.contains(item)) {
+        continue;
+      }
+      if (item.getExpression() != null) {
+        plan.chain(
+            new LetExpressionStep(
+                item.getVarName(), item.getExpression(), ctx, profilingEnabled));
+        continue;
+      }
+
+      var group = sharedGroups.get(item);
+      if (group != null && group.size() > 1) {
+        var sharedInner = extractInnerFromSubquery(item.getQuery());
+        var entries = new ArrayList<MaterializedLetGroupStep.LetEntry>();
+        for (var grouped : group) {
+          entries.add(new MaterializedLetGroupStep.LetEntry(
+              grouped.getVarName(), grouped.getQuery()));
+          alreadyGrouped.add(grouped);
         }
+        plan.chain(new MaterializedLetGroupStep(
+            sharedInner, entries, ctx, profilingEnabled));
+      } else {
+        plan.chain(
+            new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
       }
     }
+  }
+
+  /**
+   * Groups per-record LET subquery items by their inner FROM subquery. Items
+   * whose full query is a {@code SELECT ... FROM (innerSubquery) WHERE ...}
+   * pattern are grouped by structural equality of the inner subquery.
+   *
+   * <p>Returns a map from each item to its group (list of items sharing the
+   * same inner subquery). Items that don't match the pattern or have unique
+   * inner subqueries map to a singleton list.
+   */
+  private static Map<SQLLetItem, List<SQLLetItem>> detectSharedLetBases(
+      List<SQLLetItem> items) {
+    // Group subquery items by their inner FROM statement.
+    // LinkedHashMap preserves insertion order so groups appear in declaration order.
+    var byInner = new LinkedHashMap<SQLStatement, List<SQLLetItem>>();
+    for (var item : items) {
+      if (item.getQuery() == null) {
+        continue;
+      }
+      var inner = extractInnerFromSubquery(item.getQuery());
+      if (inner == null) {
+        continue;
+      }
+      byInner.computeIfAbsent(inner, k -> new ArrayList<>()).add(item);
+    }
+
+    var result = new HashMap<SQLLetItem, List<SQLLetItem>>();
+    for (var group : byInner.values()) {
+      for (var item : group) {
+        result.put(item, group);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Extracts the inner FROM subquery from a LET query of the form
+   * {@code SELECT ... FROM (innerSubquery) WHERE ...}. Returns {@code null}
+   * if the query does not match this pattern.
+   */
+  @Nullable private static SQLStatement extractInnerFromSubquery(SQLStatement query) {
+    if (!(query instanceof SQLSelectStatement selectStmt)) {
+      return null;
+    }
+    var target = selectStmt.getTarget();
+    if (target == null) {
+      return null;
+    }
+    var fromItem = target.getItem();
+    if (fromItem == null) {
+      return null;
+    }
+    return fromItem.getStatement();
   }
 
   /**
