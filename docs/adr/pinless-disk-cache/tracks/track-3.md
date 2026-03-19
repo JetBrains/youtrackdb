@@ -6,7 +6,7 @@
 - [ ] Track-level code review
 
 ## Base commit
-_(to be recorded at Phase B start)_
+`6e4ac067`
 
 ## Reviews completed
 - [x] Technical — 2 blockers (null PageFrame handling, missing tryAcquireSharedLock), 2 should-fix, 2 suggestions. All accepted and addressed in step decomposition. See reviews/track-3-technical.md
