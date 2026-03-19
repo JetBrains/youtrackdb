@@ -69,6 +69,7 @@ import org.junit.platform.suite.api.SuiteDisplayName;
     SQLSelectByLinkedSchemaPropertyIndexReuseTest.class,
     LinkListIndexTest.class,
     LinkBagIndexTest.class,
+    LinkBagSecondaryIndexTest.class,
     LinkMapIndexTest.class,
     IndexTxTest.class,
     OrderByIndexReuseTest.class,
