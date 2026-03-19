@@ -8091,4 +8091,233 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Verifies edge schema inference works for outgoing edges (out('Edge'))
+   * in addition to incoming (in('Edge')).
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_outDirectionEdgeSchemaInference() {
+    session.execute("CREATE CLASS EsoPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EsoPost EXTENDS V").close();
+    session.execute("CREATE CLASS EsoHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY EsoPost.score INTEGER").close();
+    session.execute("CREATE INDEX EsoPost.score ON EsoPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EsoPerson SET name = 'alice'").close();
+    for (var i = 0; i < 6; i++) {
+      session.execute("CREATE VERTEX EsoPost SET title = 'p" + i + "', score = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE EsoHasCreator FROM (SELECT FROM EsoPost WHERE title = 'p" + i + "')"
+              + " TO (SELECT FROM EsoPerson WHERE name = 'alice')")
+          .close();
+    }
+    session.commit();
+
+    // out('EsoHasCreator') from Person → targets EsoPost (via edge schema 'out' link)
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('EsoHasCreator')) FROM EsoPerson WHERE name = 'alice'"
+            + ") WHERE score >= 4");
+    var items = result.stream().toList();
+    Assert.assertEquals("Should return 2 posts with score >= 4", 2, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that expand with no edge class parameter (bare out()) still
+   * works correctly, falling back to non-indexed expansion.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_bareOutNoEdgeClass() {
+    session.execute("CREATE CLASS BareF EXTENDS V").close();
+    session.execute("CREATE CLASS BareP EXTENDS V").close();
+    session.execute("CREATE CLASS BareLink EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX BareF SET name = 'f1'").close();
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX BareP SET val = " + i).close();
+      session.execute(
+          "CREATE EDGE BareLink FROM (SELECT FROM BareF WHERE name = 'f1')"
+              + " TO (SELECT FROM BareP WHERE val = " + i + ")")
+          .close();
+    }
+    session.commit();
+
+    // Bare out() without edge class name — can't infer target class
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out()) FROM BareF WHERE name = 'f1'"
+            + ") WHERE val >= 2");
+    var items = result.stream().toList();
+    Assert.assertEquals(1, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that a non-existent edge class in expand does not cause errors —
+   * returns empty results.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_nonExistentEdgeClass() {
+    session.execute("CREATE CLASS NecF EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NecF SET name = 'f1'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('NoSuchEdge')) FROM NecF WHERE name = 'f1'"
+            + ") WHERE @class = 'V'");
+    var items = result.stream().toList();
+    Assert.assertEquals(0, items.size());
+    result.close();
+    session.commit();
+  }
+
+  // ── Coverage: edge schema inference null paths ──
+
+  /**
+   * both('Edge') is not a recognized traversal direction for inference —
+   * extractTraversalDirection returns null, falls back to no index.
+   */
+  @Test
+  public void testExpandInference_bothDirection_noInference() {
+    session.execute("CREATE CLASS BdF EXTENDS V").close();
+    session.execute("CREATE CLASS BdP EXTENDS V").close();
+    session.execute("CREATE CLASS BdLink EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX BdF SET name = 'f1'").close();
+    session.execute("CREATE VERTEX BdP SET val = 1").close();
+    session.execute(
+        "CREATE EDGE BdLink FROM (SELECT FROM BdF WHERE name = 'f1')"
+            + " TO (SELECT FROM BdP WHERE val = 1)")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(both('BdLink')) FROM BdF WHERE name = 'f1'"
+            + ") WHERE val = 1");
+    var items = result.stream().toList();
+    Assert.assertEquals(1, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Expand without a function call (expand(fieldName) instead of
+   * expand(in/out('Edge'))) — extractExpandTraversalFunction returns null.
+   */
+  @Test
+  public void testExpandInference_expandField_noInference() {
+    session.execute("CREATE CLASS EfV EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EfV SET name = 'a', tags = ['x','y','z']").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(tags) FROM EfV WHERE name = 'a'"
+            + ")");
+    var items = result.stream().toList();
+    Assert.assertEquals(3, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Edge class exists in schema but has no linked class on the target property —
+   * lookupLinkedClassName returns null.
+   */
+  @Test
+  public void testExpandInference_edgeNoLinkedClass_noInference() {
+    session.execute("CREATE CLASS NlF EXTENDS V").close();
+    session.execute("CREATE CLASS NlP EXTENDS V").close();
+    // Create edge class without declaring linked vertex classes
+    session.execute("CREATE CLASS NlEdge EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NlF SET name = 'f1'").close();
+    session.execute("CREATE VERTEX NlP SET val = 5").close();
+    session.execute(
+        "CREATE EDGE NlEdge FROM (SELECT FROM NlF WHERE name = 'f1')"
+            + " TO (SELECT FROM NlP WHERE val = 5)")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('NlEdge')) FROM NlF WHERE name = 'f1'"
+            + ") WHERE val = 5");
+    var items = result.stream().toList();
+    Assert.assertEquals(1, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Non-subquery FROM target — info.target has no statement, so
+   * extractExpandTraversalFunction returns null early.
+   */
+  @Test
+  public void testExpandInference_directClassTarget_noInference() {
+    session.execute("CREATE CLASS DcV EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DcV SET name = 'a', score = 10").close();
+    session.execute("CREATE VERTEX DcV SET name = 'b', score = 20").close();
+    session.commit();
+
+    // Direct class target, not a subquery — no inference possible
+    session.begin();
+    var result = session.query("SELECT FROM DcV WHERE score > 5");
+    var items = result.stream().toList();
+    Assert.assertEquals(2, items.size());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * in() without edge class parameter — extractEdgeClassName returns null.
+   */
+  @Test
+  public void testExpandInference_inWithoutParam_noInference() {
+    session.execute("CREATE CLASS IpF EXTENDS V").close();
+    session.execute("CREATE CLASS IpP EXTENDS V").close();
+    session.execute("CREATE CLASS IpLink EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IpF SET name = 'f1'").close();
+    session.execute("CREATE VERTEX IpP SET val = 7").close();
+    session.execute(
+        "CREATE EDGE IpLink FROM (SELECT FROM IpP WHERE val = 7)"
+            + " TO (SELECT FROM IpF WHERE name = 'f1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in()) FROM IpF WHERE name = 'f1'"
+            + ") WHERE val = 7");
+    var items = result.stream().toList();
+    Assert.assertEquals(1, items.size());
+    result.close();
+    session.commit();
+  }
 }
