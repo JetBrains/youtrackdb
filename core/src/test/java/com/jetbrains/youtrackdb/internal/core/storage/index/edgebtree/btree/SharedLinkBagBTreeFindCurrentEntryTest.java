@@ -126,6 +126,23 @@ public class SharedLinkBagBTreeFindCurrentEntryTest {
   }
 
   @Test
+  public void testSingleEntryWithNegativeTs() throws Exception {
+    // Verify that moderately negative ts values (between Long.MIN_VALUE and 0)
+    // are found correctly — compareTo uses < (no overflow risk from subtraction).
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var key = new EdgeKey(1L, 10, 100L, -100L);
+      var value = new LinkBagValue(1, 0, 0, false);
+      bTree.put(atomicOperation, key, value);
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = bTree.findCurrentEntry(atomicOperation, 1L, 10, 100L);
+      assertThat(result).isNotNull();
+      assertThat(result.first().ts).isEqualTo(-100L);
+    });
+  }
+
+  @Test
   public void testSingleEntryWithMaxValueTs() throws Exception {
     // Entry stored with ts=Long.MAX_VALUE — furthest from the search key.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {

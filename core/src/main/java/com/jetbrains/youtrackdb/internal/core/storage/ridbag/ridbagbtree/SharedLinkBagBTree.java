@@ -139,7 +139,9 @@ public final class SharedLinkBagBTree extends DurableComponent {
           // Insertion point is at the end of this bucket. The matching entry
           // may be the first entry on the right sibling page (can happen when
           // a bucket split placed the separator between Long.MIN_VALUE and the
-          // actual ts).
+          // actual ts). One hop is sufficient because the single-version
+          // invariant guarantees at most one entry per 3-tuple prefix, and
+          // findBucket lands us in the correct neighborhood.
           final long rightSibling = bucket.getRightSibling();
           if (rightSibling < 0) {
             return null;
@@ -148,6 +150,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
           try (final var siblingCacheEntry =
               loadPageForRead(atomicOperation, fileId, rightSibling)) {
             final var siblingBucket = new Bucket(siblingCacheEntry);
+            // Empty leaf buckets should not exist in a well-formed B-tree
+            // (only transiently during splits). This is a safety net.
             if (siblingBucket.isEmpty()) {
               return null;
             }
