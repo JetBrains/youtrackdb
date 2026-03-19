@@ -123,11 +123,26 @@ public class CachePointerPageFrameTest {
   }
 
   @Test
-  public void testGetPageFrameReturnsNullForLegacyConstructor() {
+  public void testGetPageFrameReturnsNullForLegacyConstructorWithNullPointer() {
     // Verifies that getPageFrame() returns null when the legacy Pointer+ByteBufferPool
-    // constructor is used.
+    // constructor is used with a null Pointer (sentinel).
     var cachePointer = new CachePointer((Pointer) null, null, 10, 5);
     assertNull(cachePointer.getPageFrame());
+  }
+
+  @Test
+  public void testLegacyConstructorCreatesStandalonePageFrame() {
+    // Verifies that the legacy Pointer+ByteBufferPool constructor creates a standalone
+    // PageFrame for lock delegation when pointer is non-null.
+    var allocator = new DirectMemoryAllocator();
+    var pointer = allocator.allocate(4096, true, Intention.TEST);
+    try {
+      var cachePointer = new CachePointer(pointer, null, 10, 5);
+      assertNotNull(cachePointer.getPageFrame());
+      assertSame(pointer, cachePointer.getPageFrame().getPointer());
+    } finally {
+      allocator.deallocate(pointer);
+    }
   }
 
   @Test(expected = IllegalArgumentException.class)

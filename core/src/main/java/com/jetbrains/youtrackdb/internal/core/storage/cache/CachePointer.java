@@ -63,11 +63,6 @@ public final class CachePointer {
   @Nullable private final PageFrame pageFrame;
   @Nullable private final PageFramePool framePool;
 
-  // Written under exclusive lock, read under shared lock. Visibility guaranteed by
-  // PageFrame's StampedLock memory barriers (unlockWrite happens-before readLock).
-  // TODO: Remove in Step 3 — replaced by stamp-based validation.
-  private long version;
-
   private final long fileId;
   private final int pageIndex;
 
@@ -82,7 +77,9 @@ public final class CachePointer {
       final int pageIndex) {
     this.pointer = pointer;
     this.bufferPool = bufferPool;
-    this.pageFrame = null;
+    // Create a standalone PageFrame for lock delegation. Not pooled — the frame is owned
+    // by this CachePointer and released via ByteBufferPool when referrers reach 0.
+    this.pageFrame = pointer != null ? new PageFrame(pointer) : null;
     this.framePool = null;
 
     if (fileId < 0) {
@@ -307,13 +304,7 @@ public final class CachePointer {
     if (pageFrame == null) {
       throw new IllegalStateException("Lock on sentinel CachePointer");
     }
-    long stamp = pageFrame.acquireExclusiveLock();
-    version++;
-    return stamp;
-  }
-
-  public long getVersion() {
-    return version;
+    return pageFrame.acquireExclusiveLock();
   }
 
   /**

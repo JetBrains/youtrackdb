@@ -37,7 +37,7 @@ public final class PageFrame {
   private long fileId;
   private int pageIndex;
 
-  PageFrame(Pointer pointer) {
+  public PageFrame(Pointer pointer) {
     assert pointer != null : "Pointer must not be null";
     this.pointer = pointer;
     this.stampedLock = new StampedLock();

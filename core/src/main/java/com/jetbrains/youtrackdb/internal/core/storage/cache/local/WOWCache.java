@@ -2906,8 +2906,8 @@ public final class WOWCache extends AbstractWriteCache
           break flushCycle;
         }
 
-        if (pointer.tryAcquireSharedLock()) {
-          final long version;
+        long sharedStamp = pointer.tryAcquireSharedLock();
+        if (sharedStamp != 0) {
           final LogSequenceNumber fullLogLSN;
 
           final var directPointer =
@@ -2915,7 +2915,6 @@ public final class WOWCache extends AbstractWriteCache
           final var copy = directPointer.getNativeByteBuffer();
           assert copy.position() == 0;
           try {
-            version = pointer.getVersion();
             final var buffer = pointer.getBuffer();
 
             fullLogLSN = pointer.getEndLSN();
@@ -2930,7 +2929,7 @@ public final class WOWCache extends AbstractWriteCache
 
             copiedPages++;
           } finally {
-            pointer.releaseSharedLock();
+            pointer.releaseSharedLock(sharedStamp);
           }
 
           if (fullLogLSN != null
@@ -2940,7 +2939,11 @@ public final class WOWCache extends AbstractWriteCache
 
           copy.position(0);
 
-          chunk.add(new WritePageContainer(version, copy, directPointer, pointer));
+          // Store the shared lock stamp for later validation in removeWrittenPagesFromCache.
+          // validate(stamp) returns false if any exclusive lock was acquired since the stamp
+          // was issued — semantically identical to a version mismatch, since the version only
+          // incremented under exclusive lock.
+          chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
 
           if (chunksSize + chunk.size() >= pagesFlushLimit) {
             chunks.add(chunk);
@@ -3094,37 +3097,33 @@ public final class WOWCache extends AbstractWriteCache
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final List<WritePageContainer> chunk : chunks) {
       for (var chunkPage : chunk) {
-        // Always release the page copy's direct memory, even if the shared lock on the
-        // original page pointer cannot be acquired. Without this, the `continue` below
-        // would skip the release call, leaking the buffer pool allocation made during
-        // the flush copy phase (e.g., in executeFileFlush).
+        // Always release the page copy's direct memory, even if stamp validation
+        // fails. Without this, the buffer pool allocation made during the flush copy
+        // phase (e.g., in executeFileFlush) would leak.
         try {
           final var pointer = chunkPage.originalPagePointer;
 
           final var pageKey =
               new PageKey(internalFileId(pointer.getFileId()), pointer.getPageIndex());
-          final var version = chunkPage.pageVersion;
 
           final var lock = lockManager.acquireExclusiveLock(pageKey);
           try {
-            if (!pointer.tryAcquireSharedLock()) {
-              continue;
-            }
-
-            try {
-              if (version == pointer.getVersion()) {
-                var removed = writeCachePages.remove(pageKey);
-                if (removed == null) {
-                  throw new IllegalStateException("Page is not found in write cache");
-                }
-
-                writeCacheSize.decrementAndGet();
-
-                pointer.decrementWritersReferrer();
-                pointer.setWritersListener(null);
+            // Validate the stamp captured during the copy phase. If no exclusive lock was
+            // acquired on the PageFrame since the copy, the page data is still consistent
+            // and the write cache entry can be removed. This is semantically identical to
+            // the old version comparison: version only incremented under exclusive lock,
+            // and validate(stamp) detects any exclusive lock acquisition since the stamp.
+            final var pageFrame = pointer.getPageFrame();
+            if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)) {
+              var removed = writeCachePages.remove(pageKey);
+              if (removed == null) {
+                throw new IllegalStateException("Page is not found in write cache");
               }
-            } finally {
-              pointer.releaseSharedLock();
+
+              writeCacheSize.decrementAndGet();
+
+              pointer.decrementWritersReferrer();
+              pointer.setWritersListener(null);
             }
           } finally {
             lock.unlock();
@@ -3365,16 +3364,15 @@ public final class WOWCache extends AbstractWriteCache
             continue flushCycle;
           }
         } else {
-          if (pointer.tryAcquireSharedLock()) {
+          long sharedStamp = pointer.tryAcquireSharedLock();
+          if (sharedStamp != 0) {
             final LogSequenceNumber fullLSN;
 
             final var directPointer =
                 bufferPool.acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
             final var copy = directPointer.getNativeByteBuffer();
             assert copy.position() == 0;
-            long version;
             try {
-              version = pointer.getVersion();
               final var buffer = pointer.getBuffer();
 
               fullLSN = pointer.getEndLSN();
@@ -3389,7 +3387,7 @@ public final class WOWCache extends AbstractWriteCache
 
               copiedPages++;
             } finally {
-              pointer.releaseSharedLock();
+              pointer.releaseSharedLock(sharedStamp);
             }
 
             if (fullLSN != null
@@ -3420,7 +3418,7 @@ public final class WOWCache extends AbstractWriteCache
               prevChunksSize = 0;
             }
 
-            chunk.add(new WritePageContainer(version, copy, directPointer, pointer));
+            chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
 
             lastFileId = pointer.getFileId();
             lastPageIndex = pointer.getPageIndex();
@@ -3502,7 +3500,8 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = writeCachePages.get(pageKey);
         final var pageLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          if (!pagePointer.tryAcquireSharedLock()) {
+          long sharedStamp = pagePointer.tryAcquireSharedLock();
+          if (sharedStamp == 0) {
             continue;
           }
           try {
@@ -3524,12 +3523,12 @@ public final class WOWCache extends AbstractWriteCache
 
             var chunk = new ArrayList<WritePageContainer>(1);
             chunk.add(
-                new WritePageContainer(pagePointer.getVersion(), copy, directPointer, pagePointer));
+                new WritePageContainer(sharedStamp, copy, directPointer, pagePointer));
             chunks.add(chunk);
 
             removeFromDirtyPages(pageKey);
           } finally {
-            pagePointer.releaseSharedLock();
+            pagePointer.releaseSharedLock(sharedStamp);
           }
         } finally {
           pageLock.unlock();
@@ -3762,7 +3761,7 @@ public final class WOWCache extends AbstractWriteCache
     return null;
   }
 
-  private record WritePageContainer(long pageVersion, ByteBuffer copyOfPage,
+  private record WritePageContainer(long pageStamp, ByteBuffer copyOfPage,
       Pointer pageCopyDirectMemoryPointer,
       CachePointer originalPagePointer) {
 
