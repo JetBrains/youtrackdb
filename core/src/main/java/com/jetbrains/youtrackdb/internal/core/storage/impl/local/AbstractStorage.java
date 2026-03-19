@@ -130,6 +130,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
@@ -322,6 +325,23 @@ public abstract class AbstractStorage
   // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
+
+  // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
+  // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
+  // Parallel to sharedSnapshotIndex but with edge-specific key types and full value storage
+  // (B-tree entries don't have stable page positions across splits/merges).
+  protected final ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex =
+      new ConcurrentSkipListMap<>();
+
+  // Edge visibility index: maps (recordTs, componentId, ridBagId, targetCollection,
+  // targetPosition) → EdgeSnapshotKey. Ordering by recordTs first enables efficient
+  // range-scan eviction via headMap(lowWaterMark), same pattern as visibilityIndex.
+  protected final ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibilityIndex =
+      new ConcurrentSkipListMap<>();
+
+  // Approximate count of entries in sharedEdgeSnapshotIndex, used for O(1) cleanup threshold
+  // checks. Same rationale as snapshotIndexSize — ConcurrentSkipListMap.size() is O(n).
+  protected final AtomicLong edgeSnapshotIndexSize = new AtomicLong();
 
   // Stale transaction monitor (YTDB-550): periodically scans tsMins to detect long-running
   // transactions and logs warnings. Initialized at storage open, stopped at shutdown.
@@ -4707,6 +4727,9 @@ public abstract class AbstractStorage
       sharedSnapshotIndex.clear();
       visibilityIndex.clear();
       snapshotIndexSize.set(0);
+      sharedEdgeSnapshotIndex.clear();
+      edgeVisibilityIndex.clear();
+      edgeSnapshotIndexSize.set(0);
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -4780,6 +4803,8 @@ public abstract class AbstractStorage
         indexEngineNameMap.clear();
         sharedSnapshotIndex.clear();
         visibilityIndex.clear();
+        sharedEdgeSnapshotIndex.clear();
+        edgeVisibilityIndex.clear();
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
@@ -5834,19 +5859,25 @@ public abstract class AbstractStorage
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
         .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
-    if (snapshotIndexSize.get() <= threshold) {
+    long combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+    if (combinedSize <= threshold) {
       return;
     }
     if (!snapshotCleanupLock.tryLock()) {
       return;
     }
     try {
-      if (snapshotIndexSize.get() <= threshold) {
+      combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+      if (combinedSize <= threshold) {
         return;
       }
+      long lwm = computeGlobalLowWaterMark();
       evictStaleSnapshotEntries(
-          computeGlobalLowWaterMark(), sharedSnapshotIndex, visibilityIndex,
+          lwm, sharedSnapshotIndex, visibilityIndex,
           snapshotIndexSize, collections);
+      evictStaleEdgeSnapshotEntries(
+          lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
+          edgeSnapshotIndexSize);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -5980,6 +6011,39 @@ public abstract class AbstractStorage
   }
 
   /**
+   * Core eviction logic for edge snapshot entries: removes all edge visibility/snapshot entries
+   * with {@code recordTs} strictly below the given low-water-mark. Follows the same pattern as
+   * {@link #evictStaleSnapshotEntries} but for edge-specific key types and without dead record
+   * counting (edge snapshots do not participate in records GC).
+   *
+   * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
+   * @param edgeSnapshotIndex the shared edge snapshot index to remove stale entries from
+   * @param edgeVisibilityIdx the edge visibility index to scan and remove stale entries from
+   * @param sizeCounter approximate size counter to decrement for each evicted snapshot entry
+   */
+  static void evictStaleEdgeSnapshotEntries(
+      long lwm,
+      ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> edgeSnapshotIndex,
+      ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibilityIdx,
+      @Nonnull AtomicLong sizeCounter) {
+    // Sentinel key: (lwm, MIN, MIN, MIN, MIN) is the smallest possible key with recordTs==lwm,
+    // so headMap(exclusive) captures everything with recordTs < lwm.
+    var staleEntries = edgeVisibilityIdx.headMap(
+        new EdgeVisibilityKey(lwm, Integer.MIN_VALUE, Long.MIN_VALUE,
+            Integer.MIN_VALUE, Long.MIN_VALUE),
+        false);
+    var iterator = staleEntries.entrySet().iterator();
+    while (iterator.hasNext()) {
+      var entry = iterator.next();
+      var edgeSnapshotKey = entry.getValue();
+      if (edgeSnapshotIndex.remove(edgeSnapshotKey) != null) {
+        sizeCounter.decrementAndGet();
+      }
+      iterator.remove();
+    }
+  }
+
+  /**
    * Starts the stale transaction monitor if enabled in the configuration. Called once when
    * the storage transitions to OPEN status.
    */
@@ -6038,6 +6102,18 @@ public abstract class AbstractStorage
 
   public AtomicLong getSnapshotIndexSize() {
     return snapshotIndexSize;
+  }
+
+  public ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> getSharedEdgeSnapshotIndex() {
+    return sharedEdgeSnapshotIndex;
+  }
+
+  public ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> getEdgeVisibilityIndex() {
+    return edgeVisibilityIndex;
+  }
+
+  public AtomicLong getEdgeSnapshotIndexSize() {
+    return edgeSnapshotIndexSize;
   }
 
   /**
