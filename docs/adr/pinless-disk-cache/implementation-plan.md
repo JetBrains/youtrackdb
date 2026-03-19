@@ -1757,6 +1757,8 @@ Phase 5: Remove component-level read lock from happy path
   > PageFrame-backed CachePointers.
   >
   > **Step file:** `tracks/track-2.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 3: CachePointer refactoring — delegate lock to PageFrame
   > Remove `ReentrantReadWriteLock` and `version` field from `CachePointer`.
