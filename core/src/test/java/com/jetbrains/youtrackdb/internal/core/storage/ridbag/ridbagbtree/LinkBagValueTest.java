@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import java.nio.ByteBuffer;
@@ -258,6 +260,44 @@ public class LinkBagValueTest {
         serializerFactory, leadingPadding, buffer);
     assertEquals(original, deserialized);
     assertEquals(true, deserialized.tombstone());
+  }
+
+  // --- Tombstone equality and toString tests (Step 3) ---
+
+  /**
+   * Two LinkBagValues with identical data fields but different tombstone flags must not be equal.
+   */
+  @Test
+  public void testTombstoneDistinguishedByEquals() {
+    var live = new LinkBagValue(42, 100, 999L, false);
+    var dead = new LinkBagValue(42, 100, 999L, true);
+
+    assertNotEquals("tombstone=true and tombstone=false should not be equal", live, dead);
+  }
+
+  /**
+   * Two LinkBagValues with identical fields including tombstone must be equal.
+   */
+  @Test
+  public void testEqualityWithSameTombstone() {
+    var v1 = new LinkBagValue(42, 100, 999L, true);
+    var v2 = new LinkBagValue(42, 100, 999L, true);
+
+    assertEquals(v1, v2);
+  }
+
+  /**
+   * toString should include tombstone status for debugging.
+   */
+  @Test
+  public void testToStringIncludesTombstone() {
+    var live = new LinkBagValue(1, 2, 3L, false);
+    var dead = new LinkBagValue(1, 2, 3L, true);
+
+    assertTrue("Live value toString should contain tombstone=false",
+        live.toString().contains("tombstone=false"));
+    assertTrue("Dead value toString should contain tombstone=true",
+        dead.toString().contains("tombstone=true"));
   }
 
   private LinkBagValue serializeAndDeserializeViaByteArray(LinkBagValue value) {
