@@ -721,9 +721,12 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       throw new IllegalArgumentException("Unexpected edge field name: " + fieldName);
     }
     Identifiable oppositeVertex = edgeRecord.getPropertyInternal(oppositeDirection);
-    assert oppositeVertex != null
-        : "Edge record " + edgeRecord.getIdentity() + " has no "
-            + oppositeDirection + " vertex";
+    if (oppositeVertex == null) {
+      throw new IllegalStateException(
+          "Edge record " + edgeRecord.getIdentity() + " has no '"
+              + oppositeDirection + "' vertex; cannot resolve secondary RID for field "
+              + fieldName);
+    }
     return oppositeVertex.getIdentity();
   }
 
