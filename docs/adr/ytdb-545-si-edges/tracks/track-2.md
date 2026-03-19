@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -28,34 +28,18 @@
   > **Key files:** `EdgeSnapshotKey.java` (new), `EdgeVisibilityKey.java` (new),
   > `EdgeSnapshotKeyTest.java` (new), `EdgeVisibilityKeyTest.java` (new)
 
-- [ ] Step 2: Add edge snapshot maps and size counter to AbstractStorage, with eviction method
-  > Add three new fields to `AbstractStorage` (parallel to existing collection snapshot fields
-  > at lines 280-292):
-  > - `ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex`
-  > - `ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibilityIndex`
-  > - `AtomicLong edgeSnapshotIndexSize`
-  > Initialize inline as final fields (same pattern as collection maps).
+- [x] Step 2: Add edge snapshot maps and size counter to AbstractStorage, with eviction method
+  > **What was done:** Added 3 new fields to AbstractStorage (sharedEdgeSnapshotIndex,
+  > edgeVisibilityIndex, edgeSnapshotIndexSize) parallel to existing collection snapshot
+  > fields. Added static `evictStaleEdgeSnapshotEntries()` method following the same
+  > headMap sentinel pattern. Modified `cleanupSnapshotIndex()` to check combined size
+  > of both collection and edge indexes. Cleared edge maps in both normal close and
+  > delete paths. Added getter methods. Code review found missing size counter resets
+  > in the delete path — fixed both the new `edgeSnapshotIndexSize` and the pre-existing
+  > missing `snapshotIndexSize.set(0)`.
   >
-  > Add static `evictStaleEdgeSnapshotEntries(long lwm, ConcurrentSkipListMap<EdgeSnapshotKey,
-  > LinkBagValue>, ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey>, AtomicLong)`
-  > method following the `evictStaleSnapshotEntries` pattern (no `collections` parameter —
-  > edge cleanup does not participate in records GC dead record counting; resolves T8).
-  > Use sentinel key `new EdgeVisibilityKey(lwm, Integer.MIN_VALUE, Long.MIN_VALUE,
-  > Integer.MIN_VALUE, Long.MIN_VALUE)` for `headMap` range scan.
-  >
-  > Modify `cleanupSnapshotIndex()` to check combined size:
-  > `snapshotIndexSize.get() + edgeSnapshotIndexSize.get() > threshold` (resolves T4).
-  > Call `evictStaleEdgeSnapshotEntries()` after collection eviction.
-  >
-  > Clear edge maps in `clearSnapshotMaps()` (called during storage close/clear).
-  > Add getter methods for the 3 new fields (matching existing getter pattern).
-  >
-  > Add tests in `SnapshotIndexCleanupTest` (or new `EdgeSnapshotIndexCleanupTest`): verify
-  > edge entries are evicted when LWM advances, verify combined threshold triggers cleanup,
-  > verify edge and collection cleanup are independent (evicting one doesn't affect the other).
-  >
-  > **Files**: `AbstractStorage.java` (modified), `SnapshotIndexCleanupTest.java` or
-  > `EdgeSnapshotIndexCleanupTest.java` (new/modified)
+  > **Key files:** `AbstractStorage.java` (modified), `EdgeSnapshotIndexCleanupTest.java`
+  > (new — 11 tests covering eviction, boundary conditions, tombstones, idempotence)
 
 - [ ] Step 3: Extend AtomicOperation interface and AtomicOperationBinaryTracking with edge snapshot methods
   > Add 5 new methods to `AtomicOperation` interface (resolves T2):
