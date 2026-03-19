@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagSecondaryIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -604,5 +605,112 @@ public class SQLCreateIndexTest extends BaseDBJUnit5Test {
     var metadata = index.getMetadata();
     assertEquals(23, metadata.get("v1"));
     assertEquals("val2", metadata.get("v2"));
+  }
+
+  /**
+   * Verifies that CREATE INDEX with BY VALUE on a LINKBAG property creates a
+   * PropertyLinkBagSecondaryIndexDefinition that indexes secondaryRid (vertex RID).
+   */
+  @Test
+  @Order(21)
+  void testCreateRidBagByValueIndex() throws Exception {
+    session
+        .execute(
+            "CREATE INDEX sqlCreateIndexRidBagByValueIndex ON sqlCreateIndexTestClass"
+                + " (prop9 by value) NOTUNIQUE")
+        .close();
+
+    final var index =
+        session
+            .getMetadata()
+            .getSchema()
+            .getClassInternal("sqlCreateIndexTestClass")
+            .getClassIndex(session, "sqlCreateIndexRidBagByValueIndex");
+
+    assertNotNull(index);
+
+    final var indexDefinition = index.getDefinition();
+
+    assertTrue(
+        indexDefinition instanceof PropertyLinkBagSecondaryIndexDefinition,
+        "BY VALUE on LINKBAG should create PropertyLinkBagSecondaryIndexDefinition, got "
+            + indexDefinition.getClass().getSimpleName());
+    assertEquals(List.of("prop9 by value"), indexDefinition.getFieldsToIndex());
+    assertArrayEquals(
+        new PropertyTypeInternal[] {PropertyTypeInternal.LINK}, indexDefinition.getTypes());
+    assertEquals("NOTUNIQUE", index.getType());
+  }
+
+  /**
+   * Verifies that CREATE INDEX with BY KEY on a LINKBAG property creates a
+   * PropertyLinkBagIndexDefinition (the default/primary index).
+   */
+  @Test
+  @Order(22)
+  void testCreateRidBagByKeyIndex() throws Exception {
+    session
+        .execute(
+            "CREATE INDEX sqlCreateIndexRidBagByKeyIndex ON sqlCreateIndexTestClass"
+                + " (prop9 by key) NOTUNIQUE")
+        .close();
+
+    final var index =
+        session
+            .getMetadata()
+            .getSchema()
+            .getClassInternal("sqlCreateIndexTestClass")
+            .getClassIndex(session, "sqlCreateIndexRidBagByKeyIndex");
+
+    assertNotNull(index);
+
+    final var indexDefinition = index.getDefinition();
+
+    assertTrue(
+        indexDefinition instanceof PropertyLinkBagIndexDefinition,
+        "BY KEY on LINKBAG should create PropertyLinkBagIndexDefinition, got "
+            + indexDefinition.getClass().getSimpleName());
+    assertEquals(List.of("prop9"), indexDefinition.getProperties());
+    assertArrayEquals(
+        new PropertyTypeInternal[] {PropertyTypeInternal.LINK}, indexDefinition.getTypes());
+    assertEquals("NOTUNIQUE", index.getType());
+  }
+
+  /**
+   * Verifies that secondary LINKBAG index (BY VALUE) survives a database close/reopen cycle.
+   * The index definition class is stored in the index configuration and must be reconstructed
+   * from the stored class name during schema reload.
+   */
+  @Test
+  @Order(23)
+  void testRidBagByValueIndexPersistsAcrossReopen() throws Exception {
+    // Create the secondary index
+    session
+        .execute(
+            "CREATE INDEX sqlCreateIndexRidBagByValuePersist ON sqlCreateIndexTestClass"
+                + " (prop9 by value) NOTUNIQUE")
+        .close();
+
+    // Force a close/reopen to verify serialization round-trip
+    session.close();
+    session = createSessionInstance();
+
+    final var index =
+        session
+            .getMetadata()
+            .getSchema()
+            .getClassInternal("sqlCreateIndexTestClass")
+            .getClassIndex(session, "sqlCreateIndexRidBagByValuePersist");
+
+    assertNotNull(index, "Index should survive database reopen");
+
+    final var indexDefinition = index.getDefinition();
+
+    assertTrue(
+        indexDefinition instanceof PropertyLinkBagSecondaryIndexDefinition,
+        "After reopen, definition should be PropertyLinkBagSecondaryIndexDefinition, got "
+            + indexDefinition.getClass().getSimpleName());
+    assertEquals(List.of("prop9 by value"), indexDefinition.getFieldsToIndex());
+    assertArrayEquals(
+        new PropertyTypeInternal[] {PropertyTypeInternal.LINK}, indexDefinition.getTypes());
   }
 }
