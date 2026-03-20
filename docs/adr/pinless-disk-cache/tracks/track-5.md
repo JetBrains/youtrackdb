@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,18 +14,22 @@
 
 ## Steps
 
-- [ ] Step 1: Add hasChangesForPage guard to loadPageOptimistic (subsumes Track 6)
-  Add `hasChangesForPage(long fileId, long pageIndex)` to the `AtomicOperation` interface.
-  Implement in `AtomicOperationBinaryTracking` by checking the `fileChanges` map for
-  the given file and page. Add the check at the beginning of
-  `DurableComponent.loadPageOptimistic()` — if the current AtomicOperation has WAL
-  changes for the requested page, throw `OptimisticReadFailedException` to force the
-  pinned fallback path. This ensures optimistic reads never return stale committed data
-  when the current transaction has in-progress modifications.
-  Tests: verify that optimistic reads correctly fall back to the pinned path when the
-  current AtomicOperation has local WAL changes for the requested page.
-  Files: `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java` (modified),
-  `DurableComponent.java` (modified), test class (new or modified).
+- [x] Step 1: Add hasChangesForPage guard to loadPageOptimistic (subsumes Track 6)
+  > **What was done:** Added `hasChangesForPage(long fileId, long pageIndex)` to
+  > `AtomicOperation` interface and implemented in `AtomicOperationBinaryTracking`.
+  > The check handles four cases: deleted files (return true), truncated files
+  > (return true), new files (check `maxNewPageIndex`), and existing files (check
+  > `pageChangesMap`). Guard placed at the start of `loadPageOptimistic()` before
+  > the cache lookup, so no frame is fetched when we know the page has local changes.
+  >
+  > **What was discovered:** Code review identified that truncated and deleted files
+  > needed explicit handling — without them, optimistic reads could serve stale
+  > pre-truncation data or access logically-deleted files.
+  >
+  > **Key files:** `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java`
+  > (modified), `DurableComponent.java` (modified),
+  > `DurableComponentOptimisticReadTest.java` (modified — 3 new tests),
+  > `AtomicOperationSnapshotProxyTest.java` (modified — 7 new tests)
 
 - [ ] Step 2: Add PageView constructors to DurablePage subclasses used in read paths
   Add `public <ClassName>(PageView pageView) { super(pageView); }` constructors to
