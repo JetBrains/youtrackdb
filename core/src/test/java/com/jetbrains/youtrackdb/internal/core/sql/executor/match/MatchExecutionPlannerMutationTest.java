@@ -748,6 +748,175 @@ public class MatchExecutionPlannerMutationTest {
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("both");
   }
 
+  // ── inferClassFromEdgeSchema: edge LINK → target class inference ──
+
+  /**
+   * out('HAS_CREATOR') with HAS_CREATOR.in LINK Person → infers "Person".
+   * The "in" endpoint is the target for out() traversals.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outDirection_returnsInEndpoint() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("HAS_CREATOR", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var method = mockMethodCallWithDirection("out", "HAS_CREATOR");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isEqualTo("Person");
+  }
+
+  /**
+   * in('CONTAINER_OF') with CONTAINER_OF.out LINK Forum → infers "Forum".
+   * The "out" endpoint is the target for in() traversals.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inDirection_returnsOutEndpoint() {
+    var forumClass = registerClass("Forum", 50);
+    var edgeClass = registerClass("CONTAINER_OF", 1000);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(forumClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var method = mockMethodCallWithDirection("in", "CONTAINER_OF");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isEqualTo("Forum");
+  }
+
+  /**
+   * Null method → returns null (no inference possible).
+   */
+  @Test
+  public void inferClassFromEdgeSchema_nullMethod_returnsNull() {
+    var ctx = mockContext();
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(null, ctx))
+        .isNull();
+  }
+
+  /**
+   * Method without params (e.g., outV()) → returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_noParams_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    when(method.getParams()).thenReturn(List.of());
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isNull();
+  }
+
+  /**
+   * Non-traversal method (e.g., outE) → returns null (only in/out supported).
+   */
+  @Test
+  public void inferClassFromEdgeSchema_nonTraversalMethod_returnsNull() {
+    var method = mockMethodCallWithDirection("outE", "HAS_CREATOR");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isNull();
+  }
+
+  /**
+   * Edge class exists but has no LINK declaration on the target endpoint →
+   * returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_noLinkDeclaration_returnsNull() {
+    registerClass("HAS_TAG", 200);
+    // No in/out LINK properties registered
+
+    var method = mockMethodCallWithDirection("out", "HAS_TAG");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isNull();
+  }
+
+  /**
+   * Edge class not found in schema → returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_unknownEdgeClass_returnsNull() {
+    when(schema.getClassInternal("NONEXISTENT")).thenReturn(null);
+
+    var method = mockMethodCallWithDirection("out", "NONEXISTENT");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isNull();
+  }
+
+  /**
+   * Mixed-case direction name ("Out") should be recognized as "out"
+   * via case-insensitive matching.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_mixedCaseDirection_recognized() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("HAS_CREATOR", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var method = mockMethodCallWithDirection("Out", "HAS_CREATOR");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isEqualTo("Person");
+  }
+
+  /**
+   * When execute() on the param expression throws RuntimeException,
+   * inferClassFromEdgeSchema returns null instead of propagating.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_executeThrows_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    var param = mock(SQLExpression.class);
+    when(param.execute(nullable(Result.class), any(CommandContext.class)))
+        .thenThrow(new RuntimeException("eval failure"));
+    when(method.getParams()).thenReturn(List.of(param));
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+        .isNull();
+  }
+
+  /**
+   * Creates a mock SQLMethodCall for a traversal direction and edge class name.
+   * For example, mockMethodCallWithDirection("out", "HAS_CREATOR") simulates
+   * the method call in out('HAS_CREATOR').
+   */
+  private SQLMethodCall mockMethodCallWithDirection(String direction, String edgeClass) {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier(direction));
+
+    var param = mock(SQLExpression.class);
+    when(param.execute(nullable(Result.class), any(CommandContext.class)))
+        .thenReturn(edgeClass);
+    when(method.getParams()).thenReturn(List.of(param));
+
+    return method;
+  }
+
+  private CommandContext mockContext() {
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(db);
+    return ctx;
+  }
+
   /**
    * Creates an EdgeTraversal with the given method and direction.
    */

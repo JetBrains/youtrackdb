@@ -1295,6 +1295,10 @@ public class MatchExecutionPlanner {
                 edgeI.setIntersectionDescriptor(
                     new RidFilterDescriptor.EdgeRidLookup(
                         edgeClass, edgeDirection, ridExpr));
+                logger.debug(
+                    "MATCH pre-filter: EdgeRidLookup on edge[{}] "
+                        + "({}({}) back-ref from alias '{}')",
+                    producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
               }
             }
           }
@@ -1323,6 +1327,10 @@ public class MatchExecutionPlanner {
       if (indexDesc != null && edgeJ.getIntersectionDescriptor() == null) {
         edgeJ.setIntersectionDescriptor(
             new RidFilterDescriptor.IndexLookup(indexDesc));
+        logger.debug(
+            "MATCH pre-filter: IndexLookup on edge[{}] "
+                + "(class '{}' for alias '{}')",
+            j, targetClass, targetAliasJ);
       }
     }
   }
@@ -1599,8 +1607,78 @@ public class MatchExecutionPlanner {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
+        // Infer target class from edge LINK schema when no explicit class is set.
+        // For out('CONTAINER_OF'), the target vertices are the "in" endpoint of the
+        // CONTAINER_OF edge class; if that endpoint declares LINK Message, the target
+        // class is Message.
+        var alias = item.getFilter().getAlias();
+        if (alias != null && !aliasClasses.containsKey(alias)) {
+          var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
+          if (inferred != null) {
+            aliasClasses.put(alias, inferred);
+            logger.debug(
+                "MATCH class inference: alias '{}' -> class '{}' "
+                    + "(from edge LINK schema)",
+                alias, inferred);
+          }
+        }
       }
     }
+  }
+
+  /**
+   * Infers the target vertex class from the edge schema LINK declarations.
+   * For {@code out('X')}, the target is the "in" endpoint of edge class X;
+   * for {@code in('X')}, the target is the "out" endpoint.
+   *
+   * @return the linked class name, or {@code null} if it cannot be inferred
+   */
+  @Nullable static String inferClassFromEdgeSchema(
+      @Nullable SQLMethodCall method, CommandContext context) {
+    if (method == null || method.getMethodName() == null) {
+      return null;
+    }
+    var dirName = method.getMethodName().getStringValue();
+    if (dirName == null) {
+      return null;
+    }
+    dirName = dirName.toLowerCase(Locale.ROOT);
+    if (!"in".equals(dirName) && !"out".equals(dirName)) {
+      return null;
+    }
+
+    if (method.getParams() == null || method.getParams().isEmpty()) {
+      return null;
+    }
+    String edgeClassName;
+    try {
+      var value = method.getParams().getFirst()
+          .execute((Result) null, new BasicCommandContext());
+      if (!(value instanceof String s) || s.isEmpty()) {
+        return null;
+      }
+      edgeClassName = s;
+    } catch (RuntimeException e) {
+      return null;
+    }
+
+    var session = context.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var edgeClass = schema.getClassInternal(edgeClassName);
+    if (edgeClass == null) {
+      return null;
+    }
+    // out('X') targets the "in" side; in('X') targets the "out" side
+    var targetPropName = "out".equals(dirName) ? "in" : "out";
+    var prop = edgeClass.getPropertyInternal(targetPropName);
+    if (prop == null || prop.getLinkedClass() == null) {
+      return null;
+    }
+    assert prop.getLinkedClass().getName() != null
+        && !prop.getLinkedClass().getName().isEmpty()
+        : "inferClassFromEdgeSchema: linked class has null/empty name for edge "
+            + edgeClassName;
+    return prop.getLinkedClass().getName();
   }
 
   /**

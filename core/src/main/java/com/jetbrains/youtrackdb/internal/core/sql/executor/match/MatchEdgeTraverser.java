@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Base class for all MATCH edge traversers; default behavior is **forward** traversal.
@@ -95,6 +97,9 @@ import javax.annotation.Nullable;
  * @see OptionalMatchEdgeTraverser
  */
 public class MatchEdgeTraverser implements ExecutionStream {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(MatchEdgeTraverser.class);
 
   /** The upstream result row containing all previously matched aliases. */
   protected Result sourceRecord;
@@ -636,6 +641,11 @@ public class MatchEdgeTraverser implements ExecutionStream {
     if (ridSet != null
         && TraversalPreFilterHelper.passesRatioCheck(ridSet.size(), linkBagSize)) {
       this.currentPreFilterRids = ridSet;
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
+            linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
+      }
       return vfli.withRidFilter(ridSet);
     }
     return qR;

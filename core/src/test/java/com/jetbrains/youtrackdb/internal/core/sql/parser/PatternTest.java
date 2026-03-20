@@ -638,6 +638,166 @@ public class PatternTest extends ParserTestAbstract {
         result.nonMatchedReferencing());
   }
 
+  // ====== findRidEquality tests ======
+
+  /**
+   * Simple @rid = #23:1 in a standalone WHERE clause. findRidEquality should
+   * detect it even though the parser wraps it in OrBlock(AndBlock(OrBlock(...))).
+   */
+  @Test
+  public void testFindRidEquality_simple() throws ParseException {
+    var where = parseWhere("@rid = #23:1");
+    var result = where.findRidEquality();
+    assertNotNull("findRidEquality should detect @rid = #23:1", result);
+  }
+
+  /** @rid = #23:1 AND name = 'x' → should still find the @rid equality */
+  @Test
+  public void testFindRidEquality_compound() throws ParseException {
+    var where = parseWhere("@rid = #23:1 AND name = 'x'");
+    var result = where.findRidEquality();
+    assertNotNull("findRidEquality should detect @rid in compound WHERE", result);
+  }
+
+  /** name = 'x' → no @rid equality → null */
+  @Test
+  public void testFindRidEquality_noRid() throws ParseException {
+    var where = parseWhere("name = 'x'");
+    var result = where.findRidEquality();
+    assertNull("findRidEquality should return null when no @rid equality", result);
+  }
+
+  /** @rid <> #23:1 → not-equals, not extracted */
+  @Test
+  public void testFindRidEquality_notEquals() throws ParseException {
+    var where = parseWhere("@rid <> #23:1");
+    var result = where.findRidEquality();
+    assertNull("findRidEquality should return null for @rid <>", result);
+  }
+
+  /**
+   * Tests the aliasFilter-style WHERE clause that the MATCH planner constructs.
+   * The MATCH planner creates a WHERE clause with:
+   *   baseExpression = SQLAndBlock { [filter.getBaseExpression()] }
+   * where filter.getBaseExpression() is the parsed WHERE from a MATCH filter like
+   * {@code where: (@rid = $matched.person.@rid)}.
+   *
+   * <p>The parsed expression has the structure:
+   *   OrBlock(AndBlock(OrBlock(BinaryCondition)))
+   * and the AND block wraps it in another layer, producing:
+   *   AndBlock(OrBlock(AndBlock(OrBlock(BinaryCondition))))
+   *
+   * <p>findRidEquality must unwrap these nested wrapper blocks to find the
+   * @rid = expr condition. This test verifies the fix for the bug where
+   * findRidEquality failed on MATCH-style filters because it didn't unwrap
+   * single-element OrBlock/AndBlock wrappers inside the top-level AndBlock.
+   */
+  @Test
+  public void testFindRidEquality_matchStyleFilter() throws ParseException {
+    // Parse a WHERE clause matching what the MATCH planner sees:
+    // "where: (@rid = $matched.person.@rid)" is parsed as a full WHERE clause
+    var innerWhere = parseWhere("@rid = $matched.person.@rid");
+
+    // Simulate what addAliases does: wrap in a new AndBlock
+    var outerWhere = new SQLWhereClause(-1);
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(innerWhere.getBaseExpression());
+    outerWhere.setBaseExpression(andBlock);
+
+    var result = outerWhere.findRidEquality();
+    assertNotNull(
+        "findRidEquality should detect @rid equality in MATCH-style nested filter",
+        result);
+
+    // Verify the extracted expression references the correct $matched alias
+    var aliases = result.getMatchPatternInvolvedAliases();
+    assertNotNull("Should have involved aliases", aliases);
+    assertTrue("Should reference 'person' alias", aliases.contains("person"));
+  }
+
+  /**
+   * Multi-condition MATCH-style filter: @rid = $matched.person.@rid AND score > 3.
+   * When addAliases adds two separate filter conditions for the same alias
+   * (from two MATCH references), each condition is added as a separate
+   * sub-block in the outer AndBlock. This mimics the real MATCH planner
+   * behavior where filters accumulate.
+   */
+  @Test
+  public void testFindRidEquality_matchStyleCompound_separateFilters()
+      throws ParseException {
+    // Simulate addAliases adding two filters for the same alias:
+    //   filter1: @rid = $matched.person.@rid
+    //   filter2: score > 3
+    var filter1 = parseWhere("@rid = $matched.person.@rid");
+    var filter2 = parseWhere("score > 3");
+
+    var outerWhere = new SQLWhereClause(-1);
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(filter1.getBaseExpression());
+    andBlock.getSubBlocks().add(filter2.getBaseExpression());
+    outerWhere.setBaseExpression(andBlock);
+
+    var result = outerWhere.findRidEquality();
+    assertNotNull(
+        "findRidEquality should detect @rid equality when filters are "
+            + "added as separate sub-blocks",
+        result);
+  }
+
+  /**
+   * OR condition: @rid = #1:1 OR @rid = #2:2. Multi-element OrBlocks should
+   * NOT be unwrapped — findRidEquality should return null for disjunctions.
+   */
+  @Test
+  public void testFindRidEquality_orConditionNotUnwrapped() throws ParseException {
+    var where = parseWhere("@rid = #1:1 OR @rid = #2:2");
+    var result = where.findRidEquality();
+    assertNull(
+        "findRidEquality should return null for OR conditions", result);
+  }
+
+  /** Null baseExpression → findRidEquality returns null without NPE. */
+  @Test
+  public void testFindRidEquality_nullBaseExpression() {
+    var where = new SQLWhereClause(-1);
+    assertNull("Should return null for null baseExpression",
+        where.findRidEquality());
+  }
+
+  /**
+   * NOT (@rid = #23:1) → negated condition should NOT be detected as a
+   * RID equality. Verifies the negate check in tryExtractRidFromTerm.
+   */
+  @Test
+  public void testFindRidEquality_negatedRidCondition() throws ParseException {
+    var where = parseWhere("NOT (@rid = #23:1)");
+    var result = where.findRidEquality();
+    assertNull("findRidEquality should return null for negated @rid condition",
+        result);
+  }
+
+  /**
+   * Deeply nested single-element wrappers (3+ alternating OrBlock/AndBlock
+   * layers). Verifies the while-loop unwraps arbitrarily deep nesting.
+   */
+  @Test
+  public void testFindRidEquality_deeplyNestedWrappers() throws ParseException {
+    var innerWhere = parseWhere("@rid = #5:5");
+    // Wrap in OrBlock(AndBlock(OrBlock(AndBlock(original))))
+    var and1 = new SQLAndBlock(-1);
+    and1.getSubBlocks().add(innerWhere.getBaseExpression());
+    var or1 = new SQLOrBlock(-1);
+    or1.getSubBlocks().add(and1);
+    var and2 = new SQLAndBlock(-1);
+    and2.getSubBlocks().add(or1);
+
+    var outerWhere = new SQLWhereClause(-1);
+    outerWhere.setBaseExpression(and2);
+
+    var result = outerWhere.findRidEquality();
+    assertNotNull("Should unwrap deeply nested single-element wrappers", result);
+  }
+
   private CommandContext getContext() {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);

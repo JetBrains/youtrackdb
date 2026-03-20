@@ -942,11 +942,33 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Checks if a single AND term (possibly wrapped in a non-negated NotBlock)
-   * is {@code @rid = <expr>}. Returns the value-side expression or null.
+   * Checks if a single AND term (possibly wrapped in a single-element OrBlock
+   * and/or a non-negated NotBlock) is {@code @rid = <expr>}. Returns the
+   * value-side expression or null.
    */
   @Nullable
   private static SQLExpression tryExtractRidFromTerm(SQLBooleanExpression term) {
+    // Unwrap single-element wrapper blocks. The parser produces deeply nested
+    // structures like OrBlock(AndBlock(OrBlock(BinaryCondition))) even for
+    // simple conditions. Peel off single-element OrBlock and AndBlock wrappers
+    // until we reach the actual condition.
+    while (true) {
+      if (term instanceof SQLOrBlock orBlock) {
+        if (orBlock.subBlocks.size() != 1) {
+          return null;
+        }
+        term = orBlock.subBlocks.getFirst();
+      } else if (term instanceof SQLAndBlock andBlock) {
+        if (andBlock.subBlocks.size() != 1) {
+          return null;
+        }
+        term = andBlock.subBlocks.getFirst();
+      } else {
+        break;
+      }
+    }
+    assert !(term instanceof SQLOrBlock) && !(term instanceof SQLAndBlock)
+        : "tryExtractRidFromTerm: loop should have unwrapped all single-element wrappers";
     if (term instanceof SQLNotBlock notBlock) {
       if (notBlock.negate) {
         return null;
