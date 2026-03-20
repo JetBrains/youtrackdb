@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -238,6 +239,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey bTreeKey,
       final LinkBagValue bTreeValue,
       final AtomicOperation atomicOp) {
+    assert atomicOp != null : "resolveVisibleEntry requires a non-null atomicOperation";
     final long currentOperationTs = atomicOp.getCommitTsUnsafe();
     final var snapshot = atomicOp.getAtomicOperationsSnapshot();
 
@@ -270,7 +272,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final long currentOperationTs,
       final AtomicOperationsSnapshot snapshot,
       final AtomicOperation atomicOp) {
-    final int componentId = (int) getFileId();
+    final int componentId = AbstractWriteCache.extractFileId(getFileId());
+    assert componentId > 0 : "componentId must be positive, got " + componentId;
 
     // Range: all versions of this logical edge (from MIN to MAX)
     final var lowerKey = new EdgeSnapshotKey(
@@ -489,7 +492,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final AtomicOperation atomicOperation,
       final EdgeKey oldKey,
       final LinkBagValue oldValue) {
-    final int componentId = (int) getFileId();
+    final int componentId = AbstractWriteCache.extractFileId(getFileId());
     final var snapshotKey = new EdgeSnapshotKey(
         componentId, oldKey.ridBagId, oldKey.targetCollection,
         oldKey.targetPosition, oldKey.ts);

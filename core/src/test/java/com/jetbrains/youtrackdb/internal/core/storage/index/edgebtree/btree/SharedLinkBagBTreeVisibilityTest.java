@@ -37,6 +37,12 @@ import org.junit.Test;
  */
 public class SharedLinkBagBTreeVisibilityTest {
 
+  /**
+   * A timestamp guaranteed to be invisible to any subsequent transaction's snapshot
+   * because it exceeds maxActiveOperationTs. Used to simulate invisible B-tree entries.
+   */
+  private static final long INVISIBLE_FUTURE_TS = Long.MAX_VALUE - 1;
+
   private static final String DB_NAME = "visibilityTest";
   private static final String DIR_NAME = "/visibilityTest";
 
@@ -157,7 +163,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     // (higher than any real commitTs). Then manually populate the snapshot
     // index with a visible older version. findVisibleEntry should fall back
     // to the snapshot and return the older version.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long olderTs = 3L;
 
     // tx1: insert entry with a "future" ts. This entry will be invisible to
@@ -194,7 +200,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     // at ts=4 and a live entry at ts=2. The descending iteration should
     // find the tombstone at ts=4 first. If ts=4 is also not visible (placed
     // by same future tx), it continues to ts=2 which is visible and live.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       // B-tree: invisible tombstone
@@ -221,7 +227,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   public void testFindVisibleEntry_invisibleBtreeWithOnlySnapshotTombstone() throws Exception {
     // B-tree has invisible entry. Snapshot only has a visible tombstone.
     // findVisibleEntry should return null (newest visible version is deleted).
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -244,7 +250,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   public void testFindVisibleEntry_invisibleBtreeNoSnapshotEntries() throws Exception {
     // B-tree has invisible entry. No snapshot entries exist.
     // findVisibleEntry should return null.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.put(atomicOperation,
@@ -262,7 +268,7 @@ public class SharedLinkBagBTreeVisibilityTest {
       throws Exception {
     // B-tree has invisible entry. Snapshot has multiple versions (ts=2, 4, 6).
     // All visible. findVisibleEntry should return ts=6 (newest visible).
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -359,7 +365,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   public void testForwardIteration_skipsInvisibleAndTombstoneEntries() throws Exception {
     // Insert 5 entries: 3 visible live, 1 invisible (future ts), 1 visible tombstone.
     // Forward iteration should return only the 3 visible live entries.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -394,7 +400,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testBackwardIteration_skipsInvisibleAndTombstoneEntries() throws Exception {
     // Same setup as forward, but iterate backward (descending order).
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -428,7 +434,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     // Insert entries: one visible, one invisible with snapshot fallback.
     // Forward iteration should return both (the invisible one resolved
     // via snapshot).
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -463,7 +469,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testBackwardIteration_snapshotFallbackDuringIteration() throws Exception {
     // Same as forward snapshot fallback test, but iterating backward.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -494,7 +500,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testForwardIteration_allInvisibleReturnsEmpty() throws Exception {
     // All entries are invisible. Iteration should return empty.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
@@ -527,7 +533,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   public void testIsolated_firstKey_skipsInvisibleEntries() throws Exception {
     // Insert 3 entries: first two invisible (future ts), third visible.
     // firstKey() should return the third entry.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2000L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -551,7 +557,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testIsolated_firstKey_nullWhenAllInvisible() throws Exception {
     // All entries invisible. firstKey returns null.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2050L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -568,7 +574,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testIsolated_lastKey_skipsInvisibleEntries() throws Exception {
     // First entry visible, last two invisible. lastKey() returns the first.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2100L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -593,7 +599,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   public void testIsolated_getRealBagSize_countsOnlyVisibleLiveEntries() throws Exception {
     // 3 entries: 1 visible live (counter=5), 1 invisible, 1 visible tombstone.
     // getRealBagSize should return 5.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2200L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -608,6 +614,16 @@ public class SharedLinkBagBTreeVisibilityTest {
     var isolated = createIsolatedBTree(linkBagId);
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       assertThat(isolated.getRealBagSize(atomicOperation)).isEqualTo(5);
+
+      // Verify iteration returns exactly 1 live entry with counter=5
+      var entries = new ArrayList<Integer>();
+      isolated.loadEntriesMajor(
+          new RecordId(0, 0L), true, true,
+          entry -> {
+            entries.add(entry.getValue().counter());
+            return true;
+          }, atomicOperation);
+      assertThat(entries).containsExactly(5);
     });
   }
 
@@ -616,7 +632,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     // One invisible entry and one visible tombstone. isEmpty returns true
     // because the SI spliterator filters the invisible entry, and the
     // tombstone filter in isEmpty() catches the visible tombstone.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2300L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -635,7 +651,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testIsolated_isEmpty_falseWhenVisibleEntryExists() throws Exception {
     // Mix of invisible and visible entries. isEmpty returns false.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2400L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -654,7 +670,7 @@ public class SharedLinkBagBTreeVisibilityTest {
   @Test
   public void testIsolated_loadEntriesMajor_filtersInvisible() throws Exception {
     // 3 entries: 2 visible, 1 invisible. loadEntriesMajor returns only visible.
-    final long futureTs = Long.MAX_VALUE - 1;
+    final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2500L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -676,6 +692,149 @@ public class SharedLinkBagBTreeVisibilityTest {
             return true;
           }, atomicOperation);
       assertThat(results).containsExactly(1, 3);
+    });
+  }
+
+  // ---- IsolatedLinkBagBTreeImpl.get() SI tests (Q5) ----
+
+  @Test
+  public void testIsolated_get_returnsSnapshotFallbackForInvisibleEntry() throws Exception {
+    // Insert an invisible B-tree entry with a visible snapshot version.
+    // Verify isolated.get() returns the snapshot value.
+    final long futureTs = INVISIBLE_FUTURE_TS;
+    final long linkBagId = 2600L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, futureTs),
+          new LinkBagValue(99, 0, 0, false));
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
+      atomicOperation.putEdgeSnapshotEntry(
+          new EdgeSnapshotKey(componentId, linkBagId, 10, 100L, 3L),
+          new LinkBagValue(42, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = isolated.get(new RecordId(10, 100L), atomicOperation);
+      assertThat(result).isNotNull();
+      assertThat(result.counter()).isEqualTo(42);
+      assertThat(result.tombstone()).isFalse();
+    });
+  }
+
+  @Test
+  public void testIsolated_get_returnsNullForVisibleTombstone() throws Exception {
+    // A visible tombstone in the B-tree means the edge is deleted.
+    // isolated.get() should return null.
+    final long linkBagId = 2700L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.put(atomicOperation,
+            new EdgeKey(linkBagId, 10, 100L, 5L),
+            new LinkBagValue(0, 0, 0, true)));
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertThat(isolated.get(new RecordId(10, 100L), atomicOperation)).isNull();
+    });
+  }
+
+  // ---- Cache-boundary tests for spliterator key-preservation invariant (Q1/Q6) ----
+
+  @Test
+  public void testForwardIteration_cacheRefillWithSnapshotFallback() throws Exception {
+    // Insert >10 entries so the spliterator must refill its cache at least once.
+    // Mix visible and invisible entries with snapshot fallbacks to exercise the
+    // key-preservation invariant across cache boundaries (cache size = 10).
+    final long futureTs = INVISIBLE_FUTURE_TS;
+    final long linkBagId = 2800L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
+      // Insert 15 entries: 12 visible live, 3 invisible with snapshot fallback
+      for (int i = 1; i <= 15; i++) {
+        int collection = i * 10;
+        long position = i * 100L;
+        if (i == 5 || i == 10 || i == 14) {
+          // Invisible entry with snapshot fallback
+          bTree.put(atomicOperation,
+              new EdgeKey(linkBagId, collection, position, futureTs),
+              new LinkBagValue(i * 100, 0, 0, false));
+          atomicOperation.putEdgeSnapshotEntry(
+              new EdgeSnapshotKey(
+                  componentId, linkBagId, collection, position, 3L),
+              new LinkBagValue(i, 0, 0, false));
+        } else {
+          bTree.put(atomicOperation,
+              new EdgeKey(linkBagId, collection, position, 5L),
+              new LinkBagValue(i, 0, 0, false));
+        }
+      }
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(linkBagId, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(
+          linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, true, atomicOperation).toList();
+
+      // All 15 entries visible (12 directly, 3 via snapshot)
+      assertThat(entries).hasSize(15);
+      // Verify monotonically increasing order by targetCollection
+      for (int i = 1; i < entries.size(); i++) {
+        assertThat(entries.get(i).first().targetCollection)
+            .isGreaterThan(entries.get(i - 1).first().targetCollection);
+      }
+    });
+  }
+
+  @Test
+  public void testBackwardIteration_cacheRefillWithSnapshotFallback() throws Exception {
+    // Same as forward test but iterating backward to exercise the backward
+    // cache-fill path's key-preservation invariant.
+    final long futureTs = INVISIBLE_FUTURE_TS;
+    final long linkBagId = 2900L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
+      for (int i = 1; i <= 15; i++) {
+        int collection = i * 10;
+        long position = i * 100L;
+        if (i == 5 || i == 10 || i == 14) {
+          bTree.put(atomicOperation,
+              new EdgeKey(linkBagId, collection, position, futureTs),
+              new LinkBagValue(i * 100, 0, 0, false));
+          atomicOperation.putEdgeSnapshotEntry(
+              new EdgeSnapshotKey(
+                  componentId, linkBagId, collection, position, 3L),
+              new LinkBagValue(i, 0, 0, false));
+        } else {
+          bTree.put(atomicOperation,
+              new EdgeKey(linkBagId, collection, position, 5L),
+              new LinkBagValue(i, 0, 0, false));
+        }
+      }
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(linkBagId, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(
+          linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, false, atomicOperation).toList();
+
+      // All 15 entries visible, in descending order
+      assertThat(entries).hasSize(15);
+      // Verify monotonically decreasing order by targetCollection
+      for (int i = 1; i < entries.size(); i++) {
+        assertThat(entries.get(i).first().targetCollection)
+            .isLessThan(entries.get(i - 1).first().targetCollection);
+      }
     });
   }
 }

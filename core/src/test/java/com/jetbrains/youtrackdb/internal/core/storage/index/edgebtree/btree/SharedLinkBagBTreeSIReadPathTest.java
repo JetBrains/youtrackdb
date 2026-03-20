@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -209,14 +210,15 @@ public class SharedLinkBagBTreeSIReadPathTest {
           new LinkBagValue(3, 0, 0, false));
     });
 
-    var readerCount = new AtomicReference<Integer>();
+    var readerCounters = new AtomicReference<List<Integer>>();
 
     runConcurrentReaderWriter(
         atomicOperation -> {
           var entries = bTree.streamEntriesBetween(
               allEdgesFrom(200L), true, allEdgesTo(200L), true,
               true, atomicOperation).toList();
-          readerCount.set(entries.size());
+          readerCounters.set(
+              entries.stream().map(e -> e.second().counter()).toList());
         },
         () -> {
           try {
@@ -232,8 +234,8 @@ public class SharedLinkBagBTreeSIReadPathTest {
           }
         });
 
-    // Reader sees only the original 3 entries, not the 2 added by the writer
-    assertThat(readerCount.get()).isEqualTo(3);
+    // Reader sees exactly the original 3 entries by their counter values
+    assertThat(readerCounters.get()).containsExactly(1, 2, 3);
   }
 
   @Test
@@ -251,14 +253,15 @@ public class SharedLinkBagBTreeSIReadPathTest {
           new LinkBagValue(3, 0, 0, false));
     });
 
-    var readerCount = new AtomicReference<Integer>();
+    var readerCounters = new AtomicReference<List<Integer>>();
 
     runConcurrentReaderWriter(
         atomicOperation -> {
           var entries = bTree.streamEntriesBetween(
               allEdgesFrom(250L), true, allEdgesTo(250L), true,
               false, atomicOperation).toList();
-          readerCount.set(entries.size());
+          readerCounters.set(
+              entries.stream().map(e -> e.second().counter()).toList());
         },
         () -> {
           try {
@@ -274,7 +277,8 @@ public class SharedLinkBagBTreeSIReadPathTest {
           }
         });
 
-    assertThat(readerCount.get()).isEqualTo(3);
+    // Reader sees exactly the original 3 entries in descending order
+    assertThat(readerCounters.get()).containsExactly(3, 2, 1);
   }
 
   // ---- Tombstone visibility across snapshots ----
@@ -296,14 +300,15 @@ public class SharedLinkBagBTreeSIReadPathTest {
           new LinkBagValue(3, 0, 0, false));
     });
 
-    var readerCount = new AtomicReference<Integer>();
+    var readerCounters = new AtomicReference<List<Integer>>();
 
     runConcurrentReaderWriter(
         atomicOperation -> {
           var entries = bTree.streamEntriesBetween(
               allEdgesFrom(300L), true, allEdgesTo(300L), true,
               true, atomicOperation).toList();
-          readerCount.set(entries.size());
+          readerCounters.set(
+              entries.stream().map(e -> e.second().counter()).toList());
         },
         () -> {
           try {
@@ -317,8 +322,8 @@ public class SharedLinkBagBTreeSIReadPathTest {
           }
         });
 
-    // Reader still sees all 3 entries (tombstones not visible to old snapshot)
-    assertThat(readerCount.get()).isEqualTo(3);
+    // Reader still sees all 3 original entries (tombstones not visible to old snapshot)
+    assertThat(readerCounters.get()).containsExactly(1, 2, 3);
 
     // Verify fresh transaction sees the deletions (only 1 entry left)
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
