@@ -5,6 +5,9 @@
 - [ ] Step implementation (0/4 complete)
 - [ ] Track-level code review
 
+## Base commit
+`8609968ac0`
+
 ## Reviews completed
 - [x] Technical
 - [x] Risk
