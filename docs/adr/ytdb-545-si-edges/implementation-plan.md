@@ -405,7 +405,7 @@ graph LR
   > work (SI visibility checks + snapshot index fallback in SharedLinkBagBTree
   > and spliterators) remains correctly scoped.
 
-- [ ] Track 4: SharedLinkBagBTree read and iteration path with SI
+- [x] Track 4: SharedLinkBagBTree read and iteration path with SI
   > **What**: Modify the read operations (`get`) and iteration
   > (`SpliteratorForward`, `SpliteratorBackward`, range query streams) to
   > apply visibility checks and fall back to the snapshot index for entries
@@ -458,6 +458,26 @@ graph LR
   > SpliteratorBackward SI, IsolatedLinkBagBTreeImpl updates, and
   > comprehensive read-path SI tests (concurrent readers/writers scenarios)
   > **Depends on:** Track 1, Track 2, Track 3
+  >
+  > **Track episode:**
+  > Modified `SharedLinkBagBTree` and its spliterators to apply snapshot
+  > isolation visibility checks on all read paths. Added
+  > `isEdgeVersionVisible()`, `resolveVisibleEntry()`,
+  > `findVisibleSnapshotEntry()`, and `findVisibleEntry()` to
+  > SharedLinkBagBTree. Spliterators (Forward and Backward) now resolve
+  > visibility per entry during cache filling — invisible entries fall back
+  > to snapshot index, tombstones are skipped. Key discovery: spliterator
+  > cache entries must retain the ORIGINAL B-tree key (not the resolved
+  > snapshot key) to avoid infinite re-positioning loops in
+  > `fetchNextCachePortionForward/Backward`. All IsolatedLinkBagBTreeImpl
+  > read-path methods already delegate through SI-aware spliterators, so no
+  > production changes were needed for Step 3. Added 30 tests (24 unit, 6
+  > multi-threaded). Track-level code review passed in 2 iterations. No plan
+  > deviations with cross-track impact — Track 3 had already added tombstone
+  > filtering to IsolatedLinkBagBTreeImpl, reducing Step 3 to
+  > verification-only.
+  >
+  > **Step file:** `tracks/track-4.md` (4 steps, 0 failed)
 
 - [ ] Track 5: Enable and extend TransactionTest edge SI tests
   > **What**: Enable the 3 disabled edge SI tests in `TransactionTest` that
