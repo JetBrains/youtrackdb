@@ -88,6 +88,15 @@ public final class OptimisticReadScope {
     return count;
   }
 
+  /**
+   * Returns the page frame at the given index. Used after validation succeeds to
+   * record optimistic accesses in the read cache's frequency sketch.
+   */
+  public PageFrame getFrame(int index) {
+    assert index >= 0 && index < count : "Index out of bounds: " + index;
+    return frames[index];
+  }
+
   private void grow() {
     int newCapacity = frames.length * 2;
     frames = Arrays.copyOf(frames, newCapacity);

@@ -21,9 +21,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
 import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -198,5 +202,169 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       throws IOException {
     assert atomicOperation != null;
     atomicOperation.truncateFile(filedId);
+  }
+
+  // --- Optimistic read infrastructure ---
+
+  /**
+   * Functional interface for the optimistic read lambda. Must support IOException.
+   */
+  @FunctionalInterface
+  protected interface OptimisticReadFunction<T> {
+    T apply() throws IOException;
+  }
+
+  /**
+   * Functional interface for the void variant of optimistic read lambda.
+   */
+  @FunctionalInterface
+  protected interface OptimisticReadAction {
+    void run() throws IOException;
+  }
+
+  /**
+   * Functional interface for the pinned (fallback) read lambda.
+   */
+  @FunctionalInterface
+  protected interface PinnedReadFunction<T> {
+    T apply() throws IOException;
+  }
+
+  /**
+   * Functional interface for the void variant of the pinned (fallback) read lambda.
+   */
+  @FunctionalInterface
+  protected interface PinnedReadAction {
+    void run() throws IOException;
+  }
+
+  /**
+   * Performs an optimistic cache lookup: returns a {@link PageView} for the given page
+   * without CAS-based pinning. The caller must read data from the PageView's buffer and
+   * validate the stamp afterward (via {@link OptimisticReadScope#validateOrThrow()} or
+   * {@link OptimisticReadScope#validateLastOrThrow()}).
+   *
+   * <p>Throws {@link OptimisticReadFailedException} on cache miss, stamp == 0 (exclusive
+   * lock held), or coordinate mismatch (frame reused for a different page).
+   *
+   * @param atomicOperation the current atomic operation (provides the scope)
+   * @param fileId          the file ID of the page
+   * @param pageIndex       the page index within the file
+   * @return a PageView with the speculative buffer, frame, and stamp
+   * @throws OptimisticReadFailedException if the page cannot be read optimistically
+   */
+  protected PageView loadPageOptimistic(
+      @Nonnull final AtomicOperation atomicOperation,
+      final long fileId,
+      final long pageIndex) {
+    assert atomicOperation != null;
+
+    final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
+    if (frame == null) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    final long stamp = frame.tryOptimisticRead();
+    if (stamp == 0) {
+      // Exclusive lock is held — cannot read optimistically
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    // Verify coordinates match to detect frame reuse (frame may have been
+    // recycled for a different page between the CHM lookup and stamp acquisition)
+    if (frame.getFileId() != fileId || frame.getPageIndex() != (int) pageIndex) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    scope.record(frame, stamp);
+
+    return new PageView(frame.getBuffer(), frame, stamp);
+  }
+
+  /**
+   * Executes a read operation using the optimistic (no-CAS) path, falling back to the
+   * CAS-pinned path if validation fails.
+   *
+   * <p>The optimistic lambda reads data without pinning pages. If any page is evicted or
+   * modified during the read, the scope validation fails and the pinned lambda runs
+   * instead (under the component's shared lock).
+   *
+   * <p>Reentrancy note: acquireSharedLock() is safe even if the current thread already
+   * holds the exclusive lock on this component — SharedResourceAbstract's lock tracking
+   * handles this by skipping the read lock acquisition when the thread owns the write lock.
+   *
+   * @param atomicOperation the current atomic operation
+   * @param optimistic      lambda that reads data via loadPageOptimistic()
+   * @param pinned          lambda that reads data via the existing loadPageForRead() path
+   * @return the result from whichever path succeeds
+   */
+  protected <T> T executeOptimisticStorageRead(
+      @Nonnull final AtomicOperation atomicOperation,
+      final OptimisticReadFunction<T> optimistic,
+      final PinnedReadFunction<T> pinned) throws IOException {
+    assert atomicOperation != null;
+
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    scope.reset();
+
+    try {
+      final T result = optimistic.apply();
+      scope.validateOrThrow();
+
+      // Record successful access for all pages in the scope, so the eviction
+      // policy's frequency sketch stays accurate.
+      recordOptimisticAccesses(scope);
+
+      return result;
+    } catch (final OptimisticReadFailedException e) {
+      // Validation failed — fall back to the CAS-pinned path under shared lock
+      acquireSharedLock();
+      try {
+        return pinned.apply();
+      } finally {
+        releaseSharedLock();
+      }
+    }
+  }
+
+  /**
+   * Void variant of {@link #executeOptimisticStorageRead(AtomicOperation,
+   * OptimisticReadFunction, PinnedReadFunction)}.
+   */
+  protected void executeOptimisticStorageRead(
+      @Nonnull final AtomicOperation atomicOperation,
+      final OptimisticReadAction optimistic,
+      final PinnedReadAction pinned) throws IOException {
+    assert atomicOperation != null;
+
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    scope.reset();
+
+    try {
+      optimistic.run();
+      scope.validateOrThrow();
+
+      recordOptimisticAccesses(scope);
+    } catch (final OptimisticReadFailedException e) {
+      acquireSharedLock();
+      try {
+        pinned.run();
+      } finally {
+        releaseSharedLock();
+      }
+    }
+  }
+
+  /**
+   * Records successful optimistic accesses for all pages tracked in the scope.
+   * Must be called after scope validation succeeds, before scope.reset().
+   * The stamps have been validated, so frame coordinates are consistent.
+   */
+  private void recordOptimisticAccesses(final OptimisticReadScope scope) {
+    for (int i = 0; i < scope.count(); i++) {
+      final PageFrame frame = scope.getFrame(i);
+      readCache.recordOptimisticAccess(frame.getFileId(), frame.getPageIndex());
+    }
   }
 }
