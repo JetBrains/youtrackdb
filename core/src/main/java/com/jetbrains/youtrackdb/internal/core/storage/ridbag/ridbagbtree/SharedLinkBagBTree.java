@@ -228,6 +228,9 @@ public final class SharedLinkBagBTree extends DurableComponent {
    *       non-tombstone version, returns it or null</li>
    * </ul>
    *
+   * <p>Package-private: also called from spliterator cache-fill methods
+   * (readKeysFromBucketsForward/Backward) for per-entry visibility resolution.
+   *
    * @return visible entry as (EdgeKey, LinkBagValue), or null if no visible
    *     non-tombstone version exists
    */
@@ -253,10 +256,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
   }
 
   /**
-   * Searches the edge snapshot index for the newest visible non-tombstone
-   * version of the logical edge identified by (ridBagId, targetCollection,
-   * targetPosition). Iterates entries in descending version order (newest
-   * first) and returns the first visible non-tombstone, or null.
+   * Searches the edge snapshot index for the newest visible version of the
+   * logical edge identified by (ridBagId, targetCollection, targetPosition).
+   * Iterates entries in descending version order (newest first). If the newest
+   * visible version is a tombstone, returns null (edge is deleted from the
+   * reader's perspective). If it is a live entry, returns it. If no visible
+   * version exists, returns null.
    */
   @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleSnapshotEntry(
       final long ridBagId,
@@ -266,6 +271,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final AtomicOperationsSnapshot snapshot,
       final AtomicOperation atomicOp) {
     final int componentId = (int) getFileId();
+    assert componentId == getFileId() : "fileId overflow: " + getFileId();
 
     // Range: all versions of this logical edge (from MIN to MAX)
     final var lowerKey = new EdgeSnapshotKey(

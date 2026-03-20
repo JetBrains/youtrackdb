@@ -326,4 +326,24 @@ public class SharedLinkBagBTreeVisibilityTest {
       assertThat(result).isNull();
     });
   }
+
+  @Test
+  public void testFindVisibleEntry_noBtreeEntryWithSnapshotFallback() throws Exception {
+    // No B-tree entry exists for this logical edge, but the snapshot index
+    // has a visible version. This exercises the current==null branch in
+    // findVisibleEntry that falls back directly to the snapshot index.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      final int componentId = (int) bTree.getFileId();
+      atomicOperation.putEdgeSnapshotEntry(
+          new EdgeSnapshotKey(componentId, 1100L, 10, 100L, 3L),
+          new LinkBagValue(55, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = bTree.findVisibleEntry(atomicOperation, 1100L, 10, 100L);
+      assertThat(result).isNotNull();
+      assertThat(result.first().ts).isEqualTo(3L);
+      assertThat(result.second().counter()).isEqualTo(55);
+    });
+  }
 }
