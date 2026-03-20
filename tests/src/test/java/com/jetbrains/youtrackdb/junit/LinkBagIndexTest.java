@@ -775,7 +775,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    */
   @Test
   void testIndexRidBagWithPairsOnVertex() {
-    // 1. Create a vertex with two heavyweight edges and populate ridBag
+    // 1. Create a vertex with two double-sided edges and populate ridBag
     //    with double-sided pairs (edgeRid, targetVertexRid).
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
@@ -830,7 +830,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.commit();
 
     // 2. Verify the index contains 2 keys: single1 (single-RID primary)
-    //    + edge1 (heavyweight primary). target1 (secondary) is NOT indexed.
+    //    + edge1 (double-sided primary). target1 (secondary) is NOT indexed.
     final var index = getIndex("ridBagVertexIndex");
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
