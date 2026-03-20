@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -62,11 +62,21 @@
   > **Key files:** `BTree.java` (modified — new methods: `getOptimistic`,
   > `getPinned`, `getNullKeyOptimistic`, `getNullKeyPinned`)
 
-- [ ] Step 4: Migrate collection position map and collection record reads to optimistic reads
-  Implementation committed (72d706e9c5). Code review pending — running in background.
-  CollectionPositionMapV2Test passes (77 tests). Integration test
-  (LocalPaginatedCollectionV2TestIT) not yet run.
-  Awaiting code review results before writing final episode.
+- [x] Step 4: Migrate collection position map and collection record reads to optimistic reads
+  > **What was done:** Added `getWithStatusOptimistic()` and `getLastPageOptimistic()`
+  > to `CollectionPositionMapV2` for pinless position map lookups. Added
+  > `doReadRecordOptimistic()` to `PaginatedCollectionV2` that reads single-page,
+  > visible, non-tombstone records optimistically. Falls back to pinned path for:
+  > multi-page records, tombstones (need history lookup), invisible versions, and
+  > any speculative garbage from concurrent page reuse.
+  >
+  > **What was discovered:** Code review identified that speculative data from live
+  > PageView buffers can produce arbitrary RuntimeExceptions (AIOOBE, NPE) that
+  > would bypass the optimistic fallback. Fixed with a RuntimeException catch wrapper,
+  > minimum record size guard, null content check, and explicit FILLED status guard.
+  >
+  > **Key files:** `CollectionPositionMapV2.java` (modified),
+  > `PaginatedCollectionV2.java` (modified)
 
 - [ ] Step 5: Migrate FreeSpaceMap and SharedLinkBagBTree reads to optimistic reads
   Migrate `FreeSpaceMap.findFreePage()` to use `executeOptimisticStorageRead()`:
