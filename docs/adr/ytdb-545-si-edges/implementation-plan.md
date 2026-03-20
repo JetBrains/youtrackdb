@@ -481,7 +481,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 5: Enable and extend TransactionTest edge SI tests
+- [x] Track 5: Enable and extend TransactionTest edge SI tests
   > **What**: Enable the 3 disabled edge SI tests in `TransactionTest` that
   > were waiting on LinkBag SI support, validate they pass, and write new
   > tests for scenarios not yet covered. This is the end-to-end validation
@@ -536,3 +536,18 @@ graph LR
   > tests, writing new edge iteration/deletion/creation isolation tests,
   > and a multi-scenario stress test
   > **Depends on:** Track 1, Track 2, Track 3, Track 4
+  >
+  > **Track episode:**
+  > Enabled and extended the edge SI end-to-end test suite in
+  > `TransactionTest`. Removed `@Ignore` from 3 pre-existing disabled tests
+  > — all passed without modification, validating the full SI stack from
+  > Tracks 1-4 at the graph API level. Added 4 new multi-threaded SI tests
+  > covering: mid-iteration consistency, concurrent creation/deletion
+  > isolation (identity-based assertions), snapshot fallback for deleted
+  > edges via iteration, edge label filtering with explicit edge subclasses,
+  > and multiple readers from the same snapshot epoch. All tests force
+  > BTree-backed LinkBag via `EMBEDDED_TO_BTREE_THRESHOLD=-1`. Track-level
+  > code review passed in 2 iterations — extracted BTree-forcing helpers
+  > and strengthened assertions. No plan deviations with cross-track impact.
+  >
+  > **Step file:** `tracks/track-5.md` (4 steps, 0 failed)
