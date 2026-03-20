@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -27,34 +27,24 @@
   > `IsolatedLinkBagBTreeImpl.java` (modified),
   > `SharedLinkBagBTreeVisibilityTest.java` (new, 12 tests)
 
-- [ ] Step 2: SpliteratorForward and SpliteratorBackward with SI visibility
-  > Modify `readKeysFromBucketsForward()` and `readKeysFromBucketsBackward()`
-  > in SharedLinkBagBTree to apply SI visibility checks per entry before
-  > adding to the spliterator cache:
+- [x] Step 2: SpliteratorForward and SpliteratorBackward with SI visibility
+  > **What was done:** Added `resolveVisibleEntry()` calls in both
+  > `readKeysFromBucketsForward()` and `readKeysFromBucketsBackward()`.
+  > Invisible/tombstone entries are skipped; only visible entries count
+  > toward the cache limit of 10. Null-safe: falls back to original
+  > behavior when `atomicOperation` is null.
   >
-  > For each entry read from a bucket page:
-  > 1. Call `resolveVisibleEntry(key, value, atomicOp)` (from Step 1)
-  > 2. If result is non-null → add to cache
-  > 3. If result is null → skip (invisible or tombstone)
+  > **What was discovered:** Critical position-tracking invariant: cache
+  > entries must use the ORIGINAL B-tree key (not the resolved snapshot
+  > key). `fetchNextCachePortionForward/Backward` uses `lastKey` from the
+  > cache to re-position via `findBucket()` after cache exhaustion. A
+  > snapshot key with a lower ts would sort before the original entry,
+  > causing `findBucket` to land at the same entry again — infinite loop
+  > leading to OOM. Fix: `new RawPair<>(entry.getKey(), visible.second())`
+  > preserves the B-tree key while substituting the resolved value.
   >
-  > Both forward and backward methods follow the same pattern. The
-  > atomicOperation is already available (parameter of both methods).
-  >
-  > **Edge case**: When an invisible B-tree entry is replaced by a snapshot
-  > version, the snapshot version's EdgeKey has a different ts. The cache
-  > stores RawPair<EdgeKey, LinkBagValue> — the snapshot version must be
-  > wrapped in an EdgeKey with the original (ridBagId, tc, tp) and the
-  > snapshot version's ts. resolveVisibleEntry already returns the correct
-  > pair.
-  >
-  > **Cache count**: The current code counts entries added to cache. Invisible
-  > entries that are skipped (no visible version) should NOT count toward the
-  > cache limit — only entries actually added count.
-  >
-  > Tests: Unit tests covering forward iteration with mixed visible/invisible
-  > entries, backward iteration same, snapshot fallback during iteration,
-  > tombstone skipping during iteration, cache limit behavior with invisible
-  > entries.
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreeVisibilityTest.java` (modified, +5 tests → 17 total)
 
 - [ ] Step 3: IsolatedLinkBagBTreeImpl remaining read paths with SI visibility
   > Update the remaining IsolatedLinkBagBTreeImpl read-path methods to use
