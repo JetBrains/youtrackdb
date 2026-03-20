@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -1240,6 +1241,76 @@ public class AtomicOperationSnapshotProxyTest {
       keys.add(entry.getKey());
     }
     return keys;
+  }
+
+  // --- hasChangesForPage ---
+
+  @Test
+  public void testHasChangesForPageReturnsFalseWhenNoChanges() {
+    // A fresh operation has no file changes, so hasChangesForPage returns false.
+    assertThat(operation.hasChangesForPage(1, 0)).isFalse();
+    assertThat(operation.hasChangesForPage(1, 42)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueAfterPageWrite() throws IOException {
+    // After loadPageForWrite creates a change entry for a page, hasChangesForPage
+    // returns true for that page and false for other pages in the same file.
+    var mockCacheEntry = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    when(mockCacheEntry.getCachePointer()).thenReturn(null);
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
+        .thenReturn(mockCacheEntry);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+
+    // Simulate a write to page 10 — loadPageForWrite creates change tracking
+    op.loadPageForWrite(5, 10, 1, false);
+
+    // hasChangesForPage uses checkFileIdCompatibility internally,
+    // so pass the same raw file ID
+    assertThat(op.hasChangesForPage(5, 10)).isTrue();
+    assertThat(op.hasChangesForPage(5, 11)).isFalse();
+    assertThat(op.hasChangesForPage(5, 0)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueForNewFilePages() throws IOException {
+    // When a file is added (isNew=true), pages up to maxNewPageIndex have changes.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    // addNewFile returns a composed fileId with storageId in upper 32 bits
+    long composedFileId = (1L << 32) | 99;
+    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+
+    long fid = op.addFile("test-new.dat");
+
+    // Add a page to the new file
+    when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
+    op.addPage(fid);
+
+    // Page 0 exists in the new file
+    assertThat(op.hasChangesForPage(fid, 0)).isTrue();
+    // Page 1 doesn't exist yet
+    assertThat(op.hasChangesForPage(fid, 1)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsFalseForUnknownFile() {
+    // A file ID that was never touched returns false.
+    assertThat(operation.hasChangesForPage(999, 0)).isFalse();
   }
 
   // --- getOptimisticReadScope ---

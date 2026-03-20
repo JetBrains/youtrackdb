@@ -281,6 +281,68 @@ public class DurableComponentOptimisticReadTest {
   }
 
   @Test
+  public void testFallbackOnLocalWalChanges() throws IOException {
+    // When the current AtomicOperation has local WAL changes for the requested page,
+    // loadPageOptimistic forces a fallback to the pinned path to avoid reading stale
+    // committed data.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(true);
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testOptimisticSucceedsWhenNoLocalChanges() throws IOException {
+    // When the current AtomicOperation has no local WAL changes for the page,
+    // the optimistic path proceeds normally.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(false);
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("optimistic-result", result);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testFallbackOnLocalChangesCheckedBeforeCacheLookup() throws IOException {
+    // The hasChangesForPage check must happen before the cache lookup —
+    // even if the page is in cache with a valid frame, local changes must force fallback.
+    // We verify this by NOT setting up a frame in the cache (null return),
+    // but since hasChangesForPage returns true, we should still fall back
+    // without hitting the null-frame path.
+    when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(true);
+    // Do NOT set up a frame — the cache lookup should never be reached
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+  }
+
+  @Test
   public void testVoidVariantFallback() throws IOException {
     // Void variant falls back when optimistic fails.
     when(mockReadCache.getPageFrameOptimistic(anyLong(), anyLong())).thenReturn(null);

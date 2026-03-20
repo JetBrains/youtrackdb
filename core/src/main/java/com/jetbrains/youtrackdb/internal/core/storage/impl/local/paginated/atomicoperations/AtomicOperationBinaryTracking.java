@@ -376,6 +376,23 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
+  public boolean hasChangesForPage(long fileId, final long pageIndex) {
+    fileId = checkFileIdCompatibility(fileId, storageId);
+
+    final var changesContainer = fileChanges.get(fileId);
+    if (changesContainer == null) {
+      return false;
+    }
+
+    // New file: all pages up to maxNewPageIndex have local changes
+    if (changesContainer.isNew) {
+      return pageIndex <= changesContainer.maxNewPageIndex;
+    }
+
+    return changesContainer.pageChangesMap.containsKey(pageIndex);
+  }
+
+  @Override
   public long filledUpTo(long fileId) {
     checkIfActive();
 

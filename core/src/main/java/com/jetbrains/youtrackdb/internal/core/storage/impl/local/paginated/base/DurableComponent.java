@@ -261,6 +261,12 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     assert pageIndex >= 0 && pageIndex <= Integer.MAX_VALUE
         : "pageIndex out of int range: " + pageIndex;
 
+    // If the current transaction has uncommitted WAL changes for this page,
+    // the optimistic path would return stale committed data. Force fallback.
+    if (atomicOperation.hasChangesForPage(fileId, pageIndex)) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
     final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
     if (frame == null) {
       throw OptimisticReadFailedException.INSTANCE;
