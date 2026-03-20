@@ -1773,17 +1773,18 @@ public class TransactionTest {
   }
 
   /**
-   * Verifies that iterating edges via getEdges(OUT) returns a consistent snapshot even when a
-   * concurrent writer adds more edges and commits mid-iteration. The reader's snapshot must return
-   * exactly the edges that existed when the reader's transaction started.
+   * Verifies that an edge iterator returns a consistent snapshot even when a concurrent writer
+   * adds more edges and commits while the iterator is being consumed. The reader begins iterating,
+   * consumes some edges, then the writer commits new edges, and the reader finishes iterating —
+   * the total must equal the original count.
    *
    * <p>Uses BTree-backed LinkBag (threshold forced to -1) to exercise the SI spliterator path.
    *
    * <pre>
-   *   setup: hub vertex with 3 outgoing edges (BTree-backed)
-   *   Thread A: begin tx, start iterating edges
+   *   setup: hub vertex with 5 outgoing edges (BTree-backed)
+   *   Thread A: begin tx, consume 1 edge from iterator
    *   Main:     begin tx, add 3 more edges, commit
-   *   Thread A: finish iterating -> must see exactly 3 (original) edges
+   *   Thread A: consume remaining edges -> total must be 5 (original count)
    * </pre>
    */
   @Test
@@ -1792,7 +1793,7 @@ public class TransactionTest {
         (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     try {
-      var initialEdgeCount = 3;
+      var initialEdgeCount = 5;
 
       var tx = db.begin();
       var hub = tx.newVertex("V");
@@ -1805,7 +1806,7 @@ public class TransactionTest {
       var hubRid = hub.getIdentity();
       tx.commit();
 
-      var readerStarted = new CountDownLatch(1);
+      var readerConsumedOne = new CountDownLatch(1);
       var writerCommitted = new CountDownLatch(1);
       var threadError = new AtomicReference<Throwable>();
 
@@ -1814,24 +1815,29 @@ public class TransactionTest {
           var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
           try {
             var txReader = dbReader.begin();
-            // Open snapshot and read initial edge count
+            dbReader.getLocalCache().clear();
             Vertex vr = txReader.load(hubRid);
-            Assert.assertEquals(
-                initialEdgeCount, countEdges(vr.getEdges(Direction.OUT)));
 
-            readerStarted.countDown();
+            // Start iterating and consume exactly one edge
+            var iter = vr.getEdges(Direction.OUT).iterator();
+            int count = 0;
+            if (iter.hasNext()) {
+              iter.next();
+              count++;
+            }
+
+            // Signal that we have an open iterator with partially consumed edges
+            readerConsumedOne.countDown();
             awaitOrFail(writerCommitted);
 
-            // After writer committed new edges, our iteration must still return only
-            // the original edges (snapshot isolation)
-            dbReader.getLocalCache().clear();
-            Vertex vrAfter = txReader.load(hubRid);
-            int count = 0;
-            for (Edge ignored : vrAfter.getEdges(Direction.OUT)) {
+            // Writer committed 3 new edges — continue consuming the same iterator;
+            // it must return only the original edges
+            while (iter.hasNext()) {
+              iter.next();
               count++;
             }
             Assert.assertEquals(
-                "Snapshot isolation: iteration must return only original edges",
+                "Snapshot isolation: mid-iteration must return only original edges",
                 initialEdgeCount, count);
             txReader.commit();
           } finally {
@@ -1843,7 +1849,7 @@ public class TransactionTest {
       });
       thread.start();
 
-      awaitOrFail(readerStarted);
+      awaitOrFail(readerConsumedOne);
       var txWriter = db.begin();
       Vertex vw = txWriter.load(hubRid);
       for (int i = 0; i < 3; i++) {
@@ -1857,7 +1863,7 @@ public class TransactionTest {
 
       joinAndCheck(thread, threadError);
 
-      // New transaction sees all 6 edges
+      // New transaction sees all 8 edges
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
@@ -1921,13 +1927,19 @@ public class TransactionTest {
             readerStarted.countDown();
             awaitOrFail(writerCommitted);
 
-            // Writer deleted 2 and added 2, but our snapshot must still see original 4
+            // Writer deleted 2 and added 2, but our snapshot must still see
+            // the exact original 4 edges (not the replacements)
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(hubRid);
+            var seenTargetNames = new java.util.HashSet<String>();
+            for (Edge e : vrAfter.getEdges(Direction.OUT)) {
+              Vertex target = e.getVertex(Direction.IN);
+              seenTargetNames.add(target.getProperty("name"));
+            }
             Assert.assertEquals(
-                "Snapshot isolation: must see original edge set despite concurrent "
-                    + "creates and deletes",
-                initialEdgeCount, countEdges(vrAfter.getEdges(Direction.OUT)));
+                "Snapshot isolation: must see exactly the original 4 target vertices",
+                java.util.Set.of("target0", "target1", "target2", "target3"),
+                seenTargetNames);
             txReader.commit();
           } finally {
             dbReader.close();
