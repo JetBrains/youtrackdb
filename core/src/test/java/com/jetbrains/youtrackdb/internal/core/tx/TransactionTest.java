@@ -2230,7 +2230,8 @@ public class TransactionTest {
 
       var bothReadersStarted = new CountDownLatch(2);
       var writerCommitted = new CountDownLatch(1);
-      var threadErrors = new CopyOnWriteArrayList<Throwable>();
+      var errorA = new AtomicReference<Throwable>();
+      var errorB = new AtomicReference<Throwable>();
 
       // Create two reader threads that both open snapshots before the writer modifies data
       var readerA = new Thread(() -> {
@@ -2256,7 +2257,7 @@ public class TransactionTest {
             dbReader.close();
           }
         } catch (Throwable t) {
-          threadErrors.add(t);
+          errorA.set(t);
         }
       });
 
@@ -2283,7 +2284,7 @@ public class TransactionTest {
             dbReader.close();
           }
         } catch (Throwable t) {
-          threadErrors.add(t);
+          errorB.set(t);
         }
       });
 
@@ -2306,8 +2307,8 @@ public class TransactionTest {
       db.getLocalCache().clear();
       writerCommitted.countDown();
 
-      joinAndCheck(readerA, threadErrors);
-      joinAndCheck(readerB, threadErrors);
+      joinAndCheck(readerA, errorA);
+      joinAndCheck(readerB, errorB);
 
       // New transaction: 3 - 1 + 2 = 4 edges
       var txVerify = db.begin();
