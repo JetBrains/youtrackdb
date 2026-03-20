@@ -201,36 +201,22 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Nullable public RID get(K key, @Nonnull AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
-        var k = key;
-        if (k != null) {
-          k = keySerializer.preprocess(serializerFactory, k, (Object[]) keyTypes);
+        if (key != null) {
+          final var preprocessedKey =
+              keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
           final var serializedKey =
               keySerializer.serializeNativeAsWhole(
-                  serializerFactory, k, (Object[]) keyTypes);
+                  serializerFactory, preprocessedKey, (Object[]) keyTypes);
 
-          final var bucketSearchResult =
-              findBucketSerialized(k, serializedKey, atomicOperation);
-          if (bucketSearchResult.getItemIndex() < 0) {
-            return null;
-          }
-
-          final var pageIndex = bucketSearchResult.getPageIndex();
-
-          try (final var keyBucketCacheEntry =
-              loadPageForRead(atomicOperation, fileId, pageIndex)) {
-            final var keyBucket =
-                new CellBTreeSingleValueBucketV3<K>(keyBucketCacheEntry);
-            return keyBucket.getValue(bucketSearchResult.getItemIndex(), keySerializer,
-                serializerFactory);
-          }
+          return executeOptimisticStorageRead(
+              atomicOperation,
+              () -> getOptimistic(atomicOperation, preprocessedKey, serializedKey),
+              () -> getPinned(atomicOperation, preprocessedKey, serializedKey));
         } else {
-
-          try (final var nullBucketCacheEntry =
-              loadPageForRead(atomicOperation, nullBucketFileId, 0)) {
-            final var nullBucket =
-                new CellBTreeSingleValueV3NullBucket(nullBucketCacheEntry);
-            return nullBucket.getValue();
-          }
+          return executeOptimisticStorageRead(
+              atomicOperation,
+              () -> getNullKeyOptimistic(atomicOperation),
+              () -> getNullKeyPinned(atomicOperation));
         }
       });
     } catch (final IOException e) {
@@ -238,6 +224,96 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
           new CellBTreeSingleValueV3Exception(
               "Error during retrieving  of sbtree with name " + getName(), this),
           e, storage.getName());
+    }
+  }
+
+  /**
+   * Optimistic path for non-null key get: traverses the B-tree using loadPageOptimistic()
+   * with per-level stamp validation, then reads the value from the leaf page.
+   */
+  @Nullable private RID getOptimistic(
+      final AtomicOperation atomicOperation,
+      final K key, final byte[] serializedKey) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    var pageIndex = ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        throw new CellBTreeSingleValueV3Exception(
+            "We reached max level of depth of SBTree but still found nothing, seems like tree"
+                + " is in corrupted state. You should rebuild index related to given query."
+                + " Key = " + key,
+            this);
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var bucket = new CellBTreeSingleValueBucketV3<K>(pageView);
+      final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
+
+      if (bucket.isLeaf()) {
+        if (index < 0) {
+          return null;
+        }
+        return bucket.getValue(index, keySerializer, serializerFactory);
+      }
+
+      // Internal node: follow child pointer, then validate the stamp to catch eviction
+      // before chasing a potentially stale page index.
+      if (index >= 0) {
+        pageIndex = bucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= bucket.size()) {
+          pageIndex = bucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = bucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
+    }
+  }
+
+  /**
+   * CAS-pinned fallback path for non-null key get: uses loadPageForRead() with
+   * try-with-resources as before.
+   */
+  @Nullable private RID getPinned(
+      final AtomicOperation atomicOperation,
+      final K key, final byte[] serializedKey) throws IOException {
+    final var bucketSearchResult =
+        findBucketSerialized(key, serializedKey, atomicOperation);
+    if (bucketSearchResult.getItemIndex() < 0) {
+      return null;
+    }
+
+    final var pageIndex = bucketSearchResult.getPageIndex();
+
+    try (final var keyBucketCacheEntry =
+        loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var keyBucket =
+          new CellBTreeSingleValueBucketV3<K>(keyBucketCacheEntry);
+      return keyBucket.getValue(bucketSearchResult.getItemIndex(), keySerializer,
+          serializerFactory);
+    }
+  }
+
+  /** Optimistic path for null-key get. */
+  @Nullable private RID getNullKeyOptimistic(final AtomicOperation atomicOperation) {
+    final var pageView = loadPageOptimistic(atomicOperation, nullBucketFileId, 0);
+    final var nullBucket = new CellBTreeSingleValueV3NullBucket(pageView);
+    return nullBucket.getValue();
+  }
+
+  /** CAS-pinned fallback path for null-key get. */
+  @Nullable private RID getNullKeyPinned(
+      final AtomicOperation atomicOperation) throws IOException {
+    try (final var nullBucketCacheEntry =
+        loadPageForRead(atomicOperation, nullBucketFileId, 0)) {
+      final var nullBucket =
+          new CellBTreeSingleValueV3NullBucket(nullBucketCacheEntry);
+      return nullBucket.getValue();
     }
   }
 
@@ -476,14 +552,23 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   @Override
   public long size(@Nonnull AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        try (final var entryPointCacheEntry =
-            loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
-          final var entryPoint =
-              new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
-          return entryPoint.getTreeSize();
-        }
-      });
+      return atomicOperationsManager.executeReadOperation(this, () -> executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            final var pageView =
+                loadPageOptimistic(atomicOperation, fileId, ENTRY_POINT_INDEX);
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(pageView);
+            return entryPoint.getTreeSize();
+          },
+          () -> {
+            try (final var entryPointCacheEntry =
+                loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+              final var entryPoint =
+                  new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+              return entryPoint.getTreeSize();
+            }
+          }));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
