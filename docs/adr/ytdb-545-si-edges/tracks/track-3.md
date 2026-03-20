@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -52,36 +52,30 @@
   > **Key files:** `SharedLinkBagBTree.java` (modified),
   > `SharedLinkBagBTreePutSITest.java` (new)
 
-- [ ] Step 3: SharedLinkBagBTree.remove() with tombstones
-  > Modify `remove()` to create tombstone entries instead of physically
-  > deleting, preserving old values in the snapshot index.
+- [x] Step 3: SharedLinkBagBTree.remove() with tombstones
+  > **What was done:** Modified `remove()` to use `findCurrentEntryInternal`
+  > prefix lookup and apply SI semantics. Cross-transaction removes (different
+  > ts) preserve the old value in the snapshot + visibility indexes, remove the
+  > old B-tree entry, and insert a tombstone with the new ts (net tree size
+  > unchanged). Same-transaction removes (same ts) physically delete the entry
+  > (the caller created it in this tx, so no tombstone needed). Already-
+  > tombstoned entries return null immediately (double-remove guard). Added
+  > defensive assertion that the tombstone key does not exist after
+  > `removeEntryByKey`. 9 tests covering cross-tx tombstone creation, snapshot
+  > preservation, tree size invariant, same-tx physical delete, tombstone data
+  > fidelity, double-remove guard, put-remove-put lifecycle, and post-split
+  > removes.
   >
-  > **Approach**:
-  > 1. Call `findCurrentEntry()` to find the existing entry.
-  > 2. If found and `oldTs != newTs`:
-  >    - Preserve old entry in snapshot index (same as put)
-  >    - Remove old entry from B-tree
-  >    - Insert tombstone: `EdgeKey(ridBagId, tc, tp, newTs)` with
-  >      `LinkBagValue(counter, secCollId, secPos, tombstone=true)`
-  >    - Do NOT change tree size (remove + insert = net zero)
-  >    - Return old value (before tombstone)
-  > 3. If found and `oldTs == newTs` (same-transaction remove):
-  >    - No snapshot preservation needed
-  >    - Replace entry with tombstone in place
-  >    - Return old value
-  > 4. If not found: return null (nothing to remove).
+  > **What changed from the plan:** Same-transaction removes physically delete
+  > instead of creating a tombstone. The plan called for in-place tombstone
+  > replacement, but physical delete is correct for same-ts because the entry
+  > was created by this transaction (no other tx can see it). This also
+  > maintains backward compatibility with `IsolatedLinkBagBTreeImpl` which
+  > currently uses `ts=0L` for all operations — same-ts physical delete
+  > preserves the old remove behavior until Step 4 wires in proper timestamps.
   >
-  > **Key detail**: `newTs` comes from the EdgeKey parameter's `ts()`.
-  > The remove() signature stays the same — it receives EdgeKey with
-  > commitTs from the caller. Return value is the old LinkBagValue
-  > (not the tombstone).
-  >
-  > **Tests**: Remove existing entry (tombstone created, old value in
-  > snapshot); remove non-existent entry (returns null); same-ts remove
-  > (no snapshot); verify tree size unchanged after tombstone; verify
-  > snapshot index contains old value.
-  >
-  > **Files**: `SharedLinkBagBTree.java` (modified), test file (modified)
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreeRemoveSITest.java` (new)
 
 - [ ] Step 4: IsolatedLinkBagBTreeImpl write path wiring + integration tests
   > Wire `IsolatedLinkBagBTreeImpl.put()` and `remove()` to use
