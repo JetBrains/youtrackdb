@@ -186,34 +186,75 @@ public class DurableComponentOptimisticReadTest {
 
   @Test
   public void testScopeResetBetweenCalls() throws IOException {
-    // The scope should be reset before each executeOptimisticStorageRead call.
-    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    // Verifies that executeOptimisticStorageRead resets the scope before each call.
+    // Strategy: first call records frame1, then we invalidate frame1's stamp between
+    // calls. If the scope is properly reset, the second call (using frame2 only)
+    // succeeds. If reset is missing, the stale frame1 stamp fails validation.
+    var frame1 = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    var frame2 = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX + 1);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame1);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX + 1)).thenReturn(frame2);
 
-    // First call — records 1 frame
-    component.testExecuteOptimisticStorageRead(
+    // First call — records frame1
+    String result1 = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
           component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
           return "result1";
         },
-        () -> "fallback");
+        () -> "fallback1");
+    assertEquals("result1", result1);
 
-    // Second call — scope should be reset, so only 1 frame again
-    component.testExecuteOptimisticStorageRead(
+    // Invalidate frame1's stamp (exclusive lock bump from another thread)
+    var latch = new CountDownLatch(1);
+    new Thread(() -> {
+      long ws = frame1.acquireExclusiveLock();
+      frame1.releaseExclusiveLock(ws);
+      latch.countDown();
+    }).start();
+    try {
+      latch.await();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+
+    // Second call — uses frame2 only. If scope still holds stale frame1,
+    // validateOrThrow() would fail because frame1's stamp is now invalid.
+    String result2 = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
         () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX + 1);
           return "result2";
         },
-        () -> "fallback");
+        () -> "fallback2");
+    assertEquals("result2", result2);
 
-    // After reset+record, count should be 1 (not accumulated from previous call)
-    // We can't directly check scope.count() after executeOptimisticStorageRead because
-    // it may have been reset. But the test would fail if reset didn't happen (scope
-    // would still hold stale frames from the first call, and validation would fail
-    // if those frames were invalidated between calls).
+    releaseFrame(frame1);
+    releaseFrame(frame2);
+  }
 
+  @Test
+  public void testFallbackOnStampZero() throws IOException {
+    // When the exclusive lock is held on the frame at the time of tryOptimisticRead(),
+    // the stamp is 0, loadPageOptimistic throws, and we fall back to the pinned path.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    // Hold exclusive lock on this thread — tryOptimisticRead() will return 0
+    long exclusiveStamp = frame.acquireExclusiveLock();
+    try {
+      String result = component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+            return "optimistic-result";
+          },
+          () -> "pinned-result");
+
+      assertEquals("pinned-result", result);
+    } finally {
+      frame.releaseExclusiveLock(exclusiveStamp);
+    }
     releaseFrame(frame);
   }
 

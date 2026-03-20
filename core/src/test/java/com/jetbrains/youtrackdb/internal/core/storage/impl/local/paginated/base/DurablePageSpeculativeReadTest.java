@@ -163,6 +163,97 @@ public class DurablePageSpeculativeReadTest {
     releaseFrame(frame);
   }
 
+  @Test
+  public void testGetIntValueThrowsOnOutOfBoundsOffset() {
+    // When a stale offset is passed to getIntValue during speculative read,
+    // guardOffset should throw OptimisticReadFailedException instead of
+    // IndexOutOfBoundsException.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.getIntValue(PAGE_SIZE); // offset + 4 > capacity
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
+  }
+
+  @Test
+  public void testGetLongValueThrowsOnNegativeOffset() {
+    // Negative offsets from stale data should be caught by guardOffset.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.getLongValue(-1);
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
+  }
+
+  @Test
+  public void testGetShortValueThrowsOnOutOfBoundsOffset() {
+    // Offset that would read past the end of the buffer.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.getShortValue(PAGE_SIZE - 1); // offset + 2 > capacity
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
+  }
+
+  @Test
+  public void testGetByteValueThrowsOnNegativeOffset() {
+    // Negative offset from stale data.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.getByteValue(-1);
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
+  }
+
+  @Test
+  public void testScalarGettersPassForValidOffsetsInSpeculativeMode() {
+    // Valid offsets within buffer bounds should not throw in speculative mode.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    long stamp = frame.tryOptimisticRead();
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+    // These should not throw (reading zero-filled buffer is fine)
+    page.getIntValue(0);
+    page.getLongValue(0);
+    page.getShortValue(0);
+    page.getByteValue(0);
+    // Read at last valid offset for each type
+    page.getIntValue(PAGE_SIZE - 4);
+    page.getLongValue(PAGE_SIZE - 8);
+    page.getShortValue(PAGE_SIZE - 2);
+    page.getByteValue(PAGE_SIZE - 1);
+
+    releaseFrame(frame);
+  }
+
   /**
    * Acquires a frame from the pool and sets page coordinates under exclusive lock.
    */

@@ -151,6 +151,65 @@ public class LockFreeReadCacheOptimisticTest {
     }
   }
 
+  @Test
+  public void testConcurrentEvictionDuringOptimisticLookup() throws Exception {
+    // Exercises the TOCTOU window between isAlive() and getCachePointer() in
+    // getPageFrameOptimistic(): one thread reads optimistically while another
+    // thread evicts by loading pages beyond cache capacity. The method must
+    // return either a valid PageFrame or null — never a stale pointer.
+    int iterations = 200;
+    long fileId = 0;
+    int targetPage = 0;
+
+    // Pre-load the target page
+    var entry = readCache.loadForRead(fileId, targetPage, writeCache, false);
+    readCache.releaseFromRead(entry);
+
+    var errors = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var running = new java.util.concurrent.atomic.AtomicBoolean(true);
+
+    // Evictor thread: load pages to force eviction of targetPage
+    Thread evictor = new Thread(() -> {
+      try {
+        for (int i = 1; running.get() && i < 2000; i++) {
+          var e = readCache.loadForRead(fileId, i, writeCache, false);
+          readCache.releaseFromRead(e);
+        }
+      } catch (Throwable t) {
+        errors.compareAndSet(null, t);
+      }
+    });
+
+    // Reader thread: repeatedly does optimistic lookup on the target page
+    Thread reader = new Thread(() -> {
+      try {
+        for (int i = 0; i < iterations; i++) {
+          PageFrame frame = readCache.getPageFrameOptimistic(fileId, targetPage);
+          // frame is either null (evicted) or a valid PageFrame with a live StampedLock
+          if (frame != null) {
+            long stamp = frame.tryOptimisticRead();
+            // stamp may be 0 (exclusive lock held during eviction) or valid — both OK
+            if (stamp != 0) {
+              frame.validate(stamp); // must not throw
+            }
+          }
+        }
+      } catch (Throwable t) {
+        errors.compareAndSet(null, t);
+      }
+    });
+
+    evictor.start();
+    reader.start();
+    reader.join(10_000);
+    running.set(false);
+    evictor.join(10_000);
+
+    if (errors.get() != null) {
+      throw new AssertionError("Concurrent test failed", errors.get());
+    }
+  }
+
   /**
    * A WriteCache mock that creates PageFrame-backed CachePointers, enabling
    * getPageFrameOptimistic() to return non-null PageFrame references.

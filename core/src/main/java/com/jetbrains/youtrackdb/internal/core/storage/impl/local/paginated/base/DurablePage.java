@@ -206,6 +206,20 @@ public class DurablePage {
   }
 
   /**
+   * Guards a page offset + access width during a speculative read. If the offset is out of
+   * bounds for the given access width, the offset was likely read from stale data.
+   * Throws {@link OptimisticReadFailedException} to trigger fallback.
+   *
+   * <p>No-op when {@code speculativeRead == false} (normal CAS-pinned path).
+   */
+  private void guardOffset(final int pageOffset, final int accessWidth) {
+    if (speculativeRead
+        && (pageOffset < 0 || pageOffset + accessWidth > buffer.capacity())) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+  }
+
+  /**
    * Asserts that this page is not in speculative read mode. Called by setter methods to
    * catch accidental writes to a shared buffer during optimistic reads.
    */
@@ -214,6 +228,7 @@ public class DurablePage {
   }
 
   protected final int getIntValue(final int pageOffset) {
+    guardOffset(pageOffset, IntegerSerializer.INT_SIZE);
     if (changes == null) {
 
       assert buffer != null;
@@ -248,6 +263,7 @@ public class DurablePage {
   }
 
   protected final short getShortValue(final int pageOffset) {
+    guardOffset(pageOffset, ShortSerializer.SHORT_SIZE);
     if (changes == null) {
       assert buffer != null;
 
@@ -259,6 +275,7 @@ public class DurablePage {
   }
 
   protected final long getLongValue(final int pageOffset) {
+    guardOffset(pageOffset, LongSerializer.LONG_SIZE);
     if (changes == null) {
       assert buffer != null;
 
@@ -334,6 +351,7 @@ public class DurablePage {
   }
 
   protected final byte getByteValue(final int pageOffset) {
+    guardOffset(pageOffset, ByteSerializer.BYTE_SIZE);
     if (changes == null) {
 
       assert buffer != null;
