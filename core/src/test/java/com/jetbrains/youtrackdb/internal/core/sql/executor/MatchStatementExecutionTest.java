@@ -3917,4 +3917,166 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ── Edge LINK schema inference + back-reference intersection tests ──
+
+  /**
+   * Tests that the MATCH planner infers the target vertex class from edge
+   * LINK declarations and uses the inferred class to enable adjacency list
+   * intersection via back-reference filters.
+   *
+   * <p>Schema: Author -[WROTE{out LINK Author, in LINK Article}]-> Article
+   *                    -[PUBLISHED_IN{out LINK Article, in LINK Journal}]-> Journal
+   *
+   * <p>Query pattern:
+   *   {Author} .out('WROTE'){Article} .out('PUBLISHED_IN'){Journal}
+   *            .in('PUBLISHED_IN'){otherArticle} .in('WROTE'){otherAuthor,
+   *              where: (@rid = $matched.Author.@rid)}
+   *
+   * <p>This pattern finds all articles in the same journal as the author's
+   * articles, then filters to only those written by the same author.
+   * Without the OrBlock unwrapping fix and edge class inference, the
+   * back-reference filter would not be detected and the intersection
+   * would not activate, causing all articles to be loaded and filtered
+   * post-hoc.
+   */
+  @Test
+  public void testMatchBackReferenceWithEdgeLinkInference() {
+    // Create schema with LINK declarations on edge endpoints
+    session.execute("CREATE CLASS Author EXTENDS V").close();
+    session.execute("CREATE CLASS Article EXTENDS V").close();
+    session.execute("CREATE CLASS Journal EXTENDS V").close();
+
+    session.execute("CREATE CLASS WROTE EXTENDS E").close();
+    session.execute("CREATE PROPERTY WROTE.out LINK Author").close();
+    session.execute("CREATE PROPERTY WROTE.in LINK Article").close();
+
+    session.execute("CREATE CLASS PUBLISHED_IN EXTENDS E").close();
+    session.execute("CREATE PROPERTY PUBLISHED_IN.out LINK Article").close();
+    session.execute("CREATE PROPERTY PUBLISHED_IN.in LINK Journal").close();
+
+    session.begin();
+    // Author1 wrote Article1 and Article2, both in Journal1
+    session.execute("CREATE VERTEX Author SET name = 'Author1'").close();
+    session.execute("CREATE VERTEX Author SET name = 'Author2'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A1'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A2'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A3'").close();
+    session.execute("CREATE VERTEX Journal SET name = 'J1'").close();
+
+    // Author1 wrote A1, A2
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author1')"
+            + " TO (SELECT FROM Article WHERE title='A1')")
+        .close();
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author1')"
+            + " TO (SELECT FROM Article WHERE title='A2')")
+        .close();
+    // Author2 wrote A3
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author2')"
+            + " TO (SELECT FROM Article WHERE title='A3')")
+        .close();
+
+    // All articles in J1
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A1')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A2')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A3')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.commit();
+
+    // Find articles by Author1 in the same journal as Author1's other articles.
+    // The back-reference @rid = $matched.author.@rid should be detected and
+    // used for adjacency list intersection on the in('WROTE') edge.
+    session.begin();
+    var result = session.query(
+        "MATCH"
+            + " {class: Author, as: author, where: (name = 'Author1')}"
+            + "   .out('WROTE'){as: article}"
+            + "   .out('PUBLISHED_IN'){as: journal}"
+            + "   .in('PUBLISHED_IN'){as: otherArticle}"
+            + "   .in('WROTE'){as: otherAuthor,"
+            + "     where: (@rid = $matched.author.@rid)}"
+            + " RETURN DISTINCT otherArticle.title AS title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    // Author1's articles in J1: A1, A2. The back-reference filter should
+    // ensure only Author1's articles are returned (not A3 by Author2).
+    assertEquals("Should find exactly 2 distinct articles", 2, titles.size());
+    assertTrue("Should find A1", titles.contains("A1"));
+    assertTrue("Should find A2", titles.contains("A2"));
+    session.commit();
+  }
+
+  /**
+   * Tests that edge class inference works correctly for a MATCH pattern where
+   * the target class is not explicitly specified but can be inferred from the
+   * edge schema LINK declarations. Verifies the result correctness — the
+   * inference enables the planner to use proper class-based filtering.
+   */
+  @Test
+  public void testMatchEdgeClassInferenceResultCorrectness() {
+    // Create a schema where the edge LINK declarations enable class inference
+    session.execute("CREATE CLASS Scientist EXTENDS V").close();
+    session.execute("CREATE CLASS Paper EXTENDS V").close();
+    session.execute("CREATE CLASS AUTHORED EXTENDS E").close();
+    session.execute("CREATE PROPERTY AUTHORED.out LINK Scientist").close();
+    session.execute("CREATE PROPERTY AUTHORED.in LINK Paper").close();
+
+    // Also add an index on Paper.year to test potential index-assisted filtering
+    session.execute("CREATE PROPERTY Paper.year INTEGER").close();
+    session.execute("CREATE INDEX Paper.year ON Paper(year) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Scientist SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX Scientist SET name = 'Bob'").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P1', year = 2020").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P2', year = 2021").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P3', year = 2022").close();
+
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Alice')"
+            + " TO (SELECT FROM Paper WHERE title='P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Alice')"
+            + " TO (SELECT FROM Paper WHERE title='P2')")
+        .close();
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Bob')"
+            + " TO (SELECT FROM Paper WHERE title='P3')")
+        .close();
+    session.commit();
+
+    // Query without explicit class constraint on the 'paper' alias.
+    // The planner should infer class 'Paper' from AUTHORED.in LINK Paper.
+    session.begin();
+    var result = session.query(
+        "MATCH"
+            + " {class: Scientist, as: s, where: (name = 'Alice')}"
+            + "   .out('AUTHORED'){as: paper}"
+            + " RETURN paper.title AS title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    assertEquals("Alice should have exactly 2 papers", 2, titles.size());
+    assertTrue("Should find P1", titles.contains("P1"));
+    assertTrue("Should find P2", titles.contains("P2"));
+    session.commit();
+  }
 }

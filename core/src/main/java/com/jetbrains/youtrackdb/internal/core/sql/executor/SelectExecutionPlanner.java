@@ -3211,8 +3211,10 @@ public class SelectExecutionPlanner {
         }
       }
 
-      // Step 4b: Infer target class from edge schema if not found via @class
-      if (className == null) {
+      // Step 4b: Infer target class from edge schema if not found via @class.
+      // Only needed when there is a push-down filter — without a filter there
+      // is no index to look up, so the schema traversal is unnecessary.
+      if (className == null && pushDownWhere != null) {
         className = inferTargetClassFromExpandEdgeSchema(info, plan);
       }
 
