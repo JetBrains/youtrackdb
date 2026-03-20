@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -22,13 +22,15 @@
   > **Key files:** `YTDBEdge.java` (modified), `YTDBEdgeImpl.java` (modified),
   > `YTDBGremlinPlugin.java` (modified), `YTDBStatefulEdge.java` (deleted).
 
-- [ ] Step: Clean up stale edge naming in tests
-  Rename 7 test methods in `SelectStatementExecutionTest` that contain
-  "StateFull" (e.g., `testOutEStateFullEdgesIndexUsageInGraph` →
-  `testOutEEdgesIndexUsageInGraph`). Update ~11 "lightweight entry" comments
-  in `LinkBagIndexTest` to use "single-RID entry" terminology. These are
-  cosmetic changes — no logic changes.
-  Files: `SelectStatementExecutionTest.java`, `LinkBagIndexTest.java`.
+- [x] Step: Clean up stale edge naming in tests
+  > **What was done:** Renamed 7 test methods in `SelectStatementExecutionTest`
+  > that contained "StateFull" (e.g., `testOutEStateFullEdgesIndexUsageInGraph`
+  > → `testOutEEdgesIndexUsageInGraph`). Updated ~11 "lightweight" comments in
+  > `LinkBagIndexTest` to use "single-RID" terminology. Purely cosmetic — no
+  > logic changes.
+  >
+  > **Key files:** `SelectStatementExecutionTest.java` (modified),
+  > `LinkBagIndexTest.java` (modified).
 
 - [ ] Step: Full verification run
   Run `./mvnw -pl core clean test` (includes ~1900 Cucumber scenarios via
