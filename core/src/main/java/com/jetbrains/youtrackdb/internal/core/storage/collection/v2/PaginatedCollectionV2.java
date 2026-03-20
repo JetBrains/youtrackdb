@@ -993,7 +993,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     assert snapshot != null
         : "AtomicOperationsSnapshot must not be null during optimistic record read";
 
-    // NOT_EXISTENT/ALLOCATED — definitive answer, propagates through.
+    // NOT_EXISTENT/ALLOCATED — the outer wrapper converts this RecordNotFoundException
+    // to an optimistic failure so the pinned fallback produces the authoritative answer.
     if (status == CollectionPositionMapBucket.NOT_EXISTENT
         || status == CollectionPositionMapBucket.ALLOCATED) {
       throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
