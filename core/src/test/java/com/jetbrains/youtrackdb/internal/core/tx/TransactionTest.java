@@ -1788,9 +1788,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIEdgeIterationConsistencyMultiThread() throws Exception {
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var initialEdgeCount = 5;
 
@@ -1896,9 +1894,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIConcurrentEdgeCreationAndDeletionMultiThread() throws Exception {
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var initialEdgeCount = 4;
 
@@ -2007,9 +2003,7 @@ public class TransactionTest {
    */
   @Test
   public void testSISnapshotFallbackForDeletedEdgeViaIteration() throws Exception {
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var tx = db.begin();
       var hub = tx.newVertex("V");
@@ -2076,12 +2070,13 @@ public class TransactionTest {
 
       joinAndCheck(thread, threadError);
 
-      // New transaction sees only 2 edges
+      // New transaction sees only the 2 surviving edges
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
-          "After deletion commit: new reader must see only 2 edges",
-          2, countEdges(vFinal.getEdges(Direction.OUT)));
+          "After deletion commit: new reader must see only surviving edges",
+          Set.of("target1", "target2"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
       restoreLinkBagThreshold(originalThreshold);
@@ -2106,9 +2101,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIEdgeLabelFilterMultiThread() throws Exception {
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       // Create two distinct edge subclasses — "Colleague" and "Friend" —
       // each stored in its own LinkBag so label-filtered queries are independent
@@ -2179,15 +2172,17 @@ public class TransactionTest {
 
       joinAndCheck(thread, threadError);
 
-      // New transaction sees both edge types
+      // New transaction sees both edge types — verify content, not just count
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
-          "After commit: 2 Friend edges visible",
-          2, countEdges(vFinal.getEdges(Direction.OUT, "Friend")));
+          "After commit: Friend edge targets",
+          Set.of("friend0", "friend1"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT, "Friend")));
       Assert.assertEquals(
-          "After commit: 2 Colleague edges still present",
-          2, countEdges(vFinal.getEdges(Direction.OUT, "Colleague")));
+          "After commit: Colleague edge targets",
+          Set.of("colleague0", "colleague1"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT, "Colleague")));
       txVerify.commit();
     } finally {
       restoreLinkBagThreshold(originalThreshold);
@@ -2213,9 +2208,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIMultipleReadersSameSnapshotEpochMultiThread() throws Exception {
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var tx = db.begin();
       var hub = tx.newVertex("V");
@@ -2252,8 +2245,9 @@ public class TransactionTest {
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(hubRid);
             Assert.assertEquals(
-                "Reader A: snapshot isolation must preserve original 3 edges",
-                3, countEdges(vrAfter.getEdges(Direction.OUT)));
+                "Reader A: snapshot isolation must preserve original edge set",
+                Set.of("target0", "target1", "target2"),
+                collectEdgeTargetNames(vrAfter.getEdges(Direction.OUT)));
             txReader.commit();
           } finally {
             dbReader.close();
@@ -2279,8 +2273,9 @@ public class TransactionTest {
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(hubRid);
             Assert.assertEquals(
-                "Reader B: snapshot isolation must preserve original 3 edges",
-                3, countEdges(vrAfter.getEdges(Direction.OUT)));
+                "Reader B: snapshot isolation must preserve original edge set",
+                Set.of("target0", "target1", "target2"),
+                collectEdgeTargetNames(vrAfter.getEdges(Direction.OUT)));
             txReader.commit();
           } finally {
             dbReader.close();
@@ -2312,12 +2307,13 @@ public class TransactionTest {
       joinAndCheck(readerA, errorA);
       joinAndCheck(readerB, errorB);
 
-      // New transaction: 3 - 1 + 2 = 4 edges
+      // New transaction: 3 - 1 + 2 = 4 edges — verify content, not just count
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
-          "After commit: new reader must see 4 edges (3 - 1 + 2)",
-          4, countEdges(vFinal.getEdges(Direction.OUT)));
+          "After commit: new reader must see surviving originals + new edges",
+          Set.of("target1", "target2", "new0", "new1"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
       restoreLinkBagThreshold(originalThreshold);
