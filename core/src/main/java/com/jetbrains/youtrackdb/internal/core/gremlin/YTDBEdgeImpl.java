@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBStatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Iterator;
@@ -11,7 +11,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 public final class YTDBEdgeImpl extends YTDBElementImpl implements YTDBEdgeInternal,
-    YTDBStatefulEdge {
+    YTDBEdge {
 
   public YTDBEdgeImpl(YTDBGraphInternal graph, Edge ytdbEdge) {
     super(graph, ytdbEdge);
