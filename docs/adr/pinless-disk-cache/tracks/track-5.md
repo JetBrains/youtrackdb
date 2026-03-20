@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -78,16 +78,19 @@
   > **Key files:** `CollectionPositionMapV2.java` (modified),
   > `PaginatedCollectionV2.java` (modified)
 
-- [ ] Step 5: Migrate FreeSpaceMap and SharedLinkBagBTree reads to optimistic reads
-  Migrate `FreeSpaceMap.findFreePage()` to use `executeOptimisticStorageRead()`:
-  the optimistic lambda performs the two-level segment tree lookup via
-  `loadPageOptimistic()` with per-level validation.
-  Migrate `SharedLinkBagBTree.get()` to use `executeOptimisticStorageRead()`: the
-  optimistic lambda traverses the link bag B-tree via `loadPageOptimistic()` with
-  per-level `validateLastOrThrow()`, similar to the CellBTreeSingleValueV3 pattern.
-  **NOT migrated** (kept on pinned path): SharedLinkBagBTree.firstItem/lastItem
-  (deep traversals with path tracking, low frequency).
-  Tests: existing FreeSpaceMap and SharedLinkBagBTree tests must pass. Add targeted
-  tests for optimistic path behavior.
-  Files: `FreeSpaceMap.java` (modified), `SharedLinkBagBTree.java` (modified),
-  test files (modified).
+- [x] Step 5: Migrate FreeSpaceMap and SharedLinkBagBTree reads to optimistic reads
+  > **What was done:** Migrated `FreeSpaceMap.findFreePage()` to
+  > `executeOptimisticStorageRead()` with a two-level optimistic segment tree lookup
+  > (`findFreePageOptimistic`) and pinned fallback (`findFreePagePinned`). Migrated
+  > `SharedLinkBagBTree.get()` with `getOptimistic()` traversing the link bag B-tree
+  > via `loadPageOptimistic()` with per-level `validateLastOrThrow()`, and `getPinned()`
+  > reusing the existing `findBucket()` + `loadPageForRead()` path. Depth overflow in
+  > the optimistic path triggers fallback instead of throwing corruption error.
+  > `firstItem`/`lastItem`/iterators stay on the pinned path as planned.
+  >
+  > **What was discovered:** Code review identified that the optimistic path in
+  > `findFreePageOptimistic()` returned `-1` (no free page) before validating the stamp,
+  > meaning speculative garbage from a concurrent eviction could produce a false "no
+  > space" result. Fixed by moving `scope.validateLastOrThrow()` before the early return.
+  >
+  > **Key files:** `FreeSpaceMap.java` (modified), `SharedLinkBagBTree.java` (modified)
