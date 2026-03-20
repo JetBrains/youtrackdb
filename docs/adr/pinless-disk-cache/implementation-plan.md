@@ -1822,6 +1822,21 @@ Phase 5: Remove component-level read lock from happy path
   > AtomicOperationsManager cleanup
   > **Depends on:** Track 5, Track 6
 
+- [ ] Track 8: Fix pre-existing test failures from rebase conflict resolution
+  > Fix 24 test failures introduced during the develop rebase (commit 990f16fbd3).
+  > Two failure categories:
+  > (1) **Histogram engine tests (13 failures):** IncrementalMaintenanceTest (4),
+  > RebalanceTriggerTest (4), ThreeTierTransitionTest (1), BTreeEngineHistogramBuildTest (1),
+  > IndexHistogramDurabilityTest (2), DatabaseImportTest (1). Root causes: rebalance
+  > threshold/version assertions failing, background executor not triggering builds,
+  > backup-restore histogram preservation broken — likely conflict resolution errors
+  > in histogram keyStreamSupplier merge.
+  > (2) **StorageBackupTest (11 failures):** All backup/restore operations fail with
+  > "Cannot create database" during restore. Likely a conflict in storage creation
+  > or backup metadata handling introduced during the rebase.
+  > **Scope:** ~2-3 steps covering histogram engine test fixes, StorageBackupTest fixes,
+  > and verification of the full core test suite passing
+
 ## Testing Strategy
 
 ### Current State
