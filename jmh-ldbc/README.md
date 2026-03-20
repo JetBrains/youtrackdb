@@ -60,18 +60,7 @@ Default JMH settings per benchmark: 3 warmup iterations (5s each) + 5 measuremen
 ## Prerequisites
 
 - **JDK 21+**
-- **curl** or **wget** — for automatic dataset download.
-- **zstd** CLI or **python3** with the `zstandard` package — for extracting the dataset archive. The benchmark tries `zstd` first, then falls back to `python3 -c "import zstandard"`.
-  ```bash
-  # Install zstd
-  sudo apt install zstd        # Ubuntu/Debian
-  brew install zstd             # macOS
-  sudo dnf install zstd         # Fedora
-
-  # Or install the Python fallback
-  pip install zstandard
-  ```
-- **Network access** to `repository.surfsara.nl` for automatic dataset download (only on first run). The SURF Data Repository stores files on tape; if the dataset is offline, the benchmark automatically stages it and polls until it becomes available (can take up to 20 minutes on the very first request).
+- **LDBC dataset** in CsvCompositeMergeForeign format — see [Dataset](#dataset) section for how to obtain it.
 
 ## Quick Start (Maven)
 
@@ -117,10 +106,9 @@ Both approaches fork a new JVM with all required `--add-opens` flags and 4 GB he
 ### First Run
 
 On the first run, the benchmark setup phase will:
-1. Download the LDBC SF 0.1 dataset (~22 MB compressed) from the SURF repository.
-2. Extract it using `zstd` or Python `zstandard`.
-3. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~1.8M records, ~5 min).
-4. Sample query parameters (person IDs, message IDs, tag names, etc.) from the loaded data.
+1. Look for the LDBC dataset at `./target/ldbc-dataset/sf0.1` (or the path specified by `-Dldbc.dataset.path`). The dataset must be obtained beforehand — see [Dataset](#dataset).
+2. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~1.8M records, ~5 min).
+3. Sample query parameters (person IDs, message IDs, tag names, etc.) from the loaded data.
 
 Subsequent runs reuse the existing database (~2s startup).
 
@@ -199,9 +187,9 @@ java -Dldbc.dataset.path=/data/ldbc/sf1 \
 
 ## Dataset
 
-The benchmark uses the LDBC SNB Interactive dataset in **CSV Composite (long date formatter)** format, hosted at the [SURF Data Repository](https://repository.surfsara.nl/datasets/cwi/snb/).
+The benchmark uses the LDBC SNB Interactive dataset in **CsvCompositeMergeForeign** format (datagen v1.0.0). In this format, 1-to-N relationships are embedded as foreign key columns in entity CSV files (e.g., `Person` CSV contains a `LocationCityId` column), while N-to-M relationships are in separate edge files.
 
-Available scale factors: 0.1, 0.3, 1, 3, 10, 30, 100. Larger scale factors produce more data and longer-running queries.
+**Important**: The dataset format must be CsvCompositeMergeForeign. Other formats (CsvComposite, CsvBasic, etc.) have different column layouts and are **not compatible** with the benchmark loaders.
 
 SF 0.1 (default) contains:
 
@@ -217,6 +205,65 @@ SF 0.1 (default) contains:
 | **Total records** | **~1.8M** |
 
 The dataset is loaded into YouTrackDB with the full LDBC schema: 15 vertex classes, 15 edge classes, and 21 indexes.
+
+### Obtaining the dataset
+
+There are two ways to obtain the dataset:
+
+#### Option 1: Download from Hetzner Object Storage (team members)
+
+The pre-built SF 0.1 dataset (~19 MB compressed) is cached in Hetzner Object Storage. This is the fastest option for team members with access to the project's cloud credentials.
+
+- **Bucket**: `bench-cache`
+- **Key**: `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`
+- **Credentials**: stored as GitHub repository secrets `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
+
+```bash
+# Download and extract using the AWS CLI (or any S3-compatible client)
+aws s3 cp s3://bench-cache/ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst /tmp/dataset.tar.zst \
+    --endpoint-url "$HETZNER_S3_ENDPOINT"
+
+# Extract to the expected location
+mkdir -p jmh-ldbc/target/ldbc-dataset/sf0.1
+cd jmh-ldbc/target/ldbc-dataset/sf0.1
+zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
+tar xf /tmp/dataset.tar
+rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
+```
+
+Or using Python `boto3`:
+```python
+import boto3
+s3 = boto3.client("s3",
+    endpoint_url=HETZNER_S3_ENDPOINT,
+    aws_access_key_id=HETZNER_S3_ACCESS_KEY,
+    aws_secret_access_key=HETZNER_S3_SECRET_KEY)
+s3.download_file("bench-cache",
+    "ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst",
+    "/tmp/dataset.tar.zst")
+```
+
+#### Option 2: Generate using LDBC datagen Docker image
+
+If you don't have access to the Hetzner S3 credentials, generate the dataset locally using the official [LDBC datagen](https://github.com/ldbc/ldbc_snb_datagen_spark) Docker image:
+
+```bash
+# Generate SF 0.1 dataset in CsvCompositeMergeForeign format
+docker run --rm \
+    -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" \
+    ldbc/datagen:latest \
+    --scale-factor 0.1 \
+    --mode raw \
+    --format CsvCompositeMergeForeign
+
+# Verify the expected structure
+ls jmh-ldbc/target/ldbc-dataset/sf0.1/static/   # Place, Tag, Organisation, ...
+ls jmh-ldbc/target/ldbc-dataset/sf0.1/dynamic/  # Person, Post, Comment, Forum, ...
+```
+
+The generated dataset directory must contain `static/` and `dynamic/` subdirectories. Entity files should contain foreign key columns (e.g., `Person` should have `LocationCityId`, `Post` should have `CreatorPersonId`, `ContainerForumId`, etc.).
+
+> **Note**: The SURF Data Repository (`repository.surfsara.nl`) hosts LDBC datasets on tape storage. It provides the CsvComposite format (v0.3.5), **not** CsvCompositeMergeForeign. Do not use SURF datasets with this benchmark — the column layouts are incompatible.
 
 ## Project Structure
 

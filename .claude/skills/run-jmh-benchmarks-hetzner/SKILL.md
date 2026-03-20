@@ -36,12 +36,19 @@ For **jmh-ldbc** specifically:
 
 ### Step 1: Provision the server
 
+**Naming convention**: Use `jmh-bench-<branch>` for the server and `jmh-bench-key-<branch>` for the SSH key, where `<branch>` is the current git branch name (sanitized: lowercase, slashes replaced with dashes, truncated to keep total name under 63 chars). This avoids conflicts when multiple benchmark runs execute concurrently on different branches.
+
 ```bash
+# Determine branch-based names
+BRANCH=$(git rev-parse --abbrev-ref HEAD | tr '[:upper:]/' '[:lower:]-' | cut -c1-40)
+SERVER_NAME="jmh-bench-${BRANCH}"
+KEY_NAME="jmh-bench-key-${BRANCH}"
+
 # Upload local SSH public key
-hcloud ssh-key create --name jmh-bench-key --public-key-from-file ~/.ssh/id_ed25519.pub
+hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file ~/.ssh/id_ed25519.pub
 
 # Create CCX33: 8 dedicated AMD vCPUs, 32 GB RAM, Falkenstein DC
-hcloud server create --name jmh-bench --type ccx33 --image ubuntu-24.04 --location fsn1 --ssh-key jmh-bench-key
+hcloud server create --name "$SERVER_NAME" --type ccx33 --image ubuntu-24.04 --location fsn1 --ssh-key "$KEY_NAME"
 ```
 
 Record the IPv4 address from the output. Wait ~15 seconds for the server to boot before attempting SSH.
@@ -76,9 +83,9 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
   cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet'
 ```
 
-### Step 3b: Download dataset from Hetzner S3 (jmh-ldbc only)
+### Step 3b: Download dataset from Hetzner S3 (jmh-ldbc only — MANDATORY)
 
-Instead of relying on the LDBC dataset download during benchmark setup (which uses the SURF tape archive and can take 20+ minutes to stage), pre-download the dataset from Hetzner Object Storage (S3):
+The LDBC dataset must be pre-downloaded before running benchmarks. The benchmark no longer auto-downloads from SURF (the SURF format is incompatible). Download it from Hetzner Object Storage (S3):
 
 ```bash
 ssh root@<IP> 'apt-get install -y -qq python3-pip zstd > /dev/null 2>&1 && \
@@ -112,7 +119,19 @@ Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`).
 
 The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format (~19 MB). It is stored in Hetzner Object Storage bucket `bench-cache` at key `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`.
 
-**Avoid** the SURF repository at `repository.surfsara.nl` — it stores files on tape and can take 20+ minutes to stage before the download begins.
+**If S3 credentials are unavailable**, generate the dataset locally using the LDBC datagen Docker image, then rsync it to the server:
+```bash
+# On the local machine
+docker run --rm \
+    -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" \
+    ldbc/datagen:latest \
+    --scale-factor 0.1 --mode raw --format CsvCompositeMergeForeign
+
+# Then rsync the dataset to the server
+rsync -az jmh-ldbc/target/ldbc-dataset/ root@<IP>:/root/ytdb/jmh-ldbc/target/ldbc-dataset/
+```
+
+**Do not use** the SURF repository at `repository.surfsara.nl` — it provides CsvComposite format (v0.3.5), which is incompatible with the benchmark loaders.
 
 ### Step 4: Compile
 
@@ -211,11 +230,11 @@ cp /tmp/claude-code-results.json <module>/<name>-results-ccx33.json
 
 ### Step 8: Destroy the server
 
-Always clean up to avoid charges:
+Always clean up to avoid charges. Use the same branch-based names from Step 1:
 
 ```bash
-hcloud server delete jmh-bench
-hcloud ssh-key delete jmh-bench-key
+hcloud server delete "$SERVER_NAME"
+hcloud ssh-key delete "$KEY_NAME"
 ```
 
 ### Step 9: Compare results
@@ -241,14 +260,16 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 | Need real-time output | Use tmux + tee (already in the command above) |
 | Wild/inconsistent ops/s in MT benchmarks | Dataset not pre-loaded. Run Step 4b first. The first fork loads the DB during warmup; MT threads see partially loaded data. |
 | `apt-get` lock on fresh server | Wait 30s for `unattended-upgrades` to finish, then retry. |
-| SURF tape staging takes 20+ minutes | Use Hetzner S3 (Step 3b) instead. |
+| Dataset not found error during setup | Dataset must be pre-downloaded via Step 3b (Hetzner S3). The benchmark no longer auto-downloads from SURF. |
 
 ## Notes
 
 - **Server type**: CCX33 provides 8 dedicated AMD EPYC vCPUs — dedicated (not shared) cores ensure consistent benchmark results. For heavier benchmarks, consider CCX43 (16 vCPUs) or CCX53 (32 vCPUs).
 - **jmh-ldbc Threads.MAX**: The multi-threaded LDBC benchmark uses `@Threads(Threads.MAX)` — one thread per available processor. On CCX33 this means 8 threads.
-- **jmh-ldbc dataset loading**: The LDBC dataset download and DB creation happens inside `LdbcBenchmarkState.@Setup(Level.Trial)`. This runs once per JMH fork. The first fork downloads and loads (several minutes); subsequent forks detect the existing DB and skip. Always pre-load with `-f 0` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`; the dataset cache is `./target/ldbc-dataset/`.
+- **jmh-ldbc dataset loading**: The LDBC dataset must be pre-downloaded via Step 3b (Hetzner S3) — the benchmark no longer auto-downloads from SURF. DB creation happens inside `LdbcBenchmarkState.@Setup(Level.Trial)` on first run. Always pre-load with `-f 0` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`; the dataset cache is `./target/ldbc-dataset/`.
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
 - **S3 dataset cache**: The LDBC dataset archive (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB, datagen v1.0.0 CsvCompositeMergeForeign format) is cached in Hetzner Object Storage bucket `bench-cache` at `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`. Credentials are stored as GitHub secrets `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them in code or commit them to the repository.
+- **Dataset without S3 access**: If S3 credentials are unavailable, generate the dataset locally using the LDBC datagen Docker image: `docker run --rm -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" ldbc/datagen:latest --scale-factor 0.1 --mode raw --format CsvCompositeMergeForeign`. Then rsync the generated dataset to the server. See `jmh-ldbc/README.md` for details.
+- **Do not use SURF**: The SURF Data Repository (`repository.surfsara.nl`) provides the CsvComposite format (v0.3.5), which is **incompatible** with the benchmark loaders that expect CsvCompositeMergeForeign column layouts.

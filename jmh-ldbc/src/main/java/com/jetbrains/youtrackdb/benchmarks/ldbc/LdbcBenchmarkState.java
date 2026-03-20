@@ -8,7 +8,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,20 +32,19 @@ import org.slf4j.LoggerFactory;
  * Creates and loads a YouTrackDB database from LDBC SF 0.1 dataset on first run,
  * reuses the existing database on subsequent runs.
  *
- * <p>The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format, where
- * 1-to-N relationships are embedded as foreign key columns in entity CSV files.
- * The dataset is automatically downloaded from the LDBC SURF repository if not
- * present locally.
+ * <p>The dataset must use LDBC datagen v1.0.0 CsvCompositeMergeForeign format,
+ * where 1-to-N relationships are embedded as foreign key columns in entity CSV
+ * files. The dataset must be obtained before running benchmarks — either from
+ * Hetzner Object Storage (team members) or by generating it locally using the
+ * LDBC datagen Docker image. See {@code jmh-ldbc/README.md} for details.
  *
  * <p>Configure via system properties:
  * <ul>
  *   <li>{@code -Dldbc.dataset.path=/path/to/sf0.1} - path to LDBC dataset root
- *       (must contain static/ and dynamic/ subdirectories).
- *       If not set, defaults to {@code ./target/ldbc-dataset/sf0.1} and
- *       auto-downloads the dataset.</li>
+ *       (must contain static/ and dynamic/ subdirectories)</li>
  *   <li>{@code -Dldbc.db.path=./target/ldbc-bench-db} - path to store the database</li>
  *   <li>{@code -Dldbc.batch.size=1000} - batch size for data loading</li>
- *   <li>{@code -Dldbc.scale.factor=0.1} - scale factor for auto-download</li>
+ *   <li>{@code -Dldbc.scale.factor=0.1} - scale factor (used in default dataset path)</li>
  * </ul>
  */
 @State(Scope.Benchmark)
@@ -57,11 +55,6 @@ public class LdbcBenchmarkState {
   private static final String DB_NAME = "ldbc_benchmark";
   private static final int MAX_PARAMS = 200;
   private static final int DEFAULT_BATCH_SIZE = 1000;
-
-  private static final String LDBC_DATASET_BASE_URL =
-      "https://repository.surfsara.nl/datasets/cwi/snb/files";
-  private static final String LDBC_SERIALIZER =
-      "social_network-csv_composite-longdateformatter";
 
   YouTrackDB db;
   YTDBGraphTraversalSource traversal;
@@ -145,10 +138,16 @@ public class LdbcBenchmarkState {
 
     Path datasetDir = Path.of(datasetPath);
 
-    // Auto-download dataset if not present
+    // Dataset must be pre-obtained (from Hetzner S3 or generated via datagen)
     if (!Files.exists(datasetDir.resolve("static"))
         || !Files.exists(datasetDir.resolve("dynamic"))) {
-      downloadDataset(datasetDir, scaleFactor);
+      throw new IllegalStateException(
+          "LDBC dataset not found at: " + datasetDir.toAbsolutePath()
+              + ". The dataset must contain static/ and dynamic/ subdirectories"
+              + " in CsvCompositeMergeForeign format."
+              + " Download it from Hetzner Object Storage"
+              + " or generate it using the LDBC datagen Docker image."
+              + " See jmh-ldbc/README.md for instructions.");
     }
 
     db = YourTracks.instance(dbPath);
@@ -186,238 +185,6 @@ public class LdbcBenchmarkState {
       }
     } catch (Exception e) {
       log.warn("Error closing database", e);
-    }
-  }
-
-  // ==================== DATASET DOWNLOAD ====================
-
-  private void downloadDataset(Path targetDir, String scaleFactor)
-      throws Exception {
-    String archiveName = LDBC_SERIALIZER + "-sf" + scaleFactor + ".tar.zst";
-    String url =
-        LDBC_DATASET_BASE_URL + "/" + LDBC_SERIALIZER + "/" + archiveName;
-
-    Path tempDir = targetDir.getParent().resolve("tmp");
-    Files.createDirectories(tempDir);
-    Path archivePath = tempDir.resolve(archiveName);
-
-    if (!Files.exists(archivePath)) {
-      log.info("Downloading LDBC SF {} dataset from: {}", scaleFactor, url);
-      log.info("This may take a few minutes for the first run...");
-      downloadFile(url, archivePath);
-      log.info("Download complete: {}", archivePath);
-    } else {
-      log.info("Using cached archive: {}", archivePath);
-    }
-
-    log.info("Extracting dataset...");
-    Files.createDirectories(targetDir);
-    extractTarZst(archivePath, targetDir);
-
-    // Handle nested directory structure - move files up if needed
-    Path nestedDir = findDataDir(targetDir);
-    if (nestedDir != null && !nestedDir.equals(targetDir)) {
-      log.info("Moving extracted data from {} to {}", nestedDir, targetDir);
-      try (var files = Files.list(nestedDir)) {
-        for (Path file : files.toList()) {
-          Path dest = targetDir.resolve(file.getFileName());
-          if (!Files.exists(dest)) {
-            Files.move(file, dest);
-          }
-        }
-      }
-    }
-
-    log.info("Dataset extracted to: {}", targetDir);
-  }
-
-  private Path findDataDir(Path root) throws IOException {
-    if (Files.exists(root.resolve("static"))
-        && Files.exists(root.resolve("dynamic"))) {
-      return root;
-    }
-    // Search recursively for static/dynamic directories (handles nested
-    // datagen output like social_network/graphs/csv/raw/composite-merged-fk/)
-    try (var walker = Files.walk(root, 10)) {
-      return walker
-          .filter(Files::isDirectory)
-          .filter(d -> Files.exists(d.resolve("static"))
-              && Files.exists(d.resolve("dynamic")))
-          .findFirst()
-          .orElse(null);
-    }
-  }
-
-  /**
-   * Downloads a file from a URL using curl (with --insecure for envs with
-   * incomplete CA bundles), falling back to wget, then Java.
-   *
-   * <p>The SURF Data Repository may return HTTP 409 when files are on tape
-   * storage. In that case we trigger staging via their REST API and poll until
-   * the file is online.
-   */
-  private void downloadFile(String url, Path target) throws Exception {
-    String targetAbs = target.toAbsolutePath().toString();
-
-    // SURF tape-storage handling: stage the file if needed
-    stageIfSurfOffline(url);
-
-    // Strategy 1: curl
-    if (tryExec("curl", "-fSL", "--insecure", "-o", targetAbs, url) == 0
-        && Files.exists(target) && Files.size(target) > 0) {
-      return;
-    }
-    Files.deleteIfExists(target);
-    log.info("curl not available or failed, trying wget...");
-
-    // Strategy 2: wget
-    if (tryExec(
-        "wget", "-q", "--no-check-certificate", "-O", targetAbs, url) == 0
-        && Files.exists(target) && Files.size(target) > 0) {
-      return;
-    }
-    Files.deleteIfExists(target);
-    log.info("wget not available or failed, trying Java URL.openStream()...");
-
-    // Strategy 3: Java (may fail with SSL cert issues in some environments)
-    try (InputStream in = URI.create(url).toURL().openStream()) {
-      Files.copy(in, target);
-      return;
-    } catch (Exception e) {
-      Files.deleteIfExists(target);
-      throw new IOException(
-          "Failed to download " + url + ". "
-              + "Install curl or wget, or download manually to: " + target,
-          e);
-    }
-  }
-
-  /**
-   * SURF Data Repository stores large files on tape. An initial request returns
-   * HTTP 409 with {"error":"File is offline"}. We must POST to the stage
-   * endpoint and poll until the status becomes "ONL" (online).
-   */
-  private void stageIfSurfOffline(String url) throws Exception {
-    if (!url.contains("repository.surfsara.nl")) {
-      return;
-    }
-    ProcessBuilder pb = new ProcessBuilder(
-        "curl", "-skI", "-o", "/dev/null", "-w", "%{http_code}", url);
-    pb.redirectErrorStream(true);
-    Process proc = pb.start();
-    String httpCode =
-        new String(proc.getInputStream().readAllBytes()).trim();
-    proc.waitFor();
-
-    if (!"409".equals(httpCode)) {
-      return;
-    }
-
-    pb = new ProcessBuilder("curl", "-sk", url);
-    pb.redirectErrorStream(true);
-    proc = pb.start();
-    String body =
-        new String(proc.getInputStream().readAllBytes()).trim();
-    proc.waitFor();
-
-    String stageUrl = extractJsonValue(body, "stage");
-    String statusUrl = extractJsonValue(body, "status");
-
-    if (stageUrl == null || statusUrl == null) {
-      log.warn(
-          "Could not parse SURF staging URLs from response: {}", body);
-      return;
-    }
-
-    log.info("SURF file is offline (tape storage). Requesting staging...");
-    tryExec("curl", "-sk", "-X", "POST", stageUrl);
-
-    for (int i = 0; i < 40; i++) {
-      Thread.sleep(15_000);
-      pb = new ProcessBuilder("curl", "-sk", statusUrl);
-      pb.redirectErrorStream(true);
-      proc = pb.start();
-      String status =
-          new String(proc.getInputStream().readAllBytes()).trim();
-      proc.waitFor();
-
-      if (status.contains("\"ONL\"")) {
-        log.info("SURF file is now online, proceeding with download.");
-        return;
-      }
-      String stateCode = extractJsonValue(status, "status");
-      log.info("Waiting for SURF staging... status={} ({}/40)",
-          stateCode, i + 1);
-    }
-    log.warn(
-        "SURF staging timed out after 10 minutes. Attempting download anyway.");
-  }
-
-  private static String extractJsonValue(String json, String key) {
-    String pattern = "\"" + key + "\"";
-    int idx = json.indexOf(pattern);
-    if (idx < 0) {
-      return null;
-    }
-    int valueStart = json.indexOf('"', idx + pattern.length() + 1);
-    if (valueStart < 0) {
-      return null;
-    }
-    int valueEnd = json.indexOf('"', valueStart + 1);
-    if (valueEnd < 0) {
-      return null;
-    }
-    return json.substring(valueStart + 1, valueEnd).replace("\\/", "/");
-  }
-
-  /**
-   * Extracts a .tar.zst archive. Tries three strategies in order:
-   * 1. tar --use-compress-program=zstd (requires zstd CLI)
-   * 2. python3 with zstandard + tarfile modules
-   * 3. Fails with an actionable error message
-   */
-  private void extractTarZst(Path archive, Path targetDir) throws Exception {
-    String archiveAbs = archive.toAbsolutePath().toString();
-    String targetAbs = targetDir.toAbsolutePath().toString();
-
-    if (tryExec("tar", "--use-compress-program=zstd", "-xf", archiveAbs,
-        "-C", targetAbs) == 0) {
-      return;
-    }
-    log.info("zstd CLI not found, falling back to python3...");
-
-    String pyScript = String.join("\n",
-        "import zstandard, tarfile, os, sys",
-        "archive = sys.argv[1]",
-        "target = os.path.realpath(sys.argv[2])",
-        "def safe_filter(member, path):",
-        "    resolved = os.path.realpath(os.path.join(path, member.name))",
-        "    if not resolved.startswith(path + os.sep)"
-            + " and resolved != path:",
-        "        raise Exception('Path traversal detected: ' + member.name)",
-        "    return member",
-        "with open(archive, 'rb') as fh:",
-        "    dctx = zstandard.ZstdDecompressor()",
-        "    with dctx.stream_reader(fh) as reader:",
-        "        with tarfile.open(fileobj=reader, mode='r|') as tf:",
-        "            tf.extractall(path=target, filter=safe_filter)");
-    if (tryExec("python3", "-c", pyScript, archiveAbs, targetAbs) == 0) {
-      return;
-    }
-
-    throw new IOException(
-        "Failed to extract " + archive.getFileName() + ". "
-            + "Install one of: zstd CLI (apt/brew/dnf install zstd) "
-            + "or python3 + zstandard (pip install zstandard)");
-  }
-
-  private int tryExec(String... command) throws Exception {
-    try {
-      ProcessBuilder pb = new ProcessBuilder(command);
-      pb.inheritIO();
-      return pb.start().waitFor();
-    } catch (IOException e) {
-      return -1;
     }
   }
 
