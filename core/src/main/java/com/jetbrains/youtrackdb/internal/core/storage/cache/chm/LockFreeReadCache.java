@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
@@ -332,6 +333,35 @@ public final class LockFreeReadCache implements ReadCache {
       policy.setMaxSize((int) (maxMemory / pageSize));
     } finally {
       evictionLock.unlock();
+    }
+  }
+
+  @Override
+  @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
+    final var pageKey = new PageKey(fileId, (int) pageIndex);
+    final var cacheEntry = data.get(pageKey);
+
+    if (cacheEntry == null || !cacheEntry.isAlive()) {
+      return null;
+    }
+
+    final var cachePointer = cacheEntry.getCachePointer();
+    if (cachePointer == null) {
+      return null;
+    }
+
+    return cachePointer.getPageFrame();
+  }
+
+  @Override
+  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
+    final var pageKey = new PageKey(fileId, (int) pageIndex);
+    final var cacheEntry = data.get(pageKey);
+
+    // Entry may have been evicted between stamp validation and this call.
+    // One missed frequency bump is harmless — skip silently.
+    if (cacheEntry != null) {
+      afterRead(cacheEntry);
     }
   }
 

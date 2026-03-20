@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -405,6 +406,18 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public void changeMaximumAmountOfMemory(final long calculateReadCacheMaxMemory) {
+  }
+
+  @Override
+  @Nullable public PageFrame getPageFrameOptimistic(long fileId, long pageIndex) {
+    // In-memory cache does not support optimistic reads — always returns null
+    // so the caller falls back to the CAS-pinned path.
+    return null;
+  }
+
+  @Override
+  public void recordOptimisticAccess(long fileId, long pageIndex) {
+    // No-op: in-memory cache has no eviction policy to update.
   }
 
   @Override
