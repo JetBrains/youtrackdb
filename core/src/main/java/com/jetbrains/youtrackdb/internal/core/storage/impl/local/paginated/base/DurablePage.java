@@ -205,6 +205,14 @@ public class DurablePage {
     }
   }
 
+  /**
+   * Asserts that this page is not in speculative read mode. Called by setter methods to
+   * catch accidental writes to a shared buffer during optimistic reads.
+   */
+  private void assertNotSpeculative() {
+    assert !speculativeRead : "Write operations are not allowed on speculative-read pages";
+  }
+
   protected final int getIntValue(final int pageOffset) {
     if (changes == null) {
 
@@ -228,7 +236,9 @@ public class DurablePage {
     return values;
   }
 
-  protected final void setIntArray(final int pageOffset, int[] values, int offset) {
+  protected final void setIntArray(final int pageOffset, final int[] values, final int offset) {
+    assertNotSpeculative();
+
     var bytes = new byte[(values.length - offset) * IntegerSerializer.INT_SIZE];
     for (var i = offset; i < values.length; i++) {
       IntegerSerializer.serializeNative(
@@ -336,6 +346,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setIntValue(final int pageOffset, final int value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setIntValue(buffer, value, pageOffset);
     } else {
@@ -348,7 +359,7 @@ public class DurablePage {
   }
 
   protected final int setShortValue(final int pageOffset, final short value) {
-
+    assertNotSpeculative();
     if (changes != null) {
       changes.setIntValue(buffer, value, pageOffset);
     } else {
@@ -362,6 +373,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setByteValue(final int pageOffset, final byte value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setByteValue(buffer, value, pageOffset);
     } else {
@@ -375,6 +387,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setLongValue(final int pageOffset, final long value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setLongValue(buffer, value, pageOffset);
     } else {
@@ -387,6 +400,7 @@ public class DurablePage {
   }
 
   protected final int setBinaryValue(final int pageOffset, final byte[] value) {
+    assertNotSpeculative();
     if (value.length == 0) {
       return 0;
     }
@@ -403,6 +417,7 @@ public class DurablePage {
   }
 
   protected final void moveData(final int from, final int to, final int len) {
+    assertNotSpeculative();
     if (len == 0) {
       return;
     }
@@ -426,6 +441,7 @@ public class DurablePage {
   }
 
   public final void restoreChanges(final WALChanges changes) {
+    assertNotSpeculative();
     final var buffer = cacheEntry.getCachePointer().getBuffer();
     assert buffer != null;
 
@@ -433,6 +449,7 @@ public class DurablePage {
   }
 
   public final void setLsn(final LogSequenceNumber lsn) {
+    assertNotSpeculative();
     assert buffer != null;
 
     assert buffer.order() == ByteOrder.nativeOrder();

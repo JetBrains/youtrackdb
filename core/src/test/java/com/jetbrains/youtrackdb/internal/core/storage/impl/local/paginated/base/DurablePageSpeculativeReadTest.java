@@ -76,57 +76,55 @@ public class DurablePageSpeculativeReadTest {
     releaseFrame(frame);
   }
 
-  @Test(expected = OptimisticReadFailedException.class)
+  @Test
   public void testGuardSizeThrowsForNegativeSize() {
     // Negative size indicates stale data — should throw.
     var frame = acquireFrameWithCoordinates(1, 0);
-    long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
 
-    page.guardSize(-1);
-  }
-
-  @Test(expected = OptimisticReadFailedException.class)
-  public void testGuardSizeThrowsForOverflowSize() {
-    // Size exceeding buffer capacity indicates stale data — should throw.
-    var frame = acquireFrameWithCoordinates(1, 0);
-    long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
-
-    page.guardSize(PAGE_SIZE + 1);
-  }
-
-  @Test(expected = OptimisticReadFailedException.class)
-  public void testGuardSizeThrowsForLargeNegative() {
-    // Large negative value (could come from corrupted int read) — should throw.
-    var frame = acquireFrameWithCoordinates(1, 0);
-    long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
-
-    page.guardSize(Integer.MIN_VALUE);
+      page.guardSize(-1);
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
   }
 
   @Test
-  public void testGuardSizeNoOpWhenNotSpeculative() {
-    // When speculativeRead is false, guardSize should never throw,
-    // even for invalid sizes. We test this indirectly via a CacheEntry-based page.
-    // Since we can't easily construct a CacheEntry in a unit test, we verify
-    // the speculative mode works correctly instead — the non-speculative path
-    // does not call guardSize at all (changes != null or buffer assertions catch bugs).
+  public void testGuardSizeThrowsForOverflowSize() {
+    // Size exceeding buffer capacity indicates stale data — should throw.
     var frame = acquireFrameWithCoordinates(1, 0);
-    long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
-
-    // Confirm speculative mode IS enabled for this page
     try {
-      page.guardSize(-1);
-      // Should not reach here
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.guardSize(PAGE_SIZE + 1);
       throw new AssertionError("Expected OptimisticReadFailedException");
     } catch (OptimisticReadFailedException expected) {
-      // Expected — confirming the guard is active
+      // Expected
+    } finally {
+      releaseFrame(frame);
     }
+  }
 
-    releaseFrame(frame);
+  @Test
+  public void testGuardSizeThrowsForLargeNegative() {
+    // Large negative value (could come from corrupted int read) — should throw.
+    var frame = acquireFrameWithCoordinates(1, 0);
+    try {
+      long stamp = frame.tryOptimisticRead();
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+
+      page.guardSize(Integer.MIN_VALUE);
+      throw new AssertionError("Expected OptimisticReadFailedException");
+    } catch (OptimisticReadFailedException expected) {
+      // Expected
+    } finally {
+      releaseFrame(frame);
+    }
   }
 
   @Test
