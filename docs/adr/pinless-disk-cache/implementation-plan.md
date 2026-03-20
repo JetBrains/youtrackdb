@@ -1787,7 +1787,7 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 4: Optimistic read infrastructure
+- [x] Track 4: Optimistic read infrastructure
   > Add OptimisticReadScope, OptimisticReadFailedException, PageView, optimistic
   > lookup in LockFreeReadCache, DurablePage speculative-read constructor with
   > defensive allocation guards, and DurableComponent helpers
@@ -1796,6 +1796,24 @@ Phase 5: Remove component-level read lock from happy path
   > LockFreeReadCache optimistic lookup, DurablePage PageView constructor +
   > guardSize, DurableComponent helpers, AtomicOperation integration
   > **Depends on:** Track 3
+  >
+  > **Track episode:**
+  > Built the complete optimistic read infrastructure: OptimisticReadScope
+  > (growable PageFrame+stamp tracker), OptimisticReadFailedException (singleton,
+  > no-stacktrace), PageView (record for speculative page access), optimistic CHM
+  > lookup in LockFreeReadCache (no CAS), DurablePage speculative-read constructor
+  > with guardSize/guardOffset defensive bounds checks, and DurableComponent helpers
+  > (loadPageOptimistic, executeOptimisticStorageRead with automatic fallback to
+  > shared-lock + CAS-pinned path). Integrated OptimisticReadScope into
+  > AtomicOperationBinaryTracking for per-operation scope lifecycle. Key discoveries:
+  > (1) CacheEntryImpl.dataPointer is not volatile — theoretical TOCTOU between
+  > isAlive() and getCachePointer() during eviction, mitigated by stamp validation;
+  > (2) post-validation recordOptimisticAccesses() has a benign TOCTOU that may bump
+  > frequency for the wrong page — documented as harmless eviction heuristic skew.
+  > Track-level code review added guardOffset bounds checks to all scalar getters
+  > and fixed an integer overflow in guardOffset arithmetic. No cross-track impact.
+  >
+  > **Step file:** `tracks/track-4.md` (5 steps, 0 failed)
 
 - [ ] Track 5: Migrate DurableComponent read operations
   > Migrate B-tree reads (highest impact), collection reads (single-page),
