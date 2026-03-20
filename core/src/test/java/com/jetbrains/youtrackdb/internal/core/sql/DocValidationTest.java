@@ -687,4 +687,188 @@ public class DocValidationTest {
                 .toList());
     assertThat(results).hasSize(1);
   }
+
+  // === YQL-Delete-Vertex.md ===
+
+  // Line 21: DELETE VERTEX #<rid> — removes a vertex by its Record ID
+  @Test
+  public void testDeleteVertexByRid() {
+    g.command("CREATE CLASS DVByRid IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVByRid SET name = 'toDelete'").iterate();
+    });
+
+    // Get the RID of the created vertex
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM DVByRid").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    String rid = v.id().toString();
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX " + rid).iterate();
+    });
+
+    var afterDelete = g.computeInTx(tx -> tx.yql("SELECT FROM DVByRid").toList());
+    assertThat(afterDelete).isEmpty();
+  }
+
+  // Line 27: DELETE VERTEX with WHERE clause filtering by incoming edge class
+  @Test
+  public void testDeleteVertexWhereInClassContains() {
+    g.command("CREATE CLASS DVAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVBadBehavior IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVAccount SET name = 'goodUser'").iterate();
+      tx.yql("CREATE VERTEX DVAccount SET name = 'badUser'").iterate();
+      tx.yql("CREATE VERTEX DVAccount SET name = 'reporter'").iterate();
+    });
+
+    // Create an edge of class DVBadBehavior pointing to the bad user
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVBadBehavior "
+              + "FROM (SELECT FROM DVAccount WHERE name = 'reporter') "
+              + "TO (SELECT FROM DVAccount WHERE name = 'badUser')")
+          .iterate();
+    });
+
+    // Doc uses: in.@Class CONTAINS 'BadBehaviorInForum'
+    // BUG in doc: in.@Class returns empty — correct syntax is inE().@Class
+    var matchedWhere =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM DVAccount WHERE inE().@Class CONTAINS 'DVBadBehavior'")
+                .toList());
+    assertThat(matchedWhere).hasSize(1);
+    assertThat((String) ((Vertex) matchedWhere.get(0)).value("name")).isEqualTo("badUser");
+
+    // Delete accounts with incoming edges of class DVBadBehavior (using correct syntax)
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVAccount WHERE inE().@Class CONTAINS 'DVBadBehavior'")
+          .iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVAccount").toList());
+    // badUser should be deleted; goodUser and reporter remain
+    assertThat(remaining).hasSize(2);
+    for (Object r : remaining) {
+      Vertex rv = (Vertex) r;
+      assertThat((String) rv.value("name")).isNotEqualTo("badUser");
+    }
+  }
+
+  // Line 33: DELETE VERTEX EMailMessage WHERE isSpam = TRUE
+  @Test
+  public void testDeleteVertexWhereIsSpam() {
+    g.command("CREATE CLASS DVEMailMessage IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'legit', isSpam = false").iterate();
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'spam1', isSpam = true").iterate();
+      tx.yql("CREATE VERTEX DVEMailMessage SET subject = 'spam2', isSpam = true").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVEMailMessage WHERE isSpam = TRUE").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVEMailMessage").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("subject")).isEqualTo("legit");
+  }
+
+  // Line 47: DELETE VERTEX v BATCH 1000 — batch deletion
+  @Test
+  public void testDeleteVertexWithBatch() {
+    g.command("CREATE CLASS DVBatch IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 10; i++) {
+        tx.yql("CREATE VERTEX DVBatch SET idx = " + i).iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVBatch BATCH 3").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVBatch").toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 8: DELETE VERTEX with LIMIT clause
+  @Test
+  public void testDeleteVertexWithLimit() {
+    g.command("CREATE CLASS DVLimit IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 10; i++) {
+        tx.yql("CREATE VERTEX DVLimit SET idx = " + i).iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVLimit LIMIT 5").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVLimit").toList());
+    assertThat(remaining).hasSize(5);
+  }
+
+  // Line 8: DELETE VERTEX with FROM sub-query
+  @Test
+  public void testDeleteVertexFromSubQuery() {
+    g.command("CREATE CLASS DVSubQuery IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVSubQuery SET name = 'keep'").iterate();
+      tx.yql("CREATE VERTEX DVSubQuery SET name = 'remove'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX FROM (SELECT FROM DVSubQuery WHERE name = 'remove')").iterate();
+    });
+
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVSubQuery").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("name")).isEqualTo("keep");
+  }
+
+  // Factual claim: DELETE VERTEX disconnects all connected edges
+  @Test
+  public void testDeleteVertexDisconnectsEdges() {
+    g.command("CREATE CLASS DVEdgeSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVEdgeDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVEdgeLink IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEdgeSrc SET name = 'source'").iterate();
+      tx.yql("CREATE VERTEX DVEdgeDst SET name = 'target'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVEdgeLink "
+              + "FROM (SELECT FROM DVEdgeSrc WHERE name = 'source') "
+              + "TO (SELECT FROM DVEdgeDst WHERE name = 'target')")
+          .iterate();
+    });
+
+    // Delete the target vertex — should also remove the edge
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX DVEdgeDst WHERE name = 'target'").iterate();
+    });
+
+    // The source vertex should have no outgoing edges
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DVEdgeLink')) FROM DVEdgeSrc WHERE name = 'source'")
+                .toList());
+    assertThat(edges).isEmpty();
+  }
 }
