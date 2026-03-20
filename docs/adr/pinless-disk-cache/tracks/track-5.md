@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -31,24 +31,19 @@
   > `DurableComponentOptimisticReadTest.java` (modified — 3 new tests),
   > `AtomicOperationSnapshotProxyTest.java` (modified — 7 new tests)
 
-- [ ] Step 2: Add PageView constructors to DurablePage subclasses used in read paths
-  Add `public <ClassName>(PageView pageView) { super(pageView); }` constructors to
-  all 8 DurablePage subclasses used in read operations:
-  1. `CellBTreeSingleValueBucketV3<K>` — B-tree node pages
-  2. `CellBTreeSingleValueV3NullBucket` — B-tree null bucket
-  3. `CellBTreeSingleValueEntryPointV3<K>` — B-tree entry point (size/metadata)
-  4. `CollectionPage` — record storage pages
-  5. `MapEntryPoint` (in CollectionPositionMapV2) — position map entry point
-  6. `CollectionPositionMapBucket` — position map bucket pages
-  7. `FreeSpaceMapPage` — free space map pages
-  8. `Bucket` (in SharedLinkBagBTree) — link bag B-tree pages
-  These are mechanical additions — each constructor delegates to `super(pageView)`.
-  The base `DurablePage(PageView)` constructor already sets `speculativeRead = true`
-  and `changes = null`, so all existing `getIntValue()`/`getLongValue()` etc. fast
-  paths work unchanged.
-  Tests: basic instantiation tests verifying each subclass can be constructed from
-  a PageView without error.
-  Files: 8 DurablePage subclass files (modified), test class (new or modified).
+- [x] Step 2: Add PageView constructors to DurablePage subclasses used in read paths
+  > **What was done:** Added PageView constructors to 9 DurablePage subclasses:
+  > CellBTreeSingleValueBucketV3, CellBTreeSingleValueV3NullBucket,
+  > CellBTreeSingleValueEntryPointV3, CollectionPage, MapEntryPoint,
+  > CollectionPositionMapBucket, FreeSpaceMapPage, Bucket, and EntryPoint
+  > (ridbagbtree). Each delegates to `super(pageView)`.
+  >
+  > **What was discovered:** Code review identified a missed class —
+  > `ridbagbtree.EntryPoint` — needed for SharedLinkBagBTree read path migration
+  > in Step 5. Added in the review fix commit.
+  >
+  > **Key files:** 9 DurablePage subclass files (modified),
+  > `DurablePageSubclassPageViewTest.java` (new — 7 tests for public subclasses)
 
 - [ ] Step 3: Migrate B-tree single-key lookup and tree traversal to optimistic reads
   Migrate `CellBTreeSingleValueV3.get()` to use `executeOptimisticStorageRead()`:
