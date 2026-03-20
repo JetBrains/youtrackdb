@@ -42,11 +42,18 @@ public class UpsertStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     EntityImpl entity;
     var cls = commandTarget.getSchemaClass(session);
-    if (cls != null) {
-      entity = (EntityImpl) session.newEntity(cls);
-    } else {
+    if (cls == null) {
       throw new CommandExecutionException(session,
           "Cannot execute UPSERT on target '" + commandTarget + "'");
+    }
+
+    if (cls.isVertexType()) {
+      entity = (EntityImpl) session.newVertex(cls);
+    } else if (cls.isEdgeType()) {
+      throw new CommandExecutionException(session,
+          "Cannot execute UPSERT on edge type '" + cls.getName() + "'");
+    } else {
+      entity = (EntityImpl) session.newEntity(cls);
     }
 
     var result = new UpdatableResult(ctx.getDatabaseSession(), entity);
