@@ -455,6 +455,8 @@ graph TD
   > parser regeneration needed.
   >
   > **Step file:** `tracks/track-6.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 7: Verification, API cleanup, and documentation
   > Verify all SQL statements, Gremlin integration, and TinkerPop Cucumber
