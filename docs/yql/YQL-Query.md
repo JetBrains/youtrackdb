@@ -17,11 +17,11 @@ SELECT [ <Projections> ] [ FROM <Target> [ LET <Assignment>* ] ]
 ```
 
 - **[`<Projections>`](YQL-Query.md#projections)** Indicates the data you want to extract from the query as the result-set.
-- Note: In YouTrackDB, this variable is optional.  In the projections you can define aliases for single fields, using the `AS` keyword; Aliases cannot be used in the WHERE condition, GROUP BY and ORDER BY (they will be evaluated to null)
-- **`FROM`** Designates the object to query.  This can be a class, single Record ID, 
-set of Record ID's.
+- Note: In YouTrackDB, this clause is optional. In the projections, you can define aliases for single fields using the `AS` keyword. Aliases cannot be used in the WHERE condition, GROUP BY, and ORDER BY (they will be evaluated to null).
+- **`FROM`** Designates the object to query. This can be a class, a single Record ID, or a
+set of Record IDs.
     - When querying a class, for `<target>` use the class name.
-    - When querying record ID's, you can specific one or a small set of records to query.  This is useful when you need to specify a starting point in navigating graphs.
+    - When querying Record IDs, you can specify one or a small set of records to query. This is useful when you need to specify a starting point in navigating graphs.
 - **[`WHERE`](YQL-Where.md)** Designates conditions to filter the result-set.
 - **[`LET`](YQL-Query.md#let-block)** Binds context variables to use in projections, conditions or sub-queries.
 - **`GROUP BY`** Designates property on which to group the result-set.
@@ -50,7 +50,7 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
 
 - Return all records of the type `AnimalType` where the collection `races` contains at least one entry where the first character is `e`, ignoring case:
 ```sql
-   SELECT FROM AnimalType WHERE races CONTAINS( name.toLowerCase().subString(0, 1) = 'e')
+   SELECT FROM AnimalType WHERE races CONTAINS( name.toLowerCase().substring(0, 1) = 'e')
 ```
  
 - Return all records of type `AnimalType` where the collection `races` contains at least one entry with names `European` or `Asiatic`:
@@ -70,7 +70,7 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
   
 - Return the number of records in the class `Account` per city:
 ```sql
-    SELECT SUM(*) FROM Account GROUP BY city
+    SELECT COUNT(*) FROM Account GROUP BY city
 ```
   
 - Return only a limited set of records:
@@ -88,12 +88,12 @@ you need to include the `ORDER BY` field in the projection. Note that ORDER BY w
 - Return the field `name` in uppercase and the field country name of the linked city of the address:
 
 ```sql
-   SELECT name.toUppercase(), address.city.country.name FROM Profile
+   SELECT name.toUpperCase(), address.city.country.name FROM Profile
 ```
 
 ## Projections
 In the standard implementations of SQL, projections are mandatory. 
-In YouTrackDB, the omission of projects translates to its returning the entire record.
+In YouTrackDB, the omission of projections translates to its returning the entire record.
 That is, it reads no projection as the equivalent of the `*` wildcard.
 
 ```sql
@@ -124,7 +124,7 @@ In the event the key already exists, it uses a numeric progression.  For instanc
 ------+------
 ```
 
-To override the display for the field names, use the `AS`.
+To override the display for the field names, use the `AS` keyword.
 
 ```sql
  SELECT MAX(incoming) AS max_incoming, MAX(cost) AS max_cost FROM Balance
@@ -152,7 +152,7 @@ In single queries, you need to evaluate the same branch of the nested relationsh
 This is better than using a context variable that refers to the full relationship.
 
 ```sql
-SELECT FROM Profile WHERE address.city.name LIKE '%Saint%"' AND 
+SELECT FROM Profile WHERE address.city.name LIKE '%Saint%' AND 
           ( address.city.country.name = 'Italy' OR 
             address.city.country.name = 'France' )
 ```
@@ -161,7 +161,7 @@ Using the `LET` makes the query shorter and faster, because it traverses the rel
 
 ```sql
 SELECT FROM Profile LET $city = address.city WHERE $city.name LIKE 
-          '%Saint%"' AND ($city.country.name = 'Italy' OR $city.country.name = 'France')
+          '%Saint%' AND ($city.country.name = 'Italy' OR $city.country.name = 'France')
 ```
 
 In this case, it traverses the path till `address.city` only once.
@@ -181,9 +181,9 @@ SELECT FROM Document LET $temp = ( SELECT @rid, $depth FROM (TRAVERSE
 You can use context variables as part of a result-set in [projections](#projections).  For instance, the query below displays the city name from the previous example:
 
 ```sql
-SELECT $temp.name FROM Profile LET $temp = address.city WHERE $city.name 
-          LIKE '%Saint%"' AND ( $city.country.name = 'Italy' OR 
-          $city.country.name = 'France' )
+SELECT $temp.name FROM Profile LET $temp = address.city WHERE $temp.name
+          LIKE '%Saint%' AND ( $temp.country.name = 'Italy' OR
+          $temp.country.name = 'France' )
 ```
 
 
@@ -203,7 +203,7 @@ SELECT name, OUT("Friend").name AS friendName FROM Person
 --------+-------------------
 ```
 
-In the event if you want one record for each element in `friendName`, you can rewrite the query using `UNWIND`:
+If you want one record for each element in `friendName`, you can rewrite the query using `UNWIND`:
 
 ```sql
 SELECT name, OUT("Friend").name AS friendName FROM Person UNWIND friendName
