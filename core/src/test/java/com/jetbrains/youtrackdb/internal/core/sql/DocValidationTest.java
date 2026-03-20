@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
@@ -9,6 +10,7 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -870,5 +872,424 @@ public class DocValidationTest {
                 "SELECT expand(outE('DVEdgeLink')) FROM DVEdgeSrc WHERE name = 'source'")
                 .toList());
     assertThat(edges).isEmpty();
+  }
+
+  // === YQL-Delete-Edge.md ===
+
+  // Line 34: DELETE EDGE #<rid> — removes a single edge by its Record ID
+  @Test
+  public void testDeleteEdgeByRid() {
+    g.command("CREATE CLASS DESrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEByRid IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DESrc SET tag = 'deRidSrc'").iterate();
+      tx.yql("CREATE VERTEX DEDst SET tag = 'deRidDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEByRid FROM (SELECT FROM DESrc WHERE tag = 'deRidSrc') "
+              + "TO (SELECT FROM DEDst WHERE tag = 'deRidDst')")
+          .iterate();
+    });
+
+    // Get the RID of the created edge
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEByRid')) FROM DESrc WHERE tag = 'deRidSrc'")
+                .toList());
+    assertThat(edges).hasSize(1);
+    String edgeRid = ((Edge) edges.get(0)).id().toString();
+
+    // Delete by RID
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE " + edgeRid).iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEByRid')) FROM DESrc WHERE tag = 'deRidSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 40: DELETE EDGE [#rid1, #rid2, ...] — removes multiple edges by RID list
+  @Test
+  public void testDeleteEdgeByRidList() {
+    g.command("CREATE CLASS DERidListV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DERidListE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlSrc'").iterate();
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlDst1'").iterate();
+      tx.yql("CREATE VERTEX DERidListV SET tag = 'rlDst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DERidListE FROM (SELECT FROM DERidListV WHERE tag = 'rlSrc') "
+              + "TO (SELECT FROM DERidListV WHERE tag = 'rlDst1')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DERidListE FROM (SELECT FROM DERidListV WHERE tag = 'rlSrc') "
+              + "TO (SELECT FROM DERidListV WHERE tag = 'rlDst2')")
+          .iterate();
+    });
+
+    // Get the RIDs of both edges
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DERidListE')) FROM DERidListV WHERE tag = 'rlSrc'")
+                .toList());
+    assertThat(edges).hasSize(2);
+    String rid1 = ((Edge) edges.get(0)).id().toString();
+    String rid2 = ((Edge) edges.get(1)).id().toString();
+
+    // Delete by RID list
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE [" + rid1 + "," + rid2 + "]").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DERidListE')) FROM DERidListV WHERE tag = 'rlSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 46: DELETE EDGE FROM <rid> TO <rid> WHERE condition
+  @Test
+  public void testDeleteEdgeFromToWithWhere() {
+    g.command("CREATE CLASS DEFromToV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEFromToE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEFromToV SET tag = 'ftSrc'").iterate();
+      tx.yql("CREATE VERTEX DEFromToV SET tag = 'ftDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEFromToE FROM (SELECT FROM DEFromToV WHERE tag = 'ftSrc') "
+              + "TO (SELECT FROM DEFromToV WHERE tag = 'ftDst') SET date = '2012-01-15'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEFromToE FROM (SELECT FROM DEFromToV WHERE tag = 'ftSrc') "
+              + "TO (SELECT FROM DEFromToV WHERE tag = 'ftDst') SET date = '2011-12-01'")
+          .iterate();
+    });
+
+    // Get source and dest RIDs for the FROM/TO syntax
+    var srcList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEFromToV WHERE tag = 'ftSrc'").toList());
+    var dstList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEFromToV WHERE tag = 'ftDst'").toList());
+    String srcRid = ((Vertex) srcList.get(0)).id().toString();
+    String dstRid = ((Vertex) dstList.get(0)).id().toString();
+
+    // Delete only edges with date >= '2012-01-15'
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE FROM " + srcRid + " TO " + dstRid
+          + " WHERE date >= '2012-01-15'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEFromToE')) FROM DEFromToV WHERE tag = 'ftSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 58: DELETE EDGE <ClassName> WHERE condition
+  @Test
+  public void testDeleteEdgeByClassAndWhere() {
+    g.command("CREATE CLASS DEOwnsV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEOwns IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsSrc'").iterate();
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsDst1'").iterate();
+      tx.yql("CREATE VERTEX DEOwnsV SET tag = 'ownsDst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEOwns FROM (SELECT FROM DEOwnsV WHERE tag = 'ownsSrc') "
+              + "TO (SELECT FROM DEOwnsV WHERE tag = 'ownsDst1') SET date = '2011-10'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEOwns FROM (SELECT FROM DEOwnsV WHERE tag = 'ownsSrc') "
+              + "TO (SELECT FROM DEOwnsV WHERE tag = 'ownsDst2') SET date = '2012-05'")
+          .iterate();
+    });
+
+    // Delete edges of class DEOwns where date < '2011-11'
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEOwns WHERE date < '2011-11'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEOwns')) FROM DEOwnsV WHERE tag = 'ownsSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 64: The original doc used "in.price" which fails because "in" is a reserved keyword.
+  // The corrected doc uses "inV().price" to traverse to the destination vertex.
+  @Test
+  public void testDeleteEdgeWithInVertexCondition() {
+    g.command("CREATE CLASS DEInPriceV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEInPriceE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipSrc'").iterate();
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipDst1', price = 300.0").iterate();
+      tx.yql("CREATE VERTEX DEInPriceV SET tag = 'ipDst2', price = 100.0").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEInPriceE FROM (SELECT FROM DEInPriceV WHERE tag = 'ipSrc') "
+              + "TO (SELECT FROM DEInPriceV WHERE tag = 'ipDst1') SET date = '2011-10'")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DEInPriceE FROM (SELECT FROM DEInPriceV WHERE tag = 'ipSrc') "
+              + "TO (SELECT FROM DEInPriceV WHERE tag = 'ipDst2') SET date = '2011-10'")
+          .iterate();
+    });
+
+    // Verify that bare "in.price" fails because "in" is reserved
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("DELETE EDGE DEInPriceE WHERE date < '2011-11' AND in.price >= 202.43")
+              .iterate();
+        })).hasMessageContaining("in");
+
+    // The corrected syntax inV().price should work
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEInPriceE WHERE date < '2011-11' AND inV().price >= 202.43")
+          .iterate();
+    });
+
+    // Only the edge to ipDst1 (price=300) should be deleted; ipDst2 (price=100) stays
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEInPriceE')) FROM DEInPriceV WHERE tag = 'ipSrc'")
+                .toList());
+    assertThat(remaining).hasSize(1);
+  }
+
+  // Line 70: DELETE EDGE <ClassName> WHERE condition BATCH <size>
+  @Test
+  public void testDeleteEdgeWithBatch() {
+    g.command("CREATE CLASS DEBatchV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEBatchE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEBatchV SET tag = 'bSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX DEBatchV SET tag = 'bDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE DEBatchE FROM (SELECT FROM DEBatchV WHERE tag = 'bSrc') "
+                + "TO (SELECT FROM DEBatchV WHERE tag = 'bDst" + i + "') "
+                + "SET date = '2011-10'")
+            .iterate();
+      }
+    });
+
+    // Delete with BATCH clause
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEBatchE WHERE date < '2011-11' BATCH 1000").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEBatchE')) FROM DEBatchV WHERE tag = 'bSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 76: DELETE EDGE E WHERE @rid IN (SELECT @rid FROM E)
+  @Test
+  public void testDeleteEdgeWithSubQuery() {
+    g.command("CREATE CLASS DESubQV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DESubQE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DESubQV SET tag = 'sqSrc'").iterate();
+      tx.yql("CREATE VERTEX DESubQV SET tag = 'sqDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DESubQE FROM (SELECT FROM DESubQV WHERE tag = 'sqSrc') "
+              + "TO (SELECT FROM DESubQV WHERE tag = 'sqDst')")
+          .iterate();
+    });
+
+    // Delete using sub-query pattern from doc line 76
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DESubQE WHERE @rid IN (SELECT @rid FROM DESubQE)").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DESubQE')) FROM DESubQV WHERE tag = 'sqSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 52: DELETE EDGE FROM <rid> TO <rid> WHERE @class = 'X' AND condition
+  @Test
+  public void testDeleteEdgeWithClassFilterInWhere() {
+    g.command("CREATE CLASS DEClassFiltV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEClassFiltE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEClassFiltV SET tag = 'cfSrc'").iterate();
+      tx.yql("CREATE VERTEX DEClassFiltV SET tag = 'cfDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEClassFiltE FROM (SELECT FROM DEClassFiltV WHERE tag = 'cfSrc') "
+              + "TO (SELECT FROM DEClassFiltV WHERE tag = 'cfDst') "
+              + "SET comment = 'forbidden stuff'")
+          .iterate();
+    });
+
+    var srcList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEClassFiltV WHERE tag = 'cfSrc'").toList());
+    var dstList =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM DEClassFiltV WHERE tag = 'cfDst'").toList());
+    String srcRid = ((Vertex) srcList.get(0)).id().toString();
+    String dstRid = ((Vertex) dstList.get(0)).id().toString();
+
+    // Delete edge using FROM/TO with @class filter and LIKE condition
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE FROM " + srcRid + " TO " + dstRid
+          + " WHERE @class = 'DEClassFiltE' AND comment LIKE '%forbidden%'").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEClassFiltE')) FROM DEClassFiltV WHERE tag = 'cfSrc'")
+                .toList());
+    assertThat(remaining).isEmpty();
+  }
+
+  // Line 91: DELETE EDGE FROM (SELECT FROM #rid) does NOT delete edge
+  // Line 97: DELETE EDGE E WHERE @rid IN (SELECT FROM #rid) DOES delete edge
+  @Test
+  public void testDeleteEdgeFromSubQueryVsWhereRidIn() {
+    g.command("CREATE CLASS DEUseCaseV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DEUseCaseE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DEUseCaseV SET tag = 'ucSrc'").iterate();
+      tx.yql("CREATE VERTEX DEUseCaseV SET tag = 'ucDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DEUseCaseE FROM (SELECT FROM DEUseCaseV WHERE tag = 'ucSrc') "
+              + "TO (SELECT FROM DEUseCaseV WHERE tag = 'ucDst')")
+          .iterate();
+    });
+
+    // Get the edge RID
+    var edges =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(edges).hasSize(1);
+    String edgeRid = ((Edge) edges.get(0)).id().toString();
+
+    // Line 91: DELETE EDGE FROM (SELECT FROM #edgeRid) — doc says this does NOT delete
+    // the edge. In practice, it actually throws an error because the FROM clause expects
+    // a vertex, but SELECT FROM <edgeRid> returns an edge record ("Invalid vertex").
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("DELETE EDGE FROM (SELECT FROM " + edgeRid + ")").iterate();
+        })).hasMessageContaining("Invalid vertex");
+
+    // Edge should still exist after the failed attempt
+    var afterBadDelete =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(afterBadDelete).hasSize(1);
+
+    // Line 97: DELETE EDGE E WHERE @rid IN (SELECT FROM #edgeRid) — should delete
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DEUseCaseE WHERE @rid IN (SELECT FROM " + edgeRid + ")")
+          .iterate();
+    });
+
+    var afterGoodDelete =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DEUseCaseE')) FROM DEUseCaseV WHERE tag = 'ucSrc'")
+                .toList());
+    assertThat(afterGoodDelete).isEmpty();
+  }
+
+  // Line 25: LIMIT defines the maximum number of edges to delete
+  @Test
+  public void testDeleteEdgeWithLimit() {
+    g.command("CREATE CLASS DELimitV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DELimitE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DELimitV SET tag = 'limSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX DELimitV SET tag = 'limDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE DELimitE FROM (SELECT FROM DELimitV WHERE tag = 'limSrc') "
+                + "TO (SELECT FROM DELimitV WHERE tag = 'limDst" + i + "')")
+            .iterate();
+      }
+    });
+
+    // Delete with LIMIT 3
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE DELimitE LIMIT 3").iterate();
+    });
+
+    var remaining =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('DELimitE')) FROM DELimitV WHERE tag = 'limSrc'")
+                .toList());
+    assertThat(remaining).hasSize(2);
   }
 }
