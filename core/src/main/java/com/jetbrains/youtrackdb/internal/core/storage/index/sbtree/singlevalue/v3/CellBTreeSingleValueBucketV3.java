@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -59,6 +60,10 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
 
   public CellBTreeSingleValueBucketV3(final CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public CellBTreeSingleValueBucketV3(final PageView pageView) {
+    super(pageView);
   }
 
   public void switchBucketType() {

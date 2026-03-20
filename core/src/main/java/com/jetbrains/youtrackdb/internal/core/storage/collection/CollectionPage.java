@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPairIntegerBoolean;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Objects;
@@ -73,6 +74,10 @@ public final class CollectionPage extends DurablePage {
 
   public CollectionPage(CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public CollectionPage(PageView pageView) {
+    super(pageView);
   }
 
   public void init() {

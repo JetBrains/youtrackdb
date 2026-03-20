@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -99,6 +100,10 @@ public final class FreeSpaceMapPage extends DurablePage {
 
   public FreeSpaceMapPage(CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public FreeSpaceMapPage(PageView pageView) {
+    super(pageView);
   }
 
   /** Zeroes out the entire usable area, resetting all segment-tree nodes to 0. */

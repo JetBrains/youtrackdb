@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +23,10 @@ final class Bucket extends DurablePage {
 
   public Bucket(final CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  Bucket(final PageView pageView) {
+    super(pageView);
   }
 
   public void init(boolean isLeaf) {

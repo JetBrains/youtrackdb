@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -55,6 +56,10 @@ public final class CollectionPositionMapBucket extends DurablePage {
 
   public CollectionPositionMapBucket(CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public CollectionPositionMapBucket(PageView pageView) {
+    super(pageView);
   }
 
   public void init() {
@@ -91,8 +96,7 @@ public final class CollectionPositionMapBucket extends DurablePage {
     return size;
   }
 
-  @Nullable
-  public PositionEntry get(int index) {
+  @Nullable public PositionEntry get(int index) {
     var size = getIntValue(SIZE_OFFSET);
 
     if (index >= size) {

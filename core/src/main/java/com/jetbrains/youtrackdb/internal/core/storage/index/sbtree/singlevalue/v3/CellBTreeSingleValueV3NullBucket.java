@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import javax.annotation.Nullable;
 
@@ -45,6 +46,10 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
     super(cacheEntry);
   }
 
+  public CellBTreeSingleValueV3NullBucket(final PageView pageView) {
+    super(pageView);
+  }
+
   public void init() {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
   }
@@ -54,17 +59,18 @@ public final class CellBTreeSingleValueV3NullBucket extends DurablePage {
     setByteValue(NEXT_FREE_POSITION, (byte) 1);
 
     setShortValue(NEXT_FREE_POSITION + 1, (short) value.getCollectionId());
-    setLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE, value.getCollectionPosition());
+    setLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE,
+        value.getCollectionPosition());
   }
 
-  @Nullable
-  public RID getValue() {
+  @Nullable public RID getValue() {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
     }
 
     final int collectionId = getShortValue(NEXT_FREE_POSITION + 1);
-    final var collectionPosition = getLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE);
+    final var collectionPosition =
+        getLongValue(NEXT_FREE_POSITION + 1 + ShortSerializer.SHORT_SIZE);
     return new RecordId(collectionId, collectionPosition);
   }
 
