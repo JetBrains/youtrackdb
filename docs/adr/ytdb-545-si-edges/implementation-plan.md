@@ -328,7 +328,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 3: SharedLinkBagBTree write path with SI
+- [x] Track 3: SharedLinkBagBTree write path with SI
   > **What**: Modify the write operations (`put`, `remove`) in
   > `SharedLinkBagBTree` to preserve old versions in the snapshot index and
   > embed the transaction timestamp in new entries. Implement prefix-based
@@ -380,6 +380,24 @@ graph LR
   > remove() tombstone logic, IsolatedLinkBagBTreeImpl write path updates,
   > and write-path SI tests
   > **Depends on:** Track 1, Track 2
+  >
+  > **Track episode:**
+  > Modified `SharedLinkBagBTree` write operations (`put`, `remove`) to
+  > preserve old versions in the snapshot index and embed transaction
+  > timestamps. Added `findCurrentEntry` prefix lookup using
+  > `Long.MIN_VALUE` ts with insertion-point checking and right-sibling
+  > fallback for bucket boundaries. `put()` detects cross-tx updates and
+  > preserves old versions before replacement; same-ts overwrites skip
+  > preservation. `remove()` creates tombstones for cross-tx deletes and
+  > physically deletes for same-tx removes (no tombstone needed since no
+  > other tx can see the entry). Wired `IsolatedLinkBagBTreeImpl` to use
+  > real `commitTs` and added tombstone filtering to all read-path methods.
+  > Key discovery: same-tx removes should physically delete rather than
+  > create tombstones. Step 4 expanded beyond plan to include tombstone
+  > filtering on read paths, necessary to maintain passing higher-level
+  > tests once real timestamps activated cross-tx tombstone creation.
+  >
+  > **Step file:** `tracks/track-3.md` (4 steps, 0 failed)
 
 - [ ] Track 4: SharedLinkBagBTree read and iteration path with SI
   > **What**: Modify the read operations (`get`) and iteration
