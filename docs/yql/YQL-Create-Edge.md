@@ -10,14 +10,14 @@ CREATE EDGE <class> [UPSERT] FROM <rid>|(<query>)|[<rid>]* TO <rid>|(<query>)|[<
                     [BATCH <batch-size>]
 ```
 
-- **`<class>`** Defines the class name for the edge.  Use the default edge class `E` in the event that you don't want to use sub-types.
-- **`UPSERT`** allows to skip the creation of edges that already exist between two vertices (ie. a unique edge for a couple of vertices).
-This works only if the edge class has a UNIQUE index on `out, in` fields, otherwise the statement fails.
+- **`<class>`** Defines the class name for the edge.  Use the default edge class `E` if you don't want to use sub-types.
+- **`UPSERT`** allows skipping the creation of edges that already exist between two vertices (i.e., a unique edge for a pair of vertices).
+This works only if the edge class has a UNIQUE index on `out, in` fields; otherwise, the statement fails.
 - **`JSON`** Provides JSON content to set as the record.  Use this instead of entering data field by field.
-- **`BATCH`** Defines whether it breaks the command down into smaller blocks and the size of the batches. 
+- **`BATCH`** Defines the size of the batches when breaking the command into smaller blocks.
 This helps to avoid memory issues when the number of vertices is too high.  By default, it is set to `100`.
 
-Edges and Vertices form the main components of a Graph database.  YouTrackDB supports polymorphism on edges.  
+Edges and vertices form the main components of a Graph database.  YouTrackDB supports polymorphism on edges.
 The base class for an edge is `E`.
 
 **Examples**
@@ -29,7 +29,7 @@ The base class for an edge is `E`.
 ```
   
 - Create a new edge type and an edge of the new type:
-- 
+
 ```sql
    CREATE CLASS E1 EXTENDS E
    CREATE EDGE E1 FROM #10:3 TO #11:4

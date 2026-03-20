@@ -450,4 +450,241 @@ public class DocValidationTest {
         g.computeInTx(tx -> tx.yql("SELECT FROM V WHERE tag = 'baseTest'").toList());
     assertThat(results).isNotEmpty();
   }
+
+  // === YQL-Create-Edge.md ===
+
+  // Line 28: CREATE EDGE FROM <rid> TO <rid> (base class E)
+  @Test
+  public void testCreateEdgeBaseClass() {
+    g.command("CREATE CLASS CEVertex1 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex1 SET tag = 'edgeSrc'").iterate();
+      tx.yql("CREATE VERTEX CEVertex1 SET tag = 'edgeDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE FROM (SELECT FROM CEVertex1 WHERE tag = 'edgeSrc') "
+              + "TO (SELECT FROM CEVertex1 WHERE tag = 'edgeDst')")
+          .iterate();
+    });
+
+    // Verify the edge exists by traversing from source to destination
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(out()) FROM CEVertex1 WHERE tag = 'edgeSrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex dst = (Vertex) results.get(0);
+    assertThat((String) dst.value("tag")).isEqualTo("edgeDst");
+  }
+
+  // Lines 34-35: CREATE CLASS E1 EXTENDS E, then CREATE EDGE E1
+  @Test
+  public void testCreateEdgeWithCustomClass() {
+    g.command("CREATE CLASS CEVertex2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdge1 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex2 SET tag = 'src2'").iterate();
+      tx.yql("CREATE VERTEX CEVertex2 SET tag = 'dst2'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdge1 FROM (SELECT FROM CEVertex2 WHERE tag = 'src2') "
+              + "TO (SELECT FROM CEVertex2 WHERE tag = 'dst2')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdge1')) FROM CEVertex2 WHERE tag = 'src2'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 42: CREATE EDGE FROM <rid> TO <rid> SET brand = 'Skoda'
+  @Test
+  public void testCreateEdgeWithProperties() {
+    g.command("CREATE CLASS CEVertex3 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdgeProp IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex3 SET tag = 'src3'").iterate();
+      tx.yql("CREATE VERTEX CEVertex3 SET tag = 'dst3'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdgeProp FROM (SELECT FROM CEVertex3 WHERE tag = 'src3') "
+              + "TO (SELECT FROM CEVertex3 WHERE tag = 'dst3') SET brand = 'Skoda'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdgeProp')) FROM CEVertex3 WHERE tag = 'src3'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 49: CREATE EDGE E1 FROM <rid> TO <rid> SET brand = 'Skoda', name = 'wow'
+  @Test
+  public void testCreateEdgeWithMultipleProperties() {
+    g.command("CREATE CLASS CEVertex4 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEEdgeMulti IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex4 SET tag = 'src4'").iterate();
+      tx.yql("CREATE VERTEX CEVertex4 SET tag = 'dst4'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEEdgeMulti FROM (SELECT FROM CEVertex4 WHERE tag = 'src4') "
+              + "TO (SELECT FROM CEVertex4 WHERE tag = 'dst4') "
+              + "SET brand = 'Skoda', name = 'wow'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEEdgeMulti')) FROM CEVertex4 WHERE tag = 'src4'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 56: CREATE EDGE with sub-queries on both FROM and TO
+  @Test
+  public void testCreateEdgeWithSubQueries() {
+    g.command("CREATE CLASS CEAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEMovies IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEWatched IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEAccount SET name = 'Andrii'").iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'ActionMovie1', typeName = 'action'")
+          .iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'ActionMovie2', typeName = 'action'")
+          .iterate();
+      tx.yql("CREATE VERTEX CEMovies SET title = 'Comedy1', typeName = 'comedy'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEWatched "
+              + "FROM (SELECT FROM CEAccount WHERE name = 'Andrii') "
+              + "TO (SELECT FROM CEMovies WHERE typeName = 'action')")
+          .iterate();
+    });
+
+    // Should have created 2 edges (one to each action movie)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEWatched')) FROM CEAccount WHERE name = 'Andrii'")
+                .toList());
+    assertThat(results).hasSize(2);
+  }
+
+  // Line 62: CREATE EDGE with CONTENT JSON
+  @Test
+  public void testCreateEdgeWithContent() {
+    g.command("CREATE CLASS CEVertex5 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEVertex5 SET tag = 'src5'").iterate();
+      tx.yql("CREATE VERTEX CEVertex5 SET tag = 'dst5'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE FROM (SELECT FROM CEVertex5 WHERE tag = 'src5') "
+              + "TO (SELECT FROM CEVertex5 WHERE tag = 'dst5') "
+              + "CONTENT { \"name\": \"Viktoria\", \"surname\": \"Sernevich\" }")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT expand(out()) FROM CEVertex5 WHERE tag = 'src5'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 20-21: Factual claim - YouTrackDB supports polymorphism on edges, base class is E
+  @Test
+  public void testEdgePolymorphism() {
+    g.command("CREATE CLASS CEPolyBase IF NOT EXISTS EXTENDS E");
+    g.command("CREATE CLASS CEPolySub IF NOT EXISTS EXTENDS CEPolyBase");
+    g.command("CREATE CLASS CEPolyVertex IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEPolyVertex SET tag = 'polySrc'").iterate();
+      tx.yql("CREATE VERTEX CEPolyVertex SET tag = 'polyDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEPolySub FROM (SELECT FROM CEPolyVertex WHERE tag = 'polySrc') "
+              + "TO (SELECT FROM CEPolyVertex WHERE tag = 'polyDst')")
+          .iterate();
+    });
+
+    // Edge created with subclass should appear when querying the parent class
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEPolyBase')) FROM CEPolyVertex "
+                    + "WHERE tag = 'polySrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 14-15: UPSERT requires UNIQUE index on out, in fields
+  @Test
+  public void testCreateEdgeUpsert() {
+    g.command("CREATE CLASS CEUpsertV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CEUpsertE IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY CEUpsertE.out IF NOT EXISTS LINK");
+    g.command("CREATE PROPERTY CEUpsertE.in IF NOT EXISTS LINK");
+    g.command(
+        "CREATE INDEX CEUpsertE_unique IF NOT EXISTS ON CEUpsertE (out, in) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CEUpsertV SET tag = 'uSrc'").iterate();
+      tx.yql("CREATE VERTEX CEUpsertV SET tag = 'uDst'").iterate();
+    });
+
+    // First creation
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEUpsertE UPSERT "
+              + "FROM (SELECT FROM CEUpsertV WHERE tag = 'uSrc') "
+              + "TO (SELECT FROM CEUpsertV WHERE tag = 'uDst')")
+          .iterate();
+    });
+
+    // Second creation with UPSERT should not create a duplicate
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE CEUpsertE UPSERT "
+              + "FROM (SELECT FROM CEUpsertV WHERE tag = 'uSrc') "
+              + "TO (SELECT FROM CEUpsertV WHERE tag = 'uDst')")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('CEUpsertE')) FROM CEUpsertV WHERE tag = 'uSrc'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
 }
