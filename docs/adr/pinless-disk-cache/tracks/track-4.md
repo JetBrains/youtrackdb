@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -27,14 +27,14 @@
   > (new), `PageView.java` (new), `OptimisticReadScopeTest.java` (new),
   > `OptimisticReadFailedExceptionTest.java` (new), `PageViewTest.java` (new)
 
-- [ ] Step 2: Integrate OptimisticReadScope into AtomicOperation
-  - Add `OptimisticReadScope getOptimisticReadScope()` to `AtomicOperation` interface
-    as a default method throwing UnsupportedOperationException (review finding R7 —
-    defensive default for any external implementors).
-  - Override in `AtomicOperationBinaryTracking`: add `private final OptimisticReadScope
-    optimisticReadScope = new OptimisticReadScope()` field, return it from getter.
-  Tests: verify scope accessible through AtomicOperationBinaryTracking, verify default
-  method throws on other implementations.
+- [x] Step 2: Integrate OptimisticReadScope into AtomicOperation
+  > **What was done:** Added `getOptimisticReadScope()` default method to
+  > `AtomicOperation` interface (throws UnsupportedOperationException). Overrode in
+  > `AtomicOperationBinaryTracking` with eagerly allocated `OptimisticReadScope` field.
+  > Added 3 tests: scope accessibility, same-instance reuse, default method guard.
+  >
+  > **Key files:** `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java`
+  > (modified), `AtomicOperationSnapshotProxyTest.java` (modified)
 
 - [ ] Step 3: Add optimistic lookup to ReadCache / LockFreeReadCache
   - Add to `ReadCache` interface: `@Nullable PageFrame getPageFrameOptimistic(long fileId,
