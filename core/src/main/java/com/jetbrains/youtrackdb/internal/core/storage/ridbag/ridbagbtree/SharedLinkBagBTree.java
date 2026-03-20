@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -335,25 +336,81 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var bucketSearchResult = findBucket(key, atomicOperation);
-        if (bucketSearchResult.getItemIndex() < 0) {
-          return null;
-        }
-
-        final var pageIndex = bucketSearchResult.getPageIndex();
-
-        try (final var keyBucketCacheEntry =
-            loadPageForRead(atomicOperation, fileId, pageIndex)) {
-          final var keyBucket = new Bucket(keyBucketCacheEntry);
-          return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
-        }
-      });
+      return atomicOperationsManager.executeReadOperation(this,
+          () -> executeOptimisticStorageRead(
+              atomicOperation,
+              () -> getOptimistic(key, atomicOperation),
+              () -> getPinned(key, atomicOperation)));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during retrieving  of value for rid bag with name " + getName()),
           e, storage.getName());
+    }
+  }
+
+  /**
+   * Optimistic path for get: traverses the link bag B-tree using loadPageOptimistic()
+   * with per-level stamp validation, then reads the value from the leaf page.
+   */
+  private LinkBagValue getOptimistic(
+      final EdgeKey key, final AtomicOperation atomicOperation) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    var pageIndex = (long) ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        // Under the optimistic path, a concurrent tree restructuring could cause
+        // transient depth overflow from following stale pointers. Fall back to the
+        // pinned path which will either find the key or report genuine corruption.
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var keyBucket = new Bucket(pageView);
+      final var index = keyBucket.find(key, serializerFactory);
+
+      if (keyBucket.isLeaf()) {
+        if (index < 0) {
+          return null;
+        }
+        return keyBucket.getValue(index, serializerFactory);
+      }
+
+      // Internal node: follow child pointer, then validate the stamp to catch eviction
+      // before chasing a potentially stale page index.
+      if (index >= 0) {
+        pageIndex = keyBucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= keyBucket.size()) {
+          pageIndex = keyBucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = keyBucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
+    }
+  }
+
+  /**
+   * CAS-pinned fallback path for get: uses findBucket() + loadPageForRead() as before.
+   */
+  private LinkBagValue getPinned(
+      final EdgeKey key, final AtomicOperation atomicOperation) throws IOException {
+    final var bucketSearchResult = findBucket(key, atomicOperation);
+    if (bucketSearchResult.getItemIndex() < 0) {
+      return null;
+    }
+
+    final var pageIndex = bucketSearchResult.getPageIndex();
+
+    try (final var keyBucketCacheEntry =
+        loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var keyBucket = new Bucket(keyBucketCacheEntry);
+      return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
     }
   }
 
@@ -508,6 +565,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
       updateSize(-1, atomicOperation);
     }
   }
+
 
   @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
