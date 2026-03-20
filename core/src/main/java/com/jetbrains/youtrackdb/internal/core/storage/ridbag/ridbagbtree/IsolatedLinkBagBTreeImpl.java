@@ -75,6 +75,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
   @Override
   public void clear(AtomicOperation atomicOperation) {
     final long commitTs = atomicOperation.getCommitTs();
+    assert commitTs > 0 : "commitTs must be positive, got " + commitTs;
     try (var stream =
         bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE),
@@ -103,7 +104,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
         bTree.iterateEntriesMajor(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE), true, true,
             atomicOperation)) {
-      return stream.noneMatch(entry -> !entry.second().tombstone());
+      return stream.allMatch(entry -> entry.second().tombstone());
     }
   }
 

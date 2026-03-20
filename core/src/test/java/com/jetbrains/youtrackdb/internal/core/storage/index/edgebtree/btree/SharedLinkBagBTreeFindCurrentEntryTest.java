@@ -122,6 +122,7 @@ public class SharedLinkBagBTreeFindCurrentEntryTest {
       var result = bTree.findCurrentEntry(atomicOperation, 1L, 10, 100L);
       assertThat(result).isNotNull();
       assertThat(result.first().ts).isEqualTo(Long.MIN_VALUE);
+      assertThat(result.second()).isEqualTo(new LinkBagValue(1, 0, 0, false));
     });
   }
 
@@ -139,6 +140,7 @@ public class SharedLinkBagBTreeFindCurrentEntryTest {
       var result = bTree.findCurrentEntry(atomicOperation, 1L, 10, 100L);
       assertThat(result).isNotNull();
       assertThat(result.first().ts).isEqualTo(-100L);
+      assertThat(result.second()).isEqualTo(new LinkBagValue(1, 0, 0, false));
     });
   }
 
@@ -155,6 +157,7 @@ public class SharedLinkBagBTreeFindCurrentEntryTest {
       var result = bTree.findCurrentEntry(atomicOperation, 1L, 10, 100L);
       assertThat(result).isNotNull();
       assertThat(result.first().ts).isEqualTo(Long.MAX_VALUE);
+      assertThat(result.second()).isEqualTo(new LinkBagValue(1, 0, 0, false));
     });
   }
 

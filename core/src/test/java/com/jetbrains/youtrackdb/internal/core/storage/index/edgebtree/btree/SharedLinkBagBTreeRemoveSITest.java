@@ -153,9 +153,9 @@ public class SharedLinkBagBTreeRemoveSITest {
   }
 
   @Test
-  public void testCrossTransactionRemoveTreeSizeUnchanged() throws Exception {
-    // Insert two entries, then remove one with a new ts. Tree size stays at 2
-    // because the live entry is replaced by a tombstone (not physically deleted).
+  public void testCrossTransactionRemoveReplacesWithTombstone() throws Exception {
+    // Insert two entries, then remove one with a new ts. The live entry is
+    // replaced by a tombstone (not physically deleted), other entry stays live.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation, new EdgeKey(400L, 10, 100L, 5L),
           new LinkBagValue(1, 0, 0, false));
@@ -362,4 +362,5 @@ public class SharedLinkBagBTreeRemoveSITest {
       }
     });
   }
+
 }

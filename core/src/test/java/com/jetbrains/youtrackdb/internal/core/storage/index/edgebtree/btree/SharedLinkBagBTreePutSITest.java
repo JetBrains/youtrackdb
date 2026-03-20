@@ -141,8 +141,8 @@ public class SharedLinkBagBTreePutSITest {
   }
 
   @Test
-  public void testCrossTransactionUpdateTreeSizeUnchanged() throws Exception {
-    // Cross-tx update should not change tree size (remove + insert = net zero).
+  public void testCrossTransactionUpdateReplacesOldKey() throws Exception {
+    // Cross-tx update replaces old key: the old entry (ts=5) is removed and
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation, new EdgeKey(300L, 10, 100L, 5L),
           new LinkBagValue(1, 0, 0, false));
@@ -220,6 +220,7 @@ public class SharedLinkBagBTreePutSITest {
       var snapshotKey = new EdgeSnapshotKey(componentId, 500L, 10, 100L, 5L);
       var visKey = new EdgeVisibilityKey(5L, componentId, 500L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isFalse();
+      assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey)).isNull();
     });
   }
 
@@ -315,6 +316,35 @@ public class SharedLinkBagBTreePutSITest {
         assertThat(current.first().ts).isEqualTo(5L);
         assertThat(current.second().counter()).isEqualTo(i + 1000);
       }
+    });
+  }
+
+  @Test
+  public void testCrossTransactionPutWithEqualTsOverwrites() throws Exception {
+    // Insert with ts=5 in one atomic op, then put with ts=5 from another.
+    // Since existing.first().ts == key.ts, the code takes the same-ts
+    // overwrite path (no snapshot preservation). This verifies that the
+    // same-ts path works correctly even across atomic operations.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation, new EdgeKey(960L, 10, 100L, 5L),
+          new LinkBagValue(1, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      boolean isNew = bTree.put(atomicOperation, new EdgeKey(960L, 10, 100L, 5L),
+          new LinkBagValue(99, 0, 0, false));
+
+      // Same-ts overwrite: returns false (not a new entry)
+      assertThat(isNew).isFalse();
+      assertThat(bTree.get(new EdgeKey(960L, 10, 100L, 5L), atomicOperation).counter())
+          .isEqualTo(99);
+
+      // No snapshot entry was created (same-ts overwrite)
+      final int componentId = (int) bTree.getFileId();
+      var visKey = new EdgeVisibilityKey(5L, componentId, 960L, 10, 100L);
+      assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isFalse();
+      var snapshotKey = new EdgeSnapshotKey(componentId, 960L, 10, 100L, 5L);
+      assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey)).isNull();
     });
   }
 }
