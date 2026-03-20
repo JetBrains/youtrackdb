@@ -1773,6 +1773,204 @@ public class TransactionTest {
   }
 
   /**
+   * Verifies that iterating edges via getEdges(OUT) returns a consistent snapshot even when a
+   * concurrent writer adds more edges and commits mid-iteration. The reader's snapshot must return
+   * exactly the edges that existed when the reader's transaction started.
+   *
+   * <p>Uses BTree-backed LinkBag (threshold forced to -1) to exercise the SI spliterator path.
+   *
+   * <pre>
+   *   setup: hub vertex with 3 outgoing edges (BTree-backed)
+   *   Thread A: begin tx, start iterating edges
+   *   Main:     begin tx, add 3 more edges, commit
+   *   Thread A: finish iterating -> must see exactly 3 (original) edges
+   * </pre>
+   */
+  @Test
+  public void testSIEdgeIterationConsistencyMultiThread() throws Exception {
+    var originalThreshold =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    try {
+      var initialEdgeCount = 3;
+
+      var tx = db.begin();
+      var hub = tx.newVertex("V");
+      hub.setProperty("name", "hub");
+      for (int i = 0; i < initialEdgeCount; i++) {
+        var target = tx.newVertex("V");
+        target.setProperty("name", "target" + i);
+        tx.newStatefulEdge(hub, target, "E");
+      }
+      var hubRid = hub.getIdentity();
+      tx.commit();
+
+      var readerStarted = new CountDownLatch(1);
+      var writerCommitted = new CountDownLatch(1);
+      var threadError = new AtomicReference<Throwable>();
+
+      var thread = new Thread(() -> {
+        try {
+          var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+          try {
+            var txReader = dbReader.begin();
+            // Open snapshot and read initial edge count
+            Vertex vr = txReader.load(hubRid);
+            Assert.assertEquals(
+                initialEdgeCount, countEdges(vr.getEdges(Direction.OUT)));
+
+            readerStarted.countDown();
+            awaitOrFail(writerCommitted);
+
+            // After writer committed new edges, our iteration must still return only
+            // the original edges (snapshot isolation)
+            dbReader.getLocalCache().clear();
+            Vertex vrAfter = txReader.load(hubRid);
+            int count = 0;
+            for (Edge ignored : vrAfter.getEdges(Direction.OUT)) {
+              count++;
+            }
+            Assert.assertEquals(
+                "Snapshot isolation: iteration must return only original edges",
+                initialEdgeCount, count);
+            txReader.commit();
+          } finally {
+            dbReader.close();
+          }
+        } catch (Throwable t) {
+          threadError.set(t);
+        }
+      });
+      thread.start();
+
+      awaitOrFail(readerStarted);
+      var txWriter = db.begin();
+      Vertex vw = txWriter.load(hubRid);
+      for (int i = 0; i < 3; i++) {
+        var target = txWriter.newVertex("V");
+        target.setProperty("name", "new" + i);
+        txWriter.newStatefulEdge(vw, target, "E");
+      }
+      txWriter.commit();
+      db.getLocalCache().clear();
+      writerCommitted.countDown();
+
+      joinAndCheck(thread, threadError);
+
+      // New transaction sees all 6 edges
+      var txVerify = db.begin();
+      Vertex vFinal = txVerify.load(hubRid);
+      Assert.assertEquals(
+          initialEdgeCount + 3, countEdges(vFinal.getEdges(Direction.OUT)));
+      txVerify.commit();
+    } finally {
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
+          originalThreshold);
+    }
+  }
+
+  /**
+   * Verifies isolation when one transaction creates edges and another deletes edges on the same
+   * vertex concurrently. The reader's snapshot must see the original edge set regardless of
+   * concurrent creates and deletes.
+   *
+   * <p>Uses BTree-backed LinkBag (threshold forced to -1) to exercise the SI code path.
+   *
+   * <pre>
+   *   setup: hub vertex with 4 outgoing edges (e0..e3)
+   *   Thread A: begin tx, count edges -> 4
+   *   Main:     begin tx, delete e0 and e1, add 2 new edges, commit
+   *   Thread A: re-count -> still 4 (original set)
+   *   Fresh tx: count -> 4 (2 deleted + 2 added = net 0 change)
+   * </pre>
+   */
+  @Test
+  public void testSIConcurrentEdgeCreationAndDeletionMultiThread() throws Exception {
+    var originalThreshold =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    try {
+      var initialEdgeCount = 4;
+
+      var tx = db.begin();
+      var hub = tx.newVertex("V");
+      hub.setProperty("name", "hub");
+      var edgeRids = new ArrayList<RID>();
+      for (int i = 0; i < initialEdgeCount; i++) {
+        var target = tx.newVertex("V");
+        target.setProperty("name", "target" + i);
+        var e = tx.newStatefulEdge(hub, target, "E");
+        edgeRids.add(e.getIdentity());
+      }
+      var hubRid = hub.getIdentity();
+      tx.commit();
+
+      var readerStarted = new CountDownLatch(1);
+      var writerCommitted = new CountDownLatch(1);
+      var threadError = new AtomicReference<Throwable>();
+
+      var thread = new Thread(() -> {
+        try {
+          var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+          try {
+            var txReader = dbReader.begin();
+            Vertex vr = txReader.load(hubRid);
+            Assert.assertEquals(
+                initialEdgeCount, countEdges(vr.getEdges(Direction.OUT)));
+
+            readerStarted.countDown();
+            awaitOrFail(writerCommitted);
+
+            // Writer deleted 2 and added 2, but our snapshot must still see original 4
+            dbReader.getLocalCache().clear();
+            Vertex vrAfter = txReader.load(hubRid);
+            Assert.assertEquals(
+                "Snapshot isolation: must see original edge set despite concurrent "
+                    + "creates and deletes",
+                initialEdgeCount, countEdges(vrAfter.getEdges(Direction.OUT)));
+            txReader.commit();
+          } finally {
+            dbReader.close();
+          }
+        } catch (Throwable t) {
+          threadError.set(t);
+        }
+      });
+      thread.start();
+
+      awaitOrFail(readerStarted);
+      var txWriter = db.begin();
+      // Delete first 2 edges
+      for (int i = 0; i < 2; i++) {
+        StatefulEdge eDel = txWriter.loadEdge(edgeRids.get(i));
+        txWriter.delete(eDel);
+      }
+      // Add 2 new edges
+      Vertex vw = txWriter.load(hubRid);
+      for (int i = 0; i < 2; i++) {
+        var target = txWriter.newVertex("V");
+        target.setProperty("name", "replacement" + i);
+        txWriter.newStatefulEdge(vw, target, "E");
+      }
+      txWriter.commit();
+      db.getLocalCache().clear();
+      writerCommitted.countDown();
+
+      joinAndCheck(thread, threadError);
+
+      // New transaction: 4 original - 2 deleted + 2 added = 4
+      var txVerify = db.begin();
+      Vertex vFinal = txVerify.load(hubRid);
+      Assert.assertEquals(
+          initialEdgeCount, countEdges(vFinal.getEdges(Direction.OUT)));
+      txVerify.commit();
+    } finally {
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
+          originalThreshold);
+    }
+  }
+
+  /**
    * Verifies that a rollback on one thread does not affect a concurrent reader's snapshot.
    * The reader should see the committed state, not the rolled-back changes.
    *
