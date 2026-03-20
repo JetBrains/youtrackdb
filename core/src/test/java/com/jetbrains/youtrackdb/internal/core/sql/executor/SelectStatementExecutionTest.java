@@ -5176,11 +5176,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testOutEStateFullEdgesIndexUsageInGraph() {
+  public void testOutEEdgesIndexUsageInGraph() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestOutEStateFullIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestOutEStateFullIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestOutEEdgesIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEEdgesIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
     var propertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
@@ -5189,7 +5189,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var vertexClassName = vertexClass.getName();
 
-    var indexName = "TestOutEStateFullIndexUsageInGraphIndex";
+    var indexName = "TestOutEEdgesIndexUsageInGraphIndex";
     vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
@@ -5243,11 +5243,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testOutEStateFullEdgesWithoutIndexUsageInGraph() {
+  public void testOutEEdgesWithoutIndexUsageInGraph() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestOutEStateFullWithoutIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestOutEStateFullWithoutIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestOutEWithoutIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEWithoutIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
     var vertexClassName = vertexClass.getName();
@@ -5279,11 +5279,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testInEStateFullEdgesIndexUsageInGraph() {
+  public void testInEEdgesIndexUsageInGraph() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestInEStateFullIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestInEStateFullIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestInEEdgesIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestInEEdgesIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
     var inEdgesProperty = vertexClass.createProperty(
@@ -5293,7 +5293,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var propertyName = inEdgesProperty.getName();
     var vertexClassName = vertexClass.getName();
 
-    var indexName = "TestInEStateFullIndexUsageInGraphIndex";
+    var indexName = "TestInEEdgesIndexUsageInGraphIndex";
     vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
@@ -5347,11 +5347,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testBothEStateFullEdgesWithoutIndex() {
+  public void testBothEEdgesWithoutIndex() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestBothEStateFullVertex");
-    var edgeClass = schema.createEdgeClass("TestBothEStateFullEdge");
+    var vertexClass = schema.createVertexClass("TestBothEVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEEdge");
 
     var edgeClassName = edgeClass.getName();
     var vertexClassName = vertexClass.getName();
@@ -5384,11 +5384,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexIn() {
+  public void testBothEEdgesIndexUsageInGraphOneIndexIn() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestBothEIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
     var oudEdgesProperty = vertexClass.createProperty(
@@ -5397,7 +5397,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var vertexClassName = vertexClass.getName();
 
-    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    var indexName = "TestBothEIndexUsageInGraphIndex";
     vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
@@ -5428,11 +5428,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexOut() {
+  public void testBothEEdgesIndexUsageInGraphOneIndexOut() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestBothEIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
     var oudEdgesProperty = vertexClass.createProperty(
@@ -5441,7 +5441,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var vertexClassName = vertexClass.getName();
 
-    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    var indexName = "TestBothEIndexUsageInGraphIndex";
     vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
@@ -5472,11 +5472,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
   }
 
   @Test
-  public void testBothEStateFullEdgesIndexUsageInGraphTwoIndexes() {
+  public void testBothEEdgesIndexUsageInGraphTwoIndexes() {
     var schema = session.getSchema();
 
-    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
-    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+    var vertexClass = schema.createVertexClass("TestBothEIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEIndexUsageInGraphEdge");
 
     var edgeClassName = edgeClass.getName();
 
@@ -5489,10 +5489,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var vertexClassName = vertexClass.getName();
 
-    var outIndexName = "TestBothEStateFullIndexUsageInGraphIndexOutIndex";
+    var outIndexName = "TestBothEIndexUsageInGraphIndexOutIndex";
     vertexClass.createIndex(outIndexName, INDEX_TYPE.NOTUNIQUE, outEdgesProperty.getName());
 
-    var inIndexName = "TestBothEStateFullIndexUsageInGraphIndexInIndex";
+    var inIndexName = "TestBothEIndexUsageInGraphIndexInIndex";
     vertexClass.createIndex(inIndexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
 
     var rids = session.computeInTx(transaction -> {
