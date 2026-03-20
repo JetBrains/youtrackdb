@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -43,21 +43,23 @@
   >
   > **Key files:** `TransactionTest.java` (modified)
 
-- [ ] Step 3: Snapshot fallback via iteration and edge label filter tests
-  Write 2 new BTree-forced SI tests:
-  (a) **Snapshot fallback for deleted edges via iteration**: Reader opens
-  snapshot, writer deletes an edge and commits. Reader iterates
-  `getEdges(Direction.OUT)` — the deleted edge must still appear in the
-  iteration (BTree spliterator falls back to snapshot index for the tombstone
-  entry). This specifically tests the spliterator visibility resolution path,
-  not direct `loadEdge(rid)`.
-  (b) **Edge label filter under SI**: Create edges with different labels
-  (schema setup: `createEdgeClass("Friend")`, `createEdgeClass("Colleague")`).
-  Writer adds edges of label "Friend" and commits. Reader with old snapshot
-  calls `getEdges(Direction.OUT, "Friend")` — must NOT see the new edges.
-  Fresh reader must see them.
-  Both tests use `LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD=-1`.
-  **Key files:** `TransactionTest.java` (modified)
+- [x] Step 3: Snapshot fallback via iteration and edge label filter tests
+  > **What was done:** Added 2 new BTree-forced SI tests:
+  > (a) `testSISnapshotFallbackForDeletedEdgeViaIteration` — writer deletes
+  > an edge, reader's iteration still sees it via snapshot index fallback.
+  > Asserts exact target vertex name set, not just count.
+  > (b) `testSIEdgeLabelFilterMultiThread` — uses distinct "Colleague" and
+  > "Friend" edge subclasses via `createEdgeClass()`. Writer adds "Friend"
+  > edges; reader's label-filtered query sees 0 Friend, 2 Colleague.
+  >
+  > **What was discovered:** Auto-creation of edge classes with
+  > `newStatefulEdge(v, v, "Friend")` fails with "not a regular edge class".
+  > Must explicitly call `createEdgeClass("Friend")` before use. Also,
+  > `getEdges(OUT, "E")` includes subclass edges due to class hierarchy,
+  > so the test needed distinct classes ("Colleague", "Friend") rather than
+  > mixing with the base "E" class.
+  >
+  > **Key files:** `TransactionTest.java` (modified)
 
 - [ ] Step 4: Multiple readers same snapshot epoch test
   Write a new BTree-forced SI test: Two readers start at the same snapshot
