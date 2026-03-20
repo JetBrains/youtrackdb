@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBag
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValueSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
+import java.util.ArrayList;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -548,6 +549,23 @@ public class SharedLinkBagBTreeVisibilityTest {
   }
 
   @Test
+  public void testIsolated_firstKey_nullWhenAllInvisible() throws Exception {
+    // All entries invisible. firstKey returns null.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2050L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertThat(isolated.firstKey(atomicOperation)).isNull();
+    });
+  }
+
+  @Test
   public void testIsolated_lastKey_skipsInvisibleEntries() throws Exception {
     // First entry visible, last two invisible. lastKey() returns the first.
     final long futureTs = Long.MAX_VALUE - 1;
@@ -594,14 +612,18 @@ public class SharedLinkBagBTreeVisibilityTest {
   }
 
   @Test
-  public void testIsolated_isEmpty_trueWhenAllInvisible() throws Exception {
-    // All entries invisible. isEmpty returns true.
+  public void testIsolated_isEmpty_trueWhenAllInvisibleOrTombstone() throws Exception {
+    // One invisible entry and one visible tombstone. isEmpty returns true
+    // because the SI spliterator filters the invisible entry, and the
+    // tombstone filter in isEmpty() catches the visible tombstone.
     final long futureTs = Long.MAX_VALUE - 1;
     final long linkBagId = 2300L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.put(atomicOperation,
           new EdgeKey(linkBagId, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, 5L), new LinkBagValue(0, 0, 0, true));
     });
 
     var isolated = createIsolatedBTree(linkBagId);
@@ -646,7 +668,7 @@ public class SharedLinkBagBTreeVisibilityTest {
 
     var isolated = createIsolatedBTree(linkBagId);
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      var results = new java.util.ArrayList<Integer>();
+      var results = new ArrayList<Integer>();
       isolated.loadEntriesMajor(
           new RecordId(0, 0L), true, true,
           entry -> {
