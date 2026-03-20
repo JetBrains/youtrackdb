@@ -7,13 +7,16 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -31,12 +34,13 @@ import org.junit.Test;
  *
  * <p>Pattern: Thread A holds a transaction open while the main thread writes and
  * commits. Thread A then reads and verifies it sees the pre-write state (snapshot
- * isolation). Uses CountDownLatch for thread coordination.
+ * isolation). Uses CountDownLatch for thread coordination with timeouts.
  */
 public class SharedLinkBagBTreeSIReadPathTest {
 
   private static final String DB_NAME = "siReadPathTest";
   private static final String DIR_NAME = "/siReadPathTest";
+  private static final int TIMEOUT_SECONDS = 30;
 
   private static YouTrackDBImpl youTrackDB;
   private static AtomicOperationsManager atomicOperationsManager;
@@ -88,38 +92,25 @@ public class SharedLinkBagBTreeSIReadPathTest {
         atomicOperation -> bTree.delete(atomicOperation));
   }
 
-  // ---- Concurrent get() SI test ----
-
-  @Test
-  public void testSnapshotIsolation_getSeesOldValueAfterConcurrentUpdate() throws Exception {
-    // 1. Insert entry (counter=10) in tx1 (committed, uses tx1's commitTs)
-    // 2. Thread A opens tx (snapshot after tx1 committed)
-    // 3. Main thread updates entry (counter=99) in tx2 (uses tx2's commitTs)
-    // 4. Thread A reads via findVisibleEntry — should see counter=10
-
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      long ts = atomicOperation.getCommitTs();
-      bTree.put(atomicOperation, new EdgeKey(100L, 10, 100L, ts),
-          new LinkBagValue(10, 0, 0, false));
-    });
-
+  /**
+   * Runs a concurrent reader/writer scenario: the reader opens a transaction
+   * (capturing a snapshot), then the writer runs and commits, then the reader
+   * executes its action and verifies SI behavior.
+   */
+  private void runConcurrentReaderWriter(
+      Consumer<AtomicOperation> readerAction,
+      Runnable writerAction) throws Exception {
     var readerReady = new CountDownLatch(1);
     var writerDone = new CountDownLatch(1);
-    var readerResult = new AtomicReference<LinkBagValue>();
     var readerError = new AtomicReference<Throwable>();
 
     var readerThread = new Thread(() -> {
       try {
         atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-          // Signal: reader has snapshot
           readerReady.countDown();
-          // Wait for writer to commit
-          writerDone.await();
-
-          var result = bTree.findVisibleEntry(atomicOperation, 100L, 10, 100L);
-          if (result != null) {
-            readerResult.set(result.second());
-          }
+          assertThat(writerDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+              .as("writer should complete within timeout").isTrue();
+          readerAction.accept(atomicOperation);
         });
       } catch (Throwable t) {
         readerError.set(t);
@@ -127,33 +118,86 @@ public class SharedLinkBagBTreeSIReadPathTest {
     });
 
     readerThread.start();
-    readerReady.await();
+    assertThat(readerReady.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+        .as("reader should acquire snapshot within timeout").isTrue();
 
-    // Writer: update entry with new value (uses its own commitTs)
+    writerAction.run();
+
+    writerDone.countDown();
+    readerThread.join(TIMEOUT_SECONDS * 1000L);
+    assertThat(readerThread.isAlive())
+        .as("reader thread should complete within timeout").isFalse();
+
+    if (readerError.get() != null) {
+      throw new AssertionError("Reader thread failed", readerError.get());
+    }
+  }
+
+  private static EdgeKey allEdgesFrom(long ridBagId) {
+    return new EdgeKey(ridBagId, 0, 0L, Long.MIN_VALUE);
+  }
+
+  private static EdgeKey allEdgesTo(long ridBagId) {
+    return new EdgeKey(ridBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+  }
+
+  // ---- Concurrent get() SI test ----
+
+  @Test
+  public void testSnapshotIsolation_getSeesOldValueAfterConcurrentUpdate() throws Exception {
+    // 1. Insert entry (counter=10) in tx1 (committed, uses tx1's commitTs)
+    // 2. Reader opens tx (snapshot after tx1 committed)
+    // 3. Writer updates entry (counter=99)
+    // 4. Reader reads via findVisibleEntry — should see counter=10
+
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       long ts = atomicOperation.getCommitTs();
       bTree.put(atomicOperation, new EdgeKey(100L, 10, 100L, ts),
-          new LinkBagValue(99, 0, 0, false));
+          new LinkBagValue(10, 0, 0, false));
     });
 
-    writerDone.countDown();
-    readerThread.join();
+    var readerResult = new AtomicReference<LinkBagValue>();
 
-    assertThat(readerError.get()).isNull();
+    runConcurrentReaderWriter(
+        atomicOperation -> {
+          var result = bTree.findVisibleEntry(atomicOperation, 100L, 10, 100L);
+          if (result != null) {
+            readerResult.set(result.second());
+          }
+        },
+        () -> {
+          try {
+            atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+              long ts = atomicOperation.getCommitTs();
+              bTree.put(atomicOperation, new EdgeKey(100L, 10, 100L, ts),
+                  new LinkBagValue(99, 0, 0, false));
+            });
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
+        });
+
     assertThat(readerResult.get()).isNotNull();
     // Reader sees the OLD value (counter=10) from before the writer's update
     assertThat(readerResult.get().counter()).isEqualTo(10);
+
+    // Verify fresh transaction sees the updated value
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = bTree.findVisibleEntry(atomicOperation, 100L, 10, 100L);
+      assertThat(result).isNotNull();
+      assertThat(result.second().counter()).isEqualTo(99);
+    });
   }
 
-  // ---- Concurrent iteration SI test ----
+  // ---- Concurrent iteration SI tests ----
 
   @Test
   public void testSnapshotIsolation_forwardIterationConsistentDuringConcurrentWrite()
       throws Exception {
     // 1. Insert 3 entries in tx1 (committed)
-    // 2. Thread A opens a transaction (snapshot before tx2)
-    // 3. Main thread adds 2 more entries in tx2 (committed)
-    // 4. Thread A iterates — should see only the original 3 entries
+    // 2. Reader opens tx (snapshot before writer)
+    // 3. Writer adds 2 more entries
+    // 4. Reader iterates forward — should see only the original 3 entries
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       long ts = atomicOperation.getCommitTs();
@@ -165,46 +209,71 @@ public class SharedLinkBagBTreeSIReadPathTest {
           new LinkBagValue(3, 0, 0, false));
     });
 
-    var readerReady = new CountDownLatch(1);
-    var writerDone = new CountDownLatch(1);
     var readerCount = new AtomicReference<Integer>();
-    var readerError = new AtomicReference<Throwable>();
 
-    var readerThread = new Thread(() -> {
-      try {
-        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-          readerReady.countDown();
-          writerDone.await();
-
-          var fromKey = new EdgeKey(200L, 0, 0L, Long.MIN_VALUE);
-          var toKey = new EdgeKey(200L, Integer.MAX_VALUE, Long.MAX_VALUE,
-              Long.MAX_VALUE);
+    runConcurrentReaderWriter(
+        atomicOperation -> {
           var entries = bTree.streamEntriesBetween(
-              fromKey, true, toKey, true, true, atomicOperation).toList();
+              allEdgesFrom(200L), true, allEdgesTo(200L), true,
+              true, atomicOperation).toList();
           readerCount.set(entries.size());
+        },
+        () -> {
+          try {
+            atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+              long ts = atomicOperation.getCommitTs();
+              bTree.put(atomicOperation, new EdgeKey(200L, 40, 400L, ts),
+                  new LinkBagValue(4, 0, 0, false));
+              bTree.put(atomicOperation, new EdgeKey(200L, 50, 500L, ts),
+                  new LinkBagValue(5, 0, 0, false));
+            });
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
         });
-      } catch (Throwable t) {
-        readerError.set(t);
-      }
-    });
 
-    readerThread.start();
-    readerReady.await();
+    // Reader sees only the original 3 entries, not the 2 added by the writer
+    assertThat(readerCount.get()).isEqualTo(3);
+  }
 
-    // Writer: add 2 more entries using its own commitTs
+  @Test
+  public void testSnapshotIsolation_backwardIterationConsistentDuringConcurrentWrite()
+      throws Exception {
+    // Same as forward iteration test but using descending order.
+
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       long ts = atomicOperation.getCommitTs();
-      bTree.put(atomicOperation, new EdgeKey(200L, 40, 400L, ts),
-          new LinkBagValue(4, 0, 0, false));
-      bTree.put(atomicOperation, new EdgeKey(200L, 50, 500L, ts),
-          new LinkBagValue(5, 0, 0, false));
+      bTree.put(atomicOperation, new EdgeKey(250L, 10, 100L, ts),
+          new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation, new EdgeKey(250L, 20, 200L, ts),
+          new LinkBagValue(2, 0, 0, false));
+      bTree.put(atomicOperation, new EdgeKey(250L, 30, 300L, ts),
+          new LinkBagValue(3, 0, 0, false));
     });
 
-    writerDone.countDown();
-    readerThread.join();
+    var readerCount = new AtomicReference<Integer>();
 
-    assertThat(readerError.get()).isNull();
-    // Reader sees only the original 3 entries, not the 2 added by the writer
+    runConcurrentReaderWriter(
+        atomicOperation -> {
+          var entries = bTree.streamEntriesBetween(
+              allEdgesFrom(250L), true, allEdgesTo(250L), true,
+              false, atomicOperation).toList();
+          readerCount.set(entries.size());
+        },
+        () -> {
+          try {
+            atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+              long ts = atomicOperation.getCommitTs();
+              bTree.put(atomicOperation, new EdgeKey(250L, 40, 400L, ts),
+                  new LinkBagValue(4, 0, 0, false));
+              bTree.put(atomicOperation, new EdgeKey(250L, 50, 500L, ts),
+                  new LinkBagValue(5, 0, 0, false));
+            });
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
+        });
+
     assertThat(readerCount.get()).isEqualTo(3);
   }
 
@@ -213,9 +282,9 @@ public class SharedLinkBagBTreeSIReadPathTest {
   @Test
   public void testSnapshotIsolation_deletedEdgesStillVisibleToOlderSnapshot() throws Exception {
     // 1. Insert 3 entries in tx1 (committed)
-    // 2. Thread A opens a transaction (snapshot before tx2)
-    // 3. Main thread removes 2 entries in tx2 (creates tombstones, committed)
-    // 4. Thread A reads — should still see all 3 entries via snapshot index
+    // 2. Reader opens tx (snapshot before writer)
+    // 3. Writer removes 2 entries (creates tombstones, committed)
+    // 4. Reader reads — should still see all 3 entries via snapshot index
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       long ts = atomicOperation.getCommitTs();
@@ -227,46 +296,38 @@ public class SharedLinkBagBTreeSIReadPathTest {
           new LinkBagValue(3, 0, 0, false));
     });
 
-    var readerReady = new CountDownLatch(1);
-    var writerDone = new CountDownLatch(1);
     var readerCount = new AtomicReference<Integer>();
-    var readerError = new AtomicReference<Throwable>();
 
-    var readerThread = new Thread(() -> {
-      try {
-        atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-          readerReady.countDown();
-          writerDone.await();
-
-          var fromKey = new EdgeKey(300L, 0, 0L, Long.MIN_VALUE);
-          var toKey = new EdgeKey(300L, Integer.MAX_VALUE, Long.MAX_VALUE,
-              Long.MAX_VALUE);
+    runConcurrentReaderWriter(
+        atomicOperation -> {
           var entries = bTree.streamEntriesBetween(
-              fromKey, true, toKey, true, true, atomicOperation).toList();
+              allEdgesFrom(300L), true, allEdgesTo(300L), true,
+              true, atomicOperation).toList();
           readerCount.set(entries.size());
+        },
+        () -> {
+          try {
+            atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+              long ts = atomicOperation.getCommitTs();
+              bTree.remove(atomicOperation, new EdgeKey(300L, 10, 100L, ts));
+              bTree.remove(atomicOperation, new EdgeKey(300L, 20, 200L, ts));
+            });
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
         });
-      } catch (Throwable t) {
-        readerError.set(t);
-      }
-    });
 
-    readerThread.start();
-    readerReady.await();
-
-    // Writer: delete 2 entries using its own commitTs (creates tombstones)
-    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      long ts = atomicOperation.getCommitTs();
-      bTree.remove(atomicOperation, new EdgeKey(300L, 10, 100L, ts));
-      bTree.remove(atomicOperation, new EdgeKey(300L, 20, 200L, ts));
-    });
-
-    writerDone.countDown();
-    readerThread.join();
-
-    assertThat(readerError.get()).isNull();
-    // Reader still sees all 3 entries (tombstones not visible to old snapshot,
-    // old values available via snapshot index)
+    // Reader still sees all 3 entries (tombstones not visible to old snapshot)
     assertThat(readerCount.get()).isEqualTo(3);
+
+    // Verify fresh transaction sees the deletions (only 1 entry left)
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var entries = bTree.streamEntriesBetween(
+          allEdgesFrom(300L), true, allEdgesTo(300L), true,
+          true, atomicOperation).toList();
+      assertThat(entries).hasSize(1);
+      assertThat(entries.get(0).second().counter()).isEqualTo(3);
+    });
   }
 
   // ---- Self-read visibility ----
