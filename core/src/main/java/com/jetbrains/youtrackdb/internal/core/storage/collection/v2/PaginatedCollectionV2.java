@@ -963,14 +963,37 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Nonnull
   private RawBuffer doReadRecordOptimistic(final long collectionPosition,
       @Nonnull final AtomicOperation atomicOperation) {
+    // Speculative reads from PageView buffers can produce arbitrary garbage values
+    // (sizes, offsets, array indices) that cause RuntimeExceptions unrelated to the
+    // optimistic protocol. Wrap the entire body so any such exception triggers fallback
+    // to the pinned path rather than propagating as a spurious error.
+    try {
+      return doReadRecordOptimisticInner(collectionPosition, atomicOperation);
+    } catch (final RecordNotFoundException e) {
+      // RecordNotFoundException is a definitive answer — propagate.
+      throw e;
+    } catch (final OptimisticReadFailedException e) {
+      // Normal optimistic failure — propagate for fallback.
+      throw e;
+    } catch (final RuntimeException e) {
+      // Speculative garbage caused AIOOBE, NPE, NegativeArraySizeException, etc.
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+  }
+
+  @Nonnull
+  private RawBuffer doReadRecordOptimisticInner(final long collectionPosition,
+      @Nonnull final AtomicOperation atomicOperation) {
     var entryWithStatus =
         collectionPositionMap.getWithStatusOptimistic(collectionPosition, atomicOperation);
     var snapshot = atomicOperation.getAtomicOperationsSnapshot();
     var commitTs = atomicOperation.getCommitTsUnsafe();
     var status = entryWithStatus.status();
 
-    // NOT_EXISTENT/ALLOCATED — these will throw RecordNotFoundException which propagates
-    // through the optimistic path (it's not an OptimisticReadFailedException).
+    assert snapshot != null
+        : "AtomicOperationsSnapshot must not be null during optimistic record read";
+
+    // NOT_EXISTENT/ALLOCATED — definitive answer, propagates through.
     if (status == CollectionPositionMapBucket.NOT_EXISTENT
         || status == CollectionPositionMapBucket.ALLOCATED) {
       throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
@@ -978,6 +1001,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     // Tombstone — needs history lookup which uses pinned pages, fall back.
     if (status == CollectionPositionMapBucket.REMOVED) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    // Any other status (speculative garbage) — fall back.
+    if (status != CollectionPositionMapBucket.FILLED) {
       throw OptimisticReadFailedException.INSTANCE;
     }
 
@@ -1002,10 +1030,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           new RecordId(id, collectionPosition));
     }
 
-    final var content =
-        localPage.getRecordBinaryValue(
-            recordPosition, 0, localPage.getRecordSize(recordPosition));
-    assert content != null;
+    final var recordSize = localPage.getRecordSize(recordPosition);
+    // Minimum record size: at least the next-page-pointer and record-type byte
+    if (recordSize < LongSerializer.LONG_SIZE + ByteSerializer.BYTE_SIZE) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    final var content = localPage.getRecordBinaryValue(recordPosition, 0, recordSize);
+    if (content == null) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
 
     if (content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE] == 0) {
       throw new RecordNotFoundException(storageName,
