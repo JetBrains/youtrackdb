@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -61,11 +61,11 @@
   >
   > **Key files:** `TransactionTest.java` (modified)
 
-- [ ] Step 4: Multiple readers same snapshot epoch test
-  Write a new BTree-forced SI test: Two readers start at the same snapshot
-  point (both open transactions before any writes). A writer modifies edges
-  and commits. Both readers independently verify they see the same consistent
-  pre-write edge state. Then fresh readers verify the committed state. This
-  tests that the snapshot index correctly serves multiple concurrent readers
-  from the same epoch. Uses `LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD=-1`.
-  **Key files:** `TransactionTest.java` (modified)
+- [x] Step 4: Multiple readers same snapshot epoch test
+  > **What was done:** Added `testSIMultipleReadersSameSnapshotEpochMultiThread`
+  > — two reader threads open transactions before writes, writer adds 2 edges
+  > and deletes 1, both readers verify they still see 3 original edges. Fresh
+  > tx verifies 4 edges (3 - 1 + 2). Uses per-thread `AtomicReference` for
+  > error propagation after code review fix.
+  >
+  > **Key files:** `TransactionTest.java` (modified)
