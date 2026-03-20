@@ -52,28 +52,29 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
     return new LinkBagBucketPointer(linkBagId, 0);
   }
 
-  // TODO YTDB-545 Track 3: Replace exact-match lookup with prefix-based search once
-  //  real timestamps are written. Currently ts=0L works because all entries have ts=0.
   @Nullable @Override
   public LinkBagValue get(RID rid, AtomicOperation atomicOperation) {
-    final var result = bTree.get(
-        new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition(), 0L),
-        atomicOperation);
-
-    return result;
+    final var entry = bTree.findCurrentEntry(
+        atomicOperation, linkBagId, rid.getCollectionId(), rid.getCollectionPosition());
+    if (entry == null || entry.second().tombstone()) {
+      return null;
+    }
+    return entry.second();
   }
 
-  // TODO YTDB-545 Track 3: Pass commitTs instead of 0L once SI write path is wired.
   @Override
   public boolean put(AtomicOperation atomicOperation, RID rid, LinkBagValue value) {
     return bTree.put(
         atomicOperation,
-        new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition(), 0L),
+        new EdgeKey(
+            linkBagId, rid.getCollectionId(), rid.getCollectionPosition(),
+            atomicOperation.getCommitTs()),
         value);
   }
 
   @Override
   public void clear(AtomicOperation atomicOperation) {
+    final long commitTs = atomicOperation.getCommitTs();
     try (var stream =
         bTree.streamEntriesBetween(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE),
@@ -85,7 +86,12 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
 
       while (iterator.hasNext()) {
         final var entry = iterator.next();
-        bTree.remove(atomicOperation, entry.first());
+        // Use commitTs so cross-tx entries get proper tombstones
+        bTree.remove(
+            atomicOperation,
+            new EdgeKey(
+                entry.first().ridBagId, entry.first().targetCollection,
+                entry.first().targetPosition, commitTs));
       }
     }
   }
@@ -96,7 +102,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
         bTree.iterateEntriesMajor(
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE), true, true,
             atomicOperation)) {
-      return stream.findAny().isEmpty();
+      return stream.noneMatch(entry -> !entry.second().tombstone());
     }
   }
 
@@ -105,12 +111,13 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
     clear(atomicOperation);
   }
 
-  // TODO YTDB-545 Track 3: Replace with prefix-based lookup + tombstone once SI write path is wired.
   @Nullable @Override
   public LinkBagValue remove(AtomicOperation atomicOperation, RID rid) {
     return bTree.remove(
         atomicOperation,
-        new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition(), 0L));
+        new EdgeKey(
+            linkBagId, rid.getCollectionId(), rid.getCollectionPosition(),
+            atomicOperation.getCommitTs()));
   }
 
   @Override
@@ -127,7 +134,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             true, atomicOperation)) {
-      listenStream(stream, listener);
+      listenStream(stream.filter(e -> !e.second().tombstone()), listener);
     }
   }
 
@@ -158,7 +165,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             true, atomicOperation)) {
-      final var iterator = stream.iterator();
+      final var iterator = stream.filter(e -> !e.second().tombstone()).iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
         return new RecordId(entry.first().targetCollection, entry.first().targetPosition);
@@ -177,7 +184,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             false, atomicOperation)) {
-      final var iterator = stream.iterator();
+      final var iterator = stream.filter(e -> !e.second().tombstone()).iterator();
       if (iterator.hasNext()) {
         final var entry = iterator.next();
         return new RecordId(entry.first().targetCollection, entry.first().targetPosition);
@@ -202,7 +209,9 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
           stream,
           entry -> {
             final var treeValue = entry.second();
-            size.increment(treeValue.counter());
+            if (!treeValue.tombstone()) {
+              size.increment(treeValue.counter());
+            }
             return true;
           });
     }
@@ -268,12 +277,26 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
 
     @Override
     public boolean tryAdvance(Consumer<? super BTreeReadEntry<RID>> action) {
-      return delegate.tryAdvance(pair -> {
-        final var rid = new RecordId(pair.first().targetCollection, pair.first().targetPosition);
-        final var value = pair.second();
-        action.accept(new BTreeReadEntry<>(rid, value.counter(),
-            value.secondaryCollectionId(), value.secondaryPosition()));
-      });
+      // Skip tombstone entries — callers should only see live edges
+      while (true) {
+        final boolean[] accepted = {false};
+        boolean hasMore = delegate.tryAdvance(pair -> {
+          if (!pair.second().tombstone()) {
+            final var rid =
+                new RecordId(pair.first().targetCollection, pair.first().targetPosition);
+            final var value = pair.second();
+            action.accept(new BTreeReadEntry<>(rid, value.counter(),
+                value.secondaryCollectionId(), value.secondaryPosition()));
+            accepted[0] = true;
+          }
+        });
+        if (!hasMore) {
+          return false;
+        }
+        if (accepted[0]) {
+          return true;
+        }
+      }
     }
 
     @Nullable @Override

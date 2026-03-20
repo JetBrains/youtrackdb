@@ -457,8 +457,6 @@ public class BTreeTestIT {
       var fromKey = keys[fromKeyIndex];
 
       if (random.nextBoolean() && fromKey.targetPosition > Long.MIN_VALUE) {
-        // TODO YTDB-545 Track 3: when real timestamps are used, boundary keys need
-        //  Long.MAX_VALUE for ts to capture all timestamps below the decremented position.
         fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
             fromKey.targetPosition - 1, 0L);
       }
@@ -552,8 +550,6 @@ public class BTreeTestIT {
       var toKeyIndex = random.nextInt(keys.length);
       var toKey = keys[toKeyIndex];
       if (random.nextBoolean()) {
-        // TODO YTDB-545 Track 3: when real timestamps are used, boundary keys need
-        //  Long.MIN_VALUE for ts to capture all timestamps above the incremented position.
         toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1, 0L);
       }
 
@@ -650,13 +646,11 @@ public class BTreeTestIT {
       var toKey = keys[toKeyIndex];
 
       if (random.nextBoolean()) {
-        // TODO YTDB-545 Track 3: use Long.MAX_VALUE for ts when real timestamps are used.
         fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
             fromKey.targetPosition - 1, 0L);
       }
 
       if (random.nextBoolean()) {
-        // TODO YTDB-545 Track 3: use Long.MIN_VALUE for ts when real timestamps are used.
         toKey = new EdgeKey(toKey.ridBagId, toKey.targetCollection, toKey.targetPosition + 1, 0L);
       }
 
