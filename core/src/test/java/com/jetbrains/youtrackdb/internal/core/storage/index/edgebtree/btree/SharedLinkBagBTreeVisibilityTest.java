@@ -450,6 +450,38 @@ public class SharedLinkBagBTreeVisibilityTest {
       // The key retains the original B-tree ts (for position tracking),
       // but the value is the resolved snapshot version.
       assertThat(entries.get(1).second().counter()).isEqualTo(2);
+      assertThat(entries.get(1).first().ts).isEqualTo(futureTs);
+    });
+  }
+
+  @Test
+  public void testBackwardIteration_snapshotFallbackDuringIteration() throws Exception {
+    // Same as forward snapshot fallback test, but iterating backward.
+    final long futureTs = Long.MAX_VALUE - 1;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(1450L, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1450L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
+
+      final int componentId = (int) bTree.getFileId();
+      atomicOperation.putEdgeSnapshotEntry(
+          new EdgeSnapshotKey(componentId, 1450L, 20, 200L, 3L),
+          new LinkBagValue(2, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(1450L, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(1450L, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, false, atomicOperation).toList();
+
+      // Descending: (20,200) snapshot value, then (10,100)
+      assertThat(entries).hasSize(2);
+      assertThat(entries.get(0).second().counter()).isEqualTo(2);
+      assertThat(entries.get(0).first().ts).isEqualTo(futureTs);
+      assertThat(entries.get(1).second().counter()).isEqualTo(1);
     });
   }
 
