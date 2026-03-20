@@ -398,6 +398,12 @@ graph LR
   > tests once real timestamps activated cross-tx tombstone creation.
   >
   > **Step file:** `tracks/track-3.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 3 Step 4 already added tombstone
+  > filtering to IsolatedLinkBagBTreeImpl read paths (originally Track 4
+  > scope), reducing Track 4's IsolatedLinkBagBTreeImpl step. Core Track 4
+  > work (SI visibility checks + snapshot index fallback in SharedLinkBagBTree
+  > and spliterators) remains correctly scoped.
 
 - [ ] Track 4: SharedLinkBagBTree read and iteration path with SI
   > **What**: Modify the read operations (`get`) and iteration
