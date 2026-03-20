@@ -491,28 +491,19 @@ graph TD
   > tracked as Track 8.
   >
   > **Step file:** `tracks/track-7.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 8: Fix EdgeIterator.reset() for unionAll inline edges
+- [~] Track 8: Fix EdgeIterator.reset() for unionAll inline edges
   > Fix the `SQLCombinationFunctionTests.unionAllInlineEdges` failure caused
   > by `EdgeIterator.reset()` throwing `UnsupportedOperationException` when
-  > the underlying iterator is not `Resettable`. The bug was introduced in
-  > Track 3 when `RelationsIteratorAbstract` was inlined into `EdgeIterator`
-  > — the original code had the same latent bug, but it was masked because
-  > `RelationsIteratorAbstract` wrapped different iterator types.
+  > the underlying iterator is not `Resettable`.
   >
-  > The failure path: `unionAll(inE(), outE())` SQL aggregation collects
-  > `EdgeIterable` sources into a `MultiCollectionIterator`. When the
-  > `MultiCollectionIterator` calls `reset()` on an `EdgeIterator` whose
-  > underlying iterator is not resettable, it throws. The fix should make
-  > `EdgeIterator.reset()` robust — either by making the underlying
-  > `EdgeIterable` iterator resettable, or by re-creating the iterator from
-  > the stored `multiValue` field.
+  > **Skipped:** The bug was already fixed during Track 3 execution in commit
+  > `3992dbefda` ("fix reset() fall-through bug"). The Track 7 verification
+  > failure was a false positive caused by a stale `~/.m2/repository` core
+  > jar from the `develop` branch. With a fresh build, all
+  > `SQLCombinationFunctionTests` inline edge tests pass consistently.
   >
-  > Constraints:
-  > - Must not regress any of the ~1900 Cucumber feature tests.
-  > - The fix should also add a regression test for the `unionAll` inline
-  >   edge scenario.
-  >
-  > **Scope:** ~2 steps covering EdgeIterator.reset() fix with regression
-  > test, full verification run
+  > **Step file:** `tracks/track-8.md` (0 steps, skip)
   > **Depends on:** Track 7
