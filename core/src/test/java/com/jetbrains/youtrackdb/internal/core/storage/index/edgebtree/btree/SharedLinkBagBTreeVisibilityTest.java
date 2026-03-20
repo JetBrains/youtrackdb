@@ -175,7 +175,8 @@ public class SharedLinkBagBTreeVisibilityTest {
 
       // Also insert the "old version" into the snapshot index, as if a
       // prior committed tx created it and the update moved it there.
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 400L, 10, 100L, olderTs),
           new LinkBagValue(42, 0, 0, false));
@@ -208,7 +209,8 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(500L, 10, 100L, futureTs),
           new LinkBagValue(0, 0, 0, true));
 
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       // Snapshot: visible live version at ts=2
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 500L, 10, 100L, 2L),
@@ -234,7 +236,8 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(600L, 10, 100L, futureTs),
           new LinkBagValue(99, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 600L, 10, 100L, 2L),
           new LinkBagValue(0, 0, 0, true));
@@ -275,7 +278,8 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(800L, 10, 100L, futureTs),
           new LinkBagValue(99, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 800L, 10, 100L, 2L),
           new LinkBagValue(20, 0, 0, false));
@@ -345,7 +349,8 @@ public class SharedLinkBagBTreeVisibilityTest {
     // has a visible version. This exercises the current==null branch in
     // findVisibleEntry that falls back directly to the snapshot index.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 1100L, 10, 100L, 3L),
           new LinkBagValue(55, 0, 0, false));
@@ -443,7 +448,8 @@ public class SharedLinkBagBTreeVisibilityTest {
       bTree.put(atomicOperation,
           new EdgeKey(1400L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 1400L, 20, 200L, 3L),
           new LinkBagValue(2, 0, 0, false));
@@ -477,7 +483,8 @@ public class SharedLinkBagBTreeVisibilityTest {
       bTree.put(atomicOperation,
           new EdgeKey(1450L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
+      final int componentId =
+          AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
           new EdgeSnapshotKey(componentId, 1450L, 20, 200L, 3L),
           new LinkBagValue(2, 0, 0, false));
@@ -782,13 +789,15 @@ public class SharedLinkBagBTreeVisibilityTest {
       var entries = bTree.streamEntriesBetween(
           fromKey, true, toKey, true, true, atomicOperation).toList();
 
-      // All 15 entries visible (12 directly, 3 via snapshot)
-      assertThat(entries).hasSize(15);
-      // Verify monotonically increasing order by targetCollection
-      for (int i = 1; i < entries.size(); i++) {
-        assertThat(entries.get(i).first().targetCollection)
-            .isGreaterThan(entries.get(i - 1).first().targetCollection);
-      }
+      // All 15 entries visible (12 directly, 3 via snapshot fallback).
+      // Verify count, ascending order, AND correct value resolution:
+      // snapshot-fallback entries (i=5,10,14) should carry counter=i
+      // (the resolved snapshot value), NOT counter=i*100 (the invisible
+      // B-tree value).
+      var counters = entries.stream()
+          .map(e -> e.second().counter()).toList();
+      assertThat(counters).containsExactly(
+          1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
     });
   }
 
@@ -828,13 +837,11 @@ public class SharedLinkBagBTreeVisibilityTest {
       var entries = bTree.streamEntriesBetween(
           fromKey, true, toKey, true, false, atomicOperation).toList();
 
-      // All 15 entries visible, in descending order
-      assertThat(entries).hasSize(15);
-      // Verify monotonically decreasing order by targetCollection
-      for (int i = 1; i < entries.size(); i++) {
-        assertThat(entries.get(i).first().targetCollection)
-            .isLessThan(entries.get(i - 1).first().targetCollection);
-      }
+      // All 15 entries visible, in descending order with correct values
+      var counters = entries.stream()
+          .map(e -> e.second().counter()).toList();
+      assertThat(counters).containsExactly(
+          15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1);
     });
   }
 }
