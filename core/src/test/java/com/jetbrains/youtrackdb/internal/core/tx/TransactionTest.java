@@ -793,10 +793,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIEdgeCreationIsolationMultiThread() throws Exception {
-    // Force BTree-backed LinkBag storage so the SI code path is exercised
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var tx = db.begin();
       var v1 = tx.newVertex("V");
@@ -861,8 +858,7 @@ public class TransactionTest {
           1, countEdges(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -879,10 +875,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIEdgeDeletionIsolationMultiThread() throws Exception {
-    // Force BTree-backed LinkBag storage so the SI code path is exercised
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var tx = db.begin();
       var v1 = tx.newVertex("V");
@@ -917,6 +910,12 @@ public class TransactionTest {
                 "Snapshot isolation: deleted edge must still be visible",
                 eAfter);
             Assert.assertEquals(10, (int) eAfter.getProperty("weight"));
+
+            // Also verify via vertex edge iteration (BTree spliterator path)
+            Vertex vrAfter = txReader.load(v1Rid);
+            Assert.assertEquals(
+                "Snapshot isolation: deleted edge must still appear in vertex iteration",
+                1, countEdges(vrAfter.getEdges(Direction.OUT)));
             txReader.commit();
           } finally {
             dbReader.close();
@@ -947,8 +946,7 @@ public class TransactionTest {
       }
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -1697,10 +1695,7 @@ public class TransactionTest {
    */
   @Test
   public void testSIEdgeCountStabilityMultiThread() throws Exception {
-    // Force BTree-backed LinkBag storage so the SI code path is exercised
-    var originalThreshold =
-        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
-    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    var originalThreshold = forceBTreeLinkBag();
     try {
       var initialEdgeCount = 3;
 
@@ -1736,8 +1731,9 @@ public class TransactionTest {
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(v1Rid);
             Assert.assertEquals(
-                "Snapshot isolation: edge count must remain " + initialEdgeCount,
-                initialEdgeCount, countEdges(vrAfter.getEdges(Direction.OUT)));
+                "Snapshot isolation: must see exactly the original target vertices",
+                Set.of("target0", "target1", "target2"),
+                collectEdgeTargetNames(vrAfter.getEdges(Direction.OUT)));
             txReader.commit();
           } finally {
             dbReader.close();
@@ -1762,15 +1758,16 @@ public class TransactionTest {
 
       joinAndCheck(thread, threadError);
 
-      // New readers should see 5 edges
+      // New readers should see all 5 edges
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(v1Rid);
       Assert.assertEquals(
-          initialEdgeCount + 2, countEdges(vFinal.getEdges(Direction.OUT)));
+          "After commit: must see original + new edges",
+          Set.of("target0", "target1", "target2", "extra0", "extra1"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -1820,12 +1817,13 @@ public class TransactionTest {
             dbReader.getLocalCache().clear();
             Vertex vr = txReader.load(hubRid);
 
-            // Start iterating and consume exactly one edge
+            // Start iterating and consume exactly one edge, collecting target names
+            var seenNames = new HashSet<String>();
             var iter = vr.getEdges(Direction.OUT).iterator();
-            int count = 0;
             if (iter.hasNext()) {
-              iter.next();
-              count++;
+              Edge first = iter.next();
+              seenNames.add(
+                  ((Vertex) first.getVertex(Direction.IN)).getProperty("name"));
             }
 
             // Signal that we have an open iterator with partially consumed edges
@@ -1835,12 +1833,14 @@ public class TransactionTest {
             // Writer committed 3 new edges — continue consuming the same iterator;
             // it must return only the original edges
             while (iter.hasNext()) {
-              iter.next();
-              count++;
+              Edge e = iter.next();
+              seenNames.add(
+                  ((Vertex) e.getVertex(Direction.IN)).getProperty("name"));
             }
             Assert.assertEquals(
                 "Snapshot isolation: mid-iteration must return only original edges",
-                initialEdgeCount, count);
+                Set.of("target0", "target1", "target2", "target3", "target4"),
+                seenNames);
             txReader.commit();
           } finally {
             dbReader.close();
@@ -1865,15 +1865,17 @@ public class TransactionTest {
 
       joinAndCheck(thread, threadError);
 
-      // New transaction sees all 8 edges
+      // New transaction sees all 8 edges (5 original + 3 new)
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
-          initialEdgeCount + 3, countEdges(vFinal.getEdges(Direction.OUT)));
+          "After commit: must see original + new edges",
+          Set.of("target0", "target1", "target2", "target3", "target4",
+              "new0", "new1", "new2"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -1973,14 +1975,16 @@ public class TransactionTest {
       joinAndCheck(thread, threadError);
 
       // New transaction: 4 original - 2 deleted + 2 added = 4
+      // Verify content (not just count) to catch silent drops or leaks
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
       Assert.assertEquals(
-          initialEdgeCount, countEdges(vFinal.getEdges(Direction.OUT)));
+          "After commit: must see surviving originals + replacements",
+          Set.of("target2", "target3", "replacement0", "replacement1"),
+          collectEdgeTargetNames(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -2080,8 +2084,7 @@ public class TransactionTest {
           2, countEdges(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -2187,8 +2190,7 @@ public class TransactionTest {
           2, countEdges(vFinal.getEdges(Direction.OUT, "Colleague")));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -2318,8 +2320,7 @@ public class TransactionTest {
           4, countEdges(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
-      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
-          originalThreshold);
+      restoreLinkBagThreshold(originalThreshold);
     }
   }
 
@@ -3496,5 +3497,34 @@ public class TransactionTest {
       count++;
     }
     return count;
+  }
+
+  /**
+   * Collects the "name" property of all IN-direction target vertices for the given edges.
+   */
+  private static Set<String> collectEdgeTargetNames(Iterable<Edge> edges) {
+    var names = new HashSet<String>();
+    for (Edge e : edges) {
+      Vertex target = e.getVertex(Direction.IN);
+      names.add(target.getProperty("name"));
+    }
+    return names;
+  }
+
+  /**
+   * Forces BTree-backed LinkBag storage by setting the embedded-to-BTree threshold to -1.
+   * Returns the original threshold value for restoration.
+   *
+   * <p>Assumes single-threaded test execution; not safe for parallel test runners.
+   */
+  private static int forceBTreeLinkBag() {
+    int original =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    return original;
+  }
+
+  private static void restoreLinkBagThreshold(int original) {
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(original);
   }
 }
