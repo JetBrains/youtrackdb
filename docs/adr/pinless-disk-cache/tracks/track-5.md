@@ -5,6 +5,9 @@
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`23cb2bec4b`
+
 ## Reviews completed
 - [x] Technical (iteration 1 — PASS, 5 findings: 1 blocker, 2 should-fix, 2 suggestion)
 - [x] Risk (iteration 1 — PASS, 8 findings: 0 blocker after triage, 3 should-fix, 3 suggestion, 2 rejected)
