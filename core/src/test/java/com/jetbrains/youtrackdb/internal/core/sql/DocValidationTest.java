@@ -362,4 +362,92 @@ public class DocValidationTest {
     Vertex v = (Vertex) resultsAfter.get(0);
     assertThat((String) v.value("name")).isEqualTo("test");
   }
+
+  // === YQL-Create-Vertex.md ===
+
+  // Line 23: CREATE VERTEX (bare, on base class V)
+  @Test
+  public void testCreateVertexBare() {
+    var results =
+        g.computeInTx(tx -> {
+          tx.yql("CREATE VERTEX").iterate();
+          return tx.yql("SELECT FROM V").toList();
+        });
+    assertThat(results).isNotEmpty();
+  }
+
+  // Lines 30-31: CREATE CLASS V1 EXTENDS V, then CREATE VERTEX V1
+  @Test
+  public void testCreateVertexWithClass() {
+    g.command("CREATE CLASS CVV1 IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVV1").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CVV1").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 37: CREATE VERTEX SET brand = 'fiat' (properties on base class)
+  @Test
+  public void testCreateVertexWithProperties() {
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX SET brand = 'fiat'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM V WHERE brand = 'fiat'").toList());
+    assertThat(results).isNotEmpty();
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("brand")).isEqualTo("fiat");
+  }
+
+  // Line 43: CREATE VERTEX V1 SET brand = 'Skoda', name = 'wow'
+  @Test
+  public void testCreateVertexClassWithMultipleProperties() {
+    g.command("CREATE CLASS CVV1Multi IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVV1Multi SET brand = 'Skoda', name = 'wow'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CVV1Multi").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("brand")).isEqualTo("Skoda");
+    assertThat((String) v.value("name")).isEqualTo("wow");
+  }
+
+  // Line 49: CREATE VERTEX Employee CONTENT { "name" : "Viktoria", "surname" : "Sernevich" }
+  @Test
+  public void testCreateVertexWithContent() {
+    g.command("CREATE CLASS EmployeeCV IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX EmployeeCV CONTENT { \"name\" : \"Viktoria\", "
+          + "\"surname\" : \"Sernevich\" }").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM EmployeeCV").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Viktoria");
+    assertThat((String) v.value("surname")).isEqualTo("Sernevich");
+  }
+
+  // Factual claim line 6: The base class for a vertex is V
+  @Test
+  public void testBaseClassForVertexIsV() {
+    g.command("CREATE CLASS CVVertexChild IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CVVertexChild SET tag = 'baseTest'").iterate();
+    });
+
+    // A vertex created in a V subclass should also appear in SELECT FROM V
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM V WHERE tag = 'baseTest'").toList());
+    assertThat(results).isNotEmpty();
+  }
 }
