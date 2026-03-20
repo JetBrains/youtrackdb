@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionPositionMapException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -319,7 +320,8 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       throw new CollectionPositionMapException(storage.getName(),
           "Passed in collection position "
               + collectionPosition
-              + " is outside of range of collection-position map", this);
+              + " is outside of range of collection-position map",
+          this);
     }
 
     return loadPageForWrite(atomicOperation, fileId, pageIndex, true);
@@ -333,8 +335,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * @param atomicOperation    the current atomic operation context
    * @return the position entry, or {@code null} if not found / not filled
    */
-  @Nullable
-  public CollectionPositionMapBucket.PositionEntry get(
+  @Nullable public CollectionPositionMapBucket.PositionEntry get(
       final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
@@ -381,6 +382,41 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   /**
+   * Optimistic variant of {@link #getWithStatus} that uses {@code loadPageOptimistic()}
+   * instead of CAS-pinned page loads. Stamps are added to the caller's
+   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope}.
+   *
+   * @throws OptimisticReadFailedException on cache miss, stamp failure, or out-of-range
+   */
+  @Nonnull
+  CollectionPositionMapBucket.EntryWithStatus getWithStatusOptimistic(
+      final long collectionPosition, final AtomicOperation atomicOperation) {
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    final var lastPage = getLastPageOptimistic(atomicOperation);
+
+    if (pageIndex > lastPage) {
+      return new CollectionPositionMapBucket.EntryWithStatus(
+          CollectionPositionMapBucket.NOT_EXISTENT, null);
+    }
+
+    final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+    final var bucket = new CollectionPositionMapBucket(pageView);
+    return bucket.getEntryWithStatus(index);
+  }
+
+  /**
+   * Optimistic variant of {@link #getLastPage} — reads file size from the entry point
+   * page without CAS pinning.
+   */
+  private long getLastPageOptimistic(final AtomicOperation atomicOperation) {
+    final var pageView = loadPageOptimistic(atomicOperation, fileId, 0);
+    final var mapEntryPoint = new MapEntryPoint(pageView);
+    return mapEntryPoint.getFileSize();
+  }
+
+  /**
    * Marks the entry at the given collection position as REMOVED (tombstone) and stores the
    * {@code deletionVersion} so MVCC readers can determine deletion visibility.
    *
@@ -409,8 +445,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] ceilingPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     return ceilingPositionsImpl(collectionPosition, limit, atomicOperation,
         LONG_ARRAY_RESULT_BUILDER);
   }
@@ -422,8 +457,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] higherPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
@@ -440,10 +474,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   CollectionPositionEntry[] higherPositionsEntries(
       long collectionPosition,
-      AtomicOperation atomicOperation
-  ) throws IOException {
+      AtomicOperation atomicOperation) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
-      return new CollectionPositionEntry[]{};
+      return new CollectionPositionEntry[] {};
     }
 
     return ceilingPositionsImpl(
@@ -456,8 +489,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       long collectionPosition,
       int limit,
       final AtomicOperation atomicOperation,
-      final PositionResultBuilder<T> resultBuilder
-  ) throws IOException {
+      final PositionResultBuilder<T> resultBuilder) throws IOException {
 
     if (collectionPosition < 0) {
       collectionPosition = 0;
@@ -525,8 +557,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] lowerPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     if (collectionPosition == 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
@@ -542,10 +573,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   CollectionPositionEntry[] lowerPositionsEntriesReversed(
       long collectionPosition,
-      AtomicOperation atomicOperation
-  ) throws IOException {
+      AtomicOperation atomicOperation) throws IOException {
     if (collectionPosition == 0) {
-      return new CollectionPositionEntry[]{};
+      return new CollectionPositionEntry[] {};
     }
 
     return floorPositionsImpl(
@@ -560,12 +590,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   long[] floorPositions(
       long collectionPosition,
       AtomicOperation atomicOperation,
-      int limit
-  ) throws IOException {
+      int limit) throws IOException {
     return floorPositionsImpl(
         collectionPosition, limit, atomicOperation,
-        LONG_ARRAY_RESULT_BUILDER, false
-    );
+        LONG_ARRAY_RESULT_BUILDER, false);
   }
 
   /// General logic for finding floor positions for the given position.
@@ -574,8 +602,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       int limit,
       final AtomicOperation atomicOperation,
       final PositionResultBuilder<T> resultBuilder,
-      final boolean reverseOrder
-  ) throws IOException {
+      final boolean reverseOrder) throws IOException {
     if (collectionPosition < 0) {
       return resultBuilder.emptyResult();
     }
@@ -833,8 +860,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     /// @param bucketIndex Index in the `bucket` of the entry for `position`.
     void setElement(
         T result, int index,
-        long position, CollectionPositionMapBucket bucket, int bucketIndex
-    );
+        long position, CollectionPositionMapBucket bucket, int bucketIndex);
 
     /// Create a copy of the given result of the given size. This method has the same semantics as
     /// [Arrays#copyOf]
@@ -871,42 +897,43 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         }
       };
 
-  private static final PositionResultBuilder<CollectionPositionEntry[]> COL_POS_ENTRY_ARRAY_RESULT_BUILDER =
-      new PositionResultBuilder<>() {
-        @Override
-        public CollectionPositionEntry[] emptyResult() {
-          return new CollectionPositionEntry[0];
-        }
+  private static final PositionResultBuilder<
+      CollectionPositionEntry[]> COL_POS_ENTRY_ARRAY_RESULT_BUILDER =
+          new PositionResultBuilder<>() {
+            @Override
+            public CollectionPositionEntry[] emptyResult() {
+              return new CollectionPositionEntry[0];
+            }
 
-        @Override
-        public CollectionPositionEntry[] newResultOfSize(int size) {
-          return new CollectionPositionEntry[size];
-        }
+            @Override
+            public CollectionPositionEntry[] newResultOfSize(int size) {
+              return new CollectionPositionEntry[size];
+            }
 
-        @Override
-        public void reverseResult(CollectionPositionEntry[] result) {
-          ArrayUtils.reverse(result);
-        }
+            @Override
+            public void reverseResult(CollectionPositionEntry[] result) {
+              ArrayUtils.reverse(result);
+            }
 
-        @Override
-        public void setElement(
-            CollectionPositionEntry[] result, int index, long position,
-            CollectionPositionMapBucket bucket, int bucketIndex) {
+            @Override
+            public void setElement(
+                CollectionPositionEntry[] result, int index, long position,
+                CollectionPositionMapBucket bucket, int bucketIndex) {
 
-          final var entry = bucket.get(bucketIndex);
-          assert entry != null;
+              final var entry = bucket.get(bucketIndex);
+              assert entry != null;
 
-          result[index] = new CollectionPositionEntry(
-              position,
-              entry.getPageIndex(),
-              entry.getRecordPosition(),
-              entry.getRecordVersion());
-        }
+              result[index] = new CollectionPositionEntry(
+                  position,
+                  entry.getPageIndex(),
+                  entry.getRecordPosition(),
+                  entry.getRecordVersion());
+            }
 
-        @Override
-        public CollectionPositionEntry[] copyResult(CollectionPositionEntry[] result,
-            int newLength) {
-          return Arrays.copyOf(result, newLength);
-        }
-      };
+            @Override
+            public CollectionPositionEntry[] copyResult(CollectionPositionEntry[] result,
+                int newLength) {
+              return Arrays.copyOf(result, newLength);
+            }
+          };
 }

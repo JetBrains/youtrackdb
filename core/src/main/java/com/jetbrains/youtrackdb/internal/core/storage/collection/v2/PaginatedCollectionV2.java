@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
@@ -887,7 +888,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return atomicOperationsManager.executeReadOperation(this,
-        () -> doReadRecord(collectionPosition, atomicOperation));
+        () -> executeOptimisticStorageRead(
+            atomicOperation,
+            () -> doReadRecordOptimistic(collectionPosition, atomicOperation),
+            () -> doReadRecord(collectionPosition, atomicOperation)));
   }
 
   /// Reads a record from the collection at the specified position, with tombstone awareness
@@ -948,6 +952,79 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         positionEntry.getRecordPosition(),
         positionEntry.getRecordVersion(),
         atomicOperation);
+  }
+
+  /**
+   * Optimistic variant of {@link #doReadRecord} — uses loadPageOptimistic() for position
+   * map lookup and single-page record read. Falls back to pinned path via
+   * OptimisticReadFailedException for: multi-page records, tombstone history lookups,
+   * and any branch that requires pinned page access.
+   */
+  @Nonnull
+  private RawBuffer doReadRecordOptimistic(final long collectionPosition,
+      @Nonnull final AtomicOperation atomicOperation) {
+    var entryWithStatus =
+        collectionPositionMap.getWithStatusOptimistic(collectionPosition, atomicOperation);
+    var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+    var commitTs = atomicOperation.getCommitTsUnsafe();
+    var status = entryWithStatus.status();
+
+    // NOT_EXISTENT/ALLOCATED — these will throw RecordNotFoundException which propagates
+    // through the optimistic path (it's not an OptimisticReadFailedException).
+    if (status == CollectionPositionMapBucket.NOT_EXISTENT
+        || status == CollectionPositionMapBucket.ALLOCATED) {
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+    }
+
+    // Tombstone — needs history lookup which uses pinned pages, fall back.
+    if (status == CollectionPositionMapBucket.REMOVED) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    // FILLED — read single page optimistically
+    var positionEntry = entryWithStatus.entry();
+    final var pageIndex = positionEntry.getPageIndex();
+    final var recordPosition = positionEntry.getRecordPosition();
+
+    final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+    final var localPage = new CollectionPage(pageView);
+
+    var recordVersion = localPage.getRecordVersion(recordPosition);
+    var isRecordVisible = isRecordVersionVisible(recordVersion, commitTs, snapshot);
+
+    if (!isRecordVisible) {
+      // Needs history lookup — fall back to pinned path
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    if (localPage.isDeleted(recordPosition)) {
+      throw new RecordNotFoundException(storageName,
+          new RecordId(id, collectionPosition));
+    }
+
+    final var content =
+        localPage.getRecordBinaryValue(
+            recordPosition, 0, localPage.getRecordSize(recordPosition));
+    assert content != null;
+
+    if (content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE] == 0) {
+      throw new RecordNotFoundException(storageName,
+          new RecordId(id, collectionPosition));
+    }
+
+    // Check for multi-page record
+    final var nextPagePointer =
+        LongSerializer.deserializeNative(
+            content, content.length - LongSerializer.LONG_SIZE);
+    if (nextPagePointer >= 0) {
+      // Multi-page record — fall back to pinned path
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+
+    final var contentSize =
+        content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
+    final List<byte[]> recordChunks = List.of(content);
+    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
   }
 
   @Nonnull
