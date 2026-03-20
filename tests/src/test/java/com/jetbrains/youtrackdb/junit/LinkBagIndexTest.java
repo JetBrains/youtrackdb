@@ -810,7 +810,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
   }
 
   /**
-   * Verify that a vertex LinkBag containing both a single-RID entry (single RID)
+   * Verify that a vertex LinkBag containing both a single-RID entry
    * and a double-sided RidPair entry indexes only the primary RIDs.
    */
   @Test
