@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
@@ -210,7 +211,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
           return executeOptimisticStorageRead(
               atomicOperation,
-              () -> getOptimistic(atomicOperation, preprocessedKey, serializedKey),
+              () -> getOptimistic(atomicOperation, serializedKey),
               () -> getPinned(atomicOperation, preprocessedKey, serializedKey));
         } else {
           return executeOptimisticStorageRead(
@@ -233,7 +234,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
    */
   @Nullable private RID getOptimistic(
       final AtomicOperation atomicOperation,
-      final K key, final byte[] serializedKey) {
+      final byte[] serializedKey) {
     final var scope = atomicOperation.getOptimisticReadScope();
     var pageIndex = ROOT_INDEX;
 
@@ -241,11 +242,10 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     while (true) {
       depth++;
       if (depth > MAX_PATH_LENGTH) {
-        throw new CellBTreeSingleValueV3Exception(
-            "We reached max level of depth of SBTree but still found nothing, seems like tree"
-                + " is in corrupted state. You should rebuild index related to given query."
-                + " Key = " + key,
-            this);
+        // Under the optimistic path, a concurrent tree restructuring could cause
+        // transient depth overflow from following stale pointers. Fall back to the
+        // pinned path which will either find the key or report genuine corruption.
+        throw OptimisticReadFailedException.INSTANCE;
       }
 
       final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
