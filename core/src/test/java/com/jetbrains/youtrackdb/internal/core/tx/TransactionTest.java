@@ -15,8 +15,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -1931,14 +1933,14 @@ public class TransactionTest {
             // the exact original 4 edges (not the replacements)
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(hubRid);
-            var seenTargetNames = new java.util.HashSet<String>();
+            var seenTargetNames = new HashSet<String>();
             for (Edge e : vrAfter.getEdges(Direction.OUT)) {
               Vertex target = e.getVertex(Direction.IN);
               seenTargetNames.add(target.getProperty("name"));
             }
             Assert.assertEquals(
                 "Snapshot isolation: must see exactly the original 4 target vertices",
-                java.util.Set.of("target0", "target1", "target2", "target3"),
+                Set.of("target0", "target1", "target2", "target3"),
                 seenTargetNames);
             txReader.commit();
           } finally {
@@ -2028,7 +2030,9 @@ public class TransactionTest {
           try {
             var txReader = dbReader.begin();
             Vertex vr = txReader.load(hubRid);
-            Assert.assertEquals(3, countEdges(vr.getEdges(Direction.OUT)));
+            Assert.assertEquals(
+                "Initial snapshot should see all 3 edges",
+                3, countEdges(vr.getEdges(Direction.OUT)));
 
             readerStarted.countDown();
             awaitOrFail(writerCommitted);
@@ -2037,7 +2041,7 @@ public class TransactionTest {
             // via spliterator falling back to snapshot index for the tombstone
             dbReader.getLocalCache().clear();
             Vertex vrAfter = txReader.load(hubRid);
-            var seenTargetNames = new java.util.HashSet<String>();
+            var seenTargetNames = new HashSet<String>();
             for (Edge e : vrAfter.getEdges(Direction.OUT)) {
               Vertex target = e.getVertex(Direction.IN);
               seenTargetNames.add(target.getProperty("name"));
@@ -2045,7 +2049,7 @@ public class TransactionTest {
             Assert.assertEquals(
                 "Snapshot isolation: deleted edge must appear in iteration via "
                     + "snapshot fallback",
-                java.util.Set.of("target0", "target1", "target2"),
+                Set.of("target0", "target1", "target2"),
                 seenTargetNames);
             txReader.commit();
           } finally {
@@ -2071,7 +2075,9 @@ public class TransactionTest {
       // New transaction sees only 2 edges
       var txVerify = db.begin();
       Vertex vFinal = txVerify.load(hubRid);
-      Assert.assertEquals(2, countEdges(vFinal.getEdges(Direction.OUT)));
+      Assert.assertEquals(
+          "After deletion commit: new reader must see only 2 edges",
+          2, countEdges(vFinal.getEdges(Direction.OUT)));
       txVerify.commit();
     } finally {
       GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
