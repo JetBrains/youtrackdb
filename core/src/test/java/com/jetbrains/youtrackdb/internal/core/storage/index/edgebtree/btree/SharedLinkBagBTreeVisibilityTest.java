@@ -346,4 +346,132 @@ public class SharedLinkBagBTreeVisibilityTest {
       assertThat(result.second().counter()).isEqualTo(55);
     });
   }
+
+  // ---- Spliterator visibility tests (forward/backward iteration) ----
+
+  @Test
+  public void testForwardIteration_skipsInvisibleAndTombstoneEntries() throws Exception {
+    // Insert 5 entries: 3 visible live, 1 invisible (future ts), 1 visible tombstone.
+    // Forward iteration should return only the 3 visible live entries.
+    final long futureTs = Long.MAX_VALUE - 1;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(1200L, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1200L, 20, 200L, 5L), new LinkBagValue(2, 0, 0, false));
+      // Invisible entry (future ts)
+      bTree.put(atomicOperation,
+          new EdgeKey(1200L, 30, 300L, futureTs), new LinkBagValue(3, 0, 0, false));
+      // Visible tombstone
+      bTree.put(atomicOperation,
+          new EdgeKey(1200L, 40, 400L, 5L), new LinkBagValue(0, 0, 0, true));
+      bTree.put(atomicOperation,
+          new EdgeKey(1200L, 50, 500L, 5L), new LinkBagValue(5, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(1200L, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(1200L, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, true, atomicOperation).toList();
+
+      // Should have 3 entries: (10,100), (20,200), (50,500)
+      // (30,300) is invisible (future ts), (40,400) is tombstone
+      assertThat(entries).hasSize(3);
+      assertThat(entries.get(0).second().counter()).isEqualTo(1);
+      assertThat(entries.get(1).second().counter()).isEqualTo(2);
+      assertThat(entries.get(2).second().counter()).isEqualTo(5);
+    });
+  }
+
+  @Test
+  public void testBackwardIteration_skipsInvisibleAndTombstoneEntries() throws Exception {
+    // Same setup as forward, but iterate backward (descending order).
+    final long futureTs = Long.MAX_VALUE - 1;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(1300L, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1300L, 20, 200L, 5L), new LinkBagValue(2, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1300L, 30, 300L, futureTs), new LinkBagValue(3, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1300L, 40, 400L, 5L), new LinkBagValue(0, 0, 0, true));
+      bTree.put(atomicOperation,
+          new EdgeKey(1300L, 50, 500L, 5L), new LinkBagValue(5, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(1300L, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(1300L, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, false, atomicOperation).toList();
+
+      // Descending: (50,500), (20,200), (10,100)
+      assertThat(entries).hasSize(3);
+      assertThat(entries.get(0).second().counter()).isEqualTo(5);
+      assertThat(entries.get(1).second().counter()).isEqualTo(2);
+      assertThat(entries.get(2).second().counter()).isEqualTo(1);
+    });
+  }
+
+  @Test
+  public void testForwardIteration_snapshotFallbackDuringIteration() throws Exception {
+    // Insert entries: one visible, one invisible with snapshot fallback.
+    // Forward iteration should return both (the invisible one resolved
+    // via snapshot).
+    final long futureTs = Long.MAX_VALUE - 1;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(1400L, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      // Invisible entry with snapshot fallback
+      bTree.put(atomicOperation,
+          new EdgeKey(1400L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
+
+      final int componentId = (int) bTree.getFileId();
+      atomicOperation.putEdgeSnapshotEntry(
+          new EdgeSnapshotKey(componentId, 1400L, 20, 200L, 3L),
+          new LinkBagValue(2, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(1400L, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(1400L, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, true, atomicOperation).toList();
+
+      assertThat(entries).hasSize(2);
+      // First: visible entry (10,100) counter=1
+      assertThat(entries.get(0).second().counter()).isEqualTo(1);
+      // Second: snapshot fallback (20,200) counter=2.
+      // The key retains the original B-tree ts (for position tracking),
+      // but the value is the resolved snapshot version.
+      assertThat(entries.get(1).second().counter()).isEqualTo(2);
+    });
+  }
+
+  @Test
+  public void testForwardIteration_allInvisibleReturnsEmpty() throws Exception {
+    // All entries are invisible. Iteration should return empty.
+    final long futureTs = Long.MAX_VALUE - 1;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(1500L, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(1500L, 20, 200L, futureTs), new LinkBagValue(2, 0, 0, false));
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var fromKey = new EdgeKey(1500L, 0, 0L, Long.MIN_VALUE);
+      var toKey = new EdgeKey(1500L, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+      var entries = bTree.streamEntriesBetween(
+          fromKey, true, toKey, true, true, atomicOperation).toList();
+
+      assertThat(entries).isEmpty();
+    });
+  }
 }

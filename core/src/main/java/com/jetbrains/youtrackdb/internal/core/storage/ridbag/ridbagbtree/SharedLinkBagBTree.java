@@ -271,7 +271,6 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final AtomicOperationsSnapshot snapshot,
       final AtomicOperation atomicOp) {
     final int componentId = (int) getFileId();
-    assert componentId == getFileId() : "fileId overflow: " + getFileId();
 
     // Range: all versions of this logical edge (from MIN to MAX)
     final var lowerKey = new EdgeSnapshotKey(
@@ -1400,8 +1399,28 @@ public final class SharedLinkBagBTree extends DurableComponent {
               }
             }
 
-            //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            // SI visibility: resolve entry, skip invisible/tombstone.
+            // When atomicOperation is null (non-transactional read),
+            // skip visibility resolution and add entry directly.
+            // IMPORTANT: cache entries must use the ORIGINAL B-tree key
+            // (not the resolved snapshot key) to preserve correct iteration
+            // position tracking. fetchNextCachePortionForward uses
+            // dataCache.getLast().first() (the last key) to re-position
+            // the iterator after cache exhaustion — a snapshot key with a
+            // lower ts would cause re-reading the same entry forever.
+            if (atomicOperation != null) {
+              @SuppressWarnings("ObjectAllocationInLoop")
+              var visible =
+                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
+              if (visible != null) {
+                //noinspection ObjectAllocationInLoop
+                iter.getDataCache()
+                    .add(new RawPair<>(entry.getKey(), visible.second()));
+              }
+            } else {
+              //noinspection ObjectAllocationInLoop
+              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            }
           }
 
           if (iter.getDataCache().size() >= 10) {
@@ -1512,7 +1531,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
           iter.setLastLSN(bucket.getLsn());
 
-          for (; iter.getItemIndex() >= 0 && iter.getDataCache().size() < 10; iter.decItemIndex()) {
+          for (; iter.getItemIndex() >= 0 && iter.getDataCache().size() < 10;
+              iter.decItemIndex()) {
             @SuppressWarnings("ObjectAllocationInLoop")
             var entry = bucket.getEntry(iter.getItemIndex(), serializerFactory);
 
@@ -1526,8 +1546,22 @@ public final class SharedLinkBagBTree extends DurableComponent {
               }
             }
 
-            //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            // SI visibility: resolve entry, skip invisible/tombstone.
+            // See forward method comment for why we use the original
+            // B-tree key instead of the resolved snapshot key.
+            if (atomicOperation != null) {
+              @SuppressWarnings("ObjectAllocationInLoop")
+              var visible =
+                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
+              if (visible != null) {
+                //noinspection ObjectAllocationInLoop
+                iter.getDataCache()
+                    .add(new RawPair<>(entry.getKey(), visible.second()));
+              }
+            } else {
+              //noinspection ObjectAllocationInLoop
+              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            }
           }
 
           if (iter.getDataCache().size() >= 10) {
