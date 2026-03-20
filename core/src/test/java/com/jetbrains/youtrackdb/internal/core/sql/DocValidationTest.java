@@ -1480,4 +1480,776 @@ public class DocValidationTest {
                 .toList());
     assertThat(remaining).hasSize(2);
   }
+
+  // === YQL-Match.md ===
+
+  // Helper: set up the Person/Friend graph from YQL-Match.md sample dataset (lines 84-106)
+  // John Doe -> John Smith, Jenny Smith, Frank Bean
+  // John Smith -> Jenny Smith
+  // Frank Bean -> Mark Bean
+  // Jenny Smith -> Mark Bean
+  private void setUpMatchSampleData() {
+    g.command("CREATE CLASS MAPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriend IF NOT EXISTS EXTENDS E");
+
+    // Clean up any leftover data from previous test runs
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAPerson").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAPerson SET name = 'John', surname = 'Doe'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'John', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Jenny', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Frank', surname = 'Bean'").iterate();
+      tx.yql("CREATE VERTEX MAPerson SET name = 'Mark', surname = 'Bean'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      // John Doe -> John Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='John' AND surname='Smith')")
+          .iterate();
+      // John Doe -> Jenny Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith')")
+          .iterate();
+      // John Doe -> Frank Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Doe') "
+              + "TO (SELECT FROM MAPerson WHERE name='Frank' AND surname='Bean')")
+          .iterate();
+      // John Smith -> Jenny Smith
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='John' AND surname='Smith') "
+              + "TO (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith')")
+          .iterate();
+      // Frank Bean -> Mark Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='Frank' AND surname='Bean') "
+              + "TO (SELECT FROM MAPerson WHERE name='Mark' AND surname='Bean')")
+          .iterate();
+      // Jenny Smith -> Mark Bean
+      tx.yql(
+          "CREATE EDGE MAFriend "
+              + "FROM (SELECT FROM MAPerson WHERE name='Jenny' AND surname='Smith') "
+              + "TO (SELECT FROM MAPerson WHERE name='Mark' AND surname='Bean')")
+          .iterate();
+    });
+  }
+
+  private void tearDownMatchSampleData() {
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriend").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAPerson").iterate();
+    });
+  }
+
+  // Line 110-113: Find all people with the name John
+  @Test
+  public void testMatchFindByName() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: people, where: (name = 'John')} "
+                      + "RETURN people")
+                  .toList());
+      // Should return John Doe and John Smith
+      assertThat(results).hasSize(2);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 125-128: Find all people with name John and surname Smith
+  @Test
+  public void testMatchFindByNameAndSurname() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: people, "
+                      + "where: (name = 'John' AND surname = 'Smith')} "
+                      + "RETURN people")
+                  .toList());
+      // Should return only John Smith
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 141-144: Find people named John with their friends (both directions)
+  @Test
+  public void testMatchBothFriend() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, where: (name = 'John')}"
+                      + ".both('MAFriend') {as: friend} "
+                      + "RETURN person, friend")
+                  .toList());
+      // John Doe has 3 friends (out: Smith, Jenny, Frank)
+      // John Smith has 2 friends (in: Doe, out: Jenny)
+      // = 5 total
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 161-165: Friends of friends
+  // DOC BUG: The doc result table (lines 168-178) shows 5 rows with unique
+  // friendOfFriend values, but MATCH returns all occurrences (line 283 confirms
+  // no dedup). The actual result is 7 rows because multiple paths reach the
+  // same node (e.g., John Doe appears 3 times as friend-of-friend via 3 friends).
+  // Also, the doc includes Frank Bean (#12:3) as a friend-of-friend, but no
+  // two-hop path Doe -> X -> Frank exists — Frank is only a direct friend.
+  @Test
+  public void testMatchFriendsOfFriends() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend') {as: friendOfFriend} "
+                      + "RETURN person, friendOfFriend")
+                  .toList());
+      // Actual: 7 rows (Doe×3, Jenny, Smith, Mark×2) — doc incorrectly shows 5
+      assertThat(results).hasSize(7);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 183-188: Friends of friends, excluding current user via $matched.person
+  @Test
+  public void testMatchFriendsOfFriendsExcludeSelf() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend')"
+                      + "{as: friendOfFriend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN person, friendOfFriend")
+                  .toList());
+      // Same as above but excluding John Doe himself = 4
+      assertThat(results).hasSize(4);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 202-207: Deep traversal with while condition ($depth < 6)
+  // DOC BUG: Line 205 omits comma between where: and while: clauses.
+  // The parser requires: {as: friend, where: (...), while: (...)}
+  @Test
+  public void testMatchDeepTraversalWhile() {
+    setUpMatchSampleData();
+    try {
+      // Verify the doc's syntax (no comma) fails to parse
+      assertThatThrownBy(
+          () -> g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend, "
+                      + "where: ($matched.person != $currentMatch) "
+                      + "while: ($depth < 6)} "
+                      + "RETURN person, friend")
+                  .toList()));
+
+      // Corrected syntax with comma between where: and while:
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend, "
+                      + "where: ($matched.person != $currentMatch), "
+                      + "while: ($depth < 6)} "
+                      + "RETURN person, friend")
+                  .toList());
+      assertThat(results).isNotEmpty();
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 236-241: Multiple match paths — friends of friends who are also direct friends
+  @Test
+  public void testMatchMultiplePaths() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend').both('MAFriend'){as: friend}, "
+                      + "{ as: person }.both('MAFriend'){ as: friend } "
+                      + "RETURN person, friend")
+                  .toList());
+      // Friends of friends who are also direct friends: John Smith, Jenny Smith
+      assertThat(results).hasSize(2);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 257-261: Common friends of John Doe and Jenny Smith
+  @Test
+  public void testMatchCommonFriends() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend}.both('MAFriend')"
+                      + "{class: MAPerson, where: (name = 'Jenny')} "
+                      + "RETURN friend")
+                  .toList());
+      // Common friend of John Doe and Jenny Smith is John Smith
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 273-278: Common friends with two match expressions
+  @Test
+  public void testMatchCommonFriendsTwoExpressions() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".both('MAFriend'){as: friend}, "
+                      + "{class: MAPerson, where: (name = 'Jenny')}.both('MAFriend')"
+                      + "{as: friend} RETURN friend")
+                  .toList());
+      // Same as single expression: John Smith is the common friend
+      assertThat(results).hasSize(1);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 288-292: DISTINCT — create data with duplicate names, verify MATCH returns duplicates
+  @Test
+  public void testMatchDistinct() {
+    g.command("CREATE CLASS MADistPerson IF NOT EXISTS EXTENDS V");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'John', surname = 'Smith'").iterate();
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'John', surname = 'Harris'").iterate();
+      tx.yql("CREATE VERTEX MADistPerson SET name = 'Jenny', surname = 'Rose'").iterate();
+    });
+
+    // Without DISTINCT: should return 3 rows (including both Johns)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADistPerson, as:p} RETURN p.name as name")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    // With DISTINCT: should return 2 rows (John and Jenny)
+    var distinctResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADistPerson, as:p} RETURN DISTINCT p.name as name")
+                .toList());
+    assertThat(distinctResults).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADistPerson").iterate();
+    });
+  }
+
+  // Line 349-355: Expanding attributes — SELECT from MATCH sub-query
+  @Test
+  public void testMatchExpandingAttributes() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "SELECT person.name AS name, person.surname AS surname, "
+                      + "friend.name AS friendName, friend.surname AS friendSurname "
+                      + "FROM (MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John')}.both('MAFriend'){as: friend} "
+                      + "RETURN person, friend)")
+                  .toList());
+      // John Doe has 3 friends, John Smith has 2 friends = 5 total
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 373-378: RETURN with dot-notation on aliases (alternative syntax)
+  @Test
+  public void testMatchReturnDotNotation() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John')}.both('MAFriend'){as: friend} "
+                      + "RETURN person.name as name, person.surname as surname, "
+                      + "friend.name as friendName, friend.surname as friendSurname")
+                  .toList());
+      assertThat(results).hasSize(5);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 439-461: Deep traversal — out("FriendOf") without while returns only direct
+  @Test
+  public void testMatchDeepTraversalWithoutWhile() {
+    g.command("CREATE CLASS MADeepPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf "
+              + "FROM (SELECT FROM MADeepPerson WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf "
+              + "FROM (SELECT FROM MADeepPerson WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Without while: traverses out("MAFriendOf") exactly once → returns only 'b'
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson, where: (name = 'a')}"
+                    + ".out('MAFriendOf'){as: friend} RETURN friend")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson").iterate();
+    });
+  }
+
+  // Line 466-478: Deep traversal with while — includes origin node (depth 0)
+  // DOC BUG: The doc result table (lines 471-478) shows only 'a' and 'b',
+  // but while($depth < 2) actually returns 'a' (depth 0), 'b' (depth 1),
+  // and 'c' (depth 2). The while condition controls whether to CONTINUE
+  // traversing, but the reached node is still included in results.
+  @Test
+  public void testMatchDeepTraversalWithWhile() {
+    g.command("CREATE CLASS MADeepPerson2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf2 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson2 SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf2 "
+              + "FROM (SELECT FROM MADeepPerson2 WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson2 WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf2 "
+              + "FROM (SELECT FROM MADeepPerson2 WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson2 WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Actual: returns 'a', 'b', 'c' = 3 (doc incorrectly says 2)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson2, where: (name = 'a')}"
+                    + ".out('MAFriendOf2'){as: friend, while: ($depth < 2)} "
+                    + "RETURN friend")
+                .toList());
+    assertThat(results).hasSize(3);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf2").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson2").iterate();
+    });
+  }
+
+  // Line 485-489: Deep traversal with while + where to exclude origin
+  // DOC BUG: Line 487 omits comma between while: and where: clauses.
+  // The parser requires: {as: friend, while: (...), where: (...)}
+  @Test
+  public void testMatchDeepTraversalWhileExcludeOrigin() {
+    g.command("CREATE CLASS MADeepPerson3 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAFriendOf3 IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MADeepPerson3 SET name = 'c'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAFriendOf3 "
+              + "FROM (SELECT FROM MADeepPerson3 WHERE name = 'a') "
+              + "TO (SELECT FROM MADeepPerson3 WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAFriendOf3 "
+              + "FROM (SELECT FROM MADeepPerson3 WHERE name = 'b') "
+              + "TO (SELECT FROM MADeepPerson3 WHERE name = 'c')")
+          .iterate();
+    });
+
+    // Verify the doc's syntax (no comma) fails to parse
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson3, where: (name = 'a')}"
+                    + ".out('MAFriendOf3'){as: friend, "
+                    + "while: ($depth < 2) where: ($depth > 0)} "
+                    + "RETURN friend")
+                .toList()));
+
+    // Corrected syntax with comma; where($depth > 0) excludes origin 'a'
+    // Returns 'b' (depth 1) and 'c' (depth 2)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MADeepPerson3, where: (name = 'a')}"
+                    + ".out('MAFriendOf3'){as: friend, "
+                    + "while: ($depth < 2), where: ($depth > 0)} "
+                    + "RETURN friend")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAFriendOf3").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MADeepPerson3").iterate();
+    });
+  }
+
+  // Line 745-755: Arrow notation — out() can be written as -->
+  @Test
+  public void testMatchArrowNotation() {
+    g.command("CREATE CLASS MAArrowV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAArrowE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'a'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'b'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'c'").iterate();
+      tx.yql("CREATE VERTEX MAArrowV SET name = 'd'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'a') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'b')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'b') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'c')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowE "
+              + "FROM (SELECT FROM MAArrowV WHERE name = 'c') "
+              + "TO (SELECT FROM MAArrowV WHERE name = 'd')")
+          .iterate();
+    });
+
+    // Functional notation
+    var funcResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowV, as: a, where: (name = 'a')}"
+                    + ".out(){}.out(){}.out(){as:b} RETURN a, b")
+                .toList());
+    assertThat(funcResults).hasSize(1);
+
+    // Arrow notation should produce the same result
+    var arrowResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowV, as: a, where: (name = 'a')} "
+                    + "--> {} --> {} --> {as:b} RETURN a, b")
+                .toList());
+    assertThat(arrowResults).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAArrowE").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAArrowV").iterate();
+    });
+  }
+
+  // Line 759-768: Arrow notation with edge class label
+  @Test
+  public void testMatchArrowNotationWithEdgeClass() {
+    g.command("CREATE CLASS MAArrowPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MAArrowFriend IF NOT EXISTS EXTENDS E");
+    g.command("CREATE CLASS MAArrowBelongsTo IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'Bob'").iterate();
+      tx.yql("CREATE VERTEX MAArrowPerson SET name = 'item1'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE MAArrowFriend "
+              + "FROM (SELECT FROM MAArrowPerson WHERE name = 'Alice') "
+              + "TO (SELECT FROM MAArrowPerson WHERE name = 'Bob')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MAArrowBelongsTo "
+              + "FROM (SELECT FROM MAArrowPerson WHERE name = 'item1') "
+              + "TO (SELECT FROM MAArrowPerson WHERE name = 'Bob')")
+          .iterate();
+    });
+
+    // Functional notation
+    var funcResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowPerson, as: a, where: (name = 'Alice')}"
+                    + ".out('MAArrowFriend'){as:friend}"
+                    + ".in('MAArrowBelongsTo'){as:b} RETURN a, b")
+                .toList());
+    assertThat(funcResults).hasSize(1);
+
+    // Arrow notation
+    var arrowResults =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH {class: MAArrowPerson, as: a, where: (name = 'Alice')} "
+                    + "-MAArrowFriend-> {as:friend} <-MAArrowBelongsTo- {as:b} "
+                    + "RETURN a, b")
+                .toList());
+    assertThat(arrowResults).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MAArrowFriend").iterate();
+      tx.yql("DELETE EDGE MAArrowBelongsTo").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MAArrowPerson").iterate();
+    });
+  }
+
+  // Line 780-795: NOT patterns — friends of friends who are NOT direct friends
+  @Test
+  public void testMatchNegativePattern() {
+    g.command("CREATE CLASS MANotPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS MANotFriendOf IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'John'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Bob'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Carol'").iterate();
+      tx.yql("CREATE VERTEX MANotPerson SET name = 'Dave'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      // John -> Bob, John -> Carol
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Bob')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'John') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Carol')")
+          .iterate();
+      // Bob -> Dave (Dave is friend-of-friend of John but NOT direct friend)
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'Bob') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Dave')")
+          .iterate();
+      // Carol -> Bob (Bob is both direct friend and friend-of-friend)
+      tx.yql(
+          "CREATE EDGE MANotFriendOf "
+              + "FROM (SELECT FROM MANotPerson WHERE name = 'Carol') "
+              + "TO (SELECT FROM MANotPerson WHERE name = 'Bob')")
+          .iterate();
+    });
+
+    // NOT pattern: friends of friends who are NOT direct friends
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "MATCH "
+                    + "{class: MANotPerson, as:a, where:(name = 'John')} "
+                    + "-MANotFriendOf-> {as:b} -MANotFriendOf-> {as:c}, "
+                    + "NOT {as:a} -MANotFriendOf-> {as:c} "
+                    + "RETURN c.name as name")
+                .toList());
+    // Dave is friend-of-friend but not direct friend
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE EDGE MANotFriendOf").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX MANotPerson").iterate();
+    });
+  }
+
+  // Line 605-611: $matches returns all aliases from the pattern
+  @Test
+  public void testMatchReturnMatches() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $matches")
+                  .toList());
+      // John Doe has 3 friends
+      assertThat(results).hasSize(3);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 679-685: $paths returns all nodes including auto-generated aliases
+  @Test
+  public void testMatchReturnPaths() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $paths")
+                  .toList());
+      assertThat(results).hasSize(3);
+      // Each result should include the auto-generated alias for the unnamed node
+      @SuppressWarnings("unchecked")
+      Map<String, Object> first = (Map<String, Object>) results.get(0);
+      assertThat(first).containsKey("person");
+      assertThat(first).containsKey("friend");
+      // Verify the auto-generated alias uses YOUTRACKDB prefix (not ORIENT)
+      boolean hasAutoAlias =
+          first.keySet().stream()
+              .anyMatch(k -> k.startsWith("$YOUTRACKDB_DEFAULT_ALIAS_"));
+      assertThat(hasAutoAlias)
+          .as("Auto-generated alias should use $YOUTRACKDB_DEFAULT_ALIAS_ prefix")
+          .isTrue();
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 697-703: $elements returns flattened distinct nodes from $matches
+  @Test
+  public void testMatchReturnElements() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $elements")
+                  .toList());
+      // $elements returns flattened distinct vertices from $matches aliases
+      // person (Doe) + 3 friends (Smith, Jenny, Frank) = at least 4
+      assertThat(results).hasSizeGreaterThanOrEqualTo(4);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
+
+  // Line 715-736: $pathElements returns flattened distinct nodes from $paths (including edges)
+  @Test
+  public void testMatchReturnPathElements() {
+    setUpMatchSampleData();
+    try {
+      var results =
+          g.computeInTx(
+              tx -> tx.yql(
+                  "MATCH {class: MAPerson, as: person, "
+                      + "where: (name = 'John' AND surname = 'Doe')}"
+                      + ".bothE('MAFriend'){}"
+                      + ".bothV(){as: friend, "
+                      + "where: ($matched.person != $currentMatch)} "
+                      + "RETURN $pathElements")
+                  .toList());
+      // $pathElements includes edges and vertices, flattened and distinct
+      // At least 4 vertices + 3 edges = 7
+      assertThat(results).hasSizeGreaterThanOrEqualTo(7);
+    } finally {
+      tearDownMatchSampleData();
+    }
+  }
 }
