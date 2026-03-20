@@ -284,6 +284,33 @@ public class SharedLinkBagBTreeRemoveSITest {
     });
   }
 
+  // ---- Removing an already-tombstoned entry ----
+
+  @Test
+  public void testRemoveAlreadyTombstonedReturnsNull() throws Exception {
+    // If an entry is already a tombstone (deleted by a prior tx), calling
+    // remove() again should return null — the edge is already logically deleted.
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.put(atomicOperation, new EdgeKey(550L, 10, 100L, 1L),
+            new LinkBagValue(42, 0, 0, false)));
+
+    // First remove — creates tombstone at ts=5
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.remove(atomicOperation, new EdgeKey(550L, 10, 100L, 5L)));
+
+    // Second remove — entry is already a tombstone, should return null
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = bTree.remove(atomicOperation, new EdgeKey(550L, 10, 100L, 10L));
+      assertThat(result).isNull();
+
+      // Tombstone remains unchanged at ts=5
+      var current = bTree.findCurrentEntry(atomicOperation, 550L, 10, 100L);
+      assertThat(current).isNotNull();
+      assertThat(current.first().ts).isEqualTo(5L);
+      assertThat(current.second().tombstone()).isTrue();
+    });
+  }
+
   // ---- Remove after bucket splits ----
 
   @Test

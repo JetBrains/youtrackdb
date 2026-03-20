@@ -971,6 +971,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
             final var oldKey = existing.first();
             final var oldValue = existing.second();
 
+            // Already deleted — nothing to remove
+            if (oldValue.tombstone()) {
+              return null;
+            }
+
             if (oldKey.ts != key.ts) {
               // Cross-transaction remove: preserve old version in snapshot index,
               // then replace the entry with a tombstone carrying the new ts.
@@ -998,6 +1003,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
                       tombstoneValue, (Object[]) null);
 
               var bucketSearchResult = findBucketForUpdate(key, atomicOperation);
+              assert bucketSearchResult.getItemIndex() < 0
+                  : "Tombstone key must not exist in tree after removeEntryByKey; itemIndex="
+                      + bucketSearchResult.getItemIndex();
+
               var keyBucketCacheEntry =
                   loadPageForWrite(
                       atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
