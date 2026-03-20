@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -65,20 +65,20 @@
   > **Key files:** `DurablePage.java` (modified),
   > `DurablePageSpeculativeReadTest.java` (new)
 
-- [ ] Step 5: Add DurableComponent helpers — loadPageOptimistic + executeOptimisticStorageRead
-  - Add to `DurableComponent`:
-    - `loadPageOptimistic(AtomicOperation, long fileId, long pageIndex)`: calls
-      `readCache.getPageFrameOptimistic()`, takes stamp via `tryOptimisticRead()`,
-      verifies coordinates match, records in scope, returns `PageView`. Throws
-      `OptimisticReadFailedException` on cache miss, stamp=0, or coordinate mismatch.
-    - `executeOptimisticStorageRead(AtomicOperation, optimistic, pinned)`: resets scope,
-      runs optimistic lambda, validates scope, catches `OptimisticReadFailedException`
-      → acquires shared lock → runs pinned lambda → releases shared lock. Both function
-      and void variants. Comment: reentrancy safe per SharedResourceAbstract (R3).
-  - Create functional interfaces (review finding T1): either inner interfaces in
-    DurableComponent or `Callable<T>` + custom void variant. Must support checked
-    exceptions (IOException).
-  Tests: happy path (valid stamp → returns result), fallback on cache miss, fallback
-  on stamp invalidation (exclusive lock from another thread), fallback on coordinate
-  mismatch, scope reset between calls, void variant. Use a test subclass of
-  DurableComponent with a mock ReadCache.
+- [x] Step 5: Add DurableComponent helpers — loadPageOptimistic + executeOptimisticStorageRead
+  > **What was done:** Added `loadPageOptimistic()` (optimistic CHM lookup, stamp
+  > acquisition, coordinate verification, scope recording) and
+  > `executeOptimisticStorageRead()` (function + void variants: try optimistic, validate
+  > scope, record accesses, fallback to shared lock + pinned path). Created 4
+  > `@FunctionalInterface` types (OptimisticReadFunction, OptimisticReadAction,
+  > PinnedReadFunction, PinnedReadAction). Added `getFrame()` to OptimisticReadScope.
+  > 8 tests using TestDurableComponent subclass with mock ReadCache: happy path, cache
+  > miss, stamp invalidation (real cross-thread test), coordinate mismatch, scope reset,
+  > void variant + fallback.
+  >
+  > **What was discovered:** Post-validation `recordOptimisticAccesses()` reads frame
+  > coordinates without re-validation — benign TOCTOU that may cause a frequency bump
+  > for the wrong page. Documented in code as harmless eviction heuristic skew.
+  >
+  > **Key files:** `DurableComponent.java` (modified), `OptimisticReadScope.java`
+  > (modified), `DurableComponentOptimisticReadTest.java` (new)
