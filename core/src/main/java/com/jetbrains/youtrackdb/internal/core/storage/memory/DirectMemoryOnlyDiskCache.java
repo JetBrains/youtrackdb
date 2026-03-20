@@ -409,14 +409,14 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  @Nullable public PageFrame getPageFrameOptimistic(long fileId, long pageIndex) {
+  @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
     // In-memory cache does not support optimistic reads — always returns null
     // so the caller falls back to the CAS-pinned path.
     return null;
   }
 
   @Override
-  public void recordOptimisticAccess(long fileId, long pageIndex) {
+  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
     // No-op: in-memory cache has no eviction policy to update.
   }
 
