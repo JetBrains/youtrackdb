@@ -478,6 +478,8 @@ graph LR
   > verification-only.
   >
   > **Step file:** `tracks/track-4.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 5: Enable and extend TransactionTest edge SI tests
   > **What**: Enable the 3 disabled edge SI tests in `TransactionTest` that
