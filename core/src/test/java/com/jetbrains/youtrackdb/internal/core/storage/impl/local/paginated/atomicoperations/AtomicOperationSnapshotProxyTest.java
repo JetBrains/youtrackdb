@@ -1241,4 +1241,34 @@ public class AtomicOperationSnapshotProxyTest {
     }
     return keys;
   }
+
+  // --- getOptimisticReadScope ---
+
+  @Test
+  public void testOptimisticReadScopeAccessible() {
+    // AtomicOperationBinaryTracking should provide an OptimisticReadScope.
+    var scope = operation.getOptimisticReadScope();
+    assertThat(scope).isNotNull();
+    assertThat(scope.count()).isEqualTo(0);
+  }
+
+  @Test
+  public void testOptimisticReadScopeReturnsSameInstance() {
+    // The scope should be reused across calls (not re-allocated).
+    var scope1 = operation.getOptimisticReadScope();
+    var scope2 = operation.getOptimisticReadScope();
+    assertThat(scope1).isSameAs(scope2);
+  }
+
+  @Test
+  public void testOptimisticReadScopeDefaultMethodThrows() {
+    // The default method on the AtomicOperation interface should throw for
+    // implementations that don't override it. Use a Mockito mock with CALLS_REAL_METHODS
+    // to trigger the actual default method implementation.
+    AtomicOperation mockOp = mock(AtomicOperation.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS);
+
+    assertThatThrownBy(mockOp::getOptimisticReadScope)
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
 }

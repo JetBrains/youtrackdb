@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -123,6 +124,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Edge snapshot: local overlay buffers — lazily allocated.
   @Nullable private TreeMap<EdgeSnapshotKey, LinkBagValue> localEdgeSnapshotBuffer;
   @Nullable private HashMap<EdgeVisibilityKey, EdgeSnapshotKey> localEdgeVisibilityBuffer;
+
+  // Optimistic read scope — reused across optimistic read attempts within
+  // the same atomic operation. Eagerly allocated since optimistic reads are
+  // the hot path this class is designed to support.
+  private final OptimisticReadScope optimisticReadScope = new OptimisticReadScope();
 
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -683,6 +689,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       histogramDeltas = new HistogramDeltaHolder();
     }
     return histogramDeltas;
+  }
+
+  @Override
+  public OptimisticReadScope getOptimisticReadScope() {
+    return optimisticReadScope;
   }
 
   @Override
