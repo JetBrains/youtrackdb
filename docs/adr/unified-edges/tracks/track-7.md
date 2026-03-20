@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,13 +12,15 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step: Delete YTDBStatefulEdge and unify Gremlin edge API
-  Move `RID id()` covariant return type from `YTDBStatefulEdge` to `YTDBEdge`.
-  Remove `implements YTDBStatefulEdge` from `YTDBEdgeImpl`. Remove
-  `YTDBStatefulEdge.class` from `YTDBGremlinPlugin` class imports. Delete
-  `YTDBStatefulEdge.java`. Run core tests to verify Gremlin integration.
-  Files: `YTDBEdge.java`, `YTDBEdgeImpl.java`, `YTDBGremlinPlugin.java`,
-  `YTDBStatefulEdge.java` (deleted).
+- [x] Step: Delete YTDBStatefulEdge and unify Gremlin edge API
+  > **What was done:** Moved `RID id()` covariant return type from
+  > `YTDBStatefulEdge` to `YTDBEdge`. Changed `YTDBEdgeImpl` to implement
+  > `YTDBEdge` directly instead of `YTDBStatefulEdge`. Removed
+  > `YTDBStatefulEdge.class` from `YTDBGremlinPlugin` class imports. Deleted
+  > `YTDBStatefulEdge.java`. Cucumber feature tests pass.
+  >
+  > **Key files:** `YTDBEdge.java` (modified), `YTDBEdgeImpl.java` (modified),
+  > `YTDBGremlinPlugin.java` (modified), `YTDBStatefulEdge.java` (deleted).
 
 - [ ] Step: Clean up stale edge naming in tests
   Rename 7 test methods in `SelectStatementExecutionTest` that contain
