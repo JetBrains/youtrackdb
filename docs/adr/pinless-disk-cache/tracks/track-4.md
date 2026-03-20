@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -53,21 +53,17 @@
   > `DirectMemoryOnlyDiskCache.java` (modified),
   > `LockFreeReadCacheOptimisticTest.java` (new)
 
-- [ ] Step 4: Add DurablePage PageView constructor + speculativeRead flag + guardSize
-  - Add `private final boolean speculativeRead` field to `DurablePage` (false in existing
-    constructor, true in new PageView constructor).
-  - New constructor: `DurablePage(PageView pageView)` — sets `cacheEntry = null`,
-    `changes = null`, `buffer = pageView.buffer()`, `speculativeRead = true`.
-  - Store `pageIndex` locally (from `pageView.pageFrame().getPageIndex()`) for
-    null-safe `getPageIndex()` (review finding T3). `getLsn()` returns null when
-    `cacheEntry == null`.
-  - Add `guardSize(long sizeInBytes)`: throws `OptimisticReadFailedException` if
-    `sizeInBytes < 0 || sizeInBytes > buffer.capacity()`.
-  - Add guards to: `getBinaryValue()`, `getIntArray()`, `getObjectSizeInDirectMemory()`
-    when `speculativeRead == true` (review finding R1).
-  Tests: PageView constructor sets fields correctly, guardSize passes for valid sizes,
-  guardSize throws for negative/overflow/exceeds-page-size, speculativeRead=false
-  skips guards, getPageIndex() works with both constructors.
+- [x] Step 4: Add DurablePage PageView constructor + speculativeRead flag + guardSize
+  > **What was done:** Added `DurablePage(PageView)` constructor setting
+  > `cacheEntry=null`, `changes=null`, `speculativeRead=true`. Stored `pageIndex`
+  > locally for null-safe `getPageIndex()`. `getLsn()` returns null in speculative
+  > mode. Added `guardSize()` (throws OptimisticReadFailedException for negative/overflow)
+  > to `getBinaryValue`, `getIntArray`, `getObjectSizeInDirectMemory`. Added
+  > `assertNotSpeculative()` to all 9 setter/mutator methods (review finding).
+  > 8 unit tests covering constructor, guard boundaries, page index, LSN null.
+  >
+  > **Key files:** `DurablePage.java` (modified),
+  > `DurablePageSpeculativeReadTest.java` (new)
 
 - [ ] Step 5: Add DurableComponent helpers — loadPageOptimistic + executeOptimisticStorageRead
   - Add to `DurableComponent`:
