@@ -49,9 +49,7 @@ prior tracks.
 
 Start a new Claude Code session and run `/create-plan` (optionally pass a
 branch name; if omitted, the current git branch is used). The command prompt
-is at `.claude/commands/create-plan.md`. After reading the workflow
-documents, the agent will ask you to describe the aim and goal for the
-planning session. Provide the goal, then iterate with Claude until the plan
+is at `.claude/commands/create-plan.md`. Iterate with Claude until the plan
 is complete — ask for research, decomposition, risk analysis, dependency
 ordering, etc.
 
