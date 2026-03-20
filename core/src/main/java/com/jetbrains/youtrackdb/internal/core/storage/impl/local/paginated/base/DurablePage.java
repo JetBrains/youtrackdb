@@ -214,7 +214,7 @@ public class DurablePage {
    */
   private void guardOffset(final int pageOffset, final int accessWidth) {
     if (speculativeRead
-        && (pageOffset < 0 || pageOffset + accessWidth > buffer.capacity())) {
+        && (pageOffset < 0 || (long) pageOffset + accessWidth > buffer.capacity())) {
       throw OptimisticReadFailedException.INSTANCE;
     }
   }
