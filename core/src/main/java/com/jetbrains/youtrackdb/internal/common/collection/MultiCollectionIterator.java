@@ -173,7 +173,8 @@ public class MultiCollectionIterator<T>
           size += sizeable.size();
         } else if (o.getClass().isArray()) {
           size += Array.getLength(o);
-        } else if (o instanceof Iterator<?> iter && o instanceof Resettable resettable) {
+        } else if (o instanceof Iterator<?> iter && o instanceof Resettable resettable
+            && resettable.isResetable()) {
           while (iter.hasNext()) {
             size++;
             iter.next();
@@ -292,8 +293,8 @@ public class MultiCollectionIterator<T>
             }
 
           } else if (next instanceof Iterator<?>) {
-            if (next instanceof Resettable) {
-              ((Resettable) next).reset();
+            if (next instanceof Resettable resettable && resettable.isResetable()) {
+              resettable.reset();
             }
 
             if (((Iterator<T>) next).hasNext()) {

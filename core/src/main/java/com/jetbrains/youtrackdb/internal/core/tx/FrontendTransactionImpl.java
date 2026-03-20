@@ -22,6 +22,9 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
@@ -202,18 +205,22 @@ public class FrontendTransactionImpl implements
 
   @Override
   public Map<RID, RID> commitInternal() {
-    return commitInternal(false);
+    return commitInternalImpl(null, null, null);
   }
 
-  /**
-   * The transaction is reentrant. If {@code begin()} has been called several times, the actual
-   * commit happens only after the same amount of {@code commit()} calls
-   *
-   * @param force commit transaction even
-   * @return Map between generated rids of new records and ones generated during records commit.
-   */
   @Override
-  public Map<RID, RID> commitInternal(final boolean force) {
+  public Map<RID, RID> monitoredCommitInternal(
+      @Nonnull TransactionMetricsListener listener,
+      @Nonnull QueryMonitoringMode mode,
+      @Nonnull String trackingId) {
+    return commitInternalImpl(listener, mode, trackingId);
+  }
+
+  private Map<RID, RID> commitInternalImpl(
+      @Nullable TransactionMetricsListener listener,
+      @Nullable QueryMonitoringMode mode,
+      @Nullable String trackingId) {
+
     assertOnOwningThread();
     checkTransactionValid();
 
@@ -221,18 +228,13 @@ public class FrontendTransactionImpl implements
       throw new TransactionException(session.getDatabaseName(),
           "Invalid value of tx counter: " + txStartCounter);
     }
-    if (force) {
+    if (txStartCounter == 1) {
       preProcessRecordsAndExecuteCallCallbacks();
-      txStartCounter = 0;
-    } else {
-      if (txStartCounter == 1) {
-        preProcessRecordsAndExecuteCallCallbacks();
-      }
-      txStartCounter--;
     }
+    txStartCounter--;
 
     if (txStartCounter == 0) {
-      return doCommit();
+      return doCommit(listener, mode, trackingId);
     } else {
       if (txStartCounter < 0) {
         throw new TransactionException(session,
@@ -627,7 +629,11 @@ public class FrontendTransactionImpl implements
 
   }
 
-  private Map<RID, RID> doCommit() {
+  private Map<RID, RID> doCommit(
+      @Nullable TransactionMetricsListener metricsListener,
+      @Nullable QueryMonitoringMode metricsMode,
+      @Nullable String metricsTrackingId) {
+
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
       if (status == TXSTATUS.ROLLBACKING) {
         rollbackInternal();
@@ -637,11 +643,37 @@ public class FrontendTransactionImpl implements
           "Given transaction was rolled back, and thus cannot be committed.");
     }
 
+    var monitorWriteCommit = metricsListener != null && isWriteTransaction();
+
+    final long commitStartMillis;
+    final long commitStartNanos;
+    if (monitorWriteCommit) {
+      assert metricsMode != null && metricsTrackingId != null;
+
+      if (metricsMode == QueryMonitoringMode.LIGHTWEIGHT) {
+        var ticker = YouTrackDBEnginesManager.instance().getTicker();
+        commitStartMillis = ticker.approximateCurrentTimeMillis();
+        commitStartNanos = ticker.approximateNanoTime();
+      } else {
+        commitStartMillis = System.currentTimeMillis();
+        commitStartNanos = System.nanoTime();
+      }
+    } else {
+      commitStartMillis = 0;
+      commitStartNanos = 0;
+    }
+
     var result = new HashMap<RID, RID>(originalChangedRecordIdMap.size());
     try {
       status = TXSTATUS.COMMITTING;
       if (isWriteTransaction()) {
         session.internalCommit(this);
+
+        if (monitorWriteCommit) {
+          notifyMetricsListener(metricsListener, metricsMode, metricsTrackingId,
+              commitStartMillis, commitStartNanos, null);
+        }
+
         session.transactionMeters()
             .writeTransactions()
             .record();
@@ -656,6 +688,10 @@ public class FrontendTransactionImpl implements
 
     } catch (Exception e) {
       rollbackInternal();
+      if (monitorWriteCommit) {
+        notifyMetricsListener(metricsListener, metricsMode, metricsTrackingId,
+            commitStartMillis, commitStartNanos, e);
+      }
       throw e;
     }
 
@@ -668,6 +704,33 @@ public class FrontendTransactionImpl implements
         : "atomicOperation must be null after close";
 
     return result;
+  }
+
+  /// Notifies the metrics listener about a completed commit attempt. If `cause` is null,
+  /// the commit succeeded and [TransactionMetricsListener#writeTransactionCommitted] is called;
+  /// otherwise [TransactionMetricsListener#writeTransactionFailed] is called with the cause.
+  private void notifyMetricsListener(
+      TransactionMetricsListener listener, QueryMonitoringMode mode,
+      String trackingId, long commitStartMillis, long commitStartNanos,
+      @Nullable Exception cause) {
+    final long durationNanos;
+    if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
+      durationNanos = YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime()
+          - commitStartNanos;
+    } else {
+      durationNanos = System.nanoTime() - commitStartNanos;
+    }
+    try {
+      TransactionMetricsListener.TransactionDetails details = () -> trackingId;
+      if (cause == null) {
+        listener.writeTransactionCommitted(details, commitStartMillis, durationNanos);
+      } else {
+        listener.writeTransactionFailed(details, commitStartMillis, durationNanos, cause);
+      }
+    } catch (Exception e) {
+      LogManager.instance().error(this,
+          "Error in TransactionMetricsListener callback", e);
+    }
   }
 
   @Override

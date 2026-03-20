@@ -20,6 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
@@ -75,6 +77,14 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Override
   public Map<RID, RID> commitInternal() {
+    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
+  }
+
+  @Override
+  public Map<RID, RID> monitoredCommitInternal(
+      @Nonnull TransactionMetricsListener listener,
+      @Nonnull QueryMonitoringMode mode,
+      @Nonnull String trackingId) {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -215,11 +225,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public <RET extends DBRecord> RET loadOrNull(RID recordId) {
     throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Map<RID, RID> commitInternal(boolean force) {
-    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
   @Override
