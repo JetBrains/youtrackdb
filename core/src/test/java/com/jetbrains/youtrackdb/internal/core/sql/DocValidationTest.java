@@ -1258,6 +1258,194 @@ public class DocValidationTest {
     assertThat(afterGoodDelete).isEmpty();
   }
 
+  // === YQL-Update-Edge.md ===
+
+  // Line 37: UPDATE EDGE Friend SET foo = 'bar' WHERE since < '2020-01-01'
+  // Validates the corrected doc example — updating edge properties by class with WHERE
+  @Test
+  public void testUpdateEdgeSetPropertyByClass() {
+    g.command("CREATE CLASS UEPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEFriend IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEPerson SET name = 'Alice'").iterate();
+      tx.yql("CREATE VERTEX UEPerson SET name = 'Bob'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEFriend FROM (SELECT FROM UEPerson WHERE name = 'Alice') "
+              + "TO (SELECT FROM UEPerson WHERE name = 'Bob') SET since = '2019-06-15'")
+          .iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UEFriend SET foo = 'bar' WHERE since < '2020-01-01'").iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('UEFriend')) FROM UEPerson WHERE name = 'Alice'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((String) edge.value("foo")).isEqualTo("bar");
+  }
+
+  // Line 42: UPDATE EDGE hasAssignee SET foo = 'bar' UPSERT WHERE id = 56
+  // Tests UPSERT on an edge class with a unique index — update path (match found)
+  @Test
+  public void testUpdateEdgeUpsertWithUniqueIndex() {
+    g.command("CREATE CLASS UEAssigneeV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEHasAssignee IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY UEHasAssignee.id IF NOT EXISTS INTEGER");
+    g.command(
+        "CREATE INDEX UEHasAssignee.id IF NOT EXISTS ON UEHasAssignee (id) UNIQUE");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEAssigneeV SET tag = 'src'").iterate();
+      tx.yql("CREATE VERTEX UEAssigneeV SET tag = 'dst'").iterate();
+    });
+
+    // Create an initial edge
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEHasAssignee FROM (SELECT FROM UEAssigneeV WHERE tag = 'src') "
+              + "TO (SELECT FROM UEAssigneeV WHERE tag = 'dst') SET id = 56")
+          .iterate();
+    });
+
+    // UPSERT should update the existing edge, not create a new one
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UEHasAssignee SET foo = 'bar' UPSERT WHERE id = 56").iterate();
+    });
+
+    // Verify only one edge exists and it has both properties
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT expand(outE('UEHasAssignee')) FROM UEAssigneeV WHERE tag = 'src'")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((int) edge.value("id")).isEqualTo(56);
+    assertThat((String) edge.value("foo")).isEqualTo("bar");
+  }
+
+  // Line 44: UPSERT on edge fails when no matching edge exists — the engine cannot
+  // insert a new edge because UPDATE EDGE syntax does not provide FROM/TO endpoints.
+  @Test
+  public void testUpdateEdgeUpsertCannotInsert() {
+    g.command("CREATE CLASS UEUpsertInsV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEUpsertInsE IF NOT EXISTS EXTENDS E");
+    g.command("CREATE PROPERTY UEUpsertInsE.uid IF NOT EXISTS INTEGER");
+    g.command(
+        "CREATE INDEX UEUpsertInsE.uid IF NOT EXISTS ON UEUpsertInsE (uid) UNIQUE");
+
+    // No edge exists — UPSERT should fail because edges can't be inserted this way
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql(
+              "UPDATE EDGE UEUpsertInsE SET uid = 99, foo = 'baz' UPSERT WHERE uid = 99")
+              .iterate();
+        })).hasMessageContaining("Cannot execute UPSERT on edge type");
+  }
+
+  // Line 25: RETURN AFTER returns the records after the update (on edge)
+  @Test
+  public void testUpdateEdgeReturnAfter() {
+    g.command("CREATE CLASS UEReturnV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UEReturnE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UEReturnV SET tag = 'retSrc'").iterate();
+      tx.yql("CREATE VERTEX UEReturnV SET tag = 'retDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UEReturnE FROM (SELECT FROM UEReturnV WHERE tag = 'retSrc') "
+              + "TO (SELECT FROM UEReturnV WHERE tag = 'retDst') SET status = 'old'")
+          .iterate();
+    });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "UPDATE EDGE UEReturnE SET status = 'new' RETURN AFTER @this")
+                .toList());
+    assertThat(results).hasSize(1);
+    Edge edge = (Edge) results.get(0);
+    assertThat((String) edge.value("status")).isEqualTo("new");
+  }
+
+  // Line 25-26: RETURN COUNT is the default return for UPDATE EDGE
+  @Test
+  public void testUpdateEdgeReturnCountDefault() {
+    g.command("CREATE CLASS UECountV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UECountE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UECountV SET tag = 'cntSrc'").iterate();
+      tx.yql("CREATE VERTEX UECountV SET tag = 'cntDst'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE UECountE FROM (SELECT FROM UECountV WHERE tag = 'cntSrc') "
+              + "TO (SELECT FROM UECountV WHERE tag = 'cntDst') SET val = 1")
+          .iterate();
+    });
+
+    // No RETURN clause — should default to COUNT
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("UPDATE EDGE UECountE SET val = 2").toList());
+    assertThat(results).hasSize(1);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> countMap = (Map<String, Object>) results.get(0);
+    assertThat(countMap).containsKey("count");
+    assertThat(((Number) countMap.get("count")).longValue()).isEqualTo(1L);
+  }
+
+  // Line 30: LIMIT defines the maximum number of records to update (on edge)
+  @Test
+  public void testUpdateEdgeWithLimit() {
+    g.command("CREATE CLASS UELimitV IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS UELimitE IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX UELimitV SET tag = 'limSrc'").iterate();
+      for (int i = 0; i < 5; i++) {
+        tx.yql("CREATE VERTEX UELimitV SET tag = 'limDst" + i + "'").iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      for (int i = 0; i < 5; i++) {
+        tx.yql(
+            "CREATE EDGE UELimitE FROM (SELECT FROM UELimitV WHERE tag = 'limSrc') "
+                + "TO (SELECT FROM UELimitV WHERE tag = 'limDst" + i + "') SET val = 0")
+            .iterate();
+      }
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE EDGE UELimitE SET val = 1 LIMIT 3").iterate();
+    });
+
+    var updated =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM UELimitE WHERE val = 1").toList());
+    assertThat(updated).hasSize(3);
+
+    var unchanged =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM UELimitE WHERE val = 0").toList());
+    assertThat(unchanged).hasSize(2);
+  }
+
   // Line 25: LIMIT defines the maximum number of edges to delete
   @Test
   public void testDeleteEdgeWithLimit() {
