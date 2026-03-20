@@ -940,36 +940,105 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  /**
+   * Removes an edge entry. For cross-transaction removes (the existing entry has
+   * a different {@code ts}), the old value is preserved in the snapshot index and
+   * the entry is replaced by a tombstone with the new {@code ts}. For
+   * same-transaction removes (same {@code ts}), the entry is physically deleted
+   * — the caller created it in this transaction, so no other transaction can see
+   * it and no tombstone is needed.
+   *
+   * <p>Tree size: cross-tx remove is net zero (remove + tombstone insert),
+   * same-tx remove decrements by 1 (physical delete).
+   *
+   * @param key the edge key with the caller's commitTs as {@code ts}
+   * @return the old value before removal, or {@code null} if no entry exists
+   *     for this logical edge
+   */
   public LinkBagValue remove(final AtomicOperation atomicOperation, final EdgeKey key) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
           acquireExclusiveLock();
           try {
-            final LinkBagValue removedValue;
-            final var bucketSearchResult = findBucket(key, atomicOperation);
-
-            if (bucketSearchResult.getItemIndex() < 0) {
+            // Find existing entry by prefix lookup (regardless of ts)
+            final var existing = findCurrentEntryInternal(
+                atomicOperation, key.ridBagId, key.targetCollection, key.targetPosition);
+            if (existing == null) {
               return null;
             }
 
-            final var serializedKey = EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(
-                serializerFactory, key);
-            final byte[] rawValue;
-            try (final var keyBucketCacheEntry =
-                loadPageForWrite(
-                    atomicOperation, fileId, bucketSearchResult.getPageIndex(), true)) {
-              final var keyBucket = new Bucket(keyBucketCacheEntry);
-              rawValue = keyBucket.getRawValue(bucketSearchResult.getItemIndex(),
-                  serializerFactory);
-              keyBucket.removeLeafEntry(
-                  bucketSearchResult.getItemIndex(), serializedKey.length, rawValue.length);
-              updateSize(-1, atomicOperation);
+            final var oldKey = existing.first();
+            final var oldValue = existing.second();
+
+            if (oldKey.ts != key.ts) {
+              // Cross-transaction remove: preserve old version in snapshot index,
+              // then replace the entry with a tombstone carrying the new ts.
+              if (key.ts <= oldKey.ts) {
+                throw new StorageException(storage.getName(),
+                    "Version monotonicity violated in link bag btree [" + getName()
+                        + "]: newTs=" + key.ts + " <= oldTs=" + oldKey.ts);
+              }
+
+              preserveInSnapshot(atomicOperation, oldKey, oldValue);
+              removeEntryByKey(atomicOperation, oldKey);
+
+              // Tombstone preserves the edge data, just marks as deleted
+              final var tombstoneValue = new LinkBagValue(
+                  oldValue.counter(), oldValue.secondaryCollectionId(),
+                  oldValue.secondaryPosition(), true);
+
+              // Insert tombstone with new ts. removeEntryByKey decremented size
+              // by 1; the insert below increments it back — net zero.
+              final var serializedKey =
+                  EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key,
+                      (Object[]) null);
+              final var serializedValue =
+                  LinkBagValueSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+                      tombstoneValue, (Object[]) null);
+
+              var bucketSearchResult = findBucketForUpdate(key, atomicOperation);
+              var keyBucketCacheEntry =
+                  loadPageForWrite(
+                      atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
+              var keyBucket = new Bucket(keyBucketCacheEntry);
+
+              int insertionIndex = -bucketSearchResult.getItemIndex() - 1;
+
+              while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+                bucketSearchResult =
+                    splitBucket(
+                        keyBucket,
+                        keyBucketCacheEntry,
+                        bucketSearchResult.getPath(),
+                        bucketSearchResult.getInsertionIndexes(),
+                        insertionIndex,
+                        atomicOperation);
+
+                insertionIndex = bucketSearchResult.getItemIndex();
+
+                final var pageIndex = bucketSearchResult.getLastPathItem();
+                if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
+                  keyBucketCacheEntry.close();
+                  keyBucketCacheEntry =
+                      loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+                }
+
+                //noinspection ObjectAllocationInLoop
+                keyBucket = new Bucket(keyBucketCacheEntry);
+              }
+
+              keyBucketCacheEntry.close();
+              updateSize(1, atomicOperation);
+            } else {
+              // Same-transaction remove: physically delete the entry. The caller
+              // created it in this transaction (same commitTs), so no other
+              // transaction can see it — no snapshot preservation or tombstone
+              // needed.
+              removeEntryByKey(atomicOperation, oldKey);
             }
 
-            removedValue = LinkBagValueSerializer.INSTANCE.deserializeNativeObject(
-                serializerFactory, rawValue, 0);
-            return removedValue;
+            return oldValue;
           } finally {
             releaseExclusiveLock();
           }
