@@ -172,9 +172,9 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
   public RID lastKey(AtomicOperation atomicOperation) {
     try (final var stream =
         bTree.streamEntriesBetween(
-            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
-            true,
             new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE),
+            true,
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             false, atomicOperation)) {
       final var iterator = stream.iterator();
