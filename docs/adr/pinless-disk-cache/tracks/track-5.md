@@ -63,20 +63,10 @@
   > `getPinned`, `getNullKeyOptimistic`, `getNullKeyPinned`)
 
 - [ ] Step 4: Migrate collection position map and collection record reads to optimistic reads
-  Migrate `CollectionPositionMapV2.get()` and `getWithStatus()` to optimistic variants
-  that use `loadPageOptimistic()` instead of `loadPageForRead()`. These are plain
-  methods (no executeOptimisticStorageRead wrapper) — they add stamps to the outer
-  scope owned by PaginatedCollectionV2.
-  Migrate `PaginatedCollectionV2.readRecord()` to use `executeOptimisticStorageRead()`:
-  the optimistic lambda calls the optimistic CollectionPositionMapV2 methods, then
-  loads the collection data page optimistically. For single-page records, read data
-  and return. For multi-page records (nextPagePointer >= 0), throw
-  `OptimisticReadFailedException` to fall back to the pinned path — multi-page
-  chaining has high retry probability and is rare.
-  Tests: existing PaginatedCollectionV2 and CollectionPositionMapV2 tests must pass.
-  Add targeted tests for single-page optimistic reads and multi-page fallback.
-  Files: `CollectionPositionMapV2.java` (modified), `PaginatedCollectionV2.java` (modified),
-  test files (modified).
+  Implementation committed (72d706e9c5). Code review pending — running in background.
+  CollectionPositionMapV2Test passes (77 tests). Integration test
+  (LocalPaginatedCollectionV2TestIT) not yet run.
+  Awaiting code review results before writing final episode.
 
 - [ ] Step 5: Migrate FreeSpaceMap and SharedLinkBagBTree reads to optimistic reads
   Migrate `FreeSpaceMap.findFreePage()` to use `executeOptimisticStorageRead()`:
