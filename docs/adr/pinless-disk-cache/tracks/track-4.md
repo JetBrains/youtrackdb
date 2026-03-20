@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -36,17 +36,22 @@
   > **Key files:** `AtomicOperation.java` (modified), `AtomicOperationBinaryTracking.java`
   > (modified), `AtomicOperationSnapshotProxyTest.java` (modified)
 
-- [ ] Step 3: Add optimistic lookup to ReadCache / LockFreeReadCache
-  - Add to `ReadCache` interface: `@Nullable PageFrame getPageFrameOptimistic(long fileId,
-    long pageIndex)` and `void recordOptimisticAccess(long fileId, long pageIndex)`.
-  - Implement in `LockFreeReadCache`:
-    - `getPageFrameOptimistic()`: CHM lookup → check `isAlive()` → get CachePointer →
-      return `getPageFrame()`. Return null on miss/evicted/null pointer. No CAS, no pin.
-    - `recordOptimisticAccess()`: CHM lookup → if entry found, call `afterRead(entry)`.
-      Skip if null (entry evicted between validation and recording — acceptable).
-  Tests: cache hit returns PageFrame, cache miss returns null, evicted entry (frozen)
-  returns null, frequency recording via recordOptimisticAccess. Use existing test
-  infrastructure from LockFreeReadCache tests.
+- [x] Step 3: Add optimistic lookup to ReadCache / LockFreeReadCache
+  > **What was done:** Added `getPageFrameOptimistic()` and `recordOptimisticAccess()`
+  > to `ReadCache` interface. Implemented in `LockFreeReadCache` (CHM lookup, isAlive
+  > check, CachePointer→PageFrame dereference, no CAS). `DirectMemoryOnlyDiskCache`
+  > returns null (always falls back). Created `PageFrameWriteCache` test mock producing
+  > PageFrame-backed CachePointers. 8 tests covering hit/miss/eviction/stamp/identity.
+  >
+  > **What was discovered:** `DirectMemoryOnlyDiskCache` also implements `ReadCache` —
+  > needed stub methods there. Code review noted `CacheEntryImpl.dataPointer` is not
+  > volatile, creating a theoretical TOCTOU window between isAlive() and getCachePointer()
+  > during eviction. Stamp validation is the primary defense; making `dataPointer`
+  > volatile would be belt-and-suspenders but is out of scope for this step.
+  >
+  > **Key files:** `ReadCache.java` (modified), `LockFreeReadCache.java` (modified),
+  > `DirectMemoryOnlyDiskCache.java` (modified),
+  > `LockFreeReadCacheOptimisticTest.java` (new)
 
 - [ ] Step 4: Add DurablePage PageView constructor + speculativeRead flag + guardSize
   - Add `private final boolean speculativeRead` field to `DurablePage` (false in existing
