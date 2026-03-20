@@ -153,11 +153,12 @@ public final class FreeSpaceMap extends DurableComponent {
     final var firstLevelView = loadPageOptimistic(atomicOperation, fileId, 0);
     final var firstLevelPage = new FreeSpaceMapPage(firstLevelView);
     final var localSecondLevelPageIndex = firstLevelPage.findPage(normalizedSize);
+    // Validate before trusting the result — speculative garbage from a concurrent eviction
+    // could produce a false -1 ("no space"), causing unnecessary page allocation.
+    scope.validateLastOrThrow();
     if (localSecondLevelPageIndex < 0) {
       return -1;
     }
-    // Validate before using the result to index into the second level.
-    scope.validateLastOrThrow();
 
     // Step 2: search within the identified second-level page for the actual data page.
     final var secondLevelPageIndex = localSecondLevelPageIndex + 1;
