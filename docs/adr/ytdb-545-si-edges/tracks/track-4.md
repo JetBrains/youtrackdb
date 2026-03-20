@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -46,34 +46,17 @@
   > **Key files:** `SharedLinkBagBTree.java` (modified),
   > `SharedLinkBagBTreeVisibilityTest.java` (modified, +5 tests → 17 total)
 
-- [ ] Step 3: IsolatedLinkBagBTreeImpl remaining read paths with SI visibility
-  > Update the remaining IsolatedLinkBagBTreeImpl read-path methods to use
-  > SI-aware SharedLinkBagBTree methods:
+- [x] Step 3: IsolatedLinkBagBTreeImpl remaining read paths with SI visibility
+  > **What was done:** Verified that all IsolatedLinkBagBTreeImpl read-path
+  > methods (`firstKey`, `lastKey`, `getRealBagSize`, `isEmpty`,
+  > `loadEntriesMajor`) already work correctly with SI because they delegate
+  > to `streamEntriesBetween`/`iterateEntriesMajor` which use the SI-aware
+  > spliterators from Step 2. No production code changes needed — existing
+  > tombstone filters kept as safety nets per R6. Added 7 tests through
+  > `IsolatedLinkBagBTreeImpl` verifying each method filters invisible entries.
   >
-  > 1. **loadEntriesMajor()** — currently uses `bTree.streamEntriesBetween()`
-  >    with tombstone filter. If streamEntriesBetween() uses spliterators
-  >    internally (which inherit SI from Step 2), the tombstone filter becomes
-  >    redundant but harmless. Verify this path works correctly with SI.
-  >
-  > 2. **firstKey() / lastKey()** — currently filter tombstones but don't
-  >    check visibility. With SI, these must return the first/last VISIBLE
-  >    non-tombstone key. Options:
-  >    a. Use the SI-aware spliterator to find the first/last visible entry
-  >    b. Add visibility-aware variants to SharedLinkBagBTree
-  >    Choose the simpler approach based on current implementation.
-  >
-  > 3. **getRealBagSize()** — counts live entries. With SI, must count only
-  >    VISIBLE non-tombstone entries. If it uses spliterators (which now have
-  >    SI from Step 2), this may already work. Verify and fix if needed.
-  >
-  > 4. **isEmpty()** — depends on firstKey(). If firstKey() is visibility-
-  >    aware, isEmpty() inherits correctness.
-  >
-  > Keep existing tombstone filtering as safety net per R6 decision.
-  >
-  > Tests: Tests covering firstKey/lastKey visibility, getRealBagSize with
-  > invisible entries, isEmpty with all-invisible entries. Verify
-  > loadEntriesMajor returns only visible entries.
+  > **Key files:** `SharedLinkBagBTreeVisibilityTest.java` (modified,
+  > +7 tests → 24 total)
 
 - [ ] Step 4: Comprehensive multi-threaded SI read-path integration tests
   > Write integration tests that exercise the full read path with concurrent
