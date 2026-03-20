@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -298,6 +299,9 @@ public class DurableComponentOptimisticReadTest {
         () -> "pinned-result");
 
     assertEquals("pinned-result", result);
+    // Cache must never be consulted when hasChangesForPage returns true —
+    // the guard must short-circuit before the cache lookup.
+    verify(mockReadCache, never()).getPageFrameOptimistic(FILE_ID, PAGE_INDEX);
     releaseFrame(frame);
   }
 

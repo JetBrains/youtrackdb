@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -68,42 +69,54 @@ public class DurablePageSubclassPageViewTest {
   @Test
   public void testCellBTreeSingleValueBucketV3() {
     var page = new CellBTreeSingleValueBucketV3<>(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testCellBTreeSingleValueV3NullBucket() {
     var page = new CellBTreeSingleValueV3NullBucket(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testCellBTreeSingleValueEntryPointV3() {
     var page = new CellBTreeSingleValueEntryPointV3<>(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testCollectionPage() {
     var page = new CollectionPage(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testCollectionPositionMapBucket() {
     var page = new CollectionPositionMapBucket(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testFreeSpaceMapPage() {
     var page = new FreeSpaceMapPage(pageView);
-    assertNotNull(page);
+    assertSpeculativeReadState(page);
   }
 
   @Test
   public void testEntryPoint() {
     var page = new EntryPoint(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  /**
+   * Verifies that a DurablePage constructed from a PageView is in speculative read mode:
+   * no WAL changes, no cache entry, and read operations succeed without throwing.
+   */
+  private static void assertSpeculativeReadState(DurablePage page) {
     assertNotNull(page);
+    assertNull("PageView-constructed page must have null changes (speculative mode)",
+        page.getChanges());
+    assertNull("PageView-constructed page must have null cacheEntry",
+        page.getCacheEntry());
   }
 }

@@ -395,6 +395,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
     final var lastPage = getLastPageOptimistic(atomicOperation);
+    // Validate the entry point page stamp before trusting lastPage — a concurrent
+    // eviction could produce garbage (e.g., 0), making a valid position appear
+    // out-of-range and returning a false NOT_EXISTENT.
+    atomicOperation.getOptimisticReadScope().validateLastOrThrow();
 
     if (pageIndex > lastPage) {
       return new CollectionPositionMapBucket.EntryWithStatus(

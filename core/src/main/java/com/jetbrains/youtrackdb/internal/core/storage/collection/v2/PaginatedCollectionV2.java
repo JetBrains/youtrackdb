@@ -969,14 +969,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // to the pinned path rather than propagating as a spurious error.
     try {
       return doReadRecordOptimisticInner(collectionPosition, atomicOperation);
-    } catch (final RecordNotFoundException e) {
-      // RecordNotFoundException is a definitive answer — propagate.
-      throw e;
     } catch (final OptimisticReadFailedException e) {
       // Normal optimistic failure — propagate for fallback.
       throw e;
     } catch (final RuntimeException e) {
-      // Speculative garbage caused AIOOBE, NPE, NegativeArraySizeException, etc.
+      // Speculative garbage from concurrent eviction can cause RecordNotFoundException
+      // (from status/deleted/type-byte reads on stale PageView buffers), AIOOBE, NPE,
+      // NegativeArraySizeException, etc. Convert all to optimistic failure so the
+      // pinned fallback path produces the authoritative answer.
       throw OptimisticReadFailedException.INSTANCE;
     }
   }
