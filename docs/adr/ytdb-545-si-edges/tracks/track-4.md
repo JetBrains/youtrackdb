@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,42 +14,18 @@
 
 ## Steps
 
-- [ ] Step 1: Visibility helpers and findVisibleEntry() in SharedLinkBagBTree
-  > Add the core SI visibility infrastructure to SharedLinkBagBTree:
+- [x] Step 1: Visibility helpers and findVisibleEntry() in SharedLinkBagBTree
+  > **What was done:** Added four methods to SharedLinkBagBTree:
+  > `isEdgeVersionVisible()` (static, self-read shortcut + snapshot check),
+  > `resolveVisibleEntry()` (per-entry visibility with snapshot fallback),
+  > `findVisibleSnapshotEntry()` (descending snapshot scan for newest visible
+  > version), and `findVisibleEntry()` (prefix lookup + visibility resolution).
+  > Updated `IsolatedLinkBagBTreeImpl.get()` to use `findVisibleEntry()`.
+  > `resolveVisibleEntry` left package-private for spliterator use in Step 2.
   >
-  > 1. **`isEdgeVersionVisible(long version, long currentOperationTs,
-  >    AtomicOperationsSnapshot snapshot)`** — static helper matching
-  >    PaginatedCollectionV2.isRecordVersionVisible() pattern: self-read
-  >    shortcut (`version == currentOperationTs`) then
-  >    `snapshot.isEntryVisible(version)`.
-  >
-  > 2. **`resolveVisibleEntry(EdgeKey bTreeKey, LinkBagValue bTreeValue,
-  >    AtomicOperation atomicOp)`** — given a B-tree entry, check visibility:
-  >    - If visible and not tombstone → return the entry
-  >    - If visible and tombstone → return null (edge deleted)
-  >    - If not visible → search snapshot index via
-  >      `atomicOp.edgeSnapshotSubMapDescending(lowerKey, upperKey)` with
-  >      `EdgeSnapshotKey(componentId, ridBagId, tc, tp, Long.MIN_VALUE)` to
-  >      `EdgeSnapshotKey(componentId, ridBagId, tc, tp, Long.MAX_VALUE)`.
-  >      Iterate descending (newest first), return first visible non-tombstone
-  >      version. Return null if none found.
-  >    Use `atomicOp.getCommitTsUnsafe()` for currentOperationTs.
-  >
-  > 3. **`findVisibleEntry(AtomicOperation atomicOp, long ridBagId,
-  >    int targetCollection, long targetPosition)`** — combines
-  >    findCurrentEntry() prefix lookup with resolveVisibleEntry():
-  >    prefix lookup → if found, resolve visibility → return visible entry
-  >    or null.
-  >
-  > 4. Update **IsolatedLinkBagBTreeImpl.get()** to call
-  >    `bTree.findVisibleEntry()` instead of `bTree.findCurrentEntry()` +
-  >    manual tombstone check.
-  >
-  > Tests: Unit tests in a new `SharedLinkBagBTreeVisibilityTest` class
-  > covering: visible entry (fast path), invisible entry with snapshot
-  > fallback, invisible tombstone in B-tree with visible live version in
-  > snapshot, visible tombstone returns null, self-read shortcut, no visible
-  > version returns null, entry not found returns null.
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `IsolatedLinkBagBTreeImpl.java` (modified),
+  > `SharedLinkBagBTreeVisibilityTest.java` (new, 12 tests)
 
 - [ ] Step 2: SpliteratorForward and SpliteratorBackward with SI visibility
   > Modify `readKeysFromBucketsForward()` and `readKeysFromBucketsBackward()`
