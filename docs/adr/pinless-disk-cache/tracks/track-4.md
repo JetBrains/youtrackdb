@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/5 complete)
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,20 +14,18 @@
 
 ## Steps
 
-- [ ] Step 1: Create OptimisticReadScope, OptimisticReadFailedException, and PageView
-  Create three new classes in `core/.../internal/core/storage/cache/`:
-  - `OptimisticReadScope`: tracks `PageFrame[]` + `long[]` stamps + count. Methods:
-    `record(frame, stamp)`, `validateOrThrow()`, `validateLastOrThrow()`, `reset()`,
-    internal `grow()`. Initial capacity 8. `reset()` nulls frame refs up to count.
-  - `OptimisticReadFailedException`: singleton, extends RuntimeException, no stack trace.
-    Constructor: `super(null, null, true, false)`. Static `INSTANCE` field.
-  - `PageView`: record `(ByteBuffer buffer, PageFrame pageFrame, long stamp)` with
-    `validateStamp()` convenience method.
-  Unit tests: OptimisticReadScope (record/validate happy path, validateOrThrow on
-  invalid stamp, validateLastOrThrow, reset clears state, grow on overflow, empty
-  scope validates). OptimisticReadFailedException (singleton identity, no stack trace).
-  Include a test that invalidates a stamp via PageFrame exclusive lock from another
-  thread and verifies validateOrThrow() throws (review finding R2).
+- [x] Step 1: Create OptimisticReadScope, OptimisticReadFailedException, and PageView
+  > **What was done:** Created three new classes in the cache package:
+  > `OptimisticReadScope` (growable array tracker for PageFrame+stamp pairs with
+  > record/validate/validateLast/reset), `OptimisticReadFailedException` (singleton,
+  > no stack trace, `super(null, null, true, false)`), and `PageView` (record with
+  > compact constructor assertions). 18 unit tests across 3 test classes covering
+  > happy path, stamp invalidation, cross-thread invalidation, growth, reset/reuse,
+  > partial invalidation ordering.
+  >
+  > **Key files:** `OptimisticReadScope.java` (new), `OptimisticReadFailedException.java`
+  > (new), `PageView.java` (new), `OptimisticReadScopeTest.java` (new),
+  > `OptimisticReadFailedExceptionTest.java` (new), `PageViewTest.java` (new)
 
 - [ ] Step 2: Integrate OptimisticReadScope into AtomicOperation
   - Add `OptimisticReadScope getOptimisticReadScope()` to `AtomicOperation` interface
