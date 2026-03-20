@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -15,10 +16,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public final class SharedLinkBagBTree extends DurableComponent {
@@ -200,6 +203,126 @@ public final class SharedLinkBagBTree extends DurableComponent {
       return new RawPair<>(key, entry.getValue());
     }
     return null;
+  }
+
+  /**
+   * Returns {@code true} if the given edge version is visible to the current
+   * transaction. Applies the self-read shortcut (version == currentOperationTs)
+   * before checking the snapshot, matching the pattern in
+   * PaginatedCollectionV2.isRecordVersionVisible().
+   */
+  static boolean isEdgeVersionVisible(long version, long currentOperationTs,
+      @Nonnull AtomicOperationsSnapshot snapshot) {
+    if (version == currentOperationTs) {
+      return true;
+    }
+    return snapshot.isEntryVisible(version);
+  }
+
+  /**
+   * Given a B-tree entry, checks its visibility for the current transaction:
+   * <ul>
+   *   <li>Visible and not tombstone → returns the entry</li>
+   *   <li>Visible and tombstone → returns null (edge deleted)</li>
+   *   <li>Not visible → searches the snapshot index for the newest visible
+   *       non-tombstone version, returns it or null</li>
+   * </ul>
+   *
+   * @return visible entry as (EdgeKey, LinkBagValue), or null if no visible
+   *     non-tombstone version exists
+   */
+  @Nullable RawPair<EdgeKey, LinkBagValue> resolveVisibleEntry(
+      final EdgeKey bTreeKey,
+      final LinkBagValue bTreeValue,
+      final AtomicOperation atomicOp) {
+    final long currentOperationTs = atomicOp.getCommitTsUnsafe();
+    final var snapshot = atomicOp.getAtomicOperationsSnapshot();
+
+    if (isEdgeVersionVisible(bTreeKey.ts, currentOperationTs, snapshot)) {
+      // Visible — return if live, null if tombstone
+      if (bTreeValue.tombstone()) {
+        return null;
+      }
+      return new RawPair<>(bTreeKey, bTreeValue);
+    }
+
+    // Not visible — fall back to snapshot index for a visible version
+    return findVisibleSnapshotEntry(
+        bTreeKey.ridBagId, bTreeKey.targetCollection, bTreeKey.targetPosition,
+        currentOperationTs, snapshot, atomicOp);
+  }
+
+  /**
+   * Searches the edge snapshot index for the newest visible non-tombstone
+   * version of the logical edge identified by (ridBagId, targetCollection,
+   * targetPosition). Iterates entries in descending version order (newest
+   * first) and returns the first visible non-tombstone, or null.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleSnapshotEntry(
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition,
+      final long currentOperationTs,
+      final AtomicOperationsSnapshot snapshot,
+      final AtomicOperation atomicOp) {
+    final int componentId = (int) getFileId();
+
+    // Range: all versions of this logical edge (from MIN to MAX)
+    final var lowerKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    final var upperKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+
+    for (Map.Entry<EdgeSnapshotKey, LinkBagValue> entry : atomicOp
+        .edgeSnapshotSubMapDescending(lowerKey, upperKey)) {
+      final long version = entry.getKey().version();
+      if (isEdgeVersionVisible(version, currentOperationTs, snapshot)) {
+        if (entry.getValue().tombstone()) {
+          // Newest visible version is a tombstone — edge is deleted
+          return null;
+        }
+        // Reconstruct an EdgeKey with the snapshot version's ts
+        final var edgeKey = new EdgeKey(
+            ridBagId, targetCollection, targetPosition, version);
+        return new RawPair<>(edgeKey, entry.getValue());
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Finds the visible entry for a logical edge, combining prefix lookup in
+   * the B-tree with SI visibility resolution. Returns the visible non-tombstone
+   * entry, or null if the edge is not visible (deleted, invisible, or absent).
+   */
+  @Nullable public RawPair<EdgeKey, LinkBagValue> findVisibleEntry(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        final var current = findCurrentEntryInternal(
+            atomicOperation, ridBagId, targetCollection, targetPosition);
+        if (current == null) {
+          // No B-tree entry at all — check snapshot index directly.
+          // This can happen if a concurrent transaction replaced an entry
+          // that was moved to the snapshot index and the new entry is also
+          // invisible.
+          final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+          final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+          return findVisibleSnapshotEntry(
+              ridBagId, targetCollection, targetPosition,
+              currentOperationTs, snapshot, atomicOperation);
+        }
+        return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during visible entry lookup in rid bag btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {

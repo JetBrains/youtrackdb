@@ -54,9 +54,9 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
 
   @Nullable @Override
   public LinkBagValue get(RID rid, AtomicOperation atomicOperation) {
-    final var entry = bTree.findCurrentEntry(
+    final var entry = bTree.findVisibleEntry(
         atomicOperation, linkBagId, rid.getCollectionId(), rid.getCollectionPosition());
-    if (entry == null || entry.second().tombstone()) {
+    if (entry == null) {
       return null;
     }
     return entry.second();
