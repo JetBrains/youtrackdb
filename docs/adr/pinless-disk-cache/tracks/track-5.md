@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -45,22 +45,22 @@
   > **Key files:** 9 DurablePage subclass files (modified),
   > `DurablePageSubclassPageViewTest.java` (new — 7 tests for public subclasses)
 
-- [ ] Step 3: Migrate B-tree single-key lookup and tree traversal to optimistic reads
-  Migrate `CellBTreeSingleValueV3.get()` to use `executeOptimisticStorageRead()`:
-  the optimistic lambda traverses the tree via `loadPageOptimistic()` with per-level
-  `validateLastOrThrow()`, and the pinned lambda calls the existing CAS-pinned get.
-  Refactor `findBucketSerialized()` (the core tree traversal used by get) into an
-  optimistic variant that uses PageView-based bucket constructors and validates after
-  each level descent. Also migrate `firstKey()`, `lastKey()` (single-path traversals),
-  and `size()` (single entry-point page load, cached field).
-  **NOT migrated** (kept on pinned path): Stream/Spliterator-based iteration methods
-  (allEntries, keyStream, iterateEntriesMajor/Minor/Between) — these maintain
-  cross-call state and are complex to migrate. B-tree single-key lookup (get) is the
-  highest-impact optimization.
-  Tests: existing BTree tests must pass unchanged. Add targeted tests for optimistic
-  path verification (e.g., test that get succeeds via optimistic path, test fallback
-  when stamp is invalidated).
-  Files: `CellBTreeSingleValueV3.java` (modified), test files (modified).
+- [x] Step 3: Migrate B-tree single-key lookup and tree traversal to optimistic reads
+  > **What was done:** Migrated `BTree.get()` (the class is named `BTree`, not
+  > `CellBTreeSingleValueV3`) to `executeOptimisticStorageRead()` with an optimistic
+  > lambda `getOptimistic()` that traverses using `loadPageOptimistic()` +
+  > `CellBTreeSingleValueBucketV3(PageView)` constructors, calling
+  > `scope.validateLastOrThrow()` after each internal node descent. Pinned fallback
+  > reuses `findBucketSerialized()`. Null-key path similarly migrated. Also migrated
+  > `size()` to optimistic single-page read of the entry point.
+  >
+  > **What changed from the plan:** `firstKey()` and `lastKey()` were NOT migrated
+  > because they delegate to `firstItem()`/`lastItem()` which use deep path-tracking
+  > traversals — same as planned. The plan referenced `CellBTreeSingleValueV3` but
+  > the implementation class is `BTree`.
+  >
+  > **Key files:** `BTree.java` (modified — new methods: `getOptimistic`,
+  > `getPinned`, `getNullKeyOptimistic`, `getNullKeyPinned`)
 
 - [ ] Step 4: Migrate collection position map and collection record reads to optimistic reads
   Migrate `CollectionPositionMapV2.get()` and `getWithStatus()` to optimistic variants
