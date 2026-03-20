@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueBucketV3;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueEntryPointV3;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueV3NullBucket;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EntryPoint;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -23,6 +24,9 @@ import org.junit.Test;
  * Verifies that all DurablePage subclasses used in read paths can be constructed from
  * a PageView (optimistic read path). Each constructor delegates to DurablePage(PageView),
  * which sets speculativeRead=true and changes=null.
+ *
+ * <p>Package-private classes (MapEntryPoint in collection.v2, Bucket in ridbagbtree) are not
+ * tested here — they are exercised by the integration tests in their respective packages.
  */
 public class DurablePageSubclassPageViewTest {
 
@@ -94,6 +98,12 @@ public class DurablePageSubclassPageViewTest {
   @Test
   public void testFreeSpaceMapPage() {
     var page = new FreeSpaceMapPage(pageView);
+    assertNotNull(page);
+  }
+
+  @Test
+  public void testEntryPoint() {
+    var page = new EntryPoint(pageView);
     assertNotNull(page);
   }
 }
