@@ -332,22 +332,30 @@ fixes.
 
 ### Track-level code review (after all steps complete)
 
-After all steps are committed, the execution agent spawns a fresh
-**code review sub-agent** that reviews the full track diff
-(`git diff <base>..HEAD`):
+After all steps are committed, the execution agent spawns **two sub-agents
+in parallel** that review the full track diff (`git diff <base>..HEAD`):
 
-1. The sub-agent reviews the entire track diff for systematic issues.
-2. If findings are returned, the execution agent applies fixes as additional
-   commits, then spawns a fresh sub-agent to verify.
-3. Repeats until approved OR **max 3 iterations** reached.
-4. If max iterations reached, remaining findings are noted and presented
-   to the user during track review.
+1. **Code review** (`code-reviewer` agent type) — reviews the entire track
+   diff for systematic code quality issues.
+2. **Test quality review** (`test-quality-reviewer` agent type) — reviews
+   whether tests are behavior-driven, thorough, and meaningful.
 
-**What track-level review catches:** systematic patterns repeated across
-steps, cross-step consistency issues, accumulated technical debt that's
-individually acceptable but collectively problematic, integration issues
-where steps compile independently but the combined result has subtle
+Both run in parallel against the same diff. Findings use distinct prefixes
+(`C<N>` for code, `Q<N>` for test quality). The iteration loop merges
+findings from both and re-runs only the review type(s) with open findings.
+Max 3 iterations total (shared counter). See `track-code-review.md` for
+the full protocol.
+
+**What track-level code review catches:** systematic patterns repeated
+across steps, cross-step consistency issues, accumulated technical debt
+that's individually acceptable but collectively problematic, integration
+issues where steps compile independently but the combined result has subtle
 interactions.
+
+**What track-level test quality review catches:** coverage-driven tests
+that exercise code without verifying behavior, shallow or imprecise
+assertions, missing corner cases and boundary conditions, test isolation
+issues, and opportunities for Java `assert` statements in production code.
 
 ---
 
