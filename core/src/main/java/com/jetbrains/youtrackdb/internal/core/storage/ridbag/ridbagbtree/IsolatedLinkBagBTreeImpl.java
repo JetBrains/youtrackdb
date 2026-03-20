@@ -82,7 +82,8 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, LinkB
             new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             true, atomicOperation)) {
-      final var iterator = stream.iterator();
+      // Only remove live entries — tombstones are already logically deleted
+      final var iterator = stream.filter(e -> !e.second().tombstone()).iterator();
 
       while (iterator.hasNext()) {
         final var entry = iterator.next();
