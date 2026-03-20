@@ -258,6 +258,8 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       final long fileId,
       final long pageIndex) {
     assert atomicOperation != null;
+    assert pageIndex >= 0 && pageIndex <= Integer.MAX_VALUE
+        : "pageIndex out of int range: " + pageIndex;
 
     final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
     if (frame == null) {
@@ -359,7 +361,11 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   /**
    * Records successful optimistic accesses for all pages tracked in the scope.
    * Must be called after scope validation succeeds, before scope.reset().
-   * The stamps have been validated, so frame coordinates are consistent.
+   *
+   * <p>Note: there is a benign TOCTOU between validateOrThrow() and reading frame
+   * coordinates here — an evictor could reassign the frame between validation and
+   * the coordinate reads. This would cause a frequency bump for the wrong page,
+   * which is harmless: it only slightly skews eviction heuristics.
    */
   private void recordOptimisticAccesses(final OptimisticReadScope scope) {
     for (int i = 0; i < scope.count(); i++) {
