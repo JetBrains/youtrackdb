@@ -60,7 +60,7 @@ Extract all YQL/SQL code examples from fenced code blocks (` ```sql ` sections).
 
 ### Step 6: Build validation test
 
-Create a **temporary** JUnit 4 test class that validates extracted queries and factual claims against a real in-memory YouTrackDB instance using the **Gremlin API with `yql()` methods**. Follow this pattern:
+Add new test methods to the **persistent** `DocValidationTest` class (`core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/DocValidationTest.java`) that validate extracted queries and factual claims against a real in-memory YouTrackDB instance using the **Gremlin API with `yql()` methods**. If the test class does not exist yet, create it with the following pattern:
 
 ```java
 package com.jetbrains.youtrackdb.internal.core.sql;
@@ -108,18 +108,31 @@ public class DocValidationTest {
 }
 ```
 
+**CRITICAL: Only use the public Gremlin API.** Never use internal classes like `DatabaseSessionEmbedded`, `YouTrackDBImpl`, `DbTestBase`, or anything under `com.jetbrains.youtrackdb.internal`. The test class must only import from `com.jetbrains.youtrackdb.api.*` and standard TinkerPop packages (`org.apache.tinkerpop.gremlin.*`).
+
 Key patterns for writing tests:
-- **Schema commands** (CREATE CLASS, CREATE PROPERTY, CREATE INDEX) run outside transactions using `g.command()`: `g.command("CREATE CLASS Foo")`
-- **Data commands** (INSERT, UPDATE, CREATE VERTEX/EDGE) must run inside transactions using `g.executeInTx()`:
+- **Schema commands** (CREATE CLASS, CREATE PROPERTY, CREATE INDEX) run outside transactions using `g.command()`: `g.command("CREATE CLASS Foo EXTENDS V")` — always use `EXTENDS V` (vertex) or `EXTENDS E` (edge) so results are compatible with the Gremlin result mapper.
+- **Creating data** — use `CREATE VERTEX` (not `INSERT INTO`) inside transactions:
   ```java
   g.executeInTx(tx -> {
-    tx.yql("INSERT INTO Foo SET name = 'bar'").iterate();
+    tx.yql("CREATE VERTEX Foo SET name = 'bar'").iterate();
   });
   ```
-- **Queries** must run inside transactions using `g.computeInTx()` or `g.executeInTx()`:
+- **Updating data** — use `UPDATE` inside transactions via `yql().iterate()`:
+  ```java
+  g.executeInTx(tx -> {
+    tx.yql("UPDATE Foo SET name = 'baz' WHERE name = 'bar'").iterate();
+  });
+  ```
+- **Querying data** — use `SELECT` inside transactions via `g.computeInTx()`:
   ```java
   var results = g.computeInTx(tx -> tx.yql("SELECT FROM Foo").toList());
   assertThat(results).isNotEmpty();
+  ```
+  Results from `SELECT` on vertex classes are `Vertex` objects — cast and use `.value("prop")`:
+  ```java
+  Vertex v = (Vertex) results.get(0);
+  assertThat((String) v.value("name")).isEqualTo("baz");
   ```
 - **Queries that should fail** (unsupported syntax): wrap in `assertThatThrownBy`:
   ```java
@@ -128,8 +141,15 @@ Key patterns for writing tests:
   }));
   ```
 - **The `yql()` method** returns a lazy `YTDBGraphTraversal` — always call `.iterate()` or `.toList()` to execute it.
-- **The `command()` method** executes eagerly — no need to call `.iterate()`.
+- **The `command()` method** executes eagerly — no need to call `.iterate()`. However, `command()` internally iterates results through the Gremlin result mapper, which only supports vertices and stateful edges. Therefore, **only use `command()` for DDL** (CREATE CLASS, CREATE PROPERTY, CREATE INDEX) — never for INSERT, UPDATE, or DELETE.
 - **Parameterized queries**: use alternating key/value pairs: `tx.yql("SELECT FROM Foo WHERE name = :name", "name", "bar")`
+
+### Gremlin API limitations to be aware of
+
+These limitations affect what can be validated through the public API:
+1. **All classes must extend V or E** — the Gremlin result mapper (`GremlinResultMapper`) only supports vertices and stateful edges. SELECT on a plain class (not extending V/E) will throw `IllegalStateException: Only vertices and stateful edges are supported in Gremlin results`. If a document example uses a plain class, create it with `EXTENDS V` for testing purposes.
+2. **Use `yql().iterate()` for UPDATE/INSERT** — never use `command()` for data mutation commands, as it will fail when the result mapper tries to process the non-vertex result.
+4. **`RETURN AFTER` on UPDATE** — use `tx.yql("UPDATE ... RETURN AFTER @this").toList()` to collect results. The results are vertex objects when the target class extends V.
 
 Group tests by document section. Each test method should have a comment referencing the document claim it validates.
 
@@ -191,15 +211,16 @@ Ask the user whether to:
 2. **Flag query/factual issues only** — report without changing files (the user may want to rewrite sections).
 3. **Apply all fixes** — grammar fixes + rewrite incorrect queries/claims.
 
-### Step 10: Cleanup
+### Step 10: Verify test class
 
 After the review is complete:
-1. **Delete the temporary test class** — it was only for validation.
-2. Verify no test files remain: `ls core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/DocValidationTest.java` should not exist.
+1. **Keep the `DocValidationTest` class** — it serves as a living validation of documentation examples.
+2. Ensure all new test methods were added and pass: `./mvnw -pl core clean test -Dtest=DocValidationTest`
+3. Run Spotless to ensure formatting: `./mvnw -pl core spotless:apply`
 
 ## Important notes
 
-- Never modify the test infrastructure — only create/delete the temporary validation test class.
+- Never modify the test infrastructure — only add methods to `DocValidationTest`.
 - The `core` module uses JUnit 4 (not JUnit 5). Use `@Test`, `@Before`, `@After`, `@BeforeClass`, `@AfterClass` from `org.junit`.
 - Always run `spotless:apply` before running tests if the test class is new.
 - When validating queries, create unique class names per test to avoid collisions (e.g., `CityDistinct`, `EmpSalary`).
