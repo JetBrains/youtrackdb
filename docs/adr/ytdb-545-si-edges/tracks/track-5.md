@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -26,20 +26,22 @@
   >
   > **Key files:** `TransactionTest.java` (modified)
 
-- [ ] Step 2: Edge iteration consistency and concurrent creation/deletion tests
-  Write 2 new BTree-forced SI tests:
-  (a) **Edge iteration consistency**: While iterating `vertex.getEdges(OUT)`,
-  a concurrent writer adds/modifies edges on the same vertex — the iterator
-  must return a consistent snapshot. Hub vertex starts with N edges (e.g., 3),
-  reader opens snapshot and begins iterating, writer adds more edges and commits,
-  reader's iteration must still return exactly N edges.
-  (b) **Concurrent edge creation and deletion**: One thread creates edges,
-  another deletes edges on the same vertex — both transactions are isolated.
-  Reader holds snapshot with N edges, writer deletes some and creates others,
-  reader must still see original N edges.
-  Both tests use `LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD=-1` and follow
-  the established CountDownLatch synchronization pattern.
-  **Key files:** `TransactionTest.java` (modified)
+- [x] Step 2: Edge iteration consistency and concurrent creation/deletion tests
+  > **What was done:** Added 2 new BTree-forced SI tests:
+  > (a) `testSIEdgeIterationConsistencyMultiThread` — reader opens iterator,
+  > consumes 1 edge, writer commits 3 new edges, reader finishes iterating
+  > the same iterator and sees only the original 5 edges. Tests true
+  > mid-iteration SI stability.
+  > (b) `testSIConcurrentEdgeCreationAndDeletionMultiThread` — writer deletes
+  > 2 of 4 edges and adds 2 replacements. Reader's snapshot sees the exact
+  > original edge set (asserted via target vertex names, not just count).
+  >
+  > **What was discovered:** Code review caught that the original iteration
+  > test wasn't actually doing mid-iteration interleaving — fixed to consume
+  > 1 edge before signaling the writer. Also strengthened the create/delete
+  > test to assert on edge identity rather than count alone.
+  >
+  > **Key files:** `TransactionTest.java` (modified)
 
 - [ ] Step 3: Snapshot fallback via iteration and edge label filter tests
   Write 2 new BTree-forced SI tests:
