@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,20 +13,18 @@
 
 ## Steps
 
-- [ ] Step 1: Enable and fix the 3 disabled edge SI tests with BTree-forced mode
-  Enable `testSIEdgeCreationIsolationMultiThread` (line ~792),
-  `testSIEdgeDeletionIsolationMultiThread` (line ~870), and
-  `testSIEdgeCountStabilityMultiThread` (line ~1680) by removing `@Ignore`.
-  Each test must force BTree storage by setting
-  `GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1)`
-  at the start and restoring the original value in a try-finally. This ensures
-  the tests exercise the BTree-backed LinkBag SI code from Tracks 1-4, not the
-  embedded edge path. The edge creation test uses `getEdges(Direction.OUT)` to
-  count edges. The deletion test uses `loadEdge(rid)` to verify the edge still
-  exists for the old snapshot. The count stability test creates 3+2 edges and
-  verifies the reader's count is stable. Validate all 3 pass. Adjust assertions
-  or setup if the SI semantics require changes (e.g., cache clearing behavior).
-  **Key files:** `TransactionTest.java` (modified)
+- [x] Step 1: Enable and fix the 3 disabled edge SI tests with BTree-forced mode
+  > **What was done:** Removed `@Ignore` from the 3 disabled edge SI tests and
+  > wrapped each in a try-finally that forces BTree-backed LinkBag storage via
+  > `LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD=-1`. All 3 tests pass without
+  > any assertion or logic changes — the SI implementation from Tracks 1-4 is
+  > fully functional at the graph API level.
+  >
+  > **What was discovered:** The `BTREE_TO_EMBEDDED_THRESHOLD` default is already
+  > `-1` (disabled), so no reverse-downgrade can happen with small edge counts.
+  > Only the `EMBEDDED_TO_BTREE_THRESHOLD` needs forcing.
+  >
+  > **Key files:** `TransactionTest.java` (modified)
 
 - [ ] Step 2: Edge iteration consistency and concurrent creation/deletion tests
   Write 2 new BTree-forced SI tests:
