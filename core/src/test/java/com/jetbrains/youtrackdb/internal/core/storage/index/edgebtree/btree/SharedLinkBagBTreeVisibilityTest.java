@@ -6,11 +6,16 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTreeImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValueSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
 import org.junit.After;
@@ -504,6 +509,151 @@ public class SharedLinkBagBTreeVisibilityTest {
           fromKey, true, toKey, true, true, atomicOperation).toList();
 
       assertThat(entries).isEmpty();
+    });
+  }
+
+  // ---- IsolatedLinkBagBTreeImpl read-path SI tests ----
+
+  private IsolatedLinkBagBTreeImpl createIsolatedBTree(long linkBagId) {
+    final int intFileId =
+        AbstractWriteCache.extractFileId(bTree.getFileId());
+    return new IsolatedLinkBagBTreeImpl(
+        bTree, intFileId, linkBagId, LinkSerializer.INSTANCE,
+        LinkBagValueSerializer.INSTANCE);
+  }
+
+  @Test
+  public void testIsolated_firstKey_skipsInvisibleEntries() throws Exception {
+    // Insert 3 entries: first two invisible (future ts), third visible.
+    // firstKey() should return the third entry.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2000L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, futureTs), new LinkBagValue(2, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 30, 300L, 5L), new LinkBagValue(3, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var first = isolated.firstKey(atomicOperation);
+      assertThat(first).isNotNull();
+      assertThat(first.getCollectionId()).isEqualTo(30);
+      assertThat(first.getCollectionPosition()).isEqualTo(300L);
+    });
+  }
+
+  @Test
+  public void testIsolated_lastKey_skipsInvisibleEntries() throws Exception {
+    // First entry visible, last two invisible. lastKey() returns the first.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2100L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, futureTs), new LinkBagValue(2, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 30, 300L, futureTs), new LinkBagValue(3, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var last = isolated.lastKey(atomicOperation);
+      assertThat(last).isNotNull();
+      assertThat(last.getCollectionId()).isEqualTo(10);
+      assertThat(last.getCollectionPosition()).isEqualTo(100L);
+    });
+  }
+
+  @Test
+  public void testIsolated_getRealBagSize_countsOnlyVisibleLiveEntries() throws Exception {
+    // 3 entries: 1 visible live (counter=5), 1 invisible, 1 visible tombstone.
+    // getRealBagSize should return 5.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2200L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, 5L), new LinkBagValue(5, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, futureTs), new LinkBagValue(3, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 30, 300L, 5L), new LinkBagValue(0, 0, 0, true));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertThat(isolated.getRealBagSize(atomicOperation)).isEqualTo(5);
+    });
+  }
+
+  @Test
+  public void testIsolated_isEmpty_trueWhenAllInvisible() throws Exception {
+    // All entries invisible. isEmpty returns true.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2300L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertThat(isolated.isEmpty(atomicOperation)).isTrue();
+    });
+  }
+
+  @Test
+  public void testIsolated_isEmpty_falseWhenVisibleEntryExists() throws Exception {
+    // Mix of invisible and visible entries. isEmpty returns false.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2400L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, futureTs), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, 5L), new LinkBagValue(2, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      assertThat(isolated.isEmpty(atomicOperation)).isFalse();
+    });
+  }
+
+  @Test
+  public void testIsolated_loadEntriesMajor_filtersInvisible() throws Exception {
+    // 3 entries: 2 visible, 1 invisible. loadEntriesMajor returns only visible.
+    final long futureTs = Long.MAX_VALUE - 1;
+    final long linkBagId = 2500L;
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 10, 100L, 5L), new LinkBagValue(1, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 20, 200L, futureTs), new LinkBagValue(2, 0, 0, false));
+      bTree.put(atomicOperation,
+          new EdgeKey(linkBagId, 30, 300L, 5L), new LinkBagValue(3, 0, 0, false));
+    });
+
+    var isolated = createIsolatedBTree(linkBagId);
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var results = new java.util.ArrayList<Integer>();
+      isolated.loadEntriesMajor(
+          new RecordId(0, 0L), true, true,
+          entry -> {
+            results.add(entry.getValue().counter());
+            return true;
+          }, atomicOperation);
+      assertThat(results).containsExactly(1, 3);
     });
   }
 }
