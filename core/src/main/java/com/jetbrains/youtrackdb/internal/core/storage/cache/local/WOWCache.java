@@ -2701,7 +2701,6 @@ public final class WOWCache extends AbstractWriteCache
         try {
           long exclusiveStamp = pagePointer.acquireExclusiveLock();
           try {
-            pagePointer.decrementWritersReferrer();
             pagePointer.setWritersListener(null);
             writeCacheSize.decrementAndGet();
 
@@ -2709,6 +2708,15 @@ public final class WOWCache extends AbstractWriteCache
           } finally {
             pagePointer.releaseExclusiveLock(exclusiveStamp);
           }
+
+          // Decrement writers referrer AFTER releasing the exclusive lock.
+          // decrementWritersReferrer() → decrementReferrer() may call
+          // pageFramePool.release() which acquires the same PageFrame's
+          // exclusive lock. StampedLock is non-reentrant, so calling this
+          // under the exclusive lock would deadlock.
+          // The group lock (lockManager) is still held, preventing concurrent
+          // modifications to this page key.
+          pagePointer.decrementWritersReferrer();
 
           entryIterator.remove();
         } finally {
@@ -3125,6 +3133,11 @@ public final class WOWCache extends AbstractWriteCache
 
               writeCacheSize.decrementAndGet();
 
+              // Decrement BEFORE nulling the listener: the page was flushed
+              // successfully, so the listener notification should fire.
+              // (Contrast with doRemoveCachePages where the listener is nulled
+              // first because the file is being deleted and notification must
+              // be suppressed.)
               pointer.decrementWritersReferrer();
               pointer.setWritersListener(null);
             }
