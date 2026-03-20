@@ -377,11 +377,24 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public boolean hasChangesForPage(long fileId, final long pageIndex) {
+    // Intentionally skips checkIfActive() — this is called on the optimistic
+    // hot path and the caller is always within an active operation context.
     fileId = checkFileIdCompatibility(fileId, storageId);
+
+    // Deleted file: force fallback so the pinned path raises StorageException
+    if (deletedFiles.contains(fileId)) {
+      return true;
+    }
 
     final var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
       return false;
+    }
+
+    // Truncated file: all pre-existing pages are logically gone, force fallback
+    // so the pinned path handles filledUpTo correctly
+    if (changesContainer.truncate) {
+      return true;
     }
 
     // New file: all pages up to maxNewPageIndex have local changes
