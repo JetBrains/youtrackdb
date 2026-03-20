@@ -305,7 +305,7 @@ public class TransactionTest {
         "IndexPropertyName",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"name"});
+        Map.of("ignoreNullValues", true), new String[] {"name"});
 
     var tx = db.begin();
     var v = tx.newVertex(user);
@@ -568,7 +568,7 @@ public class TransactionTest {
       tx2:commit
     tx1:query (iterate collection) -> should see only initial records
     tx1:commit
-
+  
     Regression test: before the fix, the collection iterator (nextPage) would throw
     RecordNotFoundException when encountering records inserted by tx2, because the
     position map is shared and contained entries not yet visible to tx1's snapshot.
@@ -789,71 +789,79 @@ public class TransactionTest {
    *   Thread A: re-count outgoing edges of v1 -> still 0 (snapshot isolation)
    * </pre>
    */
-  @Ignore("LinkBag (disk-based link collections) does not support snapshot isolation yet")
   @Test
   public void testSIEdgeCreationIsolationMultiThread() throws Exception {
-    var tx = db.begin();
-    var v1 = tx.newVertex("V");
-    v1.setProperty("name", "A");
-    var v2 = tx.newVertex("V");
-    v2.setProperty("name", "B");
-    var v1Rid = v1.getIdentity();
-    var v2Rid = v2.getIdentity();
-    tx.commit();
+    // Force BTree-backed LinkBag storage so the SI code path is exercised
+    var originalThreshold =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    try {
+      var tx = db.begin();
+      var v1 = tx.newVertex("V");
+      v1.setProperty("name", "A");
+      var v2 = tx.newVertex("V");
+      v2.setProperty("name", "B");
+      var v1Rid = v1.getIdentity();
+      var v2Rid = v2.getIdentity();
+      tx.commit();
 
-    var readerStarted = new CountDownLatch(1);
-    var writerCommitted = new CountDownLatch(1);
-    var threadError = new AtomicReference<Throwable>();
+      var readerStarted = new CountDownLatch(1);
+      var writerCommitted = new CountDownLatch(1);
+      var threadError = new AtomicReference<Throwable>();
 
-    var thread = new Thread(() -> {
-      try {
-        var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+      var thread = new Thread(() -> {
         try {
-          var txReader = dbReader.begin();
-          Vertex vRead = txReader.load(v1Rid);
-          int edgeCountBefore = countEdges(vRead.getEdges(Direction.OUT));
-          Assert.assertEquals(
-              "Before edge creation, v1 should have no outgoing edges",
-              0, edgeCountBefore);
+          var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+          try {
+            var txReader = dbReader.begin();
+            Vertex vRead = txReader.load(v1Rid);
+            int edgeCountBefore = countEdges(vRead.getEdges(Direction.OUT));
+            Assert.assertEquals(
+                "Before edge creation, v1 should have no outgoing edges",
+                0, edgeCountBefore);
 
-          readerStarted.countDown();
-          awaitOrFail(writerCommitted);
+            readerStarted.countDown();
+            awaitOrFail(writerCommitted);
 
-          // Re-read: the new edge must not be visible in this snapshot
-          dbReader.getLocalCache().clear();
-          Vertex vReadAgain = txReader.load(v1Rid);
-          int edgeCountAfter = countEdges(vReadAgain.getEdges(Direction.OUT));
-          Assert.assertEquals(
-              "Snapshot isolation: new edge must not be visible to reader",
-              0, edgeCountAfter);
-          txReader.commit();
-        } finally {
-          dbReader.close();
+            // Re-read: the new edge must not be visible in this snapshot
+            dbReader.getLocalCache().clear();
+            Vertex vReadAgain = txReader.load(v1Rid);
+            int edgeCountAfter = countEdges(vReadAgain.getEdges(Direction.OUT));
+            Assert.assertEquals(
+                "Snapshot isolation: new edge must not be visible to reader",
+                0, edgeCountAfter);
+            txReader.commit();
+          } finally {
+            dbReader.close();
+          }
+        } catch (Throwable t) {
+          threadError.set(t);
         }
-      } catch (Throwable t) {
-        threadError.set(t);
-      }
-    });
-    thread.start();
+      });
+      thread.start();
 
-    awaitOrFail(readerStarted);
-    var txWriter = db.begin();
-    Vertex vFrom = txWriter.load(v1Rid);
-    Vertex vTo = txWriter.load(v2Rid);
-    txWriter.newStatefulEdge(vFrom, vTo, "E");
-    txWriter.commit();
-    db.getLocalCache().clear();
-    writerCommitted.countDown();
+      awaitOrFail(readerStarted);
+      var txWriter = db.begin();
+      Vertex vFrom = txWriter.load(v1Rid);
+      Vertex vTo = txWriter.load(v2Rid);
+      txWriter.newStatefulEdge(vFrom, vTo, "E");
+      txWriter.commit();
+      db.getLocalCache().clear();
+      writerCommitted.countDown();
 
-    joinAndCheck(thread, threadError);
+      joinAndCheck(thread, threadError);
 
-    // New transaction sees the edge
-    var txVerify = db.begin();
-    Vertex vFinal = txVerify.load(v1Rid);
-    Assert.assertEquals(
-        "After commit, new readers must see the created edge",
-        1, countEdges(vFinal.getEdges(Direction.OUT)));
-    txVerify.commit();
+      // New transaction sees the edge
+      var txVerify = db.begin();
+      Vertex vFinal = txVerify.load(v1Rid);
+      Assert.assertEquals(
+          "After commit, new readers must see the created edge",
+          1, countEdges(vFinal.getEdges(Direction.OUT)));
+      txVerify.commit();
+    } finally {
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
+          originalThreshold);
+    }
   }
 
   /**
@@ -867,71 +875,79 @@ public class TransactionTest {
    *   Thread A: re-read edge -> still exists (snapshot isolation)
    * </pre>
    */
-  @Ignore("LinkBag (disk-based link collections) does not support snapshot isolation yet")
   @Test
   public void testSIEdgeDeletionIsolationMultiThread() throws Exception {
-    var tx = db.begin();
-    var v1 = tx.newVertex("V");
-    v1.setProperty("name", "X");
-    var v2 = tx.newVertex("V");
-    v2.setProperty("name", "Y");
-    var edge = tx.newStatefulEdge(v1, v2, "E");
-    edge.setProperty("weight", 10);
-    var v1Rid = v1.getIdentity();
-    var edgeRid = edge.getIdentity();
-    tx.commit();
-
-    var readerStarted = new CountDownLatch(1);
-    var writerCommitted = new CountDownLatch(1);
-    var threadError = new AtomicReference<Throwable>();
-
-    var thread = new Thread(() -> {
-      try {
-        var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-        try {
-          var txReader = dbReader.begin();
-          StatefulEdge eRead = txReader.loadEdge(edgeRid);
-          Assert.assertEquals(10, (int) eRead.getProperty("weight"));
-
-          readerStarted.countDown();
-          awaitOrFail(writerCommitted);
-
-          // The edge was deleted by the writer, but our snapshot must still see it
-          dbReader.getLocalCache().clear();
-          StatefulEdge eAfter = txReader.loadEdge(edgeRid);
-          Assert.assertNotNull(
-              "Snapshot isolation: deleted edge must still be visible",
-              eAfter);
-          Assert.assertEquals(10, (int) eAfter.getProperty("weight"));
-          txReader.commit();
-        } finally {
-          dbReader.close();
-        }
-      } catch (Throwable t) {
-        threadError.set(t);
-      }
-    });
-    thread.start();
-
-    awaitOrFail(readerStarted);
-    var txWriter = db.begin();
-    StatefulEdge eDel = txWriter.loadEdge(edgeRid);
-    txWriter.delete(eDel);
-    txWriter.commit();
-    db.getLocalCache().clear();
-    writerCommitted.countDown();
-
-    joinAndCheck(thread, threadError);
-
-    // After the writer committed, new readers should not find the edge
-    var txVerify = db.begin();
+    // Force BTree-backed LinkBag storage so the SI code path is exercised
+    var originalThreshold =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     try {
-      txVerify.loadEdge(edgeRid);
-      Assert.fail("Edge should have been deleted");
-    } catch (RecordNotFoundException expected) {
-      // expected
+      var tx = db.begin();
+      var v1 = tx.newVertex("V");
+      v1.setProperty("name", "X");
+      var v2 = tx.newVertex("V");
+      v2.setProperty("name", "Y");
+      var edge = tx.newStatefulEdge(v1, v2, "E");
+      edge.setProperty("weight", 10);
+      var v1Rid = v1.getIdentity();
+      var edgeRid = edge.getIdentity();
+      tx.commit();
+
+      var readerStarted = new CountDownLatch(1);
+      var writerCommitted = new CountDownLatch(1);
+      var threadError = new AtomicReference<Throwable>();
+
+      var thread = new Thread(() -> {
+        try {
+          var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+          try {
+            var txReader = dbReader.begin();
+            StatefulEdge eRead = txReader.loadEdge(edgeRid);
+            Assert.assertEquals(10, (int) eRead.getProperty("weight"));
+
+            readerStarted.countDown();
+            awaitOrFail(writerCommitted);
+
+            // The edge was deleted by the writer, but our snapshot must still see it
+            dbReader.getLocalCache().clear();
+            StatefulEdge eAfter = txReader.loadEdge(edgeRid);
+            Assert.assertNotNull(
+                "Snapshot isolation: deleted edge must still be visible",
+                eAfter);
+            Assert.assertEquals(10, (int) eAfter.getProperty("weight"));
+            txReader.commit();
+          } finally {
+            dbReader.close();
+          }
+        } catch (Throwable t) {
+          threadError.set(t);
+        }
+      });
+      thread.start();
+
+      awaitOrFail(readerStarted);
+      var txWriter = db.begin();
+      StatefulEdge eDel = txWriter.loadEdge(edgeRid);
+      txWriter.delete(eDel);
+      txWriter.commit();
+      db.getLocalCache().clear();
+      writerCommitted.countDown();
+
+      joinAndCheck(thread, threadError);
+
+      // After the writer committed, new readers should not find the edge
+      var txVerify = db.begin();
+      try {
+        txVerify.loadEdge(edgeRid);
+        Assert.fail("Edge should have been deleted");
+      } catch (RecordNotFoundException expected) {
+        // expected
+      }
+      txVerify.commit();
+    } finally {
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
+          originalThreshold);
     }
-    txVerify.commit();
   }
 
   /**
@@ -1163,7 +1179,7 @@ public class TransactionTest {
         "ProductSkuIdx",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"sku"});
+        Map.of("ignoreNullValues", true), new String[] {"sku"});
 
     var tx = db.begin();
     var v = tx.newVertex(product);
@@ -1677,77 +1693,83 @@ public class TransactionTest {
    *   Thread A: re-count -> still 3
    * </pre>
    */
-  @Ignore("LinkBag (disk-based link collections) does not support snapshot isolation yet")
   @Test
   public void testSIEdgeCountStabilityMultiThread() throws Exception {
-    // Stay well below the threshold (default 40) to use embedded links
-    var initialEdgeCount = 3;
+    // Force BTree-backed LinkBag storage so the SI code path is exercised
+    var originalThreshold =
+        (int) GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getValue();
+    GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
+    try {
+      var initialEdgeCount = 3;
 
-    var tx = db.begin();
-    var v1 = tx.newVertex("V");
-    v1.setProperty("name", "hub");
-    var targets = new ArrayList<RID>();
-    for (int i = 0; i < initialEdgeCount; i++) {
-      var target = tx.newVertex("V");
-      target.setProperty("name", "target" + i);
-      tx.newStatefulEdge(v1, target, "E");
-      targets.add(target.getIdentity());
-    }
-    var v1Rid = v1.getIdentity();
-    tx.commit();
-
-    var readerStarted = new CountDownLatch(1);
-    var writerCommitted = new CountDownLatch(1);
-    var threadError = new AtomicReference<Throwable>();
-
-    var thread = new Thread(() -> {
-      try {
-        var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
-        try {
-          var txReader = dbReader.begin();
-          Vertex vr = txReader.load(v1Rid);
-          Assert.assertEquals(
-              initialEdgeCount, countEdges(vr.getEdges(Direction.OUT)));
-
-          readerStarted.countDown();
-          awaitOrFail(writerCommitted);
-
-          dbReader.getLocalCache().clear();
-          Vertex vrAfter = txReader.load(v1Rid);
-          Assert.assertEquals(
-              "Snapshot isolation: edge count must remain " + initialEdgeCount,
-              initialEdgeCount, countEdges(vrAfter.getEdges(Direction.OUT)));
-          txReader.commit();
-        } finally {
-          dbReader.close();
-        }
-      } catch (Throwable t) {
-        threadError.set(t);
+      var tx = db.begin();
+      var v1 = tx.newVertex("V");
+      v1.setProperty("name", "hub");
+      var targets = new ArrayList<RID>();
+      for (int i = 0; i < initialEdgeCount; i++) {
+        var target = tx.newVertex("V");
+        target.setProperty("name", "target" + i);
+        tx.newStatefulEdge(v1, target, "E");
+        targets.add(target.getIdentity());
       }
-    });
-    thread.start();
+      var v1Rid = v1.getIdentity();
+      tx.commit();
 
-    awaitOrFail(readerStarted);
-    var txWriter = db.begin();
-    Vertex vw = txWriter.load(v1Rid);
-    // Add 2 more edges (still under the threshold: 3 + 2 = 5 < 40)
-    for (int i = 0; i < 2; i++) {
-      var target = txWriter.newVertex("V");
-      target.setProperty("name", "extra" + i);
-      txWriter.newStatefulEdge(vw, target, "E");
+      var readerStarted = new CountDownLatch(1);
+      var writerCommitted = new CountDownLatch(1);
+      var threadError = new AtomicReference<Throwable>();
+
+      var thread = new Thread(() -> {
+        try {
+          var dbReader = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+          try {
+            var txReader = dbReader.begin();
+            Vertex vr = txReader.load(v1Rid);
+            Assert.assertEquals(
+                initialEdgeCount, countEdges(vr.getEdges(Direction.OUT)));
+
+            readerStarted.countDown();
+            awaitOrFail(writerCommitted);
+
+            dbReader.getLocalCache().clear();
+            Vertex vrAfter = txReader.load(v1Rid);
+            Assert.assertEquals(
+                "Snapshot isolation: edge count must remain " + initialEdgeCount,
+                initialEdgeCount, countEdges(vrAfter.getEdges(Direction.OUT)));
+            txReader.commit();
+          } finally {
+            dbReader.close();
+          }
+        } catch (Throwable t) {
+          threadError.set(t);
+        }
+      });
+      thread.start();
+
+      awaitOrFail(readerStarted);
+      var txWriter = db.begin();
+      Vertex vw = txWriter.load(v1Rid);
+      for (int i = 0; i < 2; i++) {
+        var target = txWriter.newVertex("V");
+        target.setProperty("name", "extra" + i);
+        txWriter.newStatefulEdge(vw, target, "E");
+      }
+      txWriter.commit();
+      db.getLocalCache().clear();
+      writerCommitted.countDown();
+
+      joinAndCheck(thread, threadError);
+
+      // New readers should see 5 edges
+      var txVerify = db.begin();
+      Vertex vFinal = txVerify.load(v1Rid);
+      Assert.assertEquals(
+          initialEdgeCount + 2, countEdges(vFinal.getEdges(Direction.OUT)));
+      txVerify.commit();
+    } finally {
+      GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(
+          originalThreshold);
     }
-    txWriter.commit();
-    db.getLocalCache().clear();
-    writerCommitted.countDown();
-
-    joinAndCheck(thread, threadError);
-
-    // New readers should see 5 edges
-    var txVerify = db.begin();
-    Vertex vFinal = txVerify.load(v1Rid);
-    Assert.assertEquals(
-        initialEdgeCount + 2, countEdges(vFinal.getEdges(Direction.OUT)));
-    txVerify.commit();
   }
 
   /**
@@ -2447,7 +2469,7 @@ public class TransactionTest {
         "PersonEmailIdx",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"email"});
+        Map.of("ignoreNullValues", true), new String[] {"email"});
 
     var tx = db.begin();
     var v = tx.newVertex(person);
@@ -2521,7 +2543,7 @@ public class TransactionTest {
         "TagLabelIdx",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"label"});
+        Map.of("ignoreNullValues", true), new String[] {"label"});
 
     var tx = db.begin();
     for (int i = 0; i < 3; i++) {
@@ -2601,10 +2623,10 @@ public class TransactionTest {
         "ScorePointsIdx",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"points"});
+        Map.of("ignoreNullValues", true), new String[] {"points"});
 
     var tx = db.begin();
-    for (int pts : new int[]{10, 20, 30}) {
+    for (int pts : new int[] {10, 20, 30}) {
       var v = tx.newVertex(score);
       v.setProperty("points", pts);
     }
@@ -2680,7 +2702,7 @@ public class TransactionTest {
         "TicketCodeIdx",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"code"});
+        Map.of("ignoreNullValues", true), new String[] {"code"});
 
     var tx = db.begin();
     var v = tx.newVertex(ticket);
@@ -2749,7 +2771,7 @@ public class TransactionTest {
         "StressItemKeyIdx",
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
-        Map.of("ignoreNullValues", true), new String[]{"key"});
+        Map.of("ignoreNullValues", true), new String[] {"key"});
 
     // Create initial indexed records
     var tx = db.begin();
