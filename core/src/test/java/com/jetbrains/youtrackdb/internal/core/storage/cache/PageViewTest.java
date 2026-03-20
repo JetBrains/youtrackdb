@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -46,9 +47,9 @@ public class PageViewTest {
 
     assertSame(buffer, pageView.buffer());
     assertSame(frame, pageView.pageFrame());
-    assertTrue(stamp == pageView.stamp());
+    assertEquals(stamp, pageView.stamp());
 
-    pool.release(frame);
+    releaseFrame(frame);
   }
 
   @Test
@@ -60,7 +61,7 @@ public class PageViewTest {
     var pageView = new PageView(frame.getBuffer(), frame, stamp);
     assertTrue(pageView.validateStamp());
 
-    pool.release(frame);
+    releaseFrame(frame);
   }
 
   @Test
@@ -77,6 +78,17 @@ public class PageViewTest {
 
     assertFalse(pageView.validateStamp());
 
+    releaseFrame(frame);
+  }
+
+  /**
+   * Helper to release a frame back to the pool with the required exclusive lock protocol.
+   */
+  private void releaseFrame(
+      com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame frame) {
+    long stamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(-1, -1);
+    frame.releaseExclusiveLock(stamp);
     pool.release(frame);
   }
 }

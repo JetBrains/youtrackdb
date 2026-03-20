@@ -18,6 +18,12 @@ import java.nio.ByteBuffer;
  */
 public record PageView(ByteBuffer buffer, PageFrame pageFrame, long stamp) {
 
+  public PageView {
+    assert buffer != null : "Buffer must not be null";
+    assert pageFrame != null : "PageFrame must not be null";
+    assert stamp != 0 : "Stamp must not be zero (exclusive lock was held)";
+  }
+
   /**
    * Validates that the stamp is still valid (no exclusive lock has been acquired on the
    * PageFrame since the stamp was obtained).
