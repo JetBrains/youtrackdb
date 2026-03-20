@@ -289,7 +289,7 @@ public class ThreeTierTransitionTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, count)
+        atomicOp -> IntStream.range(0, count)
             .mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 

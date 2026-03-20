@@ -271,7 +271,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     // When setBackgroundExecutor() is called
@@ -346,7 +346,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -500,7 +500,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, (int) totalCount)
+        atomicOp -> IntStream.range(0, (int) totalCount)
             .mapToObj(i -> (Object) i)
             .sorted());
     setFileId(fixture.manager, 42);

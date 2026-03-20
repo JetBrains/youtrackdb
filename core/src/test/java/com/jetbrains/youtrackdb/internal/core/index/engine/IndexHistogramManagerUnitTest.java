@@ -945,7 +945,7 @@ public class IndexHistogramManagerUnitTest {
         new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 500).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 500).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -964,7 +964,7 @@ public class IndexHistogramManagerUnitTest {
         new HistogramSnapshot(stats, null, 0, 0, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 5000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 5000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -995,7 +995,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 1500, 10_000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1026,7 +1026,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 500, 10_000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1065,7 +1065,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 2000, 10_000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
     // Set failure time to "just now"
     fixture.manager.setLastRebalanceFailureNanos(System.nanoTime());
 
@@ -1094,7 +1094,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 2000, 10_000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     // First call claims the CAS
     var executor1 = new CapturingExecutor();
@@ -1128,7 +1128,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 2000, 10_000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     // Create and immediately shut down an executor
     var executor = Executors.newSingleThreadExecutor();
@@ -1171,7 +1171,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 700, 10_000, 0, true, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1202,7 +1202,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 1500, 100_000_000L, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1233,7 +1233,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 50, 100, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1580,7 +1580,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 250, 1000, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 1000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 1000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1610,7 +1610,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 200, 100, 0, false, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -1642,7 +1642,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 600, 10_000, 0, true, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);
@@ -2163,7 +2163,7 @@ public class IndexHistogramManagerUnitTest {
             stats, histogram, 2, 0, 0, true, null, false));
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 100).boxed().map(i -> (Object) i));
 
     var executor = new CapturingExecutor();
     fixture.manager.maybeScheduleHistogramWork(executor);

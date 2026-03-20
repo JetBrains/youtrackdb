@@ -43,7 +43,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -159,11 +159,13 @@ public class IndexHistogramManager extends DurableComponent {
   private volatile long lastRebalanceFailureNanos;
 
   /**
-   * Supplier for the engine's sorted key stream. Set by the engine after
-   * construction. Used by rebalance to scan keys. May be null before wiring.
+   * Function that produces the engine's sorted key stream given an atomic
+   * operation. Set by the engine after construction. Used by rebalance to scan
+   * keys. May be null before wiring. The atomic operation is created on the
+   * calling thread so that snapshot visibility and tsMin tracking are correct.
    * Volatile: written during setup, read by background rebalance thread.
    */
-  @Nullable private volatile Supplier<Stream<Object>> keyStreamSupplier;
+  @Nullable private volatile Function<AtomicOperation, Stream<Object>> keyStreamSupplier;
 
   /**
    * Storage-level semaphore limiting concurrent rebalance tasks. Set by
@@ -244,7 +246,7 @@ public class IndexHistogramManager extends DurableComponent {
 
   // ---- Configuration setters (for deferred wiring in Steps 5-6) ----
 
-  public void setKeyStreamSupplier(Supplier<Stream<Object>> supplier) {
+  public void setKeyStreamSupplier(Function<AtomicOperation, Stream<Object>> supplier) {
     this.keyStreamSupplier = supplier;
   }
 
@@ -1643,19 +1645,25 @@ public class IndexHistogramManager extends DurableComponent {
         hasher = this::hashKey;
       }
 
-      // Scan sorted keys. Close the stream after consumption to release
-      // any page read locks or prefetched cache entries.
+      // Scan sorted keys. A lightweight read-only atomic operation is created
+      // on this thread for snapshot visibility and tsMin tracking, then
+      // deactivated after the stream is consumed.
       IndexHistogramManager.BuildResult result;
-      try (Stream<Object> keyStream = keyStreamSupplier.get()) {
-        Stream<Object> effectiveKeys;
-        if (keyFieldCount > 1) {
-          effectiveKeys =
-              keyStream.map(k -> ((CompositeKey) k).getKeys().getFirst());
-        } else {
-          effectiveKeys = keyStream;
+      var atomicOp = storage.getAtomicOperationsManager().startAtomicOperation();
+      try {
+        try (Stream<Object> keyStream = keyStreamSupplier.apply(atomicOp)) {
+          Stream<Object> effectiveKeys;
+          if (keyFieldCount > 1) {
+            effectiveKeys =
+                keyStream.map(k -> ((CompositeKey) k).getKeys().getFirst());
+          } else {
+            effectiveKeys = keyStream;
+          }
+          result = scanAndBuild(
+              effectiveKeys, nonNullCount, targetBuckets, newHll, hasher);
         }
-        result = scanAndBuild(
-            effectiveKeys, nonNullCount, targetBuckets, newHll, hasher);
+      } finally {
+        atomicOp.deactivate();
       }
       if (result == null) {
         return;

@@ -2522,15 +2522,15 @@ public abstract class AbstractStorage
     int keyFieldCount = (keyTypes != null) ? keyTypes.length : 1;
     mgr.setKeyFieldCount(keyFieldCount);
 
-    // Wire the sorted key stream supplier for background rebalance.
-    // Uses null atomic operation — the B-tree read path falls back to
-    // reading directly from the read cache without atomic consistency.
+    // Wire the sorted key stream function for background rebalance.
+    // The atomic operation is created by the caller (on the rebalance thread)
+    // so that snapshot visibility and tsMin tracking are thread-local correct.
     if (isSingleValue) {
       mgr.setKeyStreamSupplier(
-          () -> ((BTreeSingleValueIndexEngine) engine).keyStream(null));
+          atomicOp -> ((BTreeSingleValueIndexEngine) engine).keyStream(atomicOp));
     } else {
       mgr.setKeyStreamSupplier(
-          () -> ((BTreeMultiValueIndexEngine) engine).keyStream(null));
+          atomicOp -> ((BTreeMultiValueIndexEngine) engine).keyStream(atomicOp));
     }
     engine.setHistogramManager(mgr);
 

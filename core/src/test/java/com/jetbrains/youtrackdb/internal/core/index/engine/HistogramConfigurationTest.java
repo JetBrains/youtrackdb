@@ -230,7 +230,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
     var executor = new CapturingExecutor();
@@ -254,7 +254,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 20).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 20).boxed().map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
     var executor = new CapturingExecutor();
@@ -352,7 +352,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 10_000).boxed().map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
     var executor = new CapturingExecutor();
@@ -385,7 +385,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 100_000).boxed()
+        atomicOp -> IntStream.range(0, 100_000).boxed()
             .map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
@@ -420,7 +420,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 5_000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 5_000).boxed().map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
     var executor = new CapturingExecutor();
@@ -453,7 +453,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 100_000).boxed()
+        atomicOp -> IntStream.range(0, 100_000).boxed()
             .map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called
@@ -477,7 +477,7 @@ public class HistogramConfigurationTest {
     fixture.cache.put(fixture.engineId, snapshot);
     fixture.manager.setFileIdForTest(1);
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 3000).boxed().map(i -> (Object) i));
+        atomicOp -> IntStream.range(0, 3000).boxed().map(i -> (Object) i));
 
     // When maybeScheduleHistogramWork is called with a real executor
     var executor = new CapturingExecutor();

@@ -3127,9 +3127,6 @@ public final class WOWCache extends AbstractWriteCache
 
               pointer.decrementWritersReferrer();
               pointer.setWritersListener(null);
-            var removed = writeCachePages.remove(pageKey);
-            if (removed == null) {
-              throw new IllegalStateException("Page is not found in write cache");
             }
           } finally {
             lock.unlock();
