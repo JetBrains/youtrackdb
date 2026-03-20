@@ -2,18 +2,19 @@
 
 Creates a new vertex in the database.
 
-The Vertex and Edge are the main components of a Graph database.  YouTrackDB supports polymorphism on vertices.
+The Vertex and Edge are the main components of a graph database. YouTrackDB supports polymorphism on vertices.
 The base class for a vertex is `V`.
 
 **Syntax**
 
 ```sql
-CREATE VERTEX [<class>] [SET <property> = <expression>[,]*]
+CREATE VERTEX [<class>] [SET <property> = <expression>[,]*] [CONTENT <json>]
 ```
 
 - **`<class>`** Defines the class to which the vertex belongs.
 - **`<property>`** Defines the property you want to set.
-- **`<expression>`** Defines the express to set for the field.
+- **`<expression>`** Defines the expression to set for the field.
+- **`<json>`** Defines a JSON document to set as the vertex content.
 
 
 **Examples**
