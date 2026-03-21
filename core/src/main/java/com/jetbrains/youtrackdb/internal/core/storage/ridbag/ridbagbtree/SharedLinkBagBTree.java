@@ -1599,6 +1599,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
         atomicOperation);
   }
 
+  // Cursor fetch methods mutate spliterator state and cannot be safely retried,
+  // so we acquire the shared lock directly rather than using executeOptimisticStorageRead.
   public void fetchNextCachePortionForward(SpliteratorForward iter,
       AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
@@ -1750,6 +1752,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     return false;
   }
 
+  // See comment on fetchNextCachePortionForward for why acquireSharedLock is used directly.
   public void fetchNextCachePortionBackward(SpliteratorBackward iter,
       AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
