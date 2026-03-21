@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -28,18 +28,21 @@
   > (modified), `AtomicOperationsManager.java` (modified),
   > `ExecuteReadOperationTest.java` (modified)
 
-- [ ] Step 2: Unwrap BTree read operations from executeReadOperation
-  > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
-  > all 12 call sites in `BTree.java`. For methods already migrated to optimistic path
-  > (`get`, `size`): remove the outer wrapper, leaving `executeOptimisticStorageRead`
-  > directly. For non-migrated methods (`firstKey`, `lastKey`, `keyStream`,
-  > `allEntries`, `iterateEntriesBetween`, `iterateEntriesMajor`, `iterateEntriesMinor`,
-  > cursor fetch methods): wrap in `executeOptimisticStorageRead` with the same
-  > pinned-path lambda for both parameters (effectively always pinned — no optimistic
-  > variant exists for these). Make set-once fields volatile: `fileId`,
-  > `nullBucketFileId`, `keySerializer`, `keyTypes`, `keySize`, `maxKeySize` (T3).
+- [x] Step 2: Unwrap BTree read operations from executeReadOperation
+  > **What was done:** Removed all 12 executeReadOperation/readUnderLock wrappers from
+  > BTree.java. `get()` and `size()` now call `executeOptimisticStorageRead` directly.
+  > Non-migrated methods (firstKey, lastKey, keyStream, allEntries, iterateEntriesBetween,
+  > iterateEntriesMinor, iterateEntriesMajor, assertFreePages) wrapped in
+  > `executeOptimisticStorageRead` with pinned-only lambdas. Cursor fetch methods use
+  > `acquireSharedLock()` directly instead of `executeOptimisticStorageRead` because they
+  > mutate spliterator state. Made 6 set-once fields volatile.
   >
-  > **Files:** `BTree.java` (modified)
+  > **What was discovered:** Code review caught that cursor fetch methods mutate
+  > spliterator state (pageIndex, itemIndex, dataCache), so using identical lambdas for
+  > both optimistic and pinned parameters in executeOptimisticStorageRead could corrupt
+  > iterator state on retry. Fixed by using acquireSharedLock() directly for these methods.
+  >
+  > **Key files:** `BTree.java` (modified)
 
 - [ ] Step 3: Unwrap PaginatedCollectionV2 read operations from executeReadOperation
   > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
