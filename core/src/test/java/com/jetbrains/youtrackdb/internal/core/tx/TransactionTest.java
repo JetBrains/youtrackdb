@@ -1797,7 +1797,7 @@ public class TransactionTest {
       for (int i = 0; i < initialEdgeCount; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "target" + i);
-        tx.newStatefulEdge(hub, target, "E");
+        tx.newEdge(hub, target, "E");
       }
       var hubRid = hub.getIdentity();
       tx.commit();
@@ -1854,7 +1854,7 @@ public class TransactionTest {
       for (int i = 0; i < 3; i++) {
         var target = txWriter.newVertex("V");
         target.setProperty("name", "new" + i);
-        txWriter.newStatefulEdge(vw, target, "E");
+        txWriter.newEdge(vw, target, "E");
       }
       txWriter.commit();
       db.getLocalCache().clear();
@@ -1904,7 +1904,7 @@ public class TransactionTest {
       for (int i = 0; i < initialEdgeCount; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "target" + i);
-        var e = tx.newStatefulEdge(hub, target, "E");
+        var e = tx.newEdge(hub, target, "E");
         edgeRids.add(e.getIdentity());
       }
       var hubRid = hub.getIdentity();
@@ -1953,7 +1953,7 @@ public class TransactionTest {
       var txWriter = db.begin();
       // Delete first 2 edges
       for (int i = 0; i < 2; i++) {
-        StatefulEdge eDel = txWriter.loadEdge(edgeRids.get(i));
+        Edge eDel = txWriter.loadEdge(edgeRids.get(i));
         txWriter.delete(eDel);
       }
       // Add 2 new edges
@@ -1961,7 +1961,7 @@ public class TransactionTest {
       for (int i = 0; i < 2; i++) {
         var target = txWriter.newVertex("V");
         target.setProperty("name", "replacement" + i);
-        txWriter.newStatefulEdge(vw, target, "E");
+        txWriter.newEdge(vw, target, "E");
       }
       txWriter.commit();
       db.getLocalCache().clear();
@@ -2011,7 +2011,7 @@ public class TransactionTest {
       for (int i = 0; i < 3; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "target" + i);
-        var e = tx.newStatefulEdge(hub, target, "E");
+        var e = tx.newEdge(hub, target, "E");
         edgeRids.add(e.getIdentity());
       }
       var hubRid = hub.getIdentity();
@@ -2061,7 +2061,7 @@ public class TransactionTest {
       awaitOrFail(readerStarted);
       var txWriter = db.begin();
       // Delete the first edge
-      StatefulEdge eDel = txWriter.loadEdge(edgeRids.get(0));
+      Edge eDel = txWriter.loadEdge(edgeRids.get(0));
       txWriter.delete(eDel);
       txWriter.commit();
       db.getLocalCache().clear();
@@ -2113,7 +2113,7 @@ public class TransactionTest {
       for (int i = 0; i < 2; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "colleague" + i);
-        tx.newStatefulEdge(hub, target, "Colleague");
+        tx.newEdge(hub, target, "Colleague");
       }
       var hubRid = hub.getIdentity();
       tx.commit();
@@ -2163,7 +2163,7 @@ public class TransactionTest {
       for (int i = 0; i < 2; i++) {
         var target = txWriter.newVertex("V");
         target.setProperty("name", "friend" + i);
-        txWriter.newStatefulEdge(vw, target, "Friend");
+        txWriter.newEdge(vw, target, "Friend");
       }
       txWriter.commit();
       db.getLocalCache().clear();
@@ -2216,7 +2216,7 @@ public class TransactionTest {
       for (int i = 0; i < 3; i++) {
         var target = tx.newVertex("V");
         target.setProperty("name", "target" + i);
-        var e = tx.newStatefulEdge(hub, target, "E");
+        var e = tx.newEdge(hub, target, "E");
         edgeRids.add(e.getIdentity());
       }
       var hubRid = hub.getIdentity();
@@ -2290,14 +2290,14 @@ public class TransactionTest {
       awaitOrFail(bothReadersStarted);
       var txWriter = db.begin();
       // Delete one edge
-      StatefulEdge eDel = txWriter.loadEdge(edgeRids.get(0));
+      Edge eDel = txWriter.loadEdge(edgeRids.get(0));
       txWriter.delete(eDel);
       // Add two new edges
       Vertex vw = txWriter.load(hubRid);
       for (int i = 0; i < 2; i++) {
         var target = txWriter.newVertex("V");
         target.setProperty("name", "new" + i);
-        txWriter.newStatefulEdge(vw, target, "E");
+        txWriter.newEdge(vw, target, "E");
       }
       txWriter.commit();
       db.getLocalCache().clear();
