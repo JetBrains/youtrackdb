@@ -308,6 +308,34 @@ public class ResultSetTest extends DbTestBase {
   }
 
   /**
+   * Verify outE() SQL function on an edge record returns null.
+   * This covers the SQLFunctionMove.v2e "else return null" branch (line 89).
+   */
+  @Test
+  public void testOutEFunctionOnEdgeReturnsEmpty() {
+    session.createVertexClass("OutEFuncV");
+    session.createEdgeClass("OutEFuncE");
+
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex("OutEFuncV");
+      var v2 = tx.newVertex("OutEFuncV");
+      v1.addEdge(v2, "OutEFuncE");
+    });
+
+    // outE() on an edge record should return null (edges have no outgoing edges)
+    try (var rs = session.query(
+        "SELECT outE() as edges FROM OutEFuncE")) {
+      while (rs.hasNext()) {
+        var result = rs.next();
+        var edges = result.getProperty("edges");
+        // outE() on an edge should be null or empty
+        Assert.assertTrue("outE() on edge should be null or empty",
+            edges == null || !((Iterable<?>) edges).iterator().hasNext());
+      }
+    }
+  }
+
+  /**
    * Verify inE() SQL function works correctly on vertices.
    * This exercises the v2e method in SQLFunctionMove and edge iteration on the IN direction.
    */
@@ -462,6 +490,68 @@ public class ResultSetTest extends DbTestBase {
         // Path: v1 → v2 → v3 → v4 (4 vertices)
         Assert.assertEquals(4, path.size());
       }
+    });
+  }
+
+  /**
+   * Verify out() SQL function on a plain entity (non-vertex, non-edge) returns null.
+   * This covers the SQLFunctionMove.v2v "else return null" branch for plain entities (line 89).
+   */
+  @Test
+  public void testOutFunctionOnPlainEntityReturnsNull() {
+    session.command("CREATE CLASS PlainOutFuncCls;");
+    session.executeInTx(tx -> tx.newEntity("PlainOutFuncCls").setString("name", "x"));
+
+    try (var rs = session.query("SELECT out() as neighbors FROM PlainOutFuncCls")) {
+      while (rs.hasNext()) {
+        var result = rs.next();
+        var neighbors = result.getProperty("neighbors");
+        // out() on a plain entity should be null — it's not a vertex
+        Assert.assertNull("out() on plain entity should be null", neighbors);
+      }
+    }
+  }
+
+  /**
+   * Verify outE() SQL function on a plain entity returns null.
+   * This covers the SQLFunctionMove.v2e non-vertex branch for plain entities.
+   */
+  @Test
+  public void testOutEFunctionOnPlainEntityReturnsNull() {
+    session.command("CREATE CLASS PlainOutEFuncCls;");
+    session.executeInTx(tx -> tx.newEntity("PlainOutEFuncCls").setString("name", "y"));
+
+    try (var rs = session.query("SELECT outE() as edges FROM PlainOutEFuncCls")) {
+      while (rs.hasNext()) {
+        var result = rs.next();
+        var edges = result.getProperty("edges");
+        Assert.assertNull("outE() on plain entity should be null", edges);
+      }
+    }
+  }
+
+  /**
+   * Verify ResultInternal.asEdgeOrNull() resolves to an edge when the result wraps a raw
+   * edge RID, without calling asEdge() first. This ensures the isEdge() → asEntity() path
+   * in asEdgeOrNull (line 990) is exercised independently.
+   */
+  @Test
+  public void testResultInternalAsEdgeOrNullOnlyFromRid() {
+    session.createVertexClass("AsEdgeOrNullV");
+    session.createEdgeClass("AsEdgeOrNullE");
+
+    var edgeRid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex("AsEdgeOrNullV");
+      var v2 = tx.newVertex("AsEdgeOrNullV");
+      return v1.addEdge(v2, "AsEdgeOrNullE").getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      // Create a fresh ResultInternal wrapping only the RID — call ONLY asEdgeOrNull
+      var result = new ResultInternal(session, edgeRid);
+      Edge edgeOrNull = result.asEdgeOrNull();
+      Assert.assertNotNull("asEdgeOrNull() on edge RID should return edge", edgeOrNull);
+      Assert.assertEquals(edgeRid, edgeOrNull.getIdentity());
     });
   }
 

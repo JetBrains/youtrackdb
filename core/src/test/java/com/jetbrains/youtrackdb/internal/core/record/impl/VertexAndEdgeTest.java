@@ -7,9 +7,18 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
+import com.jetbrains.youtrackdb.internal.common.util.Resettable;
+import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import org.junit.Test;
 
 public class VertexAndEdgeTest extends DbTestBase {
@@ -200,5 +209,303 @@ public class VertexAndEdgeTest extends DbTestBase {
       assertThat(edge).isNotNull();
       assertThat(edge.getSchemaClassName()).isEqualTo("SchemaEdgeE");
     });
+  }
+
+  /**
+   * Verify that addEdge(vertex, null) uses the default "E" type.
+   * Covers the null-type branch in VertexEntityImpl.addEdge(Vertex, String).
+   */
+  @Test
+  public void testAddEdgeWithNullType() {
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex();
+      var v2 = tx.newVertex();
+      var edge = v1.addEdge(v2, (String) null);
+      assertThat(edge).isNotNull();
+      assertThat(edge.getSchemaClassName()).isEqualTo("E");
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.size() falls back to multiValue Collection size when the
+   * explicit size is unknown (-1) and the iterator is not Sizeable.
+   * Covers EdgeIterator lines 86-87 (multiValue instanceof Collection).
+   */
+  @Test
+  public void testEdgeIteratorSizeFromCollectionMultiValue() {
+    session.createEdgeClass("IterSizeE");
+
+    var edgeRid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex();
+      var v2 = tx.newVertex();
+      return v1.addEdge(v2, "IterSizeE").getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      // Build an EdgeIterator with a Collection as multiValue and unknown size
+      var ridList = List.of(edgeRid);
+      var iter = new EdgeIterator(ridList, ridList.iterator(), -1, session);
+
+      // size() should fall through to multiValue instanceof Collection → 1
+      assertThat(iter.size()).isEqualTo(1);
+      // isSizeable() should return true because multiValue is a Collection
+      assertThat(iter.isSizeable()).isTrue();
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.size() falls back to Sizeable iterator when explicit size is
+   * unknown and the iterator implements Sizeable.
+   * Covers EdgeIterator line 81 (iterator instanceof Sizeable).
+   */
+  @Test
+  public void testEdgeIteratorSizeFromSizeableIterator() {
+    session.createEdgeClass("IterSizeablE");
+
+    var edgeRid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex();
+      var v2 = tx.newVertex();
+      return v1.addEdge(v2, "IterSizeablE").getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      // Wrap the RID list in a Sizeable iterator
+      var sizeableIter = new SizeableRidIterator(List.of(edgeRid));
+      // Use a non-Collection, non-Sizeable multiValue to force the iterator Sizeable path
+      var iter = new EdgeIterator("not-a-collection", sizeableIter, -1, session);
+
+      assertThat(iter.size()).isEqualTo(1);
+      assertThat(iter.isSizeable()).isTrue();
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.size() throws when no size source is available.
+   * Covers EdgeIterator line 89 (UnsupportedOperationException).
+   */
+  @Test
+  public void testEdgeIteratorSizeUnsupported() {
+    session.executeInTx(tx -> {
+      // Non-Sizeable iterator, non-Collection/Sizeable multiValue, unknown size
+      var iter = new EdgeIterator(
+          "not-a-collection", List.<RID>of().iterator(), -1, session);
+
+      assertThatThrownBy(iter::size)
+          .isInstanceOf(UnsupportedOperationException.class);
+      assertThat(iter.isSizeable()).isFalse();
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.reset() delegates to underlying Resettable iterator and
+   * allows re-iteration. Also verifies isResetable() returns correct values.
+   * Covers EdgeIterator lines 62-65 (reset with Resettable) and line 72 (isResetable).
+   */
+  @Test
+  public void testEdgeIteratorResetAndIsResetable() {
+    session.createEdgeClass("IterResetE");
+
+    var edgeRid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex();
+      var v2 = tx.newVertex();
+      return v1.addEdge(v2, "IterResetE").getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      // Test with a Resettable iterator
+      var resettableIter = new ResettableRidIterator(List.of(edgeRid));
+      var iter = new EdgeIterator(null, resettableIter, 1, session);
+
+      assertThat(iter.isResetable()).isTrue();
+
+      // Consume the edge
+      assertThat(iter.hasNext()).isTrue();
+      var edge = iter.next();
+      assertThat(edge).isNotNull();
+      assertThat(iter.hasNext()).isFalse();
+
+      // Reset and re-iterate
+      iter.reset();
+      assertThat(iter.hasNext()).isTrue();
+      var edge2 = iter.next();
+      assertThat(edge2.getIdentity()).isEqualTo(edge.getIdentity());
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.reset() throws on non-Resettable iterator and
+   * isResetable() returns false.
+   * Covers EdgeIterator line 67 (UnsupportedOperationException) and line 72 false branch.
+   */
+  @Test
+  public void testEdgeIteratorResetOnNonResettableThrows() {
+    session.executeInTx(tx -> {
+      var iter = new EdgeIterator(null, List.<RID>of().iterator(), 0, session);
+      assertThat(iter.isResetable()).isFalse();
+
+      assertThatThrownBy(iter::reset)
+          .isInstanceOf(UnsupportedOperationException.class);
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.next() throws NoSuchElementException when exhausted.
+   * Covers EdgeIterator line 57.
+   */
+  @Test
+  public void testEdgeIteratorNextThrowsWhenExhausted() {
+    session.executeInTx(tx -> {
+      var iter = new EdgeIterator(null, List.<RID>of().iterator(), 0, session);
+      assertThat(iter.hasNext()).isFalse();
+
+      assertThatThrownBy(iter::next)
+          .isInstanceOf(NoSuchElementException.class);
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.isSizeable() returns true when explicit size is known (>= 0),
+   * regardless of other parameters. Covers EdgeIterator line 94 first condition.
+   */
+  @Test
+  public void testEdgeIteratorIsSizeableWithKnownSize() {
+    session.executeInTx(tx -> {
+      // Explicit size=0, non-Sizeable iterator, non-Collection multiValue
+      var iter = new EdgeIterator("foo", List.<RID>of().iterator(), 0, session);
+      assertThat(iter.isSizeable()).isTrue();
+      assertThat(iter.size()).isEqualTo(0);
+    });
+  }
+
+  /**
+   * Verify EdgeIterator.isSizeable() uses multiValue Sizeable fallback when iterator
+   * is not Sizeable. Covers EdgeIterator line 95 (multiValue instanceof Sizeable).
+   */
+  @Test
+  public void testEdgeIteratorIsSizeableFromMultiValueSizeable() {
+    session.executeInTx(tx -> {
+      var sizeableMultiValue = new Sizeable() {
+        @Override
+        public int size() {
+          return 42;
+        }
+
+        @Override
+        public boolean isSizeable() {
+          return true;
+        }
+      };
+      var iter = new EdgeIterator(
+          sizeableMultiValue, List.<RID>of().iterator(), -1, session);
+
+      assertThat(iter.isSizeable()).isTrue();
+      // size() should reach the multiValue Sizeable branch
+      assertThat(iter.size()).isEqualTo(42);
+    });
+  }
+
+  /**
+   * Verify that creating a standalone entity with an abstract class throws SchemaException.
+   * Covers EntityImpl constructor line 170 (abstract class check).
+   */
+  @Test
+  public void testNewEntityWithAbstractClassThrows() {
+    var cls = session.getSchema().createClass("AbstractTestCls");
+    cls.setAbstract(true);
+
+    session.executeInTx(tx -> {
+      assertThatThrownBy(() -> tx.newEntity("AbstractTestCls"))
+          .isInstanceOf(SchemaException.class)
+          .hasMessageContaining("abstract");
+    });
+  }
+
+  /**
+   * Verify that creating an embedded entity with a non-abstract class throws DatabaseException.
+   * Covers EntityImpl.checkEmbeddable() line 3893 (non-abstract class check).
+   */
+  @Test
+  public void testNewEmbeddedEntityWithNonAbstractClassThrows() {
+    session.getSchema().createClass("ConcreteTestCls");
+
+    session.executeInTx(tx -> {
+      assertThatThrownBy(() -> tx.newEmbeddedEntity("ConcreteTestCls"))
+          .isInstanceOf(DatabaseException.class)
+          .hasMessageContaining("abstract");
+    });
+  }
+
+  /**
+   * Simple Resettable Iterator over RIDs, used to test EdgeIterator.reset().
+   */
+  private static class ResettableRidIterator
+      implements Iterator<RID>, Resettable {
+    private final List<RID> items;
+    private int index;
+
+    ResettableRidIterator(List<RID> items) {
+      this.items = new ArrayList<>(items);
+      this.index = 0;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return index < items.size();
+    }
+
+    @Override
+    public RID next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+      return items.get(index++);
+    }
+
+    @Override
+    public void reset() {
+      index = 0;
+    }
+
+    @Override
+    public boolean isResetable() {
+      return true;
+    }
+  }
+
+  /**
+   * Sizeable Iterator over RIDs, used to test EdgeIterator.size() fallback.
+   */
+  private static class SizeableRidIterator
+      implements Iterator<Identifiable>, Sizeable {
+    private final List<? extends Identifiable> items;
+    private int index;
+
+    SizeableRidIterator(List<? extends Identifiable> items) {
+      this.items = new ArrayList<>(items);
+      this.index = 0;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return index < items.size();
+    }
+
+    @Override
+    public Identifiable next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+      return items.get(index++);
+    }
+
+    @Override
+    public int size() {
+      return items.size();
+    }
+
+    @Override
+    public boolean isSizeable() {
+      return true;
+    }
   }
 }
