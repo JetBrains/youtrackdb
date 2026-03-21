@@ -29,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
@@ -379,7 +378,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                 final var collectionPosition =
                     LongSerializer.deserializeNative(
                         oldRawValue, ShortSerializer.SHORT_SIZE);
-                oldValue = new RecordId(collectionId, collectionPosition);
+                oldValue = CellBTreeSingleValueBucketV3.decodeRID(collectionId, collectionPosition);
               }
 
               if (validator != null) {
@@ -613,7 +612,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
                       LongSerializer.deserializeNative(
                           rawValue, ShortSerializer.SHORT_SIZE);
 
-                  removedValue = new RecordId(collectionId, collectionPosition);
+                  removedValue =
+                      CellBTreeSingleValueBucketV3.decodeRID(collectionId, collectionPosition);
                 }
               } else {
                 return null;
