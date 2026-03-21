@@ -1612,7 +1612,12 @@ public class MatchExecutionPlanner {
         // CONTAINER_OF edge class; if that endpoint declares LINK Message, the target
         // class is Message.
         var alias = item.getFilter().getAlias();
-        if (alias != null && !aliasClasses.containsKey(alias)) {
+        // Skip inference for steps with a while condition: the while/where
+        // recursive traversal has special semantics and inferring a class
+        // from the edge schema can change cost estimates or schedule order,
+        // breaking the recursion.
+        var hasWhile = item.getFilter().getWhileCondition() != null;
+        if (alias != null && !hasWhile && !aliasClasses.containsKey(alias)) {
           var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
           if (inferred != null) {
             aliasClasses.put(alias, inferred);

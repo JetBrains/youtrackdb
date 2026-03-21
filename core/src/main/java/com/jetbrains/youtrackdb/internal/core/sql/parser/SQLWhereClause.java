@@ -608,6 +608,7 @@ public class SQLWhereClause extends SimpleNode {
     return result != null ? result.className() : null;
   }
 
+
   /**
    * Result of extracting a {@code @class = 'X'} condition from a WHERE clause.
    *
