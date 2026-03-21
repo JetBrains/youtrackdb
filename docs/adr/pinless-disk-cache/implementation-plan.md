@@ -1845,6 +1845,8 @@ Phase 5: Remove component-level read lock from happy path
   > pinned path as designed.
   >
   > **Step file:** `tracks/track-5.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 5 delivered the optimistic read infrastructure Track 7 needs. Track 6 subsumed.
 
 - [~] Track 6: Handle AtomicOperation with local WAL changes
   > Add hasChangesForPage check to loadPageOptimistic so pages with active
