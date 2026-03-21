@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -44,19 +44,18 @@
   >
   > **Key files:** `BTree.java` (modified)
 
-- [ ] Step 3: Unwrap PaginatedCollectionV2 read operations from executeReadOperation
-  > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
-  > all 14 call sites in `PaginatedCollectionV2.java`. For migrated methods
-  > (`readRecord`): remove the outer wrapper. For non-migrated methods
-  > (`getPhysicalPosition`, `exists`, `getEntries`, `getFirstPosition`,
-  > `getLastPosition`, `higherPositions`, `ceilingPositions`, `lowerPositions`,
-  > `floorPositions`, `nextPage`, etc.): wrap in `executeOptimisticStorageRead` with
-  > pinned-only lambdas. Remove direct `acquireSharedLock()` calls in
-  > `generateCollectionConfig()`, `encryption()`, `getRecordStatus()` — route through
-  > `executeOptimisticStorageRead()` or make field reads volatile-safe. Make set-once
-  > fields volatile: `fileId`, `recordConflictStrategy`.
+- [x] Step 3: Unwrap PaginatedCollectionV2 read operations from executeReadOperation
+  > **What was done:** Removed all 14 `executeReadOperation`/`readUnderLock` wrappers from
+  > PaginatedCollectionV2. `readRecord()` (already migrated) had its outer wrapper removed.
+  > Non-migrated methods routed through `executeOptimisticStorageRead` with pinned-only
+  > lambdas via extracted helpers: `doGetPhysicalPosition`, `doExists`, `doGetEntries`,
+  > `doGetRecordStatus`, `doNextPage`. `generateCollectionConfig()` and `encryption()`
+  > had shared locks removed — fields are now volatile. `exists(AtomicOperation)` simplified
+  > to direct `isFileExists()` call (no page I/O). `synch()` uses explicit
+  > `acquireSharedLock()` (no AtomicOperation available). `getFileName()` reads volatile
+  > `fileId` directly. Made `fileId` and `recordConflictStrategy` volatile.
   >
-  > **Files:** `PaginatedCollectionV2.java` (modified)
+  > **Key files:** `PaginatedCollectionV2.java` (modified)
 
 - [ ] Step 4: Unwrap SharedLinkBagBTree read operations from executeReadOperation
   > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
