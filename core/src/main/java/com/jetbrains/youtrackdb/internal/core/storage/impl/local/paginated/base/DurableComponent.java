@@ -94,23 +94,6 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     releaseExclusiveLock();
   }
 
-  /**
-   * Acquires the shared (read) lock on this component for use by
-   * {@link AtomicOperationsManager}. Short-circuits if the current thread
-   * already holds the exclusive lock.
-   */
-  public void lockShared() {
-    acquireSharedLock();
-  }
-
-  /**
-   * Releases the shared (read) lock on this component. Short-circuits if the
-   * current thread holds the exclusive lock (paired with {@link #lockShared()}).
-   */
-  public void unlockShared() {
-    releaseSharedLock();
-  }
-
   public String getName() {
     return name;
   }

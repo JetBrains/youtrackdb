@@ -37,7 +37,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.util.Objects;
-import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -300,54 +299,4 @@ public class AtomicOperationsManager {
     operation.addLockedObject(component.getLockName());
   }
 
-  /**
-   * Executes a read operation under the component's shared (read) lock. Short-circuits
-   * if the current thread already holds the exclusive lock (reentrancy is handled by
-   * the underlying ReentrantReadWriteLock).
-   *
-   * <p>This method is being phased out — callers should use
-   * {@link DurableComponent#executeOptimisticStorageRead} directly instead. Remaining
-   * call sites will be unwrapped in subsequent steps.
-   *
-   * @param component the durable component whose lock to use
-   * @param action    the read action to execute
-   * @return the result of the action
-   */
-  public <T> T executeReadOperation(
-      DurableComponent component, Callable<T> action) throws IOException {
-    component.lockShared();
-    try {
-      return action.call();
-    } catch (Exception e) {
-      throwAsIOOrRuntime(e);
-      return null; // unreachable
-    } finally {
-      component.unlockShared();
-    }
-  }
-
-  /**
-   * Non-throwing variant of {@link #executeReadOperation(DurableComponent, Callable)}.
-   * Being phased out — callers should use
-   * {@link DurableComponent#executeOptimisticStorageRead} directly instead.
-   */
-  public <T> T readUnderLock(
-      DurableComponent component, Supplier<T> action) {
-    component.lockShared();
-    try {
-      return action.get();
-    } finally {
-      component.unlockShared();
-    }
-  }
-
-  private static void throwAsIOOrRuntime(Exception e) throws IOException {
-    if (e instanceof IOException ioe) {
-      throw ioe;
-    }
-    if (e instanceof RuntimeException re) {
-      throw re;
-    }
-    throw new IOException(e);
-  }
 }
