@@ -74,6 +74,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
@@ -337,6 +338,7 @@ public abstract class AbstractStorage
   // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
+  private IndexesSnapshot indexesSnapshot = new IndexesSnapshot();
 
   // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
@@ -5925,6 +5927,7 @@ public abstract class AbstractStorage
       evictStaleEdgeSnapshotEntries(
           lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
           edgeSnapshotIndexSize);
+      evictStaleIndexesSnapshotEntries(lwm, indexesSnapshot);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -6120,6 +6123,12 @@ public abstract class AbstractStorage
     }
   }
 
+  static void evictStaleIndexesSnapshotEntries(
+      long lwm,
+      IndexesSnapshot indexesSnapshot) {
+    indexesSnapshot.evictStaleIndexesSnapshotEntries(lwm);
+  }
+
   /**
    * Starts the stale transaction monitor if enabled in the configuration. Called once when
    * the storage transitions to OPEN status.
@@ -6150,6 +6159,10 @@ public abstract class AbstractStorage
       monitor.stop();
       staleTransactionMonitor = null;
     }
+  }
+
+  public IndexesSnapshot subIndexSnapshot(long indexId) {
+    return indexesSnapshot.subIndexSnapshot(indexId);
   }
 
   /**

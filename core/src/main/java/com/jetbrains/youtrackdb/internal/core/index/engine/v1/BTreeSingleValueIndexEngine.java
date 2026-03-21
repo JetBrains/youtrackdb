@@ -1,23 +1,29 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
-import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -28,7 +34,8 @@ public final class BTreeSingleValueIndexEngine
   private static final String DATA_FILE_EXTENSION = ".cbt";
   private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
 
-  private final CellBTreeSingleValue<Object> sbTree;
+  private final CellBTreeSingleValue<CompositeKey> sbTree;
+  private final IndexesSnapshot indexesSnapshot;
   private final String name;
   private final int id;
   private final AbstractStorage storage;
@@ -44,6 +51,7 @@ public final class BTreeSingleValueIndexEngine
       this.sbTree =
           new BTree<>(
               name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      indexesSnapshot = storage.subIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -69,12 +77,13 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) {
-    @SuppressWarnings("unchecked")
-    var keySerializer =
-        (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
     try {
+      final var sbTypes = calculateTypes(data.getKeyTypes());
       sbTree.create(
-          atomicOperation, keySerializer, data.getKeyTypes(), data.getKeySize());
+          atomicOperation,
+          new IndexMultiValuKeySerializer(),
+          sbTypes,
+          data.getKeySize() + 1);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error of creation of index " + name),
@@ -83,9 +92,10 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void delete(@Nonnull final AtomicOperation atomicOperation) {
+  public void delete(final @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      indexesSnapshot.clear();
       sbTree.delete(atomicOperation);
       var mgr = histogramManager;
       if (mgr != null) {
@@ -101,7 +111,7 @@ public final class BTreeSingleValueIndexEngine
   private void doClearTree(@Nonnull AtomicOperation atomicOperation) throws IOException {
     try (var stream = sbTree.keyStream(atomicOperation)) {
       stream.forEach(
-          (key) -> {
+          key -> {
             try {
               sbTree.remove(atomicOperation, key);
             } catch (IOException e) {
@@ -111,23 +121,53 @@ public final class BTreeSingleValueIndexEngine
             }
           });
     }
-    sbTree.remove(atomicOperation, null);
   }
 
   @Override
   public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
+    var name = data.getName();
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
-    @SuppressWarnings("unchecked")
-    var keySerializer =
-        (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
-    sbTree.load(name, keySize, keyTypes, keySerializer, atomicOperation);
+    final var sbTypes = calculateTypes(keyTypes);
+
+    sbTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
   }
 
   @Override
   public boolean remove(@Nonnull AtomicOperation atomicOperation, Object key) {
     try {
-      var removed = sbTree.remove(atomicOperation, key) != null;
+      boolean removed = false;
+      var compositeKey = convertToCompositeKey(key);
+
+      var res =
+          sbTree
+              .iterateEntriesBetween(compositeKey, true, compositeKey, true, true,
+                  atomicOperation)
+              .findAny();
+
+      if (res.isPresent()) {
+        var pair = res.get();
+
+        // should not re-delete the deleted entry
+        if (pair.second() instanceof TombstoneRID) {
+          return false;
+        }
+
+        var value = pair.getSecond().getIdentity();
+
+        sbTree.remove(atomicOperation, pair.first());
+
+        var removedVersion = atomicOperation.getCommitTs();
+        var newKey = new CompositeKey(compositeKey, removedVersion);
+        sbTree.put(atomicOperation, newKey, new TombstoneRID(value));
+
+        var snapshotAddedIndexKey = pair.first();
+        var snapshotRemovedIndexKey = newKey;
+
+        indexesSnapshot.addSnapshotPair(snapshotAddedIndexKey, snapshotRemovedIndexKey, value);
+        removed = true;
+      }
+
       if (removed) {
         var mgr = histogramManager;
         if (mgr != null) {
@@ -148,6 +188,7 @@ public final class BTreeSingleValueIndexEngine
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      indexesSnapshot.clear();
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);
@@ -170,11 +211,12 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
-    final var rid = sbTree.get(key, atomicOperation);
-    if (rid == null) {
-      return Stream.empty();
-    }
-    return Stream.of(rid);
+    var compositeKey = convertToCompositeKey(key);
+
+    var stream = sbTree
+        .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
+    return indexesSnapshot.visibilityFilter(atomicOperation, stream)
+        .map(RawPair::second);
   }
 
   @Override
@@ -184,7 +226,10 @@ public final class BTreeSingleValueIndexEngine
     if (firstKey == null) {
       return Stream.empty();
     }
-    return sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation);
+
+    return mapSVStream(
+        indexesSnapshot.visibilityFilter(atomicOperation,
+            sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)));
   }
 
   @Override
@@ -194,23 +239,47 @@ public final class BTreeSingleValueIndexEngine
     if (lastKey == null) {
       return Stream.empty();
     }
-    return sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation);
+
+    return mapSVStream(
+        indexesSnapshot.visibilityFilter(atomicOperation,
+            sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation)));
   }
 
   @Override
   public Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation) {
-    return sbTree.keyStream(atomicOperation);
+    return stream(null, atomicOperation).map(RawPair::first).filter(Objects::nonNull);
   }
 
   @Override
   public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
-      boolean wasInsert = sbTree.put(atomicOperation, key, value);
+      boolean wasInserted;
+
+      var compositeKey = convertToCompositeKey(key);
+      var existing = sbTree.iterateEntriesBetween(
+          compositeKey, true, compositeKey, true, true, atomicOperation)
+          .findAny();
+      RID removedRID = null;
+      if (existing.isPresent()) {
+        removedRID = existing.get().second();
+        sbTree.remove(atomicOperation, existing.get().first());
+      }
+
+      var version = atomicOperation.getCommitTs();
+      compositeKey.addKey(version);
+
+      if (removedRID instanceof TombstoneRID || removedRID instanceof SnapshotMarkerRID) {
+        wasInserted = sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
+      } else {
+        wasInserted = sbTree.put(atomicOperation, compositeKey, value);
+      }
+
       var mgr = histogramManager;
       if (mgr != null) {
-        mgr.onPut(atomicOperation, key, true, wasInsert);
+        mgr.onPut(atomicOperation, key, true, wasInserted);
       }
-      return wasInsert;
+
+      return wasInserted;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -227,16 +296,48 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      // validatedPut returns: 1=insert, 0=update, -1=IGNORE (validator rejected).
-      // Only notify the histogram manager when the B-tree was actually modified.
-      int result = sbTree.validatedPut(atomicOperation, key, value, validator);
-      if (result >= 0) {
-        var mgr = histogramManager;
-        if (mgr != null) {
-          mgr.onPut(atomicOperation, key, true, result > 0);
+      boolean wasInserted;
+
+      var compositeKey = convertToCompositeKey(key);
+      var existing = sbTree.iterateEntriesBetween(
+          compositeKey, true, compositeKey, true, true, atomicOperation)
+          .findAny();
+      RID removedRID = null;
+      if (existing.isPresent()) {
+        removedRID = existing.get().second();
+      }
+
+      // Validate at engine level with the captured old value.
+      // Tombstone means logically deleted — treat as no occupant.
+      if (validator != null && removedRID != null && !(removedRID instanceof TombstoneRID)) {
+        var result = validator.validate(key, removedRID.getIdentity(), value);
+        if (result == IndexEngineValidator.IGNORE) {
+          return false;
         }
       }
-      return result > 0;
+
+      // SnapshotMarkerRID should not be updated
+      assert !(removedRID instanceof SnapshotMarkerRID);
+
+      if (removedRID != null) {
+        sbTree.remove(atomicOperation, existing.get().first());
+      }
+
+      var version = atomicOperation.getCommitTs();
+      compositeKey.addKey(version);
+
+      if (removedRID instanceof TombstoneRID) {
+        wasInserted = sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
+      } else {
+        wasInserted = sbTree.put(atomicOperation, compositeKey, value);
+      }
+
+      var mgr = histogramManager;
+      if (mgr != null) {
+        mgr.onPut(atomicOperation, key, true, wasInserted);
+      }
+
+      return wasInserted;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
@@ -254,8 +355,32 @@ public final class BTreeSingleValueIndexEngine
       boolean toInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
-    return sbTree.iterateEntriesBetween(
-        rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, atomicOperation);
+
+    // "from", "to" are null, then scan whole tree as for infinite range
+    if (rangeFrom == null && rangeTo == null) {
+      return ascSortOrder
+          ? stream(transformer, atomicOperation)
+          : descStream(transformer, atomicOperation);
+    }
+
+    // "from" could be null, then "to" is not (minor)
+    final var toKey = convertToCompositeKey(rangeTo);
+    if (rangeFrom == null) {
+      var stream = sbTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder, atomicOperation);
+      return mapSVStream(indexesSnapshot.visibilityFilter(atomicOperation, stream));
+    }
+
+    final var fromKey = convertToCompositeKey(rangeFrom);
+    // "to" could be null, then "from" is not (major)
+    if (rangeTo == null) {
+      var stream =
+          sbTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder, atomicOperation);
+      return mapSVStream(indexesSnapshot.visibilityFilter(atomicOperation, stream));
+    }
+
+    var stream = sbTree.iterateEntriesBetween(
+        fromKey, fromInclusive, toKey, toInclusive, ascSortOrder, atomicOperation);
+    return mapSVStream(indexesSnapshot.visibilityFilter(atomicOperation, stream));
   }
 
   @Override
@@ -264,7 +389,8 @@ public final class BTreeSingleValueIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
-    return sbTree.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, atomicOperation);
+    return iterateEntriesBetween(
+        fromKey, isInclusive, null, false, ascSortOrder, transformer, atomicOperation);
   }
 
   @Override
@@ -273,13 +399,14 @@ public final class BTreeSingleValueIndexEngine
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
-    return sbTree.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, atomicOperation);
+    return iterateEntriesBetween(
+        null, false, toKey, isInclusive, ascSortOrder, transformer, atomicOperation);
   }
 
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
       @Nonnull AtomicOperation atomicOperation) {
-    return sbTree.size(atomicOperation);
+    return stream(transformer, atomicOperation).count();
   }
 
   @Override
@@ -288,20 +415,58 @@ public final class BTreeSingleValueIndexEngine
     return true;
   }
 
+  private static PropertyTypeInternal[] calculateTypes(final PropertyTypeInternal[] keyTypes) {
+    final PropertyTypeInternal[] sbTypes;
+    if (keyTypes != null) {
+      sbTypes = new PropertyTypeInternal[keyTypes.length + 1];
+      System.arraycopy(keyTypes, 0, sbTypes, 0, keyTypes.length);
+      // property type for version
+      sbTypes[sbTypes.length - 1] = PropertyTypeInternal.LONG;
+    } else {
+      throw new IndexException("Types of fields should be provided upon of creation of index");
+    }
+    return sbTypes;
+  }
+
+  private static CompositeKey convertToCompositeKey(Object key) {
+    if (key instanceof CompositeKey compositeKey) {
+      return compositeKey;
+    }
+    return new CompositeKey(key);
+  }
+
+  private static Stream<RawPair<Object, RID>> mapSVStream(
+      Stream<RawPair<CompositeKey, RID>> stream) {
+    return stream.map(entry -> new RawPair<>(extractKey(entry.first()), entry.second()));
+  }
+
+  @Nullable private static Object extractKey(final CompositeKey compositeKey) {
+    if (compositeKey == null) {
+      return null;
+    }
+    final var keys = compositeKey.getKeys();
+    // Strip the version timestamp (always the last element) — it is an internal
+    // detail of this engine and must not leak to the upper-layer API.
+    final var userKeys = keys.subList(0, keys.size() - 1);
+    if (userKeys.size() == 1) {
+      return userKeys.getFirst();
+    }
+    return new CompositeKey(userKeys);
+  }
+
   @Override
-  public void buildInitialHistogram(AtomicOperation atomicOperation)
+  public void buildInitialHistogram(@Nonnull AtomicOperation atomicOperation)
       throws IOException {
     var mgr = histogramManager;
     if (mgr == null) {
       return;
     }
-    // sbTree.size() returns non-null entry count only (null stored in
-    // separate null bucket, not included in the B-tree's TREE_SIZE).
-    long nonNullCount = sbTree.size(atomicOperation);
-    long nullCount = sbTree.get(null, atomicOperation) != null ? 1 : 0;
-    long totalCount = nonNullCount + nullCount;
 
-    try (var keys = sbTree.keyStream(atomicOperation)) {
+    long nullCount = getNullCount(atomicOperation);
+    long totalCount = getTotalCount(atomicOperation);
+
+    try (
+        var keys = keyStream(atomicOperation)) {
       mgr.buildHistogram(
           atomicOperation, keys, totalCount, nullCount,
           mgr.getKeyFieldCount());
@@ -309,15 +474,13 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public long getNullCount(AtomicOperation atomicOperation) {
-    return sbTree.get(null, atomicOperation) != null ? 1 : 0;
+  public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
+    return get(null, atomicOperation).count();
   }
 
   @Override
-  public long getTotalCount(AtomicOperation atomicOperation) {
-    long nonNullCount = sbTree.size(atomicOperation);
-    long nullCount = getNullCount(atomicOperation);
-    return nonNullCount + nullCount;
+  public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
+    return size(storage, null, atomicOperation);
   }
 
   /**
