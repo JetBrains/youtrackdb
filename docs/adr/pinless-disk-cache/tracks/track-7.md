@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,27 +14,19 @@
 
 ## Steps
 
-- [ ] Step 1: Replace StampedLock with ReentrantReadWriteLock in SharedResourceAbstract + widen optimistic catch clause
-  > Replace `StampedLock` with `ReentrantReadWriteLock` in `SharedResourceAbstract`.
-  > Remove manual `exclusiveOwner`/`exclusiveHoldCount` tracking — rely on RRWL native
-  > reentrancy and write-to-read downgrade. Keep short-circuit in `acquireSharedLock()`
-  > and `releaseSharedLock()` using `rwLock.isWriteLockedByCurrentThread()` to avoid
-  > unnecessary read lock acquisition when exclusive lock is held (Finding T8/R7).
-  > Update `isExclusiveOwner()` to use `rwLock.isWriteLockedByCurrentThread()`.
-  > Remove the public `stampedLock` field.
+- [x] Step 1: Replace StampedLock with ReentrantReadWriteLock in SharedResourceAbstract + widen optimistic catch clause
+  > **What was done:** Replaced StampedLock with ReentrantReadWriteLock in
+  > SharedResourceAbstract, eliminating manual exclusiveOwner/exclusiveHoldCount tracking.
+  > Widened catch clause in DurableComponent.executeOptimisticStorageRead() from
+  > OptimisticReadFailedException to RuntimeException. Simplified
+  > AtomicOperationsManager.executeReadOperation/readUnderLock to use component's shared
+  > lock directly (no more component-level optimistic protocol). Added lockShared()/
+  > unlockShared() public delegates on DurableComponent for AtomicOperationsManager access.
+  > Updated ExecuteReadOperationTest to use public API instead of removed stampedLock field.
   >
-  > Also widen the catch clause in `DurableComponent.executeOptimisticStorageRead()` to
-  > catch `RuntimeException` (not just `OptimisticReadFailedException`) on the optimistic
-  > path (Finding T1). This ensures arbitrary exceptions from speculative data (AIOOBE,
-  > NPE, etc.) fall back to pinned path instead of propagating as real errors.
-  >
-  > **Files:** `SharedResourceAbstract.java` (modified), `DurableComponent.java` (modified)
-  >
-  > **Why together:** Both changes are infrastructure that all subsequent steps depend on.
-  > The RRWL migration must happen first because subsequent steps remove
-  > `executeReadOperation` wrappers that currently manage the StampedLock. The catch
-  > widening must happen before wrappers are removed because `executeReadOperation`
-  > currently provides this safety net.
+  > **Key files:** `SharedResourceAbstract.java` (modified), `DurableComponent.java`
+  > (modified), `AtomicOperationsManager.java` (modified),
+  > `ExecuteReadOperationTest.java` (modified)
 
 - [ ] Step 2: Unwrap BTree read operations from executeReadOperation
   > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
