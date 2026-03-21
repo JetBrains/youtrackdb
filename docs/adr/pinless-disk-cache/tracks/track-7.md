@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -57,17 +57,19 @@
   >
   > **Key files:** `PaginatedCollectionV2.java` (modified)
 
-- [ ] Step 4: Unwrap SharedLinkBagBTree read operations from executeReadOperation
-  > Remove `atomicOperationsManager.executeReadOperation`/`readUnderLock` wrappers from
-  > all 9 call sites in `SharedLinkBagBTree.java`. For migrated methods (`get`): remove
-  > outer wrapper. For non-migrated methods (`firstKey`, `lastKey`, spliterator methods,
-  > cursor fetch methods, `streamEntriesBetween`, `iterateEntriesMajor`,
-  > `iterateEntriesMinor`): wrap in `executeOptimisticStorageRead` with pinned-only
-  > lambdas. Make `fileId` volatile if not already. Also make `fileId` volatile in
-  > `FreeSpaceMap.java` and `CollectionPositionMapV2.java` (no wrapper removal needed
-  > for these — they don't use `executeReadOperation`).
+- [x] Step 4: Unwrap SharedLinkBagBTree read operations from executeReadOperation
+  > **What was done:** Removed all 9 `executeReadOperation`/`readUnderLock` wrappers from
+  > SharedLinkBagBTree. `get()` (already migrated) had its outer wrapper removed.
+  > `firstKey`/`lastKey` routed through `executeOptimisticStorageRead` with pinned-only
+  > lambdas via `doFirstKey`/`doLastKey` helpers. Stream/spliterator creation methods
+  > (`iterateEntriesMinor`, `iterateEntriesMajor`, `streamEntriesBetween`,
+  > `spliteratorEntriesBetween`) wrapped in `executeOptimisticStorageRead` with pinned-only
+  > lambdas. Cursor fetch methods (`fetchNextCachePortionForward`/`Backward`) use
+  > `acquireSharedLock()` directly — same pattern as BTree Step 2 since they mutate
+  > iterator state. Made `fileId` volatile in `FreeSpaceMap` and `CollectionPositionMapV2`.
+  > `SharedLinkBagBTree.fileId` was already volatile.
   >
-  > **Files:** `SharedLinkBagBTree.java` (modified), `FreeSpaceMap.java` (modified),
+  > **Key files:** `SharedLinkBagBTree.java` (modified), `FreeSpaceMap.java` (modified),
   > `CollectionPositionMapV2.java` (modified)
 
 - [ ] Step 5: Remove executeReadOperation/readUnderLock from AtomicOperationsManager + clean up tests
