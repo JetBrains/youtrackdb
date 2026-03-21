@@ -36,7 +36,7 @@ public final class BTreeMultiValueIndexEngine
   public static final String M_CONTAINER_EXTENSION = ".mbt";
 
   // Sentinel for null-keyed entries in indexesSnapshot/nullTree.
-  private static final Object NULL_KEY_SENTINEL = Long.MIN_VALUE;
+  private static final Object NULL_KEY_SENTINEL = null;
 
   @Nonnull
   private final CellBTreeSingleValue<CompositeKey> svTree;
