@@ -840,6 +840,57 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
+   * Extracts the subset of AND conditions that flatten to a single OR branch.
+   * Conditions involving graph navigation functions (e.g. {@code out('X').name
+   * CONTAINS :val}) may flatten to multiple OR branches, which prevents index
+   * lookup. This method separates the "simple" conditions (single-branch
+   * flatten) from the rest so that the simple subset can be used for index
+   * pre-filtering while the full WHERE remains as a post-filter.
+   *
+   * @param ctx         command context (needed for flatten evaluation)
+   * @param schemaClass the target schema class (needed for flatten evaluation)
+   * @return a WHERE clause containing only the single-branch-flattening
+   *     conditions, or {@code null} if none exist or if the clause is not a
+   *     single AND block
+   */
+  @Nullable
+  public SQLWhereClause extractIndexablePart(
+      CommandContext ctx, SchemaClassInternal schemaClass) {
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return null;
+    }
+    if (andBlock.subBlocks.size() < 2) {
+      return null;
+    }
+
+    List<Integer> indexableIndices = new ArrayList<>();
+    for (var i = 0; i < andBlock.subBlocks.size(); i++) {
+      var sub = andBlock.subBlocks.get(i);
+      // A condition is "indexable" if it flattens to exactly one OR branch.
+      var subFlat = sub.flatten(ctx, schemaClass);
+      if (subFlat.size() == 1) {
+        indexableIndices.add(i);
+      }
+    }
+
+    if (indexableIndices.isEmpty()
+        || indexableIndices.size() == andBlock.subBlocks.size()) {
+      // Either nothing is indexable, or everything is (the caller already
+      // tried the full WHERE — no point retrying the same thing).
+      return null;
+    }
+
+    return buildWhereWith(andBlock, indexableIndices);
+  }
+
+  /**
    * Builds a new WHERE clause from the AND block containing only the terms
    * at the specified indices.
    */
