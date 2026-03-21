@@ -78,7 +78,17 @@ CI gates enforce policies on PRs. When a gate fails:
 2. Add or update comments explaining **why** the fix is correct (especially for tolerance values, timing adjustments, or non-obvious logic).
 3. Update any method/class Javadoc that describes behavior affected by the fix.
 4. Update CLAUDE.md if the fix changes documented behavior (e.g., which tests run by default, which profiles are needed).
-5. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
+5. **Add Java `assert` statements generously** in production code touched by the fix or exercised by new/changed tests. These must have **zero production overhead** (disabled by default in production JVMs). Good candidates:
+   - Preconditions/postconditions at method entry/exit (e.g., `assert index >= 0 : "negative index"`)
+   - Invariant checks after state mutations (e.g., `assert size == backingArray.length`)
+   - Null checks on values that should never be null by contract
+   - Range checks on computed offsets, positions, and sizes
+   - Consistency checks between redundant data structures
+   - State checks in methods that assume a specific lifecycle stage (e.g., `assert !closed`)
+   Do NOT add assertions that duplicate existing validation, have side effects, or are tautological.
+   If the assertion condition is complex, extract it to a package-private helper method to get full JaCoCo coverage (see CLAUDE.md tip #10).
+6. **Improve testability of internal classes** when needed to write effective tests or add meaningful assertions. You may refactor classes under `com.jetbrains.youtrackdb.internal` (e.g., extract methods, increase visibility from private to package-private, add package-private accessors for state verification) but **never modify the public API** under `com.jetbrains.youtrackdb.api`. Any testability change must not alter the class's external behavior.
+7. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
 
 ### Step 6: Verify locally
 
@@ -97,7 +107,22 @@ CI gates enforce policies on PRs. When a gate fails:
 
 Run the `code-reviewer` agent to review the changes. Address any feedback. Repeat until the reviewer is satisfied with no critical issues.
 
-### Step 8: Summarize and wait for approval
+### Step 8: Test quality review loop
+
+**If you changed any code or added/fixed/changed any tests**, run the `test-quality-reviewer` agent to review test quality. This step is mandatory whenever code or tests were modified.
+
+1. Run the `test-quality-reviewer` agent on the uncommitted changes (Mode 3: uncommitted changes).
+2. Review its findings. Address all **Critical Issues** and as many **Test Quality Findings** as practical:
+   - Add missing behavior assertions flagged by the reviewer
+   - Add corner case tests for gaps identified by the reviewer
+   - Add recommended `assert` statements in production code (zero-overhead only)
+   - Fix any test isolation, readability, or precision issues
+3. After applying fixes, run `./mvnw -pl {module} spotless:apply` and re-run the affected tests to confirm they pass.
+4. **Re-run the `test-quality-reviewer` agent** on the updated changes.
+5. **Repeat steps 2-4** until the reviewer reports no Critical Issues and the remaining findings are minor/cosmetic.
+   - A maximum of 3 iterations is expected. If after 3 rounds there are still critical issues, present the remaining findings to the user and ask for guidance.
+
+### Step 9: Summarize and wait for approval
 
 Present to the user:
 - **Problem**: The exact failure (test name, error message, CI link)
@@ -107,7 +132,7 @@ Present to the user:
 
 **Do NOT commit or push until the user approves.**
 
-### Step 9: Commit and PR (only after approval)
+### Step 10: Commit and PR (only after approval)
 
 1. Commit following the project's git conventions (YTDB-NNN prefix, imperative summary).
 2. Push and create a PR targeting `develop` with:
@@ -126,6 +151,10 @@ Present to the user:
 - **Don't blindly bypass CI gates**: When a gate like test-count-gate fails, investigate WHY tests disappeared before suggesting `[no-test-number-check]` or similar bypasses. The gate may be catching a real problem (tests silently excluded by build config changes).
 - **Build config changes have test side effects**: When a PR modifies Maven profiles, CI workflows, or plugin configurations, always check whether any module's test execution depends on the removed/changed config. Look for `<excludes>` with profile overrides, failsafe configurations gated by profiles, and CI workflow `mvn` command-line profile flags.
 - **Respect the project's pre-commit verification workflow**: Run tests, check formatting, verify coverage as described in CLAUDE.md.
+- **NEVER run multiple test processes simultaneously**: Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another. Running tests in parallel across separate Maven processes causes classloading errors, database file locking conflicts, and false test failures. This includes any combination of unit tests, integration tests, and coverage runs.
+- **Add `assert` statements generously**: When fixing or testing production code, add Java `assert` statements for invariants, preconditions, postconditions, and consistency checks. These cost nothing in production (assertions disabled by default) but catch bugs during development and testing. Do not add assertions that duplicate existing checks or have side effects.
+- **Internal classes may be refactored for testability**: Classes under `com.jetbrains.youtrackdb.internal` can be modified to improve testability (e.g., extract methods, widen visibility to package-private, add state-inspection accessors). **Never modify the public API** under `com.jetbrains.youtrackdb.api`.
+- **Test quality review is mandatory**: After making any code or test changes, run the `test-quality-reviewer` agent in a loop until it reports no critical issues. Do not skip this step.
 
 ## YouTrackDB-Specific Knowledge
 
