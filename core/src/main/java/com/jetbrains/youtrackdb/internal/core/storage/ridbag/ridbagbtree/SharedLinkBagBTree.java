@@ -5,9 +5,11 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -15,10 +17,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public final class SharedLinkBagBTree extends DurableComponent {
@@ -73,7 +77,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Exception during loading of rid bag " + getFullName()), e, storage.getName());
+              "Exception during loading of rid bag " + getFullName()),
+          e, storage.getName());
     } finally {
       releaseExclusiveLock();
     }
@@ -90,6 +95,242 @@ public final class SharedLinkBagBTree extends DurableComponent {
             releaseExclusiveLock();
           }
         });
+  }
+
+  /**
+   * Finds the current (single) B-tree entry for a logical edge identified by
+   * the 3-tuple {@code (ridBagId, targetCollection, targetPosition)}, regardless
+   * of its timestamp.
+   *
+   * <p>Since {@code ts} is the last comparison component in {@link EdgeKey}, a
+   * prefix range search with {@code Long.MIN_VALUE} as the timestamp positions
+   * us at or just before any entry with matching 3-tuple prefix. The
+   * single-version invariant guarantees at most one B-tree entry per logical
+   * edge, so checking the entry at the insertion point (and the right sibling's
+   * first entry when the insertion point falls at the end of the bucket) is
+   * sufficient.
+   *
+   * @return the current entry (key + value), or {@code null} if no entry exists
+   *     for this logical edge
+   */
+  @Nullable public RawPair<EdgeKey, LinkBagValue> findCurrentEntry(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    try {
+      return atomicOperationsManager.executeReadOperation(this,
+          () -> findCurrentEntryInternal(atomicOperation, ridBagId, targetCollection,
+              targetPosition));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during prefix lookup in rid bag btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
+
+  /**
+   * Internal prefix lookup — callable inside both read operations and write
+   * operations (when the exclusive lock is already held). See
+   * {@link #findCurrentEntry} for the algorithm description.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findCurrentEntryInternal(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) throws IOException {
+    final var searchKey =
+        new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    final var result = findBucket(searchKey, atomicOperation);
+
+    final int candidateIndex;
+    if (result.getItemIndex() >= 0) {
+      candidateIndex = result.getItemIndex();
+    } else {
+      candidateIndex = -result.getItemIndex() - 1;
+    }
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+
+      if (candidateIndex < bucket.size()) {
+        return checkEntryPrefix(
+            bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
+      }
+
+      // Insertion point is at the end of this bucket. The matching entry
+      // may be the first entry on the right sibling page (can happen when
+      // a bucket split placed the separator between Long.MIN_VALUE and the
+      // actual ts). One hop is sufficient because the single-version
+      // invariant guarantees at most one entry per 3-tuple prefix, and
+      // findBucket lands us in the correct neighborhood.
+      final long rightSibling = bucket.getRightSibling();
+      if (rightSibling < 0) {
+        return null;
+      }
+
+      try (final var siblingCacheEntry =
+          loadPageForRead(atomicOperation, fileId, rightSibling)) {
+        final var siblingBucket = new Bucket(siblingCacheEntry);
+        // Empty leaf buckets should not exist in a well-formed B-tree
+        // (only transiently during splits). This is a safety net.
+        if (siblingBucket.isEmpty()) {
+          return null;
+        }
+        return checkEntryPrefix(
+            siblingBucket, 0, ridBagId, targetCollection, targetPosition);
+      }
+    }
+  }
+
+  /**
+   * Checks whether the entry at {@code index} in the given bucket matches the
+   * 3-tuple prefix. Returns the key-value pair if it matches, {@code null}
+   * otherwise.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> checkEntryPrefix(
+      final Bucket bucket,
+      final int index,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var entry = bucket.getEntry(index, serializerFactory);
+    final var key = entry.getKey();
+    if (key.ridBagId == ridBagId
+        && key.targetCollection == targetCollection
+        && key.targetPosition == targetPosition) {
+      return new RawPair<>(key, entry.getValue());
+    }
+    return null;
+  }
+
+  /**
+   * Returns {@code true} if the given edge version is visible to the current
+   * transaction. Applies the self-read shortcut (version == currentOperationTs)
+   * before checking the snapshot, matching the pattern in
+   * PaginatedCollectionV2.isRecordVersionVisible().
+   */
+  static boolean isEdgeVersionVisible(long version, long currentOperationTs,
+      @Nonnull AtomicOperationsSnapshot snapshot) {
+    if (version == currentOperationTs) {
+      return true;
+    }
+    return snapshot.isEntryVisible(version);
+  }
+
+  /**
+   * Given a B-tree entry, checks its visibility for the current transaction:
+   * <ul>
+   *   <li>Visible and not tombstone → returns the entry</li>
+   *   <li>Visible and tombstone → returns null (edge deleted)</li>
+   *   <li>Not visible → searches the snapshot index for the newest visible
+   *       non-tombstone version, returns it or null</li>
+   * </ul>
+   *
+   * <p>Package-private: also called from spliterator cache-fill methods
+   * (readKeysFromBucketsForward/Backward) for per-entry visibility resolution.
+   *
+   * @return visible entry as (EdgeKey, LinkBagValue), or null if no visible
+   *     non-tombstone version exists
+   */
+  @Nullable RawPair<EdgeKey, LinkBagValue> resolveVisibleEntry(
+      final EdgeKey bTreeKey,
+      final LinkBagValue bTreeValue,
+      final AtomicOperation atomicOp) {
+    assert atomicOp != null : "resolveVisibleEntry requires a non-null atomicOperation";
+    final long currentOperationTs = atomicOp.getCommitTsUnsafe();
+    final var snapshot = atomicOp.getAtomicOperationsSnapshot();
+
+    if (isEdgeVersionVisible(bTreeKey.ts, currentOperationTs, snapshot)) {
+      // Visible — return if live, null if tombstone
+      if (bTreeValue.tombstone()) {
+        return null;
+      }
+      return new RawPair<>(bTreeKey, bTreeValue);
+    }
+
+    // Not visible — fall back to snapshot index for a visible version
+    return findVisibleSnapshotEntry(
+        bTreeKey.ridBagId, bTreeKey.targetCollection, bTreeKey.targetPosition,
+        currentOperationTs, snapshot, atomicOp);
+  }
+
+  /**
+   * Searches the edge snapshot index for the newest visible version of the
+   * logical edge identified by (ridBagId, targetCollection, targetPosition).
+   * Iterates entries in descending version order (newest first). If the newest
+   * visible version is a tombstone, returns null (edge is deleted from the
+   * reader's perspective). If it is a live entry, returns it. If no visible
+   * version exists, returns null.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleSnapshotEntry(
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition,
+      final long currentOperationTs,
+      final AtomicOperationsSnapshot snapshot,
+      final AtomicOperation atomicOp) {
+    final int componentId = AbstractWriteCache.extractFileId(getFileId());
+    assert componentId > 0 : "componentId must be positive, got " + componentId;
+
+    // Range: all versions of this logical edge (from MIN to MAX)
+    final var lowerKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    final var upperKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+
+    for (Map.Entry<EdgeSnapshotKey, LinkBagValue> entry : atomicOp
+        .edgeSnapshotSubMapDescending(lowerKey, upperKey)) {
+      final long version = entry.getKey().version();
+      if (isEdgeVersionVisible(version, currentOperationTs, snapshot)) {
+        if (entry.getValue().tombstone()) {
+          // Newest visible version is a tombstone — edge is deleted
+          return null;
+        }
+        // Reconstruct an EdgeKey with the snapshot version's ts
+        final var edgeKey = new EdgeKey(
+            ridBagId, targetCollection, targetPosition, version);
+        return new RawPair<>(edgeKey, entry.getValue());
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Finds the visible entry for a logical edge, combining prefix lookup in
+   * the B-tree with SI visibility resolution. Returns the visible non-tombstone
+   * entry, or null if the edge is not visible (deleted, invisible, or absent).
+   */
+  @Nullable public RawPair<EdgeKey, LinkBagValue> findVisibleEntry(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    try {
+      return atomicOperationsManager.executeReadOperation(this, () -> {
+        final var current = findCurrentEntryInternal(
+            atomicOperation, ridBagId, targetCollection, targetPosition);
+        if (current == null) {
+          // No B-tree entry at all — check snapshot index directly.
+          // This can happen if a concurrent transaction replaced an entry
+          // that was moved to the snapshot index and the new entry is also
+          // invisible.
+          final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+          final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+          return findVisibleSnapshotEntry(
+              ridBagId, targetCollection, targetPosition,
+              currentOperationTs, snapshot, atomicOperation);
+        }
+        return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
+      });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during visible entry lookup in rid bag btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
@@ -121,9 +362,37 @@ public final class SharedLinkBagBTree extends DurableComponent {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
-          final boolean result;
+          boolean result;
+          boolean crossTxReplacement = false;
           acquireExclusiveLock();
           try {
+            // SI: check for existing entry with same logical edge but
+            // possibly different ts (cross-transaction update).
+            final var existing = findCurrentEntryInternal(
+                atomicOperation, key.ridBagId, key.targetCollection, key.targetPosition);
+            if (existing != null && existing.first().ts != key.ts) {
+              // Cross-transaction update: preserve old version in snapshot
+              // index, then remove the old entry so the insert below proceeds
+              // as a fresh insert. The net tree size stays the same
+              // (removeEntryByKey decrements, insert below increments).
+              final var oldKey = existing.first();
+              final var oldValue = existing.second();
+
+              if (key.ts <= oldKey.ts) {
+                throw new StorageException(storage.getName(),
+                    "Version monotonicity violated in link bag btree [" + getName()
+                        + "]: newTs=" + key.ts + " <= oldTs=" + oldKey.ts);
+              }
+
+              preserveInSnapshot(atomicOperation, oldKey, oldValue);
+              removeEntryByKey(atomicOperation, oldKey);
+              crossTxReplacement = true;
+            }
+
+            // Standard insert/update logic. After cross-tx snapshot
+            // preservation, the old entry is gone and findBucketForUpdate
+            // will find the insertion point for the new key. For same-ts
+            // overwrites, findBucketForUpdate finds the exact key.
             final var serializedKey =
                 EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key,
                     (Object[]) null);
@@ -199,6 +468,13 @@ public final class SharedLinkBagBTree extends DurableComponent {
             if (sizeDiff != 0) {
               updateSize(sizeDiff, atomicOperation);
             }
+
+            // Cross-tx replacement: the standard logic sees the new key as
+            // a fresh insert (result=true) because the old entry was removed.
+            // Override to false — logically this is a replacement.
+            if (crossTxReplacement) {
+              result = false;
+            }
           } finally {
             releaseExclusiveLock();
           }
@@ -207,8 +483,54 @@ public final class SharedLinkBagBTree extends DurableComponent {
         });
   }
 
-  @Nullable
-  public EdgeKey firstKey(AtomicOperation atomicOperation) {
+  /**
+   * Preserves the given entry in the edge snapshot and visibility indexes.
+   * Called before modifying or removing a B-tree entry in a cross-transaction
+   * update, so older transactions can still read the old version.
+   */
+  private void preserveInSnapshot(
+      final AtomicOperation atomicOperation,
+      final EdgeKey oldKey,
+      final LinkBagValue oldValue) {
+    final int componentId = AbstractWriteCache.extractFileId(getFileId());
+    final var snapshotKey = new EdgeSnapshotKey(
+        componentId, oldKey.ridBagId, oldKey.targetCollection,
+        oldKey.targetPosition, oldKey.ts);
+
+    atomicOperation.putEdgeSnapshotEntry(snapshotKey, oldValue);
+    atomicOperation.putEdgeVisibilityEntry(
+        new EdgeVisibilityKey(oldKey.ts, componentId, oldKey.ridBagId,
+            oldKey.targetCollection, oldKey.targetPosition),
+        snapshotKey);
+  }
+
+  /**
+   * Removes a B-tree entry by exact key. Used internally within write
+   * operations that already hold the exclusive lock. Decrements the tree size.
+   */
+  private void removeEntryByKey(
+      final AtomicOperation atomicOperation,
+      final EdgeKey key) throws IOException {
+    final var searchResult = findBucket(key, atomicOperation);
+    if (searchResult.getItemIndex() < 0) {
+      throw new StorageException(storage.getName(),
+          "removeEntryByKey: entry not found in link bag btree [" + getName()
+              + "] for key " + key);
+    }
+
+    final var serializedKey =
+        EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key);
+    try (final var cacheEntry =
+        loadPageForWrite(atomicOperation, fileId, searchResult.getPageIndex(), true)) {
+      final var bucket = new Bucket(cacheEntry);
+      final var rawValue =
+          bucket.getRawValue(searchResult.getItemIndex(), serializerFactory);
+      bucket.removeLeafEntry(searchResult.getItemIndex(), serializedKey.length, rawValue.length);
+      updateSize(-1, atomicOperation);
+    }
+  }
+
+  @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = firstItem(atomicOperation);
@@ -227,7 +549,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
-              "Error during finding first key in btree [" + getName() + "]"), e,
+              "Error during finding first key in btree [" + getName() + "]"),
+          e,
           storage.getName());
     }
   }
@@ -292,8 +615,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
-  @Nullable
-  public EdgeKey lastKey(AtomicOperation atomicOperation) {
+  @Nullable public EdgeKey lastKey(AtomicOperation atomicOperation) {
     try {
       return atomicOperationsManager.executeReadOperation(this, () -> {
         final var searchResult = lastItem(atomicOperation);
@@ -749,36 +1071,114 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  /**
+   * Removes an edge entry. For cross-transaction removes (the existing entry has
+   * a different {@code ts}), the old value is preserved in the snapshot index and
+   * the entry is replaced by a tombstone with the new {@code ts}. For
+   * same-transaction removes (same {@code ts}), the entry is physically deleted
+   * — the caller created it in this transaction, so no other transaction can see
+   * it and no tombstone is needed.
+   *
+   * <p>Tree size: cross-tx remove is net zero (remove + tombstone insert),
+   * same-tx remove decrements by 1 (physical delete).
+   *
+   * @param key the edge key with the caller's commitTs as {@code ts}
+   * @return the old value before removal, or {@code null} if no entry exists
+   *     for this logical edge
+   */
   public LinkBagValue remove(final AtomicOperation atomicOperation, final EdgeKey key) {
     return calculateInsideComponentOperation(
         atomicOperation,
         operation -> {
           acquireExclusiveLock();
           try {
-            final LinkBagValue removedValue;
-            final var bucketSearchResult = findBucket(key, atomicOperation);
-
-            if (bucketSearchResult.getItemIndex() < 0) {
+            // Find existing entry by prefix lookup (regardless of ts)
+            final var existing = findCurrentEntryInternal(
+                atomicOperation, key.ridBagId, key.targetCollection, key.targetPosition);
+            if (existing == null) {
               return null;
             }
 
-            final var serializedKey = EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(
-                serializerFactory, key);
-            final byte[] rawValue;
-            try (final var keyBucketCacheEntry =
-                loadPageForWrite(
-                    atomicOperation, fileId, bucketSearchResult.getPageIndex(), true)) {
-              final var keyBucket = new Bucket(keyBucketCacheEntry);
-              rawValue = keyBucket.getRawValue(bucketSearchResult.getItemIndex(),
-                  serializerFactory);
-              keyBucket.removeLeafEntry(
-                  bucketSearchResult.getItemIndex(), serializedKey.length, rawValue.length);
-              updateSize(-1, atomicOperation);
+            final var oldKey = existing.first();
+            final var oldValue = existing.second();
+
+            // Already deleted — nothing to remove
+            if (oldValue.tombstone()) {
+              return null;
             }
 
-            removedValue = LinkBagValueSerializer.INSTANCE.deserializeNativeObject(
-                serializerFactory, rawValue, 0);
-            return removedValue;
+            if (oldKey.ts != key.ts) {
+              // Cross-transaction remove: preserve old version in snapshot index,
+              // then replace the entry with a tombstone carrying the new ts.
+              if (key.ts <= oldKey.ts) {
+                throw new StorageException(storage.getName(),
+                    "Version monotonicity violated in link bag btree [" + getName()
+                        + "]: newTs=" + key.ts + " <= oldTs=" + oldKey.ts);
+              }
+
+              preserveInSnapshot(atomicOperation, oldKey, oldValue);
+              removeEntryByKey(atomicOperation, oldKey);
+
+              // Tombstone preserves the edge data, just marks as deleted
+              final var tombstoneValue = new LinkBagValue(
+                  oldValue.counter(), oldValue.secondaryCollectionId(),
+                  oldValue.secondaryPosition(), true);
+
+              // Insert tombstone with new ts. removeEntryByKey decremented size
+              // by 1; the insert below increments it back — net zero.
+              final var serializedKey =
+                  EdgeKeySerializer.INSTANCE.serializeNativeAsWhole(serializerFactory, key,
+                      (Object[]) null);
+              final var serializedValue =
+                  LinkBagValueSerializer.INSTANCE.serializeNativeAsWhole(serializerFactory,
+                      tombstoneValue, (Object[]) null);
+
+              var bucketSearchResult = findBucketForUpdate(key, atomicOperation);
+              assert bucketSearchResult.getItemIndex() < 0
+                  : "Tombstone key must not exist in tree after removeEntryByKey; itemIndex="
+                      + bucketSearchResult.getItemIndex();
+
+              var keyBucketCacheEntry =
+                  loadPageForWrite(
+                      atomicOperation, fileId, bucketSearchResult.getLastPathItem(), true);
+              var keyBucket = new Bucket(keyBucketCacheEntry);
+
+              int insertionIndex = -bucketSearchResult.getItemIndex() - 1;
+
+              while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+                bucketSearchResult =
+                    splitBucket(
+                        keyBucket,
+                        keyBucketCacheEntry,
+                        bucketSearchResult.getPath(),
+                        bucketSearchResult.getInsertionIndexes(),
+                        insertionIndex,
+                        atomicOperation);
+
+                insertionIndex = bucketSearchResult.getItemIndex();
+
+                final var pageIndex = bucketSearchResult.getLastPathItem();
+                if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
+                  keyBucketCacheEntry.close();
+                  keyBucketCacheEntry =
+                      loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+                }
+
+                //noinspection ObjectAllocationInLoop
+                keyBucket = new Bucket(keyBucketCacheEntry);
+              }
+
+              keyBucketCacheEntry.close();
+              updateSize(1, atomicOperation);
+            } else {
+              // Same-transaction remove: physically delete the entry. The caller
+              // created it in this transaction (same commitTs), so no other
+              // transaction can see it — no snapshot preservation or tombstone
+              // needed.
+              removeEntryByKey(atomicOperation, oldKey);
+            }
+
+            return oldValue;
           } finally {
             releaseExclusiveLock();
           }
@@ -822,11 +1222,13 @@ public final class SharedLinkBagBTree extends DurableComponent {
       if (ascSortOrder) {
         return StreamSupport.stream(
             iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       } else {
         return StreamSupport.stream(
             iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation), false);
+                atomicOperation),
+            false);
       }
     });
   }
@@ -839,13 +1241,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
     return atomicOperationsManager.readUnderLock(this, () -> {
       if (ascSortOrder) {
-        return
-            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation);
+        return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+            atomicOperation);
       } else {
-        return
-            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation);
+        return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+            atomicOperation);
       }
     });
   }
@@ -1002,8 +1402,28 @@ public final class SharedLinkBagBTree extends DurableComponent {
               }
             }
 
-            //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            // SI visibility: resolve entry, skip invisible/tombstone.
+            // When atomicOperation is null (non-transactional read),
+            // skip visibility resolution and add entry directly.
+            // IMPORTANT: cache entries must use the ORIGINAL B-tree key
+            // (not the resolved snapshot key) to preserve correct iteration
+            // position tracking. fetchNextCachePortionForward uses
+            // dataCache.getLast().first() (the last key) to re-position
+            // the iterator after cache exhaustion — a snapshot key with a
+            // lower ts would cause re-reading the same entry forever.
+            if (atomicOperation != null) {
+              @SuppressWarnings("ObjectAllocationInLoop")
+              var visible =
+                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
+              if (visible != null) {
+                //noinspection ObjectAllocationInLoop
+                iter.getDataCache()
+                    .add(new RawPair<>(entry.getKey(), visible.second()));
+              }
+            } else {
+              //noinspection ObjectAllocationInLoop
+              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            }
           }
 
           if (iter.getDataCache().size() >= 10) {
@@ -1114,7 +1534,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
           iter.setLastLSN(bucket.getLsn());
 
-          for (; iter.getItemIndex() >= 0 && iter.getDataCache().size() < 10; iter.decItemIndex()) {
+          for (; iter.getItemIndex() >= 0 && iter.getDataCache().size() < 10;
+              iter.decItemIndex()) {
             @SuppressWarnings("ObjectAllocationInLoop")
             var entry = bucket.getEntry(iter.getItemIndex(), serializerFactory);
 
@@ -1128,8 +1549,22 @@ public final class SharedLinkBagBTree extends DurableComponent {
               }
             }
 
-            //noinspection ObjectAllocationInLoop
-            iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            // SI visibility: resolve entry, skip invisible/tombstone.
+            // See forward method comment for why we use the original
+            // B-tree key instead of the resolved snapshot key.
+            if (atomicOperation != null) {
+              @SuppressWarnings("ObjectAllocationInLoop")
+              var visible =
+                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
+              if (visible != null) {
+                //noinspection ObjectAllocationInLoop
+                iter.getDataCache()
+                    .add(new RawPair<>(entry.getKey(), visible.second()));
+              }
+            } else {
+              //noinspection ObjectAllocationInLoop
+              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
+            }
           }
 
           if (iter.getDataCache().size() >= 10) {

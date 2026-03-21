@@ -47,7 +47,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   private final AbstractStorage storage;
 
-  private final ConcurrentHashMap<Integer, SharedLinkBagBTree> fileIdBTreeMap = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Integer, SharedLinkBagBTree> fileIdBTreeMap =
+      new ConcurrentHashMap<>();
 
   private final AtomicLong ridBagIdCounter = new AtomicLong();
 
@@ -168,11 +169,15 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
 
     var linkBagId = collectionPointer.linkBagId();
+    // Intentionally passes the original EdgeKey (with its existing ts) to
+    // remove(), which triggers the same-ts physical delete path. This is safe
+    // because link bag deletion is a whole-collection operation — no concurrent
+    // readers can hold a snapshot of an already-dropped collection.
     try (var stream =
         bTree.streamEntriesBetween(
-            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE),
+            new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE),
             true,
-            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
+            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),
             true,
             true, atomicOperation)) {
       stream.forEach(pair -> bTree.remove(atomicOperation, pair.first()));

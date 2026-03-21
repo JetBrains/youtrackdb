@@ -1,13 +1,16 @@
 Read and follow the workflow for Phase 1 (Planning).
 
-Read these workflow documents in order before starting:
+Read these workflow documents in order before doing anything else:
 1. `.claude/workflow/conventions.md` — shared formats,
    glossary, plan file structure, scope indicators, review iteration protocol
 2. `.claude/workflow/planning.md` — Phase 1 instructions:
    goal, plan file structure, architecture notes format, track descriptions,
    scope indicators, checklist decomposition rules
 
-I need your help developing an implementation plan.
+After reading the workflow documents, ask the user to describe the aim
+and goal for this planning session. Do NOT proceed until the user provides
+the aim. Wait for the user's response before starting any research or
+planning work.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -16,7 +19,7 @@ name. Otherwise, default to the current git branch name
 The plan will be saved to: docs/adr/<dir-name>/implementation-plan.md
 The codebase is at the current working directory.
 
-Help me:
+Once the user provides the aim, help them develop the plan:
 1. Understand the relevant parts of the codebase — explore the modules,
    packages, and classes relevant to the goal. Build a mental model before
    proposing anything.

@@ -5,11 +5,13 @@ public final class EdgeKey implements Comparable<EdgeKey> {
   public final long ridBagId;
   public final int targetCollection;
   public final long targetPosition;
+  public final long ts;
 
-  public EdgeKey(long ridBagId, int targetCollection, long targetPosition) {
+  public EdgeKey(long ridBagId, int targetCollection, long targetPosition, long ts) {
     this.ridBagId = ridBagId;
     this.targetCollection = targetCollection;
     this.targetPosition = targetPosition;
+    this.ts = ts;
   }
 
   @Override
@@ -21,6 +23,8 @@ public final class EdgeKey implements Comparable<EdgeKey> {
         + targetCollection
         + ", targetPosition="
         + targetPosition
+        + ", ts="
+        + ts
         + '}';
   }
 
@@ -41,7 +45,10 @@ public final class EdgeKey implements Comparable<EdgeKey> {
     if (targetCollection != edgeKey.targetCollection) {
       return false;
     }
-    return targetPosition == edgeKey.targetPosition;
+    if (targetPosition != edgeKey.targetPosition) {
+      return false;
+    }
+    return ts == edgeKey.ts;
   }
 
   @Override
@@ -49,6 +56,7 @@ public final class EdgeKey implements Comparable<EdgeKey> {
     var result = (int) (ridBagId ^ (ridBagId >>> 32));
     result = 31 * result + targetCollection;
     result = 31 * result + (int) (targetPosition ^ (targetPosition >>> 32));
+    result = 31 * result + (int) (ts ^ (ts >>> 32));
     return result;
   }
 
@@ -70,10 +78,20 @@ public final class EdgeKey implements Comparable<EdgeKey> {
       }
     }
 
-    if (targetPosition < other.targetPosition) {
-      return -1;
-    } else if (targetPosition > other.targetPosition) {
-      return 1;
+    if (targetPosition != other.targetPosition) {
+      if (targetPosition < other.targetPosition) {
+        return -1;
+      } else {
+        return 1;
+      }
+    }
+
+    if (ts != other.ts) {
+      if (ts < other.ts) {
+        return -1;
+      } else {
+        return 1;
+      }
     }
 
     return 0;

@@ -97,7 +97,9 @@ public class AtomicOperationsManager {
     var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(lastId);
     return new AtomicOperationBinaryTracking(readCache, writeCache, storage.getId(),
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
-        storage.getSnapshotIndexSize());
+        storage.getSnapshotIndexSize(),
+        storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
+        storage.getEdgeSnapshotIndexSize());
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {

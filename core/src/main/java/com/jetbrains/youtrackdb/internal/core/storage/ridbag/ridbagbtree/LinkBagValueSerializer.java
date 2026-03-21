@@ -9,12 +9,16 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
 
   public static final LinkBagValueSerializer INSTANCE = new LinkBagValueSerializer();
 
+  // Tombstone is serialized as a single byte: 0 = live, 1 = tombstone
+  private static final int TOMBSTONE_BYTE_SIZE = 1;
+
   @Override
   public int getObjectSize(BinarySerializerFactory serializerFactory, LinkBagValue object,
       Object... hints) {
     return IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.counter())
         + IntSerializer.INSTANCE.getObjectSize(serializerFactory, object.secondaryCollectionId())
-        + LongSerializer.getObjectSize(object.secondaryPosition());
+        + LongSerializer.getObjectSize(object.secondaryPosition())
+        + TOMBSTONE_BYTE_SIZE;
   }
 
   @Override
@@ -29,7 +33,8 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     size +=
         IntSerializer.INSTANCE.getObjectSizeNative(serializerFactory, stream,
             startPosition + size);
-    return size + LongSerializer.getObjectSize(stream, startPosition + size);
+    size += LongSerializer.getObjectSize(stream, startPosition + size);
+    return size + TOMBSTONE_BYTE_SIZE;
   }
 
   @Override
@@ -44,7 +49,9 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     startPosition =
         IntSerializer.INSTANCE.serializePrimitive(stream, startPosition,
             object.secondaryCollectionId());
-    LongSerializer.serialize(object.secondaryPosition(), stream, startPosition);
+    startPosition =
+        LongSerializer.serialize(object.secondaryPosition(), stream, startPosition);
+    stream[startPosition] = object.tombstone() ? (byte) 1 : (byte) 0;
   }
 
   @Override
@@ -64,8 +71,12 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     startPosition += size;
 
     final long secondaryPosition = LongSerializer.deserialize(stream, startPosition);
+    size = LongSerializer.getObjectSize(stream, startPosition);
+    startPosition += size;
 
-    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition);
+    final boolean tombstone = stream[startPosition] != 0;
+
+    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition, tombstone);
   }
 
   @Override
@@ -115,6 +126,7 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     IntSerializer.INSTANCE.serializeInByteBufferObject(serializerFactory,
         object.secondaryCollectionId(), buffer);
     LongSerializer.serialize(object.secondaryPosition(), buffer);
+    buffer.put(object.tombstone() ? (byte) 1 : (byte) 0);
   }
 
   @Override
@@ -125,8 +137,9 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     final int secondaryCollectionId =
         IntSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, buffer);
     final long secondaryPosition = LongSerializer.deserialize(buffer);
+    final boolean tombstone = buffer.get() != 0;
 
-    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition);
+    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition, tombstone);
   }
 
   @Override
@@ -143,9 +156,13 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
         IntSerializer.INSTANCE.deserializeFromByteBufferObject(serializerFactory, offset, buffer);
     offset += delta;
 
+    delta = LongSerializer.getObjectSize(buffer, offset);
     final long secondaryPosition = LongSerializer.deserialize(buffer, offset);
+    offset += delta;
 
-    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition);
+    final boolean tombstone = buffer.get(offset) != 0;
+
+    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition, tombstone);
   }
 
   @Override
@@ -158,7 +175,9 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     size += IntSerializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, buffer);
     buffer.position(position + size);
 
-    return size + LongSerializer.getObjectSize(buffer);
+    size += LongSerializer.getObjectSize(buffer);
+
+    return size + TOMBSTONE_BYTE_SIZE;
   }
 
   @Override
@@ -172,7 +191,9 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     size += IntSerializer.INSTANCE.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
     offset = position + size;
 
-    return size + LongSerializer.getObjectSize(buffer, offset);
+    size += LongSerializer.getObjectSize(buffer, offset);
+
+    return size + TOMBSTONE_BYTE_SIZE;
   }
 
   @Override
@@ -191,9 +212,13 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
             walChanges, offset);
     offset += size;
 
+    size = LongSerializer.getObjectSize(buffer, walChanges, offset);
     final long secondaryPosition = LongSerializer.deserialize(buffer, walChanges, offset);
+    offset += size;
 
-    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition);
+    final boolean tombstone = walChanges.getByteValue(buffer, offset) != 0;
+
+    return new LinkBagValue(counter, secondaryCollectionId, secondaryPosition, tombstone);
   }
 
   @Override
@@ -201,6 +226,7 @@ public final class LinkBagValueSerializer implements BinarySerializer<LinkBagVal
     var size = IntSerializer.INSTANCE.getObjectSizeInByteBuffer(buffer, walChanges, offset);
     size +=
         IntSerializer.INSTANCE.getObjectSizeInByteBuffer(buffer, walChanges, offset + size);
-    return size + LongSerializer.getObjectSize(buffer, walChanges, offset + size);
+    size += LongSerializer.getObjectSize(buffer, walChanges, offset + size);
+    return size + TOMBSTONE_BYTE_SIZE;
   }
 }

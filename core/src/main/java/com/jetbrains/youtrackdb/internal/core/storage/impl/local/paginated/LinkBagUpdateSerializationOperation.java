@@ -70,7 +70,7 @@ public class LinkBagUpdateSerializationOperation implements RecordSerializationO
           var secondaryRid = change.getSecondaryRid();
           tree.put(atomicOperation, entry.first(),
               new LinkBagValue(newCounter, secondaryRid.getCollectionId(),
-                  secondaryRid.getCollectionPosition()));
+                  secondaryRid.getCollectionPosition(), false));
         }
       } catch (IOException e) {
         throw BaseException.wrapException(

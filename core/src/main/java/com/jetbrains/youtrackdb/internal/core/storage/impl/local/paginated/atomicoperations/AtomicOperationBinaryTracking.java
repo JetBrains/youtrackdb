@@ -40,6 +40,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -111,6 +114,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // transactions that do not modify indexed data.
   @Nullable private HistogramDeltaHolder histogramDeltas;
 
+  // Edge snapshot: references to storage-wide shared indexes (never null).
+  private final ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex;
+  private final ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex;
+  private final AtomicLong edgeSnapshotIndexSize;
+
+  // Edge snapshot: local overlay buffers — lazily allocated.
+  @Nullable private TreeMap<EdgeSnapshotKey, LinkBagValue> localEdgeSnapshotBuffer;
+  @Nullable private HashMap<EdgeVisibilityKey, EdgeSnapshotKey> localEdgeVisibilityBuffer;
+
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
       final WriteCache writeCache,
@@ -118,7 +130,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
       @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex,
-      @Nonnull AtomicLong snapshotIndexSize) {
+      @Nonnull AtomicLong snapshotIndexSize,
+      @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
+      @Nonnull AtomicLong edgeSnapshotIndexSize) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -129,6 +144,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.sharedSnapshotIndex = sharedSnapshotIndex;
     this.sharedVisibilityIndex = sharedVisibilityIndex;
     this.snapshotIndexSize = snapshotIndexSize;
+    this.sharedEdgeSnapshotIndex = sharedEdgeSnapshotIndex;
+    this.sharedEdgeVisibilityIndex = sharedEdgeVisibilityIndex;
+    this.edgeSnapshotIndexSize = edgeSnapshotIndexSize;
     this.active = true;
   }
 
@@ -573,6 +591,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // discarded — the write-nothing-on-error pattern.
       if (!rollback) {
         flushSnapshotBuffers();
+        flushEdgeSnapshotBuffers();
       }
 
       deletedFilesIterator = deletedFiles.longIterator();
@@ -756,7 +775,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return sharedDescending;
     }
 
-    return () -> new MergingDescendingIterator(
+    return () -> new MergingDescendingIterator<>(
         sharedDescending.iterator(), localDescending.iterator());
   }
 
@@ -782,6 +801,82 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return sharedVisibilityIndex.containsKey(key);
   }
 
+  // --- Edge snapshot methods ---
+
+  @Override
+  public void putEdgeSnapshotEntry(EdgeSnapshotKey key, LinkBagValue value) {
+    checkIfActive();
+    assert key != null : "EdgeSnapshotKey must not be null";
+    assert value != null : "LinkBagValue must not be null";
+
+    if (localEdgeSnapshotBuffer == null) {
+      localEdgeSnapshotBuffer = new TreeMap<>();
+    }
+    localEdgeSnapshotBuffer.put(key, value);
+  }
+
+  @Override
+  public LinkBagValue getEdgeSnapshotEntry(EdgeSnapshotKey key) {
+    checkIfActive();
+
+    if (localEdgeSnapshotBuffer != null) {
+      var local = localEdgeSnapshotBuffer.get(key);
+      if (local != null) {
+        return local;
+      }
+    }
+    return sharedEdgeSnapshotIndex.get(key);
+  }
+
+  @Override
+  public Iterable<Map.Entry<EdgeSnapshotKey, LinkBagValue>> edgeSnapshotSubMapDescending(
+      EdgeSnapshotKey fromInclusive, EdgeSnapshotKey toInclusive) {
+    checkIfActive();
+    assert fromInclusive.compareTo(toInclusive) <= 0
+        : "fromInclusive must be <= toInclusive";
+
+    var sharedDescending = sharedEdgeSnapshotIndex
+        .subMap(fromInclusive, true, toInclusive, true)
+        .descendingMap().entrySet();
+
+    if (localEdgeSnapshotBuffer == null || localEdgeSnapshotBuffer.isEmpty()) {
+      return sharedDescending;
+    }
+
+    var localDescending = localEdgeSnapshotBuffer
+        .subMap(fromInclusive, true, toInclusive, true)
+        .descendingMap().entrySet();
+
+    if (localDescending.isEmpty()) {
+      return sharedDescending;
+    }
+
+    return () -> new MergingDescendingIterator<>(
+        sharedDescending.iterator(), localDescending.iterator());
+  }
+
+  @Override
+  public void putEdgeVisibilityEntry(EdgeVisibilityKey key, EdgeSnapshotKey value) {
+    checkIfActive();
+    assert key != null : "EdgeVisibilityKey must not be null";
+    assert value != null : "EdgeSnapshotKey value must not be null";
+
+    if (localEdgeVisibilityBuffer == null) {
+      localEdgeVisibilityBuffer = new HashMap<>();
+    }
+    localEdgeVisibilityBuffer.put(key, value);
+  }
+
+  @Override
+  public boolean containsEdgeVisibilityEntry(EdgeVisibilityKey key) {
+    checkIfActive();
+
+    if (localEdgeVisibilityBuffer != null && localEdgeVisibilityBuffer.containsKey(key)) {
+      return true;
+    }
+    return sharedEdgeVisibilityIndex.containsKey(key);
+  }
+
   void flushSnapshotBuffers() {
     if (localSnapshotBuffer != null) {
       // Count only genuinely new entries (putIfAbsent semantics not needed — last writer wins
@@ -796,22 +891,36 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
   }
 
-  /**
-   * Merges two iterators of {@code Map.Entry<SnapshotKey, PositionEntry>} that are each
-   * sorted in <b>descending</b> key order. On equal keys, the local entry takes priority
-   * (shadows the shared entry). Either or both iterators may be empty.
-   */
-  static final class MergingDescendingIterator
-      implements Iterator<Map.Entry<SnapshotKey, PositionEntry>> {
+  void flushEdgeSnapshotBuffers() {
+    if (localEdgeSnapshotBuffer != null) {
+      // Approximate count — same semantics as flushSnapshotBuffers: slight overcounting is
+      // harmless (just triggers cleanup slightly earlier). The size counter drives the combined
+      // threshold check in cleanupSnapshotIndex(); visibility entries are not counted because
+      // eviction uses headMap range scans on the sorted map, not a size check.
+      edgeSnapshotIndexSize.addAndGet(localEdgeSnapshotBuffer.size());
+      sharedEdgeSnapshotIndex.putAll(localEdgeSnapshotBuffer);
+    }
+    if (localEdgeVisibilityBuffer != null) {
+      sharedEdgeVisibilityIndex.putAll(localEdgeVisibilityBuffer);
+    }
+  }
 
-    private final Iterator<Map.Entry<SnapshotKey, PositionEntry>> sharedIter;
-    private final Iterator<Map.Entry<SnapshotKey, PositionEntry>> localIter;
-    private Map.Entry<SnapshotKey, PositionEntry> nextShared;
-    private Map.Entry<SnapshotKey, PositionEntry> nextLocal;
+  /**
+   * Merges two iterators of {@code Map.Entry<K, V>} that are each sorted in <b>descending</b>
+   * key order. On equal keys, the local entry takes priority (shadows the shared entry). Either
+   * or both iterators may be empty. Used for both collection snapshot and edge snapshot merging.
+   */
+  static final class MergingDescendingIterator<K extends Comparable<K>, V>
+      implements Iterator<Map.Entry<K, V>> {
+
+    private final Iterator<Map.Entry<K, V>> sharedIter;
+    private final Iterator<Map.Entry<K, V>> localIter;
+    private Map.Entry<K, V> nextShared;
+    private Map.Entry<K, V> nextLocal;
 
     MergingDescendingIterator(
-        Iterator<Map.Entry<SnapshotKey, PositionEntry>> sharedIter,
-        Iterator<Map.Entry<SnapshotKey, PositionEntry>> localIter) {
+        Iterator<Map.Entry<K, V>> sharedIter,
+        Iterator<Map.Entry<K, V>> localIter) {
       this.sharedIter = sharedIter;
       this.localIter = localIter;
       this.nextShared = sharedIter.hasNext() ? sharedIter.next() : null;
@@ -824,7 +933,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
 
     @Override
-    public Map.Entry<SnapshotKey, PositionEntry> next() {
+    public Map.Entry<K, V> next() {
       if (nextLocal == null && nextShared == null) {
         throw new NoSuchElementException();
       }
