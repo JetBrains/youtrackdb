@@ -95,30 +95,27 @@ public class ExecuteReadOperationTest extends DbTestBase {
   // ==================== Test (b): Stamp invalid — retry via blocking read lock ========
 
   /**
-   * When a writer holds the component's write lock, tryOptimisticRead returns 0,
-   * so the optimistic path is skipped entirely and executeReadOperation goes
-   * straight to blocking readLock. Once the writer releases, the blocking read
-   * proceeds.
+   * When a writer holds the component's exclusive lock, the reader blocks on the
+   * shared lock until the writer releases.
    */
   @Test
-  public void testOptimisticReadFails_writerHoldsLock_blockingRetry()
+  public void testReaderBlockedByExclusiveLock()
       throws Exception {
     var mgr = manager();
     var component = fakeComponent("testComponent_b");
-    var lock = component.stampedLock;
 
-    // Hold the write lock from another thread
+    // Hold the exclusive lock from another thread
     var writerReady = new CountDownLatch(1);
     var releaseWriter = new CountDownLatch(1);
     var writerThread = new Thread(() -> {
-      long stamp = lock.writeLock();
+      component.testAcquireExclusiveLock();
       writerReady.countDown();
       try {
         releaseWriter.await(10, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
-      lock.unlockWrite(stamp);
+      component.testReleaseExclusiveLock();
     });
     writerThread.start();
     assertTrue("Writer should acquire lock", writerReady.await(5, TimeUnit.SECONDS));
@@ -129,7 +126,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
       try {
         var r = mgr.executeReadOperation(component, () -> {
           callCount.incrementAndGet();
-          return "retried";
+          return "after_release";
         });
         resultRef.set(r);
       } catch (IOException e) {
@@ -138,65 +135,38 @@ public class ExecuteReadOperationTest extends DbTestBase {
     });
     readerThread.start();
 
-    // Give the reader a moment to block on readLock, then release the writer
+    // Give the reader a moment to block on shared lock, then release the writer
     Thread.sleep(100);
     releaseWriter.countDown();
 
     readerThread.join(5000);
     writerThread.join(5000);
 
-    assertEquals("retried", resultRef.get());
+    assertEquals("after_release", resultRef.get());
     assertEquals(1, callCount.get());
   }
 
-  // ==================== Test (c): Exception during optimistic — retry succeeds ========
+  // ==================== Test (c): Exception propagated under shared lock ========
 
   /**
-   * When the action throws an exception during the optimistic read and the stamp
-   * is invalid (due to a concurrent writer), the exception is treated as a
-   * concurrent modification artifact and the action is retried.
+   * When the action throws an exception under the shared lock, it is propagated
+   * to the caller (no retry — the shared lock guarantees consistent data).
    */
   @Test
-  public void testExceptionDuringOptimisticRead_concurrentWriter_retrySucceeds()
-      throws Exception {
+  public void testExceptionUnderSharedLock_propagated() {
     var mgr = manager();
     var component = fakeComponent("testComponent_c");
-    var lock = component.stampedLock;
 
-    var callCount = new AtomicInteger(0);
-    var actionStarted = new CountDownLatch(1);
-    var writerDone = new CountDownLatch(1);
-
-    var writerThread = new Thread(() -> {
-      try {
-        actionStarted.await(5, TimeUnit.SECONDS);
-        long stamp = lock.writeLock();
-        lock.unlockWrite(stamp);
-        writerDone.countDown();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-    });
-    writerThread.start();
-
-    var result = mgr.executeReadOperation(component, () -> {
-      int call = callCount.incrementAndGet();
-      if (call == 1) {
-        actionStarted.countDown();
-        try {
-          writerDone.await(5, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-        }
-        throw new RuntimeException("simulated corrupt read");
-      }
-      return "success";
-    });
-
-    writerThread.join(5000);
-
-    assertEquals("success", result);
-    assertEquals(2, callCount.get());
+    try {
+      mgr.executeReadOperation(component, () -> {
+        throw new RuntimeException("simulated error");
+      });
+      fail("Expected RuntimeException");
+    } catch (RuntimeException e) {
+      assertEquals("simulated error", e.getMessage());
+    } catch (IOException e) {
+      fail("Unexpected IOException");
+    }
   }
 
   // ==================== Test (d): Real exception — stamp valid, propagated ===========
@@ -286,12 +256,10 @@ public class ExecuteReadOperationTest extends DbTestBase {
       assertEquals("not_blocked", result);
 
       // Verify component A's lock is actually held
-      long stamp = componentA.stampedLock.tryOptimisticRead();
-      assertEquals("Write lock should be held on A, stamp must be 0", 0, stamp);
+      assertTrue("Write lock should be held on A", componentA.isExclusiveOwner());
 
       // Verify component B's lock is NOT held
-      long stampB = componentB.stampedLock.tryOptimisticRead();
-      assertTrue("Component B should not be locked", stampB != 0);
+      assertFalse("Component B should not be locked", componentB.isExclusiveOwner());
     } finally {
       mgr.ensureThatComponentsUnlocked(operation);
     }
@@ -511,16 +479,13 @@ public class ExecuteReadOperationTest extends DbTestBase {
       assertTrue(operation.containsInLockedObjects(component.getLockName()));
 
       // Lock should still be held
-      long stamp = component.stampedLock.tryOptimisticRead();
-      assertEquals("Write lock should be held", 0, stamp);
+      assertTrue("Write lock should be held", component.isExclusiveOwner());
     } finally {
       mgr.ensureThatComponentsUnlocked(operation);
     }
 
     // After release, lock should be free
-    long stamp = component.stampedLock.tryOptimisticRead();
-    assertTrue("Lock should be released", stamp != 0);
-    assertTrue("Stamp should validate", component.stampedLock.validate(stamp));
+    assertFalse("Lock should be released", component.isExclusiveOwner());
   }
 
   // ========= Test (l): Component lock and executeReadOperation use same lock ===
@@ -861,28 +826,27 @@ public class ExecuteReadOperationTest extends DbTestBase {
   }
 
   /**
-   * Verifies that readUnderLock falls back to blocking read lock when the optimistic
-   * read is invalidated by a concurrent writer.
+   * Verifies that readUnderLock blocks when the exclusive lock is held by another
+   * thread, and completes once the lock is released.
    */
   @Test
   public void testReadUnderLock_writerContention() throws Exception {
     var mgr = manager();
     var component = fakeComponent("readUnderLock_contention");
-    var lock = component.stampedLock;
 
     var writerReady = new CountDownLatch(1);
     var releaseWriter = new CountDownLatch(1);
     var readerResult = new AtomicReference<String>();
 
     var writerThread = new Thread(() -> {
-      long stamp = lock.writeLock();
+      component.testAcquireExclusiveLock();
       writerReady.countDown();
       try {
         releaseWriter.await(10, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
-      lock.unlockWrite(stamp);
+      component.testReleaseExclusiveLock();
     });
     writerThread.start();
     assertTrue("Writer should acquire lock", writerReady.await(5, TimeUnit.SECONDS));
@@ -958,57 +922,21 @@ public class ExecuteReadOperationTest extends DbTestBase {
   // ========= Test (o2): Exception in blocking read lock path =================
 
   /**
-   * When the optimistic read fails (writer holds lock) and the action throws
-   * during the blocking read lock retry, the exception should be propagated.
+   * When the action throws an IOException under the shared lock, it is propagated.
    */
   @Test
-  public void testExceptionInBlockingReadLock_IOException() throws Exception {
+  public void testExceptionInSharedLock_IOException() throws Exception {
     var mgr = manager();
     var component = fakeComponent("blocking_ioex");
-    var lock = component.stampedLock;
 
-    // Hold write lock to force optimistic read failure (stamp = 0),
-    // then release before the blocking readLock attempt
-    var writerReady = new CountDownLatch(1);
-    var releaseWriter = new CountDownLatch(1);
-    var exceptionRef = new AtomicReference<Exception>();
-
-    var writerThread = new Thread(() -> {
-      long stamp = lock.writeLock();
-      writerReady.countDown();
-      try {
-        releaseWriter.await(10, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
-      lock.unlockWrite(stamp);
-    });
-    writerThread.start();
-    assertTrue("Writer should acquire lock", writerReady.await(5, TimeUnit.SECONDS));
-
-    // Reader attempts executeReadOperation — will skip optimistic (stamp=0),
-    // then block on readLock until writer releases
-    var readerThread = new Thread(() -> {
-      try {
-        mgr.executeReadOperation(component, () -> {
-          throw new IOException("error in blocking read");
-        });
-      } catch (Exception e) {
-        exceptionRef.set(e);
-      }
-    });
-    readerThread.start();
-
-    // Let the reader block, then release writer so reader acquires readLock
-    Thread.sleep(100);
-    releaseWriter.countDown();
-    readerThread.join(5000);
-    writerThread.join(5000);
-
-    assertNotNull("Exception should be captured", exceptionRef.get());
-    assertTrue("Should be IOException",
-        exceptionRef.get() instanceof IOException);
-    assertEquals("error in blocking read", exceptionRef.get().getMessage());
+    try {
+      mgr.executeReadOperation(component, () -> {
+        throw new IOException("error in shared read");
+      });
+      fail("Expected IOException");
+    } catch (IOException e) {
+      assertEquals("error in shared read", e.getMessage());
+    }
   }
 
   // ========= Test (o3): Checked exception wrapping in throwAsIOOrRuntime =====
@@ -1083,8 +1011,8 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
       // All should be locked
       for (var comp : components) {
-        assertEquals("Write lock should be held",
-            0, comp.stampedLock.tryOptimisticRead());
+        assertTrue("Write lock should be held on " + comp.getLockName(),
+            comp.isExclusiveOwner());
       }
     } finally {
       mgr.ensureThatComponentsUnlocked(operation);
@@ -1092,8 +1020,8 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
     // All should be released
     for (var comp : components) {
-      long stamp = comp.stampedLock.tryOptimisticRead();
-      assertTrue("Lock should be released on " + comp.getLockName(), stamp != 0);
+      assertFalse("Lock should be released on " + comp.getLockName(),
+          comp.isExclusiveOwner());
     }
   }
 

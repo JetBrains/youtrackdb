@@ -46,8 +46,8 @@ import javax.annotation.Nullable;
  * Manages the lifecycle of atomic operations for the storage engine.
  *
  * <p>Write locks are acquired directly on each {@link DurableComponent}'s
- * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract#stampedLock
- * stampedLock}, giving per-component granularity with zero map lookups on the read path.
+ * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
+ * ReentrantReadWriteLock}, giving per-component granularity.
  *
  * @since 12/3/13
  */
@@ -284,8 +284,8 @@ public class AtomicOperationsManager {
    * Acquires exclusive lock on the given {@link DurableComponent} for the lifetime of the
    * atomic operation. Uses the component's own
    * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
-   * StampedLock} directly — no external map lookup needed. The lock is reentrant via
-   * {@code SharedResourceAbstract}'s owner-tracking.
+   * ReentrantReadWriteLock} directly — no external map lookup needed. The lock is natively
+   * reentrant.
    */
   public void acquireExclusiveLockTillOperationComplete(
       @Nonnull AtomicOperation operation, @Nonnull DurableComponent component) {
@@ -301,126 +301,43 @@ public class AtomicOperationsManager {
   }
 
   /**
-   * Executes a read operation under an optimistic StampedLock with automatic fallback
-   * to a blocking read lock on contention. Uses the component's own StampedLock directly
-   * — zero map lookups on the read path. The happy path (no concurrent writer) costs
-   * only two volatile reads and zero CAS operations.
+   * Executes a read operation under the component's shared (read) lock. Short-circuits
+   * if the current thread already holds the exclusive lock (reentrancy is handled by
+   * the underlying ReentrantReadWriteLock).
    *
-   * <p>The protocol:
-   * <ol>
-   *   <li>Try an optimistic read (volatile read, no CAS)</li>
-   *   <li>Execute the action</li>
-   *   <li>If the stamp is still valid, return the result</li>
-   *   <li>If an exception occurred and the stamp is valid, it's a real error — rethrow</li>
-   *   <li>Otherwise, acquire a blocking read lock and retry the action</li>
-   * </ol>
+   * <p>This method is being phased out — callers should use
+   * {@link DurableComponent#executeOptimisticStorageRead} directly instead. Remaining
+   * call sites will be unwrapped in subsequent steps.
    *
-   * <p><b>Write-owner visibility for reader threads:</b> the volatile read inside
-   * {@code tryOptimisticRead()} synchronizes with the volatile write inside the prior
-   * {@code unlock()}, so any reader that gets a non-zero stamp is guaranteed to see the
-   * cleared {@code exclusiveOwner}. If the unlock is not yet visible,
-   * {@code tryOptimisticRead()} returns 0 and the reader falls through to
-   * {@code readLock()}, which provides a full happens-before edge.
-   *
-   * @param component the durable component whose StampedLock to use
-   * @param action    the read action to execute (must be idempotent and retryable —
-   *                  it may be invoked twice if the optimistic read is invalidated)
+   * @param component the durable component whose lock to use
+   * @param action    the read action to execute
    * @return the result of the action
    */
   public <T> T executeReadOperation(
       DurableComponent component, Callable<T> action) throws IOException {
-    // Fast path: if the current thread already holds the exclusive lock on this
-    // component (e.g., a read method called during an active atomic operation),
-    // execute directly. StampedLock is non-reentrant — acquiring a read lock would
-    // deadlock. Uses SharedResourceAbstract.isExclusiveOwner() which checks the
-    // volatile exclusiveOwner field.
-    if (component.isExclusiveOwner()) {
-      try {
-        return action.call();
-      } catch (Exception e) {
-        throwAsIOOrRuntime(e);
-        return null; // unreachable
-      }
-    }
-
-    var lock = component.stampedLock;
-
-    // Attempt 1: optimistic read (no CAS)
-    long stamp = lock.tryOptimisticRead();
-    if (stamp != 0) {
-      try {
-        T result = action.call();
-        if (lock.validate(stamp)) {
-          return result;
-        }
-      } catch (Exception e) {
-        if (lock.validate(stamp)) {
-          throwAsIOOrRuntime(e);
-        }
-        // Concurrent modification caused the exception — fall through to a single
-        // bounded retry under the blocking read lock. If the error is genuine, it
-        // will re-surface on the retry.
-      } catch (AssertionError e) {
-        if (lock.validate(stamp)) {
-          throw e;
-        }
-        // Concurrent modification during optimistic read caused inconsistent data
-        // that triggered an assertion. Fall through to retry under read lock.
-      }
-    }
-
-    // Attempt 2: blocking read lock (CAS only on contention)
-    stamp = lock.readLock();
+    component.lockShared();
     try {
       return action.call();
     } catch (Exception e) {
       throwAsIOOrRuntime(e);
       return null; // unreachable
     } finally {
-      lock.unlockRead(stamp);
+      component.unlockShared();
     }
   }
 
   /**
-   * Non-throwing variant of {@link #executeReadOperation(DurableComponent, Callable)} for
-   * lambdas that never throw checked exceptions. Eliminates dead-code catch blocks at call
-   * sites where the Callable signature forces an IOException declaration but the lambda
-   * body only throws unchecked exceptions.
-   *
-   * <p><b>Important:</b> This method mirrors the optimistic-read protocol in
-   * {@link #executeReadOperation(DurableComponent, Callable)}. Any changes to the
-   * lock acquisition logic must be applied to both methods.
+   * Non-throwing variant of {@link #executeReadOperation(DurableComponent, Callable)}.
+   * Being phased out — callers should use
+   * {@link DurableComponent#executeOptimisticStorageRead} directly instead.
    */
   public <T> T readUnderLock(
       DurableComponent component, Supplier<T> action) {
-    if (component.isExclusiveOwner()) {
-      return action.get();
-    }
-
-    var lock = component.stampedLock;
-
-    // Attempt 1: optimistic read (no CAS)
-    long stamp = lock.tryOptimisticRead();
-    if (stamp != 0) {
-      try {
-        T result = action.get();
-        if (lock.validate(stamp)) {
-          return result;
-        }
-      } catch (RuntimeException e) {
-        if (lock.validate(stamp)) {
-          throw e;
-        }
-        // Concurrent modification caused the exception — fall through to retry.
-      }
-    }
-
-    // Attempt 2: blocking read lock
-    stamp = lock.readLock();
+    component.lockShared();
     try {
       return action.get();
     } finally {
-      lock.unlockRead(stamp);
+      component.unlockShared();
     }
   }
 
