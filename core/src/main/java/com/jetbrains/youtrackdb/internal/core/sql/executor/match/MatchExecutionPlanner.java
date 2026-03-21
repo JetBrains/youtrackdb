@@ -1480,36 +1480,39 @@ public class MatchExecutionPlanner {
     if (indexes == null) {
       return -1.0;
     }
+    // Try to resolve the comparison value at plan time. Only literal values
+    // can be resolved — parameterized queries (e.g. :startDate) depend on
+    // runtime input parameters which are not available during planning.
+    // Catches RuntimeException (not just CommandExecutionException) because
+    // execute() with a null Result/context can also throw NPE, ClassCastException,
+    // etc. for expressions that reference runtime state. All such failures
+    // are non-fatal — they simply mean the value cannot be resolved at plan time.
+    Object value;
+    try {
+      value = binary.getRight().execute(
+          (com.jetbrains.youtrackdb.internal.core.query.Result) null, null);
+    } catch (RuntimeException e) {
+      value = null;
+    }
+    if (value == null) {
+      return -1.0;
+    }
+    // Pick the most selective index (lowest selectivity estimate) to avoid
+    // random plan jumps when multiple indexes cover the same property.
+    double bestSel = -1.0;
     for (var index : indexes) {
       var stats = index.getStatistics(session);
       if (stats == null || stats.totalCount() <= 0) {
         continue;
       }
-      // Try to resolve the comparison value at plan time. Only literal values
-      // can be resolved — parameterized queries (e.g. :startDate) depend on
-      // runtime input parameters which are not available during planning.
-      // Catches RuntimeException (not just CommandExecutionException) because
-      // execute() with a null Result/context can also throw NPE, ClassCastException,
-      // etc. for expressions that reference runtime state. All such failures
-      // are non-fatal — they simply mean the value cannot be resolved at plan time.
-      Object value;
-      try {
-        value = binary.getRight().execute(
-            (com.jetbrains.youtrackdb.internal.core.query.Result) null, null);
-      } catch (RuntimeException e) {
-        value = null;
-      }
-      if (value == null) {
-        continue;
-      }
       var histogram = index.getHistogram(session);
       var sel = SelectivityEstimator.estimateForOperator(
           binary.getOperator(), stats, histogram, value);
-      if (sel >= 0.0) {
-        return sel;
+      if (sel >= 0.0 && (bestSel < 0.0 || sel < bestSel)) {
+        bestSel = sel;
       }
     }
-    return -1.0;
+    return bestSel;
   }
 
   /**
@@ -1527,12 +1530,18 @@ public class MatchExecutionPlanner {
     var indexes = propName != null
         ? schemaClass.getInvolvedIndexesInternal(session, propName) : null;
     if (indexes != null) {
+      // Pick the most selective index (lowest distinct count) to get the most
+      // accurate cardinality estimate and avoid random plan jumps — a composite
+      // index inflates distinct count with key combinations.
+      long bestDistinct = -1;
       for (var index : indexes) {
         var stats = index.getStatistics(session);
-        if (stats != null && stats.distinctCount() > 0) {
-          return stats.distinctCount();
+        if (stats != null && stats.distinctCount() > 0
+            && (bestDistinct < 0 || stats.distinctCount() < bestDistinct)) {
+          bestDistinct = stats.distinctCount();
         }
       }
+      return bestDistinct;
     }
     return -1;
   }
