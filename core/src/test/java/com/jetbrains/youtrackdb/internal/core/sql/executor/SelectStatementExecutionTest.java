@@ -8318,4 +8318,91 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Verifies that an indexed date range filter is still used for pre-filtering
+   * even when the WHERE clause also contains a graph-navigation CONTAINS
+   * condition (e.g. {@code out('IS_LOCATED_IN').name CONTAINS :country}).
+   *
+   * The CONTAINS condition causes {@code flatten()} to produce multiple OR
+   * branches, which would normally prevent index lookup. The planner should
+   * fall back to extracting only the indexable subset of the AND conditions
+   * (the date range) and use it for index pre-filtering, while the full
+   * WHERE (including CONTAINS) is applied as a post-filter.
+   *
+   * This pattern matches LDBC IC3's correlated LET subqueries.
+   */
+  @Test
+  public void testPredicatePushDownIntoExpand_indexWithGraphNavContains() {
+    // Schema: Person -[HAS_CREATOR]-> Message -[IS_LOCATED_IN]-> Place
+    session.execute("CREATE CLASS GnPerson EXTENDS V").close();
+    session.execute("CREATE CLASS GnMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY GnMessage.creationDate DATETIME").close();
+    session.execute(
+        "CREATE INDEX GnMessage.creationDate ON GnMessage (creationDate) NOTUNIQUE")
+        .close();
+    session.execute("CREATE CLASS GnPlace EXTENDS V").close();
+    session.execute("CREATE CLASS GnHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY GnHasCreator.out LINK GnMessage").close();
+    session.execute("CREATE PROPERTY GnHasCreator.in LINK GnPerson").close();
+    session.execute("CREATE CLASS GnIsLocatedIn EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX GnPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    var placeUs = session.execute("CREATE VERTEX GnPlace SET name = 'USA'");
+    var usRid = placeUs.next().getIdentity();
+    placeUs.close();
+
+    var placeDe = session.execute("CREATE VERTEX GnPlace SET name = 'Germany'");
+    var deRid = placeDe.next().getIdentity();
+    placeDe.close();
+
+    // Create 12 messages: Jan-Dec 2024, alternating USA/Germany
+    for (var i = 0; i < 12; i++) {
+      var date = new GregorianCalendar(2024, i, 15).getTime();
+      var msgRs = session.execute(
+          "CREATE VERTEX GnMessage SET creationDate = ?", date);
+      var msgRid = msgRs.next().getIdentity();
+      msgRs.close();
+
+      session.execute(
+          "CREATE EDGE GnHasCreator FROM ? TO ?", msgRid, personRid).close();
+      var placeRid = (i % 2 == 0) ? usRid : deRid;
+      session.execute(
+          "CREATE EDGE GnIsLocatedIn FROM ? TO ?", msgRid, placeRid).close();
+    }
+    session.commit();
+
+    // Query: messages by alice, created in Q1-Q2 2024, located in USA
+    // Date range: Jan 1 - Jul 1 -> 6 messages (Jan-Jun)
+    // Located in USA: Jan, Mar, May (i=0,2,4) -> 3 of 6
+    session.begin();
+    var startDate = new GregorianCalendar(2024, Calendar.JANUARY, 1).getTime();
+    var endDate = new GregorianCalendar(2024, Calendar.JULY, 1).getTime();
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(in('GnHasCreator')) FROM GnPerson WHERE @rid = ?"
+            + ") WHERE creationDate >= ? AND creationDate < ?"
+            + "    AND out('GnIsLocatedIn').name CONTAINS 'USA'",
+        personRid, startDate, endDate);
+    var items = result.stream().toList();
+    Assert.assertEquals(
+        "Should return 3 messages (Jan, Mar, May in USA)", 3, items.size());
+    for (var item : items) {
+      Assert.assertEquals("GnMessage", item.asEntity().getSchemaClassName());
+    }
+
+    // Verify the plan uses index pre-filter (date range)
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Index pre-filter should fire for date range despite CONTAINS, "
+            + "plan was:\n" + plan,
+        plan.contains("index pre-filter"));
+
+    result.close();
+    session.commit();
+  }
 }

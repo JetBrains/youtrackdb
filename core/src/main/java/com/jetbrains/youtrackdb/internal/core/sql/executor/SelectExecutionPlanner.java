@@ -3258,17 +3258,41 @@ public class SelectExecutionPlanner {
 
   /**
    * Attempts to build an {@link IndexSearchDescriptor} for the push-down filter
-   * by looking up indexes on the target class. Only single-OR-branch WHERE clauses
-   * are considered (multi-branch OR is too complex for this optimization).
+   * by looking up indexes on the target class.
+   *
+   * <p>First tries the full WHERE clause. If that fails because the WHERE
+   * flattens to multiple OR branches (e.g. due to graph-navigation CONTAINS
+   * conditions), falls back to extracting only the "indexable" subset of
+   * AND conditions — those that flatten to a single branch — and attempts
+   * the index lookup on that subset. The full WHERE is still applied as a
+   * post-filter on the ExpandStep, so correctness is preserved.
    *
    * @param pushDownWhere the WHERE clause to analyze (must not reference $parent)
-   * @param className     the target class name (from an extracted @class filter)
+   * @param className     the target class name (from @class or edge schema)
    * @param ctx           command context
    * @return an index descriptor, or {@code null} if no suitable index exists
    */
   @Nullable private IndexSearchDescriptor tryBuildExpandIndexDescriptor(
       SQLWhereClause pushDownWhere, String className, CommandContext ctx) {
-    return TraversalPreFilterHelper.findIndexForFilter(pushDownWhere, className, ctx);
+    var result = TraversalPreFilterHelper.findIndexForFilter(
+        pushDownWhere, className, ctx);
+    if (result != null) {
+      return result;
+    }
+
+    // The full WHERE could not be used (likely multi-branch flatten from
+    // graph navigation conditions). Try the indexable subset only.
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = schema.getClassInternal(className);
+    if (schemaClass == null) {
+      return null;
+    }
+    var indexablePart = pushDownWhere.extractIndexablePart(ctx, schemaClass);
+    if (indexablePart == null) {
+      return null;
+    }
+    return TraversalPreFilterHelper.findIndexForFilter(
+        indexablePart, className, ctx);
   }
 
   /**
