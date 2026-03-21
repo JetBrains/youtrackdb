@@ -2150,10 +2150,15 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private void fetchBackwardCachePortionInner(SpliteratorBackward<K> iter,
       AtomicOperation atomicOperation, K lastKey) throws IOException {
-    executeOptimisticStorageRead(
-        atomicOperation,
-        () -> doFetchBackwardCachePortion(iter, atomicOperation, lastKey),
-        () -> doFetchBackwardCachePortion(iter, atomicOperation, lastKey));
+    // Cursor fetch methods mutate spliterator state and have no optimistic variant,
+    // so we acquire the shared lock directly rather than using
+    // executeOptimisticStorageRead (which could retry with corrupted state).
+    acquireSharedLock();
+    try {
+      doFetchBackwardCachePortion(iter, atomicOperation, lastKey);
+    } finally {
+      releaseSharedLock();
+    }
   }
 
   private void doFetchBackwardCachePortion(SpliteratorBackward<K> iter,
@@ -2229,10 +2234,15 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
 
   private void fetchForwardCachePortionInner(SpliteratorForward<K> iter,
       AtomicOperation atomicOperation, K lastKey) throws IOException {
-    executeOptimisticStorageRead(
-        atomicOperation,
-        () -> doFetchForwardCachePortion(iter, atomicOperation, lastKey),
-        () -> doFetchForwardCachePortion(iter, atomicOperation, lastKey));
+    // Cursor fetch methods mutate spliterator state and have no optimistic variant,
+    // so we acquire the shared lock directly rather than using
+    // executeOptimisticStorageRead (which could retry with corrupted state).
+    acquireSharedLock();
+    try {
+      doFetchForwardCachePortion(iter, atomicOperation, lastKey);
+    } finally {
+      releaseSharedLock();
+    }
   }
 
   private void doFetchForwardCachePortion(SpliteratorForward<K> iter,
