@@ -30,9 +30,9 @@ import org.junit.Test;
 
 /**
  * Tests for {@link AtomicOperationsManager#executeReadOperation} and the per-component
- * StampedLock architecture. Verifies: optimistic reads, writer contention fallback,
+ * ReentrantReadWriteLock architecture. Verifies: shared lock reads, writer contention,
  * exception handling, write-lock reentrancy, concurrent stress, standalone component
- * locks, and synthetic lock isolation.
+ * locks, and lock isolation.
  */
 public class ExecuteReadOperationTest extends DbTestBase {
 
@@ -203,10 +203,9 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
   /**
    * When a thread holds the exclusive lock on a component (via an active atomic
-   * operation) and then calls executeReadOperation on the same component, the fast
-   * path should detect the ownership via isExclusiveOwner() and execute the action
-   * directly without trying to acquire a read lock (which would deadlock since
-   * StampedLock is non-reentrant).
+   * operation) and then calls executeReadOperation on the same component, the
+   * shared lock acquisition short-circuits (the exclusive lock is strictly
+   * stronger) and the action executes directly.
    */
   @Test
   public void testWriteLockReentrantFastPath_noDeadlock() throws Exception {
@@ -235,7 +234,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
   // ==================== Test (f): Per-component lock isolation =======================
 
   /**
-   * Verifies that each DurableComponent uses its OWN StampedLock, not a shared
+   * Verifies that each DurableComponent uses its own lock, not a shared
    * stripe. Two components should not block each other unless they are the same
    * component.
    */
@@ -332,7 +331,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
         (long) numWriters * iterationsPerThread, sharedCounter.get());
   }
 
-  // ========= Test (i): StampedLock shared/exclusive mutual exclusion ==========
+  // ========= Test (i): Shared/exclusive mutual exclusion ====================
 
   /**
    * Validates that acquireSharedLock() blocks while acquireExclusiveLock()
@@ -340,8 +339,8 @@ public class ExecuteReadOperationTest extends DbTestBase {
    * lock callers still get proper exclusion against concurrent writers.
    */
   @Test
-  public void testStampedLock_sharedBlockedByExclusive() throws Exception {
-    var component = fakeComponent("stampedLock_mutex_test");
+  public void testSharedBlockedByExclusive() throws Exception {
+    var component = fakeComponent("rwlock_mutex_test");
 
     var exclusiveAcquired = new CountDownLatch(1);
     var readerReady = new CountDownLatch(1);
@@ -399,7 +398,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
     assertTrue("Shared lock should eventually be acquired", sharedAcquired.get());
     if (errors.get() != null) {
-      fail("Error in StampedLock mutex test: " + errors.get());
+      fail("Error in lock mutex test: " + errors.get());
     }
   }
 
@@ -409,7 +408,7 @@ public class ExecuteReadOperationTest extends DbTestBase {
    * Verifies that two threads acquiring locks on two different components
    * concurrently do NOT deadlock when both acquire in the same order. With
    * per-component locks (no hash collisions), different components have
-   * independent StampedLocks.
+   * independent locks.
    *
    * <p>Note: genuine ABBA ordering (thread 1: X→Y, thread 2: Y→X) would still
    * deadlock — this is prevented by the codebase always acquiring components
@@ -492,9 +491,9 @@ public class ExecuteReadOperationTest extends DbTestBase {
 
   /**
    * Verifies that the component's standalone acquireExclusiveLock() and the
-   * AtomicOperationsManager's executeReadOperation() use the same StampedLock.
+   * AtomicOperationsManager's executeReadOperation() use the same lock.
    * A writer holding the component lock via acquireExclusiveLock() should block
-   * optimistic reads on the same component.
+   * shared lock reads on the same component.
    */
   @Test
   public void testComponentLockAndReadOperationShareSameLock() throws Exception {
@@ -1157,18 +1156,17 @@ public class ExecuteReadOperationTest extends DbTestBase {
   }
 
   // ---------------------------------------------------------------------------
-  // executeReadOperation: AssertionError re-thrown when stamp is valid
+  // executeReadOperation: AssertionError propagated
   // ---------------------------------------------------------------------------
 
-  // Verifies that an AssertionError thrown during a valid optimistic read is re-thrown
-  // (not swallowed). When lock.validate(stamp) returns true, the error is genuine.
-  // Targets RemoveConditional mutant at AtomicOperationsManager line 347.
+  // Verifies that an AssertionError thrown under the shared lock is propagated
+  // (not swallowed). AssertionError is not a RuntimeException, so it bypasses
+  // the catch clause and reaches the caller directly.
   @Test
-  public void assertionErrorReThrownWhenStampValid() throws IOException {
+  public void assertionErrorPropagated() throws IOException {
     var mgr = manager();
     var storage = (AbstractStorage) session.getStorage();
 
-    // Create a standalone component with no writer contention (stamp will be valid)
     var component = new TestableComponent(storage, "assertionTest.tst");
 
     try {
