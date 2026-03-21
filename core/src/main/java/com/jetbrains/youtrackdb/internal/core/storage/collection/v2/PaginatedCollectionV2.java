@@ -302,17 +302,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public boolean exists(@Nonnull AtomicOperation atomicOperation) {
-    try {
-      return executeOptimisticStorageRead(
-          atomicOperation,
-          () -> isFileExists(atomicOperation, getFullName()),
-          () -> isFileExists(atomicOperation, getFullName()));
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName,
-              "Error checking existence of '" + getName() + "' collection", this),
-          e, storageName);
-    }
+    return isFileExists(atomicOperation, getFullName());
   }
 
   @Override
@@ -1573,82 +1563,49 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var collectionPosition = position.collectionPosition;
-          final var positionEntry =
-              collectionPositionMap.get(collectionPosition, atomicOperation);
+        () -> doGetPhysicalPosition(position, atomicOperation),
+        () -> doGetPhysicalPosition(position, atomicOperation));
+  }
 
-          if (positionEntry == null) {
-            return null;
-          }
+  @Nullable private PhysicalPosition doGetPhysicalPosition(
+      final PhysicalPosition position,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var collectionPosition = position.collectionPosition;
+    final var positionEntry =
+        collectionPositionMap.get(collectionPosition, atomicOperation);
 
-          final var pageIndex = positionEntry.getPageIndex();
-          final var recordPosition = positionEntry.getRecordPosition();
+    if (positionEntry == null) {
+      return null;
+    }
 
-          try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-            final var localPage = new CollectionPage(cacheEntry);
-            if (localPage.isDeleted(recordPosition)) {
-              return null;
-            }
+    final var pageIndex = positionEntry.getPageIndex();
+    final var recordPosition = positionEntry.getRecordPosition();
 
-            if (localPage.getRecordByteValue(
-                recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
-                == 0) {
-              return null;
-            }
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var localPage = new CollectionPage(cacheEntry);
+      if (localPage.isDeleted(recordPosition)) {
+        return null;
+      }
 
-            final var physicalPosition = new PhysicalPosition();
-            physicalPosition.recordSize = -1;
+      if (localPage.getRecordByteValue(
+          recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
+          == 0) {
+        return null;
+      }
 
-            physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
-            physicalPosition.recordVersion = positionEntry.getRecordVersion();
-            physicalPosition.collectionPosition = position.collectionPosition;
+      final var physicalPosition = new PhysicalPosition();
+      physicalPosition.recordSize = -1;
 
-            assert assertVersionConsistency(
-                physicalPosition.recordVersion,
-                localPage.getRecordVersion(recordPosition));
+      physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
+      physicalPosition.recordVersion = positionEntry.getRecordVersion();
+      physicalPosition.collectionPosition = position.collectionPosition;
 
-            return physicalPosition;
-          }
-        },
-        () -> {
-          final var collectionPosition = position.collectionPosition;
-          final var positionEntry =
-              collectionPositionMap.get(collectionPosition, atomicOperation);
+      assert assertVersionConsistency(
+          physicalPosition.recordVersion,
+          localPage.getRecordVersion(recordPosition));
 
-          if (positionEntry == null) {
-            return null;
-          }
-
-          final var pageIndex = positionEntry.getPageIndex();
-          final var recordPosition = positionEntry.getRecordPosition();
-
-          try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-            final var localPage = new CollectionPage(cacheEntry);
-            if (localPage.isDeleted(recordPosition)) {
-              return null;
-            }
-
-            if (localPage.getRecordByteValue(
-                recordPosition, -LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE)
-                == 0) {
-              return null;
-            }
-
-            final var physicalPosition = new PhysicalPosition();
-            physicalPosition.recordSize = -1;
-
-            physicalPosition.recordType = localPage.getRecordByteValue(recordPosition, 0);
-            physicalPosition.recordVersion = positionEntry.getRecordVersion();
-            physicalPosition.collectionPosition = position.collectionPosition;
-
-            assert assertVersionConsistency(
-                physicalPosition.recordVersion,
-                localPage.getRecordVersion(recordPosition));
-
-            return physicalPosition;
-          }
-        });
+      return physicalPosition;
+    }
   }
 
   @Override
@@ -1656,38 +1613,26 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var positionEntry =
-              collectionPositionMap.get(collectionPosition, atomicOperation);
+        () -> doExists(collectionPosition, atomicOperation),
+        () -> doExists(collectionPosition, atomicOperation));
+  }
 
-          if (positionEntry == null) {
-            return false;
-          }
+  private boolean doExists(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
+      throws IOException {
+    final var positionEntry =
+        collectionPositionMap.get(collectionPosition, atomicOperation);
 
-          final var pageIndex = positionEntry.getPageIndex();
-          final var recordPosition = positionEntry.getRecordPosition();
+    if (positionEntry == null) {
+      return false;
+    }
 
-          try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-            final var localPage = new CollectionPage(cacheEntry);
-            return !localPage.isDeleted(recordPosition);
-          }
-        },
-        () -> {
-          final var positionEntry =
-              collectionPositionMap.get(collectionPosition, atomicOperation);
+    final var pageIndex = positionEntry.getPageIndex();
+    final var recordPosition = positionEntry.getRecordPosition();
 
-          if (positionEntry == null) {
-            return false;
-          }
-
-          final var pageIndex = positionEntry.getPageIndex();
-          final var recordPosition = positionEntry.getRecordPosition();
-
-          try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-            final var localPage = new CollectionPage(cacheEntry);
-            return !localPage.isDeleted(recordPosition);
-          }
-        });
+    try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var localPage = new CollectionPage(cacheEntry);
+      return !localPage.isDeleted(recordPosition);
+    }
   }
 
   @Override
@@ -2356,32 +2301,23 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       @Nonnull AtomicOperation atomicOperation) throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var status =
-              collectionPositionMap.getStatus(collectionPosition, atomicOperation);
+        () -> doGetRecordStatus(collectionPosition, atomicOperation),
+        () -> doGetRecordStatus(collectionPosition, atomicOperation));
+  }
 
-          return switch (status) {
-            case CollectionPositionMapBucket.NOT_EXISTENT -> RECORD_STATUS.NOT_EXISTENT;
-            case CollectionPositionMapBucket.ALLOCATED -> RECORD_STATUS.ALLOCATED;
-            case CollectionPositionMapBucket.FILLED -> RECORD_STATUS.PRESENT;
-            case CollectionPositionMapBucket.REMOVED -> RECORD_STATUS.REMOVED;
-            default -> throw new IllegalStateException(
-                "Invalid record status : " + status + " for collection " + getName());
-          };
-        },
-        () -> {
-          final var status =
-              collectionPositionMap.getStatus(collectionPosition, atomicOperation);
+  private RECORD_STATUS doGetRecordStatus(long collectionPosition,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var status =
+        collectionPositionMap.getStatus(collectionPosition, atomicOperation);
 
-          return switch (status) {
-            case CollectionPositionMapBucket.NOT_EXISTENT -> RECORD_STATUS.NOT_EXISTENT;
-            case CollectionPositionMapBucket.ALLOCATED -> RECORD_STATUS.ALLOCATED;
-            case CollectionPositionMapBucket.FILLED -> RECORD_STATUS.PRESENT;
-            case CollectionPositionMapBucket.REMOVED -> RECORD_STATUS.REMOVED;
-            default -> throw new IllegalStateException(
-                "Invalid record status : " + status + " for collection " + getName());
-          };
-        });
+    return switch (status) {
+      case CollectionPositionMapBucket.NOT_EXISTENT -> RECORD_STATUS.NOT_EXISTENT;
+      case CollectionPositionMapBucket.ALLOCATED -> RECORD_STATUS.ALLOCATED;
+      case CollectionPositionMapBucket.FILLED -> RECORD_STATUS.PRESENT;
+      case CollectionPositionMapBucket.REMOVED -> RECORD_STATUS.REMOVED;
+      default -> throw new IllegalStateException(
+          "Invalid record status : " + status + " for collection " + getName());
+    };
   }
 
   /// Verifies that the version stored in the position map matches the version stored on the data
