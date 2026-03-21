@@ -107,7 +107,7 @@ CI gates enforce policies on PRs. When a gate fails:
 
 Run the `code-reviewer` agent to review the changes. Address any feedback. Repeat until the reviewer is satisfied with no critical issues.
 
-### Step 7a: Test quality review loop
+### Step 8: Test quality review loop
 
 **If you changed any code or added/fixed/changed any tests**, run the `test-quality-reviewer` agent to review test quality. This step is mandatory whenever code or tests were modified.
 
@@ -122,7 +122,7 @@ Run the `code-reviewer` agent to review the changes. Address any feedback. Repea
 5. **Repeat steps 2-4** until the reviewer reports no Critical Issues and the remaining findings are minor/cosmetic.
    - A maximum of 3 iterations is expected. If after 3 rounds there are still critical issues, present the remaining findings to the user and ask for guidance.
 
-### Step 8: Summarize and wait for approval
+### Step 9: Summarize and wait for approval
 
 Present to the user:
 - **Problem**: The exact failure (test name, error message, CI link)
@@ -132,7 +132,7 @@ Present to the user:
 
 **Do NOT commit or push until the user approves.**
 
-### Step 9: Commit and PR (only after approval)
+### Step 10: Commit and PR (only after approval)
 
 1. Commit following the project's git conventions (YTDB-NNN prefix, imperative summary).
 2. Push and create a PR targeting `develop` with:
