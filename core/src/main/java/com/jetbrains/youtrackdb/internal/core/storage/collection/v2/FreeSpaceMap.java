@@ -85,7 +85,7 @@ public final class FreeSpaceMap extends DurableComponent {
       (int) Math.floor(DurablePage.MAX_PAGE_SIZE_BYTES / 256.0);
 
   /** Internal file ID assigned by the disk cache when the .fsm file is opened/created. */
-  private long fileId;
+  private volatile long fileId;
 
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,

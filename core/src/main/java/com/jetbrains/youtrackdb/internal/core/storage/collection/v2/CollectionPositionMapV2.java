@@ -109,7 +109,7 @@ import org.apache.commons.lang3.ArrayUtils;
 public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   /** Internal file ID assigned by the disk cache when the .cpm file is opened/created. */
-  private long fileId;
+  private volatile long fileId;
 
   /** Package-private constructor; instances are created by {@link PaginatedCollectionV2}. */
   CollectionPositionMapV2(

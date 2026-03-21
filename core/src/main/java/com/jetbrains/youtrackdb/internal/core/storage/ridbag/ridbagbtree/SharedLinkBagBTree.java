@@ -336,11 +336,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this,
-          () -> executeOptimisticStorageRead(
-              atomicOperation,
-              () -> getOptimistic(key, atomicOperation),
-              () -> getPinned(key, atomicOperation)));
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> getOptimistic(key, atomicOperation),
+          () -> getPinned(key, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -569,26 +568,31 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var searchResult = firstItem(atomicOperation);
-        if (searchResult.isEmpty()) {
-          return null;
-        }
-
-        final var result = searchResult.get();
-
-        try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-          final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.getItemIndex(), serializerFactory);
-        }
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doFirstKey(atomicOperation),
+          () -> doFirstKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding first key in btree [" + getName() + "]"),
           e,
           storage.getName());
+    }
+  }
+
+  @Nullable private EdgeKey doFirstKey(AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = firstItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+      return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
   }
 
@@ -654,25 +658,30 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable public EdgeKey lastKey(AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var searchResult = lastItem(atomicOperation);
-        if (searchResult.isEmpty()) {
-          return null;
-        }
-
-        final var result = searchResult.get();
-
-        try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-          final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.getItemIndex(), serializerFactory);
-        }
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doLastKey(atomicOperation),
+          () -> doLastKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding last key in btree [" + getName() + "]"),
           e, storage.getName());
+    }
+  }
+
+  @Nullable private EdgeKey doLastKey(AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = lastItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+      return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
   }
 
@@ -1418,28 +1427,61 @@ public final class SharedLinkBagBTree extends DurableComponent {
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (!ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-      }
-
-      return StreamSupport.stream(
-          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            if (!ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+            }
+            return StreamSupport.stream(
+                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+          },
+          () -> {
+            if (!ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+            }
+            return StreamSupport.stream(
+                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-      }
-      return StreamSupport.stream(
-          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            if (ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+            }
+            return StreamSupport.stream(
+                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+          },
+          () -> {
+            if (ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+            }
+            return StreamSupport.stream(
+                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
@@ -1448,19 +1490,41 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation),
-            false);
-      } else {
-        return StreamSupport.stream(
-            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation),
-            false);
-      }
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            if (ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                      atomicOperation),
+                  false);
+            } else {
+              return StreamSupport.stream(
+                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                      atomicOperation),
+                  false);
+            }
+          },
+          () -> {
+            if (ascSortOrder) {
+              return StreamSupport.stream(
+                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                      atomicOperation),
+                  false);
+            } else {
+              return StreamSupport.stream(
+                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                      atomicOperation),
+                  false);
+            }
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   public Spliterator<RawPair<EdgeKey, LinkBagValue>> spliteratorEntriesBetween(
@@ -1469,15 +1533,33 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-            atomicOperation);
-      } else {
-        return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-            atomicOperation);
-      }
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            if (ascSortOrder) {
+              return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
+            } else {
+              return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
+            }
+          },
+          () -> {
+            if (ascSortOrder) {
+              return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
+            } else {
+              return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+                  atomicOperation);
+            }
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
   }
 
   private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorDesc(
@@ -1528,64 +1610,64 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
+    acquireSharedLock();
     try {
-      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
-        if (iter.getPageIndex() > -1) {
-          if (readKeysFromBucketsForward(iter, atomicOperation)) {
-            return null;
-          }
+      if (iter.getPageIndex() > -1) {
+        if (readKeysFromBucketsForward(iter, atomicOperation)) {
+          return;
         }
+      }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of
-        // current iterated page equals to -1
-        // so we only started iteration
-        if (iter.getDataCache().isEmpty()) {
-          // iteration just started
-          if (lastKey == null) {
-            if (iter.getFromKey() != null) {
-              final var searchResult =
-                  findBucket(iter.getFromKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.getPageIndex());
+      // this can only happen if page LSN does not equal to stored LSN or index of
+      // current iterated page equals to -1
+      // so we only started iteration
+      if (iter.getDataCache().isEmpty()) {
+        // iteration just started
+        if (lastKey == null) {
+          if (iter.getFromKey() != null) {
+            final var searchResult =
+                findBucket(iter.getFromKey(), atomicOperation);
+            iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.getItemIndex() >= 0) {
-                if (iter.isFromKeyInclusive()) {
-                  iter.setItemIndex(searchResult.getItemIndex());
-                } else {
-                  iter.setItemIndex(searchResult.getItemIndex() + 1);
-                }
-              } else {
-                iter.setItemIndex(-searchResult.getItemIndex() - 1);
-              }
-            } else {
-              final var bucketSearchResult = firstItem(atomicOperation);
-              if (bucketSearchResult.isPresent()) {
-                final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.getPageIndex());
+            if (searchResult.getItemIndex() >= 0) {
+              if (iter.isFromKeyInclusive()) {
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return null;
+                iter.setItemIndex(searchResult.getItemIndex() + 1);
               }
-            }
-
-          } else {
-            final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-            if (bucketSearchResult.getItemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
             } else {
-              iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
+              iter.setItemIndex(-searchResult.getItemIndex() - 1);
+            }
+          } else {
+            final var bucketSearchResult = firstItem(atomicOperation);
+            if (bucketSearchResult.isPresent()) {
+              final var searchResult = bucketSearchResult.get();
+              iter.setPageIndex((int) searchResult.getPageIndex());
+              iter.setItemIndex(searchResult.getItemIndex());
+            } else {
+              return;
             }
           }
-          iter.setLastLSN(null);
-          readKeysFromBucketsForward(iter, atomicOperation);
+
+        } else {
+          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
+
+          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+          if (bucketSearchResult.getItemIndex() >= 0) {
+            iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
+          } else {
+            iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
+          }
         }
-        return null;
-      });
+        iter.setLastLSN(null);
+        readKeysFromBucketsForward(iter, atomicOperation);
+      }
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
+    } finally {
+      releaseSharedLock();
     }
   }
 
@@ -1679,63 +1761,63 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
+    acquireSharedLock();
     try {
-      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
-        if (iter.getPageIndex() > -1) {
-          if (readKeysFromBucketsBackward(iter, atomicOperation)) {
-            return null;
-          }
+      if (iter.getPageIndex() > -1) {
+        if (readKeysFromBucketsBackward(iter, atomicOperation)) {
+          return;
         }
+      }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of
-        // current iterated page equals to -1
-        // so we only started iteration
-        if (iter.getDataCache().isEmpty()) {
-          // iteration just started
-          if (lastKey == null) {
-            if (iter.getToKey() != null) {
-              final var searchResult = findBucket(iter.getToKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.getPageIndex());
+      // this can only happen if page LSN does not equal to stored LSN or index of
+      // current iterated page equals to -1
+      // so we only started iteration
+      if (iter.getDataCache().isEmpty()) {
+        // iteration just started
+        if (lastKey == null) {
+          if (iter.getToKey() != null) {
+            final var searchResult = findBucket(iter.getToKey(), atomicOperation);
+            iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.getItemIndex() >= 0) {
-                if (iter.isToKeyInclusive()) {
-                  iter.setItemIndex(searchResult.getItemIndex());
-                } else {
-                  iter.setItemIndex(searchResult.getItemIndex() - 1);
-                }
-              } else {
-                iter.setItemIndex(-searchResult.getItemIndex() - 2);
-              }
-            } else {
-              final var bucketSearchResult = lastItem(atomicOperation);
-              if (bucketSearchResult.isPresent()) {
-                final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.getPageIndex());
+            if (searchResult.getItemIndex() >= 0) {
+              if (iter.isToKeyInclusive()) {
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return null;
+                iter.setItemIndex(searchResult.getItemIndex() - 1);
               }
-            }
-
-          } else {
-            final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-            if (bucketSearchResult.getItemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
             } else {
-              iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
+              iter.setItemIndex(-searchResult.getItemIndex() - 2);
+            }
+          } else {
+            final var bucketSearchResult = lastItem(atomicOperation);
+            if (bucketSearchResult.isPresent()) {
+              final var searchResult = bucketSearchResult.get();
+              iter.setPageIndex((int) searchResult.getPageIndex());
+              iter.setItemIndex(searchResult.getItemIndex());
+            } else {
+              return;
             }
           }
-          iter.setLastLSN(null);
-          readKeysFromBucketsBackward(iter, atomicOperation);
+
+        } else {
+          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
+
+          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+          if (bucketSearchResult.getItemIndex() >= 0) {
+            iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
+          } else {
+            iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
+          }
         }
-        return null;
-      });
+        iter.setLastLSN(null);
+        readKeysFromBucketsBackward(iter, atomicOperation);
+      }
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
+    } finally {
+      releaseSharedLock();
     }
   }
 
