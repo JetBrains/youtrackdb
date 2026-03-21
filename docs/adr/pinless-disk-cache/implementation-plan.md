@@ -1817,7 +1817,7 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 5: Migrate DurableComponent read operations
+- [x] Track 5: Migrate DurableComponent read operations
   > Migrate B-tree reads (highest impact), collection reads (single-page),
   > free space map reads, and DurablePage subclass constructors to use the
   > optimistic path. Each component migrated independently.
@@ -1825,13 +1825,38 @@ Phase 5: Remove component-level read lock from happy path
   > readRecord + position map, free space map findFreePage, DurablePage
   > subclass constructors
   > **Depends on:** Track 4
+  >
+  > **Track episode:**
+  > Migrated all five DurableComponent read operation families to the optimistic
+  > read path: B-tree single-key lookup and size(), collection position map lookups,
+  > single-page collection record reads, FreeSpaceMap segment tree traversal, and
+  > SharedLinkBagBTree lookups. Added `hasChangesForPage()` guard to
+  > `loadPageOptimistic()` so pages with local WAL changes skip to the pinned
+  > path — this subsumes Track 6's planned scope. Each component follows the
+  > `executeOptimisticStorageRead()` pattern with per-level stamp validation and
+  > automatic fallback. Key discoveries: (1) speculative PageView data can produce
+  > arbitrary RuntimeExceptions (AIOOBE, NPE) that bypass optimistic fallback —
+  > fixed with catch wrappers and guard checks in collection reads; (2) early
+  > returns before stamp validation in FreeSpaceMap could serve stale results —
+  > fixed by reordering validation; (3) truncated/deleted files need explicit
+  > `hasChangesForPage()` handling to prevent stale pre-truncation reads.
+  > Multi-page records, tombstones (need history snapshot index lookup via pinned
+  > pages), cursor/iterator operations, and `firstKey()`/`lastKey()` remain on the
+  > pinned path as designed.
+  >
+  > **Step file:** `tracks/track-5.md` (5 steps, 0 failed)
 
-- [ ] Track 6: Handle AtomicOperation with local WAL changes
+- [~] Track 6: Handle AtomicOperation with local WAL changes
   > Add hasChangesForPage check to loadPageOptimistic so pages with active
   > WAL changes in the current AtomicOperation fall back to the CAS-pinned path.
   > **Scope:** ~1-2 steps covering AtomicOperation interface addition and
   > DurableComponent integration
   > **Depends on:** Track 4
+  >
+  > **Skipped:** Fully subsumed by Track 5 Step 1, which implemented
+  > `hasChangesForPage()` in `AtomicOperationBinaryTracking` with all four
+  > cases (deleted files, truncated files, new files, existing files) and
+  > integrated the guard into `loadPageOptimistic()`.
 
 - [ ] Track 7: Remove component-level read lock from happy path
   > Replace StampedLock with ReentrantReadWriteLock in SharedResourceAbstract.
@@ -1840,7 +1865,7 @@ Phase 5: Remove component-level read lock from happy path
   > **Scope:** ~4-6 steps covering SharedResourceAbstract RRWL migration,
   > volatile field annotations, wrapper removal per component,
   > AtomicOperationsManager cleanup
-  > **Depends on:** Track 5, Track 6
+  > **Depends on:** Track 5 (Track 6 subsumed by Track 5)
 
 - [ ] Track 8: Fix pre-existing test failures from rebase conflict resolution
   > Fix 24 test failures introduced during the develop rebase (commit 990f16fbd3).
