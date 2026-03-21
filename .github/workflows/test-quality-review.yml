@@ -1,0 +1,59 @@
+name: Test Quality Review
+
+on:
+  pull_request:
+    types: [review_requested]
+
+jobs:
+  test-quality-review:
+    # Only run when the PR author requests a review
+    if: github.actor == github.event.pull_request.user.login
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Find last approved review commit
+        id: find-base
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APPROVED_SHA=$(gh api \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            --jq '[.[] | select(.state == "APPROVED")] | sort_by(.submitted_at) | last | .commit_id // empty')
+
+          if [ -z "$APPROVED_SHA" ]; then
+            echo "No prior approval — reviewing all PR changes"
+            echo "base_sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "review_scope=all PR changes (no prior approval)" >> "$GITHUB_OUTPUT"
+          else
+            echo "Last approved at: $APPROVED_SHA"
+            echo "base_sha=$APPROVED_SHA" >> "$GITHUB_OUTPUT"
+            echo "review_scope=changes since last approval ($APPROVED_SHA)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Test Quality Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are reviewing test quality for PR #${{ github.event.pull_request.number }}.
+
+            ## Review Scope
+            ${{ steps.find-base.outputs.review_scope }}
+
+            ## Instructions
+            1. Run: `git diff ${{ steps.find-base.outputs.base_sha }}..${{ github.event.pull_request.head.sha }} --name-only` to see changed files.
+            2. Run: `git diff ${{ steps.find-base.outputs.base_sha }}..${{ github.event.pull_request.head.sha }}` to see the full diff.
+            3. Run: `git log ${{ steps.find-base.outputs.base_sha }}..${{ github.event.pull_request.head.sha }} --oneline` to see the commits.
+            4. Read `.claude/agents/test-quality-reviewer.md` for the full review checklist.
+            5. Follow that checklist using **Mode 2 (Specific Commit Range)** with the range above.
+            6. If there are no test file changes in the diff, state that and skip the review.
+          claude_args: "--model claude-opus-4-1-20250805 --max-turns 30"
