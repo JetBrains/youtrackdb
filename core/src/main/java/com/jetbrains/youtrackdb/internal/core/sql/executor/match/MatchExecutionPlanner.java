@@ -1530,14 +1530,33 @@ public class MatchExecutionPlanner {
     var indexes = propName != null
         ? schemaClass.getInvolvedIndexesInternal(session, propName) : null;
     if (indexes != null) {
-      // Pick the most selective index (lowest distinct count) to get the most
-      // accurate cardinality estimate and avoid random plan jumps — a composite
-      // index inflates distinct count with key combinations.
+      // Pick the most selective index (lowest selectivity estimate) and return
+      // its distinct count. Same criterion as resolveSelectivity() — ensures
+      // both methods use the same index for a given property.
+      Object value;
+      try {
+        value = binary.getRight().execute(
+            (com.jetbrains.youtrackdb.internal.core.query.Result) null, null);
+      } catch (RuntimeException e) {
+        value = null;
+      }
+      double bestSel = -1.0;
       long bestDistinct = -1;
       for (var index : indexes) {
         var stats = index.getStatistics(session);
-        if (stats != null && stats.distinctCount() > 0
-            && (bestDistinct < 0 || stats.distinctCount() < bestDistinct)) {
+        if (stats == null || stats.distinctCount() <= 0) {
+          continue;
+        }
+        if (value != null && stats.totalCount() > 0) {
+          var histogram = index.getHistogram(session);
+          var sel = SelectivityEstimator.estimateForOperator(
+              binary.getOperator(), stats, histogram, value);
+          if (sel >= 0.0 && (bestSel < 0.0 || sel < bestSel)) {
+            bestSel = sel;
+            bestDistinct = stats.distinctCount();
+          }
+        } else if (bestDistinct < 0) {
+          // Fallback when value cannot be resolved: take first available.
           bestDistinct = stats.distinctCount();
         }
       }
