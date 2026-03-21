@@ -3,6 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -30,19 +33,19 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
-import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Integration tests for restoring local paginated storage from write-ahead log.
  *
  * @since 29.05.13
  */
+@Category(SequentialTest.class)
 public class LocalPaginatedStorageRestoreFromWALIT {
 
   private static YouTrackDBImpl youTrackDB;
@@ -108,7 +111,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     createSchema(baseDocumentTx);
   }
 
-
   @Test
   public void testSimpleRestore() throws Exception {
     baseDocumentTx.freeze();
@@ -155,7 +157,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
         .toAbsolutePath().toString();
     final var copyTo =
         Path.of(
-                buildDir.getAbsolutePath() + File.separator + "testLocalPaginatedStorageRestoreFromWAL")
+            buildDir.getAbsolutePath() + File.separator + "testLocalPaginatedStorageRestoreFromWAL")
             .toAbsolutePath().toString();
 
     FileUtils.deleteRecursively(new File(copyTo));

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import java.util.concurrent.CountDownLatch;
@@ -13,11 +14,13 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests that all thread pools owned by {@link YouTrackDBEnginesManager} are created, accessible,
  * and functional.
  */
+@Category(SequentialTest.class)
 public class YouTrackDBEnginesManagerPoolsTest {
 
   // -- Storage pools -------------------------------------------------------
@@ -230,7 +233,8 @@ public class YouTrackDBEnginesManagerPoolsTest {
   public void shutdownExecutorTerminatesGracefully() throws Exception {
     var exec = Executors.newSingleThreadExecutor();
     // Submit a quick task so the executor has something to do.
-    exec.submit(() -> {});
+    exec.submit(() -> {
+    });
     YouTrackDBEnginesManager.shutdownExecutor(exec, "test", 5, TimeUnit.SECONDS);
     assertThat(exec.isShutdown()).isTrue();
   }

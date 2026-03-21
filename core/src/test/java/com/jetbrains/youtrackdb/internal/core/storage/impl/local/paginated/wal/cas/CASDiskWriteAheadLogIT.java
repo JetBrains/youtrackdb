@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -32,7 +33,9 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class CASDiskWriteAheadLogIT {
 
   private static Path testDirectory;
@@ -163,7 +166,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddSingleOnePageRecordEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -272,7 +275,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddSingleOnePageRecordNonEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -378,7 +381,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddSingleOnePageRecordWrongEncryption() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -589,7 +592,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddSingleRecordSeveralPagesEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
     for (var i = 0; i < iterations; i++) {
@@ -824,7 +827,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddFewSmallRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
     for (var n = 0; n < iterations; n++) {
@@ -1091,7 +1094,7 @@ public class CASDiskWriteAheadLogIT {
   public void testNextAddFewSmallRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -1358,7 +1361,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddFewBigRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -1624,7 +1627,7 @@ public class CASDiskWriteAheadLogIT {
   public void testNextAddFewBigRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 10;
 
@@ -1895,7 +1898,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddNSmallRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
 
@@ -2163,7 +2166,7 @@ public class CASDiskWriteAheadLogIT {
   public void testNextAddNSmallRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
 
@@ -2516,7 +2519,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddNSegmentsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     var iterations = 1;
 
@@ -2861,7 +2864,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddNBigRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
 
@@ -3139,7 +3142,7 @@ public class CASDiskWriteAheadLogIT {
   public void testNextAddNBigRecordsEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
 
@@ -3415,7 +3418,7 @@ public class CASDiskWriteAheadLogIT {
   public void testAddRecordsMixEncrypted() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
     for (var n = 0; n < iterations; n++) {
@@ -3689,7 +3692,7 @@ public class CASDiskWriteAheadLogIT {
   public void testNextAddRecordsMixEncryption() throws Exception {
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     final var iterations = 1;
     for (var n = 0; n < iterations; n++) {
@@ -4642,7 +4645,7 @@ public class CASDiskWriteAheadLogIT {
         // Walk through all records using next(), verifying data integrity and LSN correctness.
         // next(lsn, limit) returns up to `limit` records starting AFTER the given LSN.
         System.out.println("First check");
-        for (var i = 0; i < recordsCount - 1; ) {
+        for (var i = 0; i < recordsCount - 1;) {
           // Fetch the next batch of up to 500 records after records[i]'s LSN.
           final var result = wal.next(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
@@ -4743,7 +4746,7 @@ public class CASDiskWriteAheadLogIT {
         // --- Second Verification: From Disk (after recovery) ---
         // Repeat the same record-by-record iteration as the first check, but now reading
         // from the recovered WAL. This verifies durability — all records survive close/reopen.
-        for (var i = 0; i < recordsCount - 1; ) {
+        for (var i = 0; i < recordsCount - 1;) {
           final var result = wal.next(records.get(i).getLsn(), 500);
           Assert.assertFalse(result.isEmpty());
 
@@ -4792,7 +4795,8 @@ public class CASDiskWriteAheadLogIT {
 
   @Test
   public void testDelete() throws Exception {
-    @SuppressWarnings("resource") var wal =
+    @SuppressWarnings("resource")
+    var wal =
         new CASDiskWriteAheadLog(
             "walTest",
             testDirectory,

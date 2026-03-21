@@ -24,9 +24,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for {@link CostModel} — the shared cost model used by query planners.
@@ -35,6 +37,7 @@ import org.junit.Test;
  * configuration, and that runtime tuning of configuration parameters is
  * reflected in cost calculations.
  */
+@Category(SequentialTest.class)
 public class CostModelTest {
 
   // Save original values to restore after tests that modify config

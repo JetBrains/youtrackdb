@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -22,10 +23,12 @@ import java.util.Map;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests cases for the Scheduler component.
  */
+@Category(SequentialTest.class)
 public class SchedulerTest {
 
   private static final String NEW_ADMIN_PASSWORD = "adminpwd";
@@ -147,9 +150,9 @@ public class SchedulerTest {
       var func = createFunction(db);
       db.begin();
       db.execute(
-              "insert into oschedule set name = 'test',"
-                  + " function = ?, rule = \"0/1 * * * * ?\", arguments = {\"note\": \"test\"}",
-              func.getIdentity())
+          "insert into oschedule set name = 'test',"
+              + " function = ?, rule = \"0/1 * * * * ?\", arguments = {\"note\": \"test\"}",
+          func.getIdentity())
           .close();
       db.commit();
 
@@ -168,8 +171,8 @@ public class SchedulerTest {
         try {
           db.begin();
           db.execute(
-                  "update oschedule set rule = \"0/2 * * * * ?\", function = ? where name = 'test'",
-                  func.getIdentity())
+              "update oschedule set rule = \"0/2 * * * * ?\", function = ? where name = 'test'",
+              func.getIdentity())
               .close();
           db.commit();
           break;

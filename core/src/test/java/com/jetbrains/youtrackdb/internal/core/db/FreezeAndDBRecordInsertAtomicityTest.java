@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.HashSet;
@@ -39,10 +40,12 @@ import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests atomicity of record insert operations during concurrent database freeze and release cycles.
  */
+@Category(SequentialTest.class)
 public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
 
   private static final int THREADS = Runtime.getRuntime().availableProcessors() << 1;
@@ -96,17 +99,16 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                           .getIndex("Person.name");
                   for (var i1 = 0; i1 < ITERATIONS; ++i1) {
                     switch (random.nextInt(2)) {
-                      case 0:
+                      case 0 :
                         var val = i1;
                         session.executeInTx(
-                            transaction ->
-                            {
+                            transaction -> {
                               session.newInstance("Person")
                                   .setProperty("name", "name-" + thread + "-" + val);
                             });
                         break;
 
-                      case 1:
+                      case 1 :
                         session.freeze();
                         try {
                           session.begin();

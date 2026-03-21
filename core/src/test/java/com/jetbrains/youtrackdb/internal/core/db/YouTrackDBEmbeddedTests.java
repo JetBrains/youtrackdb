@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -31,7 +32,9 @@ import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class YouTrackDBEmbeddedTests {
 
   @After
@@ -156,15 +159,13 @@ public class YouTrackDBEmbeddedTests {
       assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
       youtrackEmbedded.initCustomStorage("database1",
           DbTestBase.getBaseDirectoryPathStr(getClass()) +
-              "testRegisterDatabase/database1"
-      );
+              "testRegisterDatabase/database1");
       try (final var db = youtrackEmbedded.open("database1", "root", "root")) {
         assertEquals("database1", db.getDatabaseName());
       }
       youtrackEmbedded.initCustomStorage("database2",
           DbTestBase.getBaseDirectoryPathStr(getClass()) +
-              "testRegisterDatabase/database2"
-      );
+              "testRegisterDatabase/database2");
 
       try (final var db = youtrackEmbedded.open("database2", "root", "root")) {
         assertEquals("database2", db.getDatabaseName());
@@ -271,7 +272,6 @@ public class YouTrackDBEmbeddedTests {
       assertTrue(pool.isClosed());
     }
 
-
   }
 
   @Test
@@ -285,8 +285,7 @@ public class YouTrackDBEmbeddedTests {
       youTrackDB.createIfNotExists("testdb", DatabaseType.MEMORY,
           new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN),
           new LocalUserCredential("reader", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.READER),
-          new LocalUserCredential("writer", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.WRITER)
-      );
+          new LocalUserCredential("writer", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.WRITER));
       var poolAdmin1 =
           youTrackDB.cachedPool(
               "testdb",

@@ -4,6 +4,7 @@ import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -24,8 +25,10 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(GremlinProcessRunner.class)
 public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 

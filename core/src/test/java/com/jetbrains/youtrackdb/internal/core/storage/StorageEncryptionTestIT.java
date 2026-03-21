@@ -6,9 +6,9 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
-
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -21,7 +21,9 @@ import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class StorageEncryptionTestIT {
 
   @Before
@@ -99,8 +101,8 @@ public class StorageEncryptionTestIT {
         (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPathStr(getClass()),
             wrongKeyTwoConfig)) {
       try {
-        try (final var ignored = youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName()
-            , "admin", "admin")) {
+        try (final var ignored =
+            youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(), "admin", "admin")) {
           Assert.fail();
         }
       } catch (Exception e) {

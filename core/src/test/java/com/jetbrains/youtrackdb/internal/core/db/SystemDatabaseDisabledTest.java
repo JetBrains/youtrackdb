@@ -1,15 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
-
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class SystemDatabaseDisabledTest extends DbTestBase {
 
   @BeforeClass
@@ -27,8 +29,7 @@ public class SystemDatabaseDisabledTest extends DbTestBase {
 
     try {
       session.getSharedContext().getYouTrackDB().getSystemDatabase().executeWithDB(
-          s -> s.computeInTx(tx -> tx.query("select count(*) from V"))
-      );
+          s -> s.computeInTx(tx -> tx.query("select count(*) from V")));
       fail("Should fail with DatabaseException: System database is disabled");
     } catch (DatabaseException e) {
       if (!e.getMessage().contains("System database is disabled")) {

@@ -6,11 +6,11 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.util.RawTriple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
@@ -30,7 +30,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
   private final Set<RID> ridSet = ConcurrentHashMap.newKeySet();
@@ -298,8 +300,8 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                 }
 
                 break;
-              } catch (ConcurrentModificationException | LinksConsistencyException |
-                       RecordNotFoundException e) {
+              } catch (ConcurrentModificationException | LinksConsistencyException
+                  | RecordNotFoundException e) {
                 //retry
               }
             }

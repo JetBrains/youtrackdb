@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -37,12 +38,14 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests restoring local paginated storage from WAL with additional records added after backup.
  *
  * @since 18.06.13
  */
+@Category(SequentialTest.class)
 public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   private static File buildDir;
@@ -277,9 +280,9 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
     public DataPropagationTask(long seed, YouTrackDBImpl youTrackDB) {
       this.seed = seed;
 
-      baseDB = (DatabaseSessionEmbedded)
-          youTrackDB.open("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
-              "admin", "admin");
+      baseDB = (DatabaseSessionEmbedded) youTrackDB.open(
+          "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
+          "admin", "admin");
 
       if (testDocumentTx != null) {
         testDB = (DatabaseSessionEmbedded) youTrackDB.open(testDocumentTx.getDatabaseName(),

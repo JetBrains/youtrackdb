@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -17,6 +18,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
@@ -36,6 +38,7 @@ import org.junit.runners.Parameterized;
  *   <li>Copy produces an independent, functional step</li>
  * </ul>
  */
+@Category(SequentialTest.class)
 @RunWith(Parameterized.class)
 public class CountFromIndexStepTest extends TestUtilsFixture {
 
@@ -53,7 +56,7 @@ public class CountFromIndexStepTest extends TestUtilsFixture {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> types() {
     return Arrays.asList(
-        new Object[][]{
+        new Object[][] {
             {SQLIndexIdentifier.Type.INDEX},
             {SQLIndexIdentifier.Type.VALUES},
             {SQLIndexIdentifier.Type.VALUESASC},

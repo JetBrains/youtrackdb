@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
@@ -38,6 +39,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Long-running randomized stress tests for index histogram correctness under
@@ -55,6 +57,7 @@ import org.junit.Test;
  *   <li>Selectivity estimates are reasonable given the actual data distribution</li>
  * </ul>
  */
+@Category(SequentialTest.class)
 public class IndexHistogramConcurrentStressIT extends DbTestBase {
 
   /** Duration of each stress phase in seconds. */

@@ -2,9 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.edgebtree.btree;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -29,10 +29,12 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 @RunWith(Parameterized.class)
+@Category(SequentialTest.class)
 public class BTreeTestIT {
 
   public static final String DB_NAME = "bTreeTest";
@@ -275,9 +277,8 @@ public class BTreeTestIT {
               new LinkBagValue(val, 0, 0)));
       keys.add(key);
 
-      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
-          Assert.assertEquals(bTree.get(key, atomicOperation).counter(), val)
-      );
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> Assert.assertEquals(bTree.get(key, atomicOperation).counter(), val));
     }
 
     var keysIterator = keys.iterator();
@@ -329,10 +330,9 @@ public class BTreeTestIT {
       if (key.targetPosition % 3 == 0) {
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation ->
-                Assert.assertEquals(
-                    bTree.remove(atomicOperation, key).counter(),
-                    key.targetPosition));
+            atomicOperation -> Assert.assertEquals(
+                bTree.remove(atomicOperation, key).counter(),
+                key.targetPosition));
       }
     }
 
@@ -358,9 +358,8 @@ public class BTreeTestIT {
           atomicOperation -> bTree.put(atomicOperation, key,
               new LinkBagValue((int) (key.targetCollection % 5), 0, 0)));
 
-      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation ->
-          Assert.assertEquals(bTree.get(key, atomicOperation).counter(), key.targetCollection % 5)
-      );
+      atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> Assert
+          .assertEquals(bTree.get(key, atomicOperation).counter(), key.targetCollection % 5));
     }
 
     for (var i = 0; i < keysCount; i++) {

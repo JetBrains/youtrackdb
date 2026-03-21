@@ -4,8 +4,8 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -21,7 +21,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class FreeSpaceMapTestIT {
 
   private FreeSpaceMap freeSpaceMap;
@@ -147,7 +149,7 @@ public class FreeSpaceMapTestIT {
     System.out.println("randomPages seed - " + seed);
     final var random = new Random(seed);
 
-    var maxFreeSpaceIndex = new int[]{-1};
+    var maxFreeSpaceIndex = new int[] {-1};
     for (var i = 0; i < pages; i++) {
       final var pageIndex = i;
 

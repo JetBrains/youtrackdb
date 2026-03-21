@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.directmemory;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -15,7 +16,9 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class ByteBufferPoolTest {
 
   @BeforeClass

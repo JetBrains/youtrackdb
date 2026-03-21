@@ -3,17 +3,20 @@ package com.jetbrains.youtrackdb.internal.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests the {@link YouTrackDBEnginesManager#startUp(boolean)} static lifecycle method,
  * specifically the re-entrant call guard and the failure cleanup path.
  */
+@Category(SequentialTest.class)
 public class YouTrackDBEnginesManagerStartUpTest {
 
   private Field instanceField;

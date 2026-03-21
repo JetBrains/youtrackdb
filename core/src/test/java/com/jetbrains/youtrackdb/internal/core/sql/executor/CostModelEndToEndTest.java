@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
@@ -65,6 +66,7 @@ import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end tests for the cost model integration across SELECT and MATCH
@@ -80,6 +82,7 @@ import org.junit.Test;
  *       known-suboptimal plans</li>
  * </ul>
  */
+@Category(SequentialTest.class)
 public class CostModelEndToEndTest {
 
   // Save original config values for restoration

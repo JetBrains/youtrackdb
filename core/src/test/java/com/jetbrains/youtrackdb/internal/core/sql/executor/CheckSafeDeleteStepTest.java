@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -13,9 +14,11 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+@Category(SequentialTest.class)
 @RunWith(Parameterized.class)
 public class CheckSafeDeleteStepTest extends TestUtilsFixture {
 
@@ -31,7 +34,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> documentTypes() {
     return Arrays.asList(
-        new Object[][]{
+        new Object[][] {
             {VERTEX_CLASS_NAME}, {EDGE_CLASS_NAME},
         });
   }
@@ -39,10 +42,10 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Test(expected = CommandExecutionException.class)
   public void shouldNotDeleteVertexAndEdge() {
     switch (className) {
-      case VERTEX_CLASS_NAME:
+      case VERTEX_CLASS_NAME :
         session.createVertexClass(VERTEX_CLASS_NAME);
         break;
-      case EDGE_CLASS_NAME:
+      case EDGE_CLASS_NAME :
         session.createEdgeClass(EDGE_CLASS_NAME);
         break;
     }

@@ -1,12 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import java.util.Arrays;
 import java.util.Random;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class CompositeIndexGrowShrinkIT extends DbTestBase {
 
   private final Random random = new Random();
@@ -30,7 +33,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
 
     session.execute(
-            "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
+        "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
         .close();
     for (var i = 0; i < 150000; i++) {
       session.begin();
@@ -40,8 +43,8 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
 
       rec.getOrCreateEmbeddedList(
           "tags").addAll(
-          Arrays.asList(
-              "soem long and more complex tezxt just un case it may be important", "two"));
+              Arrays.asList(
+                  "soem long and more complex tezxt just un case it may be important", "two"));
 
       rec.setProperty("name", "name" + i);
       session.commit();
@@ -63,7 +66,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
     clazz.createProperty("name", PropertyType.STRING);
 
     session.execute(
-            "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
+        "create index CompositeIndex_id_tags_name on CompositeIndex (id, tags, name) NOTUNIQUE")
         .close();
 
     for (var i = 0; i < 150000; i++) {
@@ -73,8 +76,8 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
       rec.setProperty("bar", i);
       rec.getOrCreateEmbeddedList(
           "tags").addAll(
-          Arrays.asList(
-              "soem long and more complex tezxt just un case it may be important", "two"));
+              Arrays.asList(
+                  "soem long and more complex tezxt just un case it may be important", "two"));
       rec.setProperty("name", "name" + i);
       session.commit();
     }

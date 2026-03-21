@@ -225,18 +225,68 @@
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
-        <configuration>
-          <systemPropertyVariables>
-            <buildDirectory>${project.build.directory}</buildDirectory>
-            <build.dir>${project.build.directory}</build.dir>
-          </systemPropertyVariables>
-          <properties>
-            <property>
-              <name>listener</name>
-              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
-            </property>
-          </properties>
-        </configuration>
+        <executions>
+          <!--
+            Parallel execution: runs all project tests EXCEPT @Category(SequentialTest).
+            Excludes gremlin-test from classpath to prevent TinkerPop dependency tests
+            from being discovered (they require suite runners to set up the graph provider).
+          -->
+          <execution>
+            <id>default-test</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <parallel>classes</parallel>
+              <perCoreThreadCount>false</perCoreThreadCount>
+              <threadCountClasses>4</threadCountClasses>
+              <excludedGroups>com.jetbrains.youtrackdb.internal.SequentialTest</excludedGroups>
+              <excludes>
+                <exclude>**/gremlintest/**</exclude>
+              </excludes>
+              <classpathDependencyExcludes>
+                <classpathDependencyExclude>io.youtrackdb:gremlin-test</classpathDependencyExclude>
+              </classpathDependencyExcludes>
+              <systemPropertyVariables>
+                <buildDirectory>${project.build.directory}</buildDirectory>
+                <build.dir>${project.build.directory}</build.dir>
+              </systemPropertyVariables>
+              <properties>
+                <property>
+                  <name>listener</name>
+                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+                </property>
+              </properties>
+            </configuration>
+          </execution>
+          <!--
+            Sequential execution: runs only @Category(SequentialTest) tests.
+            This includes tests that mutate GlobalConfiguration, use shared static
+            instances, manipulate engine singletons, or run heavyweight TinkerPop
+            suite runners with shared datasets.
+          -->
+          <execution>
+            <id>sequential-tests</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <groups>com.jetbrains.youtrackdb.internal.SequentialTest</groups>
+              <systemPropertyVariables>
+                <buildDirectory>${project.build.directory}</buildDirectory>
+                <build.dir>${project.build.directory}</build.dir>
+              </systemPropertyVariables>
+              <properties>
+                <property>
+                  <name>listener</name>
+                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+                </property>
+              </properties>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
