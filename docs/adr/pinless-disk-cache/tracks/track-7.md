@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -72,14 +72,14 @@
   > **Key files:** `SharedLinkBagBTree.java` (modified), `FreeSpaceMap.java` (modified),
   > `CollectionPositionMapV2.java` (modified)
 
-- [ ] Step 5: Remove executeReadOperation/readUnderLock from AtomicOperationsManager + clean up tests
-  > Delete `executeReadOperation()` and `readUnderLock()` from
-  > `AtomicOperationsManager.java`. Remove `component.stampedLock` field references.
-  > Update stale Javadoc/comments referencing `StampedLock` in
-  > `acquireExclusiveLockTillOperationComplete()` and `releaseLocks()` (R8).
-  > Delete or rewrite `ExecuteReadOperationTest.java` (1317 lines) — tests for removed
-  > methods are no longer valid (T7/R3). Verify compilation succeeds (any missed
-  > unwrap becomes a compile error).
+- [x] Step 5: Remove executeReadOperation/readUnderLock from AtomicOperationsManager + clean up tests
+  > **What was done:** Deleted `executeReadOperation()`, `readUnderLock()`, and the private
+  > `throwAsIOOrRuntime()` helper from AtomicOperationsManager. Removed unused `Callable`
+  > import. Deleted `lockShared()`/`unlockShared()` delegates from DurableComponent (added
+  > in Step 1, now unused). Deleted `ExecuteReadOperationTest.java` (1243 lines) — all
+  > tests exercised the removed methods. StampedLock Javadoc was already updated in Step 1;
+  > current `acquireExclusiveLockTillOperationComplete` Javadoc correctly references
+  > ReentrantReadWriteLock. Compilation and all Cucumber feature tests pass.
   >
-  > **Files:** `AtomicOperationsManager.java` (modified), `ExecuteReadOperationTest.java`
-  > (deleted or rewritten)
+  > **Key files:** `AtomicOperationsManager.java` (modified), `DurableComponent.java`
+  > (modified), `ExecuteReadOperationTest.java` (deleted)
