@@ -90,6 +90,13 @@ Then iterate:
      remain, spawn only the test-quality-reviewer; if only code findings
      remain, spawn only the code-reviewer; if both have open findings,
      spawn both in parallel.
+   - **Context consumption check** (after each iteration, except the
+     last): run `cat /tmp/claude-code-context-usage-$PPID.txt`. If the
+     level is `warning` (≥25%) or `critical` (≥40%), do NOT start the
+     next iteration. Save all work (update Progress section with current
+     iteration count, commit) and ask the user for a session refresh
+     (see workflow.md §Context Consumption Check). If the file does not
+     exist or the level is `safe`/`info`, continue to the next iteration.
 2. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across both review types (not independent
