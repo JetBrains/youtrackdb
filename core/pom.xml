@@ -225,6 +225,18 @@
             <version>${surefire.version}</version>
           </dependency>
         </dependencies>
+        <configuration>
+          <systemPropertyVariables>
+            <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
+          </systemPropertyVariables>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+            </property>
+          </properties>
+        </configuration>
         <executions>
           <!--
             Parallel execution: runs all project tests EXCEPT @Category(SequentialTest).
@@ -248,16 +260,6 @@
               <classpathDependencyExcludes>
                 <classpathDependencyExclude>io.youtrackdb:gremlin-test</classpathDependencyExclude>
               </classpathDependencyExcludes>
-              <systemPropertyVariables>
-                <buildDirectory>${project.build.directory}</buildDirectory>
-                <build.dir>${project.build.directory}</build.dir>
-              </systemPropertyVariables>
-              <properties>
-                <property>
-                  <name>listener</name>
-                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
-                </property>
-              </properties>
             </configuration>
           </execution>
           <!--
@@ -274,16 +276,6 @@
             </goals>
             <configuration>
               <groups>com.jetbrains.youtrackdb.internal.SequentialTest</groups>
-              <systemPropertyVariables>
-                <buildDirectory>${project.build.directory}</buildDirectory>
-                <build.dir>${project.build.directory}</build.dir>
-              </systemPropertyVariables>
-              <properties>
-                <property>
-                  <name>listener</name>
-                  <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
-                </property>
-              </properties>
             </configuration>
           </execution>
         </executions>
