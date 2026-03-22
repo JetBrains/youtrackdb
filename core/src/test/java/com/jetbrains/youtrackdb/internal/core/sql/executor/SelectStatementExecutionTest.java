@@ -9016,4 +9016,70 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(2L, posts1);
     Assert.assertEquals(1L, comments1);
   }
+
+  /**
+   * Verifies that three LET subqueries sharing the same inner FROM subquery
+   * are correctly materialized and produce independent results. Each applies
+   * a different WHERE filter to the same expanded edge set.
+   */
+  @Test
+  public void testMaterializedLet_threeEntriesSameBase() {
+    session.execute("CREATE CLASS TriPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TriMessage EXTENDS V").close();
+    session.execute("CREATE CLASS TriCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX TriPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 2 posts, 3 comments, 1 draft
+    for (int i = 0; i < 6; i++) {
+      String type = (i < 2) ? "Post" : (i < 5) ? "Comment" : "Draft";
+      session.execute(
+          "CREATE VERTEX TriMessage SET type = '" + type + "'").close();
+      session.execute(
+          "CREATE EDGE TriCreator FROM"
+              + " (SELECT FROM TriMessage WHERE type = '" + type
+              + "' AND @rid NOT IN (SELECT in('TriCreator') FROM TriPerson))"
+              + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    // Three LET entries with the same inner subquery but different filters.
+    String query =
+        "SELECT name,"
+            + " $posts[0].cnt as postCount,"
+            + " $comments[0].cnt as commentCount,"
+            + " $drafts[0].cnt as draftCount"
+            + " FROM TriPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Comment'),"
+            + " $drafts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Draft')"
+            + " WHERE @rid = " + personRid;
+
+    session.begin();
+    var rs = session.query(query);
+    Assert.assertTrue(rs.hasNext());
+    var row = rs.next();
+    Assert.assertEquals(2L,
+        ((Number) row.getProperty("postCount")).longValue());
+    Assert.assertEquals(3L,
+        ((Number) row.getProperty("commentCount")).longValue());
+    Assert.assertEquals(1L,
+        ((Number) row.getProperty("draftCount")).longValue());
+    rs.close();
+    session.commit();
+  }
 }
