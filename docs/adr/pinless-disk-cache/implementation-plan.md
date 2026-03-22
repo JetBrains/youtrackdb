@@ -1911,6 +1911,8 @@ Phase 5: Remove component-level read lock from happy path
   > this is a real regression (passes on develop), deferred to Track 9.
   >
   > **Step file:** `tracks/track-8.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 8 fixed rebase-related test failures; DatabaseImportTest OOM deferred to Track 9 as planned.
 
 - [ ] Track 9: Fix DatabaseImportTest OOM regression
   > Investigate and fix the surefire fork OOM crash in `DatabaseImportTest`, which
