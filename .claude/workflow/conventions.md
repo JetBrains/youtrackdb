@@ -32,6 +32,11 @@ defaulting to the current git branch name.
 docs/adr/<dir-name>/
   implementation-plan.md          <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries
+  design.md                       <- design-level: class diagrams, workflow
+                                     diagrams, complex/opaque part explanations
+                                     (created in Phase 1, never modified after)
+  design-final.md                 <- post-implementation design document reflecting
+                                     what was actually built (created in Phase 4)
   tracks/
     track-1.md                    <- tactical: decomposed steps, step episodes
     track-2.md
