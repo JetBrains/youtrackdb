@@ -143,6 +143,50 @@
         </plugins>
       </build>
     </profile>
+
+    <!-- Run DurableComponent integration tests with a small disk cache (16 MB)
+         to exercise optimistic read fallback under heavy eviction pressure.
+         Command: ./mvnw -pl core clean verify -P small-cache-it -->
+    <profile>
+      <id>small-cache-it</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <skipTests>true</skipTests>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <systemPropertyVariables>
+                <youtrackdb.storage.diskCache.bufferSize>16
+                </youtrackdb.storage.diskCache.bufferSize>
+                <youtrackdb.test.env>ci</youtrackdb.test.env>
+              </systemPropertyVariables>
+              <includes>
+                <include>**/index/sbtree/singlevalue/v3/BTreeTestIT.java</include>
+                <include>**/index/edgebtree/btree/BTreeTestIT.java</include>
+                <include>**/collection/v2/LocalPaginatedCollectionV2TestIT.java</include>
+                <include>**/collection/v2/FreeSpaceMapTestIT.java</include>
+              </includes>
+            </configuration>
+            <executions>
+              <execution>
+                <id>small-cache-integration-test</id>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
 
