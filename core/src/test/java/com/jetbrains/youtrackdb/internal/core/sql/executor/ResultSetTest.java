@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -593,6 +594,69 @@ public class ResultSetTest extends DbTestBase {
         Assert.assertNotNull("astar should return a non-null path", path);
         Assert.assertTrue("Path should have at least 2 vertices", path.size() >= 2);
       }
+    });
+  }
+
+  /**
+   * Verify DELETE EDGE with only a TO clause (no FROM) exercises
+   * FetchEdgesToVerticesStep, which fetches incoming edges to a specified vertex.
+   * This covers the stream-to-Result mapping in FetchEdgesToVerticesStep.edges()
+   * when only a TO clause is specified (no FROM), and the matchesClass filter that
+   * selects only edges of the specified class.
+   */
+  @Test
+  public void testDeleteEdgeToVertexOnly() {
+    session.createVertexClass("DelToV");
+    session.createEdgeClass("DelToE");
+    session.createEdgeClass("DelToOther");
+
+    // Create: v1 --DelToE--> v2, v3 --DelToE--> v2, v4 --DelToOther--> v2
+    // The DelToOther edge should survive deletion of DelToE edges.
+    var v2Rid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex("DelToV");
+      v1.setString("name", "src1");
+      var v2 = tx.newVertex("DelToV");
+      v2.setString("name", "target");
+      var v3 = tx.newVertex("DelToV");
+      v3.setString("name", "src2");
+      var v4 = tx.newVertex("DelToV");
+      v4.setString("name", "src3");
+      v1.addEdge(v2, "DelToE");
+      v3.addEdge(v2, "DelToE");
+      v4.addEdge(v2, "DelToOther");
+      return v2.getIdentity();
+    });
+
+    // Verify all 3 edges were actually created before deleting
+    session.executeInTx(tx -> {
+      var v2 = tx.load(v2Rid).asVertex();
+      int preCount = 0;
+      for (var ignored : v2.getEdges(Direction.IN)) {
+        preCount++;
+      }
+      Assert.assertEquals("v2 should have 3 incoming edges before delete", 3, preCount);
+    });
+
+    // DELETE EDGE TO <vertex> without FROM — triggers FetchEdgesToVerticesStep
+    session.begin();
+    session.execute(
+        "DELETE EDGE DelToE TO (SELECT FROM DelToV WHERE name = 'target')").close();
+    session.commit();
+
+    // Verify only DelToE edges were deleted; DelToOther edge survives
+    session.executeInTx(tx -> {
+      var v2 = tx.load(v2Rid).asVertex();
+      int delToECount = 0;
+      int otherCount = 0;
+      for (var e : v2.getEdges(Direction.IN)) {
+        if ("DelToE".equals(e.getSchemaClassName())) {
+          delToECount++;
+        } else if ("DelToOther".equals(e.getSchemaClassName())) {
+          otherCount++;
+        }
+      }
+      Assert.assertEquals("All DelToE incoming edges should be deleted", 0, delToECount);
+      Assert.assertEquals("DelToOther edge should survive", 1, otherCount);
     });
   }
 

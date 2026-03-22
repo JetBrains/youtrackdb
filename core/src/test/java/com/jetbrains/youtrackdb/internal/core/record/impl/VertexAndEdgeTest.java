@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -208,6 +209,26 @@ public class VertexAndEdgeTest extends DbTestBase {
       var edge = tx.newEdge(v1, v2, edgeClass);
       assertThat(edge).isNotNull();
       assertThat(edge.getSchemaClassName()).isEqualTo("SchemaEdgeE");
+    });
+  }
+
+  /**
+   * Verify that DatabaseSessionEmbedded.newEdge(from, to, SchemaClass) with null
+   * SchemaClass defaults to the base "E" edge type and correctly connects the vertices.
+   * This covers the null SchemaClass fallback in
+   * DatabaseSessionEmbedded.newEdge(Vertex, Vertex, SchemaClass).
+   */
+  @Test
+  public void testNewEdgeWithNullSchemaClass() {
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex();
+      var v2 = tx.newVertex();
+      // Call session.newEdge (not tx.newEdge) to directly exercise
+      // DatabaseSessionEmbedded.newEdge(Vertex, Vertex, SchemaClass) null-guard
+      var edge = session.newEdge(v1, v2, (SchemaClass) null);
+      assertThat(edge.getSchemaClassName()).isEqualTo("E");
+      assertThat(edge.getFrom().getIdentity()).isEqualTo(v1.getIdentity());
+      assertThat(edge.getTo().getIdentity()).isEqualTo(v2.getIdentity());
     });
   }
 
