@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -41,8 +41,10 @@
   > **Key files:** `GlobalConfiguration.java` (modified),
   > `ByteBufferPool.java` (modified), `WOWCache.java` (modified)
 
-- [ ] Step: Verify DatabaseImportTest passes and run full core test suite
-  Run `DatabaseImportTest` in isolation to confirm the OOM is resolved. Then run
-  the full core test suite (`./mvnw -pl core clean test -Dyoutrackdb.test.env=ci`)
-  to verify no regressions. This is a verification-only step with no code changes
-  — the commit records the verification result in the step episode.
+- [x] Step: Verify DatabaseImportTest passes and run full core test suite
+  > **What was done:** Ran `DatabaseImportTest` in isolation — passes in
+  > 14 seconds (previously OOM'd or hung). Ran full core test suite with
+  > `-Dyoutrackdb.test.env=ci`: 9535 tests, 0 failures, 0 errors.
+  > Build time: ~65 minutes (includes Cucumber feature tests).
+  >
+  > **Key files:** No code changes — verification only.
