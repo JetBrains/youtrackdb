@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -631,8 +630,7 @@ public class AtomicOperationsTableTest {
             startLatch.await();
             for (var i = 0; i < snapshotsPerReader; i++) {
               var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
-              // Just ensure snapshot is consistent (no exceptions)
-              assertNotNull(snapshot.inProgressTxs());
+              verifySnapshotConsistency(snapshot);
               Thread.yield();
             }
           } catch (Throwable e) {
@@ -890,6 +888,83 @@ public class AtomicOperationsTableTest {
     assertEquals(-1, table.getSegmentEarliestNotPersistedOperation());
   }
 
+  /// After compaction advances the offset, attempting to start an operation with
+  /// a timestamp below the new offset must throw IllegalStateException because
+  /// the slot no longer exists in the table.
+  @Test(expected = IllegalStateException.class)
+  public void testOperationBelowOffsetAfterCompactionThrows() {
+    var table = new AtomicOperationsTable(10, 0);
+
+    // Complete operations 0-4 and compact
+    for (var i = 0; i < 5; i++) {
+      table.startOperation(i, i);
+      table.commitOperation(i);
+      table.persistOperation(i);
+    }
+    table.compactTable();
+
+    // Attempt to start an operation with a timestamp below the new offset —
+    // should fail because the offset has advanced past timestamp 0
+    table.startOperation(0, 10);
+  }
+
+  /// Compaction must correctly prune a mix of PERSISTED and ROLLED_BACK entries
+  /// at the front of the table, stopping at the first active entry.
+  @Test
+  public void testCompactionPrunesMixedTerminalStates() {
+    var table = new AtomicOperationsTable(100, 0);
+
+    // Create a mix: persisted, rolled-back, persisted, then in-progress
+    table.startOperation(0, 10);
+    table.commitOperation(0);
+    table.persistOperation(0); // PERSISTED
+
+    table.startOperation(1, 11);
+    table.rollbackOperation(1); // ROLLED_BACK
+
+    table.startOperation(2, 12);
+    table.commitOperation(2);
+    table.persistOperation(2); // PERSISTED
+
+    table.startOperation(3, 13); // IN_PROGRESS
+
+    table.compactTable();
+
+    // Only the in-progress operation at ts=3 should remain
+    assertEquals(13, table.getSegmentEarliestOperationInProgress());
+
+    // Verify snapshot correctness after compaction
+    var snapshot = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snapshot.inProgressTxs().size());
+    assertTrue(snapshot.inProgressTxs().contains(3));
+    assertEquals(3, snapshot.minActiveOperationTs());
+  }
+
+  /// Calling compactTable() twice in succession when the first compaction already
+  /// removed all purgeable entries — the second call should be a no-op.
+  @Test
+  public void testDoubleCompactionIsIdempotent() {
+    var table = new AtomicOperationsTable(10, 0);
+
+    table.startOperation(0, 10);
+    table.commitOperation(0);
+    table.persistOperation(0);
+    table.startOperation(1, 11); // IN_PROGRESS
+
+    table.compactTable();
+    // After first compaction: only ts=1 remains
+    assertEquals(11, table.getSegmentEarliestOperationInProgress());
+
+    table.compactTable();
+    // Second compaction should be no-op (ts=1 is IN_PROGRESS, cannot be pruned)
+    assertEquals(11, table.getSegmentEarliestOperationInProgress());
+
+    // Verify snapshot still correct
+    var snapshot = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snapshot.inProgressTxs().size());
+    assertTrue(snapshot.inProgressTxs().contains(1));
+  }
+
   @Test
   public void testOutOfOrderCommits() {
     var table = new AtomicOperationsTable(100, 0);
@@ -1082,12 +1157,12 @@ public class AtomicOperationsTableTest {
   }
 
   /// Verifies that the cached min survives compaction correctly: after
-  /// compaction restructures segments, snapshots still return accurate results.
+  /// compaction prunes completed entries, snapshots still return accurate results.
   @Test
   public void testCachedMinAfterCompaction() {
     var table = new AtomicOperationsTable(10, 1);
 
-    // Create enough operations to build up segments
+    // Create enough operations to build up the table
     for (var i = 1; i <= 15; i++) {
       table.startOperation(i, i);
       if (i <= 10) {
@@ -1101,7 +1176,7 @@ public class AtomicOperationsTableTest {
     assertEquals(11, snap1.minActiveOperationTs());
     assertEquals(15, snap1.maxActiveOperationTs());
 
-    // Force compaction — segments restructure but active ops don't change
+    // Force compaction — table compacts but active ops don't change
     table.compactTable();
 
     // Snapshot after compaction should show same active set
@@ -1299,15 +1374,15 @@ public class AtomicOperationsTableTest {
     assertTrue(snap.inProgressTxs().contains(300));
   }
 
-  /// Creates operations spanning multiple segments with a small compaction
-  /// interval, then verifies that the snapshot correctly skips completed
-  /// segments via scan range narrowing.
+  /// Creates many operations with a small compaction interval, then verifies
+  /// that the snapshot correctly finds active operations after compaction
+  /// prunes completed entries and narrows the scan range.
   @Test
-  public void testMultiSegmentScanRangeSkipping() {
-    // Small compaction interval to create multiple segments
+  public void testScanRangeSkippingAfterCompaction() {
+    // Small compaction interval to trigger compaction
     var table = new AtomicOperationsTable(5, 1);
 
-    // Start 20 operations (spanning multiple segments)
+    // Start 20 operations
     for (var i = 1; i <= 20; i++) {
       table.startOperation(i, i);
     }
@@ -1320,10 +1395,10 @@ public class AtomicOperationsTableTest {
       }
     }
 
-    // Force compaction to restructure segments
+    // Force compaction to prune completed entries
     table.compactTable();
 
-    // Snapshot should find exactly ts=15 and ts=18 despite segment restructuring
+    // Snapshot should find exactly ts=15 and ts=18 despite compaction
     var snap = table.snapshotAtomicOperationTableState(100);
     assertEquals(15, snap.minActiveOperationTs());
     assertEquals(18, snap.maxActiveOperationTs());
