@@ -9082,4 +9082,78 @@ public class SelectStatementExecutionTest extends DbTestBase {
     rs.close();
     session.commit();
   }
+
+  /**
+   * Verifies that a LET expression ($total) referencing a materialized LET
+   * subquery ($posts) produces correct results. The subquery is part of a
+   * materialized group (shared inner FROM), while the expression is evaluated
+   * separately. This guards against evaluation order regressions — if
+   * materialization somehow ran $total before $posts, it would get null/wrong
+   * values.
+   */
+  @Test
+  public void testMaterializedLet_expressionReferencesSubquery() {
+    session.execute("CREATE CLASS RefPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RefMessage EXTENDS V").close();
+    session.execute("CREATE CLASS RefCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX RefPerson SET name = 'eve'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 4 posts, 2 comments
+    String[] types = {"Post", "Post", "Post", "Post", "Comment", "Comment"};
+    for (int i = 0; i < types.length; i++) {
+      session.execute(
+          "CREATE VERTEX RefMessage SET type = '" + types[i] + "'").close();
+    }
+    for (int i = 0; i < types.length; i++) {
+      session.execute(
+          "CREATE EDGE RefCreator FROM"
+              + " (SELECT FROM RefMessage WHERE type = '" + types[i]
+              + "' AND @rid NOT IN"
+              + " (SELECT in('RefCreator') FROM RefPerson))"
+              + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    // $posts and $comments share the same inner FROM → materialized group.
+    // $total is an expression referencing $posts and $comments → evaluated
+    // after the group, must see the correct values.
+    String query =
+        "SELECT name,"
+            + " $posts[0].cnt as postCount,"
+            + " $comments[0].cnt as commentCount,"
+            + " $total as totalCount"
+            + " FROM RefPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('RefCreator')) FROM RefPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('RefCreator')) FROM RefPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Comment'),"
+            + " $total = $posts[0].cnt + $comments[0].cnt"
+            + " WHERE @rid = " + personRid;
+
+    session.begin();
+    var rs = session.query(query);
+    Assert.assertTrue(rs.hasNext());
+    var row = rs.next();
+    Assert.assertEquals(4L,
+        ((Number) row.getProperty("postCount")).longValue());
+    Assert.assertEquals(2L,
+        ((Number) row.getProperty("commentCount")).longValue());
+    // $total = $posts[0].cnt + $comments[0].cnt = 4 + 2 = 6
+    Assert.assertNotNull("$total should not be null",
+        row.getProperty("totalCount"));
+    Assert.assertEquals(6L,
+        ((Number) row.getProperty("totalCount")).longValue());
+    rs.close();
+    session.commit();
+  }
 }
