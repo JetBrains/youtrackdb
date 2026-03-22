@@ -146,9 +146,10 @@ public class AtomicOperationsTable {
   /// ## Visibility Rules
   ///
   /// For a record with timestamp `recordTs`:
-  /// - `recordTs < minActiveOperationTs` → **Visible** (committed before snapshot)
-  /// - `recordTs >= maxActiveOperationTs` → **Not visible** (future or in-progress)
-  /// - `recordTs == minActiveOperationTs` → **Not visible** (snapshot boundary)
+  /// - `recordTs < minActiveOperationTs` → **Visible** (committed before all active ops)
+  /// - `recordTs > snapshotTs` → **Not visible** (truly future, not yet registered)
+  /// - `recordTs > maxActiveOperationTs` → **Visible** (above all in-progress ops,
+  ///   so must be committed; still within the registered range)
   /// - `recordTs` in `inProgressTxs` → **Not visible** (concurrent uncommitted)
   /// - Otherwise → **Visible** (committed between min and max)
   ///
@@ -157,9 +158,13 @@ public class AtomicOperationsTable {
   /// @param maxActiveOperationTs the maximum timestamp among all in-progress operations,
   ///                             or `currentTimestamp + 1` if no operations are active
   /// @param inProgressTxs        set of timestamps for all currently in-progress transactions
+  /// @param snapshotTs            the timestamp at which this snapshot was taken (the last
+  ///                             registered operation ID); any record with a timestamp above
+  ///                             this value is truly future and not visible
   public record AtomicOperationsSnapshot(long minActiveOperationTs,
-                                         long maxActiveOperationTs,
-                                         LongOpenHashSet inProgressTxs) {
+      long maxActiveOperationTs,
+      LongOpenHashSet inProgressTxs,
+      long snapshotTs) {
 
     /// Determines whether a record version with the given timestamp is visible to this snapshot.
     ///
@@ -167,25 +172,33 @@ public class AtomicOperationsTable {
     /// it was committed before the snapshot was taken and is not part of a concurrent
     /// in-progress transaction.
     ///
+    /// The key distinction is between `maxActiveOperationTs` (the highest in-progress
+    /// timestamp — used as a fast-path to skip the hash set lookup) and `snapshotTs`
+    /// (the last registered ID — the true upper visibility bound). Committed transactions
+    /// with timestamps between `maxActiveOperationTs` and `snapshotTs` are correctly
+    /// treated as visible.
+    ///
     /// Note: Rolled-back entries are kept in the system and handled separately;
     /// this method does not filter them out.
     ///
     /// @param recordTs the timestamp of the record version to check
     /// @return `true` if the record version is visible to this snapshot, `false` otherwise
     public boolean isEntryVisible(long recordTs) {
-      //TX is for sure committed, we do keep rolled-back entries
+      // Fast path: committed before all active transactions
       if (recordTs < minActiveOperationTs) {
         return true;
       }
-      //TS is in progress or in the future, so not visible
-      if (recordTs >= maxActiveOperationTs) {
+      // Truly future: not yet registered in the operations table
+      if (recordTs > snapshotTs) {
         return false;
       }
-      //TX is in progress so not visible
-      if (minActiveOperationTs == recordTs) {
-        return false;
+      // Fast path: above all in-progress operations, so must be committed
+      // (all operations with ts <= snapshotTs are registered; this one is not
+      // in inProgressTxs because it's above the max in-progress ts)
+      if (recordTs > maxActiveOperationTs) {
+        return true;
       }
-      //TX is in progress so not visible
+      // In the [min, max] range: check the in-progress set
       return !inProgressTxs.contains(recordTs);
     }
   }
@@ -199,9 +212,9 @@ public class AtomicOperationsTable {
   ///                                starting from this value can be registered in the table
   public AtomicOperationsTable(final int tableCompactionInterval, final long tsOffset) {
     this.tableCompactionInterval = tableCompactionInterval;
-    this.tsOffsets = new long[]{tsOffset};
+    this.tsOffsets = new long[] {tsOffset};
     //noinspection unchecked
-    tables = new CASObjectArray[]{new CASObjectArray<>()};
+    tables = new CASObjectArray[] {new CASObjectArray<>()};
   }
 
   /// Creates an immutable snapshot of the current atomic operations table state.
@@ -340,7 +353,7 @@ public class AtomicOperationsTable {
         }
       }
 
-      return new AtomicOperationsSnapshot(minOp, maxOp, inProgressTs);
+      return new AtomicOperationsSnapshot(minOp, maxOp, inProgressTs, currentTimestamp);
     } finally {
       compactionLock.sharedUnlock();
     }
@@ -689,9 +702,9 @@ public class AtomicOperationsTable {
 
       if (!tablesToRemove.isEmpty() && tables.length > 1) {
         if (tablesToRemove.size() == tables.length) {
-          this.tsOffsets = new long[]{maxId + 1};
+          this.tsOffsets = new long[] {maxId + 1};
           //noinspection unchecked
-          this.tables = new CASObjectArray[]{tables[0]};
+          this.tables = new CASObjectArray[] {tables[0]};
         } else {
           //noinspection unchecked
           CASObjectArray<OperationInformation>[] newTables =
@@ -734,7 +747,7 @@ public class AtomicOperationsTable {
   /// @param operationTs the unique timestamp identifying this operation;
   ///                    serves as both an identifier and ordering key
   private record OperationInformation(AtomicOperationStatus status, long segment,
-                                      long operationTs) {
+      long operationTs) {
 
   }
 }

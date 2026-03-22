@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -177,7 +178,20 @@ public class LocalPaginatedStorageRestoreFromWALIT {
         continue;
       }
 
-      copyFile(storageFile.getAbsolutePath(), copyToPath);
+      try {
+        copyFile(storageFile.getAbsolutePath(), copyToPath);
+      } catch (FileNotFoundException e) {
+        // Double-write log files (.dwl) can be deleted by background checkpoint
+        // operations between listFiles() and copyFile(). The WAL protection in
+        // WalTestUtils only prevents WAL segment truncation, not DWL file deletion.
+        // Skipping deleted DWL files is safe because they are not needed for
+        // WAL-based restore — they protect against torn page writes during normal
+        // operation, and the restore process replays the WAL from scratch.
+        if (storageFile.getName().endsWith(".dwl")) {
+          continue;
+        }
+        throw e;
+      }
     }
   }
 

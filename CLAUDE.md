@@ -155,7 +155,7 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 ## Testing
 
 ### Test Requirements
-- **NEVER run multiple test processes simultaneously.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another. Running tests in parallel across separate Maven processes causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs.
+- **NEVER run multiple test processes simultaneously in the same worktree/directory.** Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another in the same working directory. Running tests in parallel within the same worktree causes classloading errors, database file locking conflicts, and false test failures. This applies to all test execution — unit tests, integration tests, and coverage runs. Tests in separate worktrees/directories do not conflict.
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
