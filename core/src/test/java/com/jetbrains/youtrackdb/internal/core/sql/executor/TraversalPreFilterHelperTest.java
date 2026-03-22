@@ -5,9 +5,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import org.junit.After;
 import org.junit.Test;
 
@@ -321,8 +327,64 @@ public class TraversalPreFilterHelperTest {
 
   @Test
   public void findIndexForFilter_nullContext_returnsNull() {
-    var where = new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause(-1);
+    var where = new SQLWhereClause(-1);
     assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "SomeClass", null))
         .isNull();
+  }
+
+  /** findIndexForFilter returns null when the context has no database session. */
+  @Test
+  public void findIndexForFilter_nullSession_returnsNull() {
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(null);
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "SomeClass", ctx))
+        .isNull();
+  }
+
+  /** findIndexForFilter returns null when the class does not exist in schema. */
+  @Test
+  public void findIndexForFilter_nonExistentClass_returnsNull() {
+    var session =
+        mock(DatabaseSessionEmbedded.class);
+    var metadata =
+        mock(MetadataDefault.class);
+    var schema =
+        mock(ImmutableSchema.class);
+    when(session.getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClassInternal("NoSuchClass")).thenReturn(null);
+
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(session);
+
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(
+        where, "NoSuchClass", ctx)).isNull();
+  }
+
+  /** findIndexForFilter returns null when the class has no indexes. */
+  @Test
+  public void findIndexForFilter_noIndexes_returnsNull() {
+    var session =
+        mock(DatabaseSessionEmbedded.class);
+    var metadata =
+        mock(MetadataDefault.class);
+    var schema =
+        mock(ImmutableSchema.class);
+    var schemaClass =
+        mock(SchemaClassInternal.class);
+    when(session.getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClassInternal("EmptyClass")).thenReturn(schemaClass);
+    when(schemaClass.getIndexesInternal())
+        .thenReturn(java.util.Collections.emptySet());
+
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(session);
+
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(
+        where, "EmptyClass", ctx)).isNull();
   }
 }

@@ -769,6 +769,119 @@ public class IndexSearchDescriptorCostTest {
     assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
   }
 
+  // ── estimateHits() ─────────────────────────────────────────
+
+  /** estimateHits with null key condition returns -1. */
+  @Test
+  public void estimateHits_nullKeyCondition_returnsNegative() {
+    var desc = new IndexSearchDescriptor(index);
+    assertEquals(-1, desc.estimateHits(ctx));
+  }
+
+  /** estimateHits with null statistics returns -1. */
+  @Test
+  public void estimateHits_nullStats_returnsNegative() {
+    when(index.getStatistics(session)).thenReturn(null);
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    assertEquals(-1, desc.estimateHits(ctx));
+  }
+
+  /** estimateHits with zero totalCount returns -1. */
+  @Test
+  public void estimateHits_zeroTotalCount_returnsNegative() {
+    when(index.getStatistics(session))
+        .thenReturn(new IndexStatistics(0, 0, 0));
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    assertEquals(-1, desc.estimateHits(ctx));
+  }
+
+  /** estimateHits with unsupported operator returns -1. */
+  @Test
+  public void estimateHits_unsupportedOperator_returnsNegative() {
+    var bc = new SQLBinaryCondition(-1);
+    bc.setLeft(fieldExpr("age"));
+    var unknownOp = mock(SQLBinaryCompareOperator.class);
+    when(unknownOp.isRangeOperator()).thenReturn(false);
+    bc.setOperator(unknownOp);
+    bc.setRight(valueExpr(42));
+
+    var desc = new IndexSearchDescriptor(index, bc, null, null);
+    assertEquals(-1, desc.estimateHits(ctx));
+  }
+
+  /** estimateHits with equality condition returns positive estimate. */
+  @Test
+  public void estimateHits_equality_returnsPositive() {
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+    var hits = desc.estimateHits(ctx);
+    assertTrue("estimateHits should be positive, was: " + hits, hits >= 1);
+
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 30);
+    assertEquals(
+        Math.max(1, (long) (stats.totalCount() * expectedSel)), hits);
+  }
+
+  /** estimateHits with combined range uses tighter estimate. */
+  @Test
+  public void estimateHits_combinedRange_usesRangeEstimate() {
+    var lower = binaryCondition("age", new SQLGeOperator(-1), 20);
+    var upper = binaryCondition("age", new SQLLtOperator(-1), 30);
+    var desc = new IndexSearchDescriptor(index, lower, upper, null);
+
+    var hits = desc.estimateHits(ctx);
+
+    var expectedSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 30, true, false);
+    assertEquals(
+        Math.max(1, (long) (stats.totalCount() * expectedSel)), hits);
+  }
+
+  /** estimateHits with composite index multiplies default selectivity. */
+  @Test
+  public void estimateHits_compositeIndex_multipliesDefaultSelectivity() {
+    var compositeDef = mock(IndexDefinition.class);
+    when(compositeDef.getProperties())
+        .thenReturn(List.of("age", "name"));
+    when(index.getDefinition()).thenReturn(compositeDef);
+
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 30));
+    andBlock.addSubBlock(
+        binaryCondition("name", new SQLGeOperator(-1), "A"));
+
+    var desc = new IndexSearchDescriptor(index, andBlock, null, null);
+    var hits = desc.estimateHits(ctx);
+
+    var leadingSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 30);
+    var combinedSel =
+        leadingSel * SelectivityEstimator.defaultSelectivity();
+    assertEquals(
+        Math.max(1, (long) (stats.totalCount() * combinedSel)), hits);
+  }
+
+  /** estimateHits always returns at least 1 even for tiny selectivity. */
+  @Test
+  public void estimateHits_floorIsOne() {
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 999_999),
+        null, null);
+    var hits = desc.estimateHits(ctx);
+    assertTrue("estimateHits floor should be 1, was: " + hits, hits >= 1);
+  }
+
   // ── Helpers ──────────────────────────────────────────────────
 
   /**
