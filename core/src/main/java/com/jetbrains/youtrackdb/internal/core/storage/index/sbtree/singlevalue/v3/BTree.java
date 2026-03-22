@@ -966,38 +966,28 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     try {
       executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            final var pages = new IntOpenHashSet();
-            final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
-
-            for (var i = 2; i < filledUpTo; i++) {
-              pages.add(i);
-            }
-
-            removeUsedPages((int) ROOT_INDEX, pages, atomicOperation);
-            removePagesStoredInFreeList(atomicOperation, pages, filledUpTo);
-
-            assert pages.isEmpty();
-          },
-          () -> {
-            final var pages = new IntOpenHashSet();
-            final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
-
-            for (var i = 2; i < filledUpTo; i++) {
-              pages.add(i);
-            }
-
-            removeUsedPages((int) ROOT_INDEX, pages, atomicOperation);
-            removePagesStoredInFreeList(atomicOperation, pages, filledUpTo);
-
-            assert pages.isEmpty();
-          });
+          () -> doAssertFreePages(atomicOperation),
+          () -> doAssertFreePages(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during checking  of btree with name " + getName(), this),
           e, storage.getName());
     }
+  }
+
+  private void doAssertFreePages(AtomicOperation atomicOperation) throws IOException {
+    final var pages = new IntOpenHashSet();
+    final var filledUpTo = (int) getFilledUpTo(atomicOperation, fileId);
+
+    for (var i = 2; i < filledUpTo; i++) {
+      pages.add(i);
+    }
+
+    removeUsedPages((int) ROOT_INDEX, pages, atomicOperation);
+    removePagesStoredInFreeList(atomicOperation, pages, filledUpTo);
+
+    assert pages.isEmpty();
   }
 
   private void removeUsedPages(

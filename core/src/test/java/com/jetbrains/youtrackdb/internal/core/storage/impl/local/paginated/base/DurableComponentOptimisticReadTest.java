@@ -365,6 +365,97 @@ public class DurableComponentOptimisticReadTest {
     assertEquals(true, pinnedRan[0]);
   }
 
+  // --- Tests for RuntimeException catch widening (Q1) ---
+  // After widening the catch clause from OptimisticReadFailedException to RuntimeException,
+  // these tests verify that arbitrary RuntimeExceptions thrown by the optimistic lambda
+  // (simulating speculative reads from stale/reused PageFrames) correctly trigger fallback
+  // to the pinned path.
+
+  @Test
+  public void testFallbackOnArrayIndexOutOfBoundsFromStaleRead() throws IOException {
+    // AIOOBE from a speculative read on a stale/reused PageFrame should trigger fallback.
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          throw new ArrayIndexOutOfBoundsException("stale frame data");
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+  }
+
+  @Test
+  public void testFallbackOnNullPointerExceptionFromStaleRead() throws IOException {
+    // NPE from a speculative read on a stale frame should trigger fallback.
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          throw new NullPointerException("stale pointer");
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+  }
+
+  @Test
+  public void testFallbackOnIllegalStateExceptionFromStaleRead() throws IOException {
+    // IllegalStateException from stale frame should trigger fallback.
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          throw new IllegalStateException("stale state");
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+  }
+
+  @Test
+  public void testVoidVariantFallbackOnArbitraryRuntimeException() throws IOException {
+    // Void variant should also catch RuntimeException and fall back.
+    final boolean[] pinnedRan = {false};
+    component.testExecuteOptimisticStorageReadVoid(
+        mockAtomicOp,
+        () -> {
+          throw new IllegalStateException("stale data");
+        },
+        () -> pinnedRan[0] = true);
+
+    assertEquals(true, pinnedRan[0]);
+  }
+
+  @Test
+  public void testMultiPageOptimisticReadRecordsAllAccesses() throws IOException {
+    // A real BTree.get() reads multiple pages (root + internal nodes + leaf).
+    // Verify that all pages in a single optimistic read are tracked in the scope
+    // and that recordOptimisticAccess is called for each.
+    var frame1 = acquireFrameWithCoordinates(FILE_ID, 0);
+    var frame2 = acquireFrameWithCoordinates(FILE_ID, 1);
+    var frame3 = acquireFrameWithCoordinates(FILE_ID, 2);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 0)).thenReturn(frame1);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 1)).thenReturn(frame2);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 2)).thenReturn(frame3);
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 0);
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 1);
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 2);
+          return "multi-page-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("multi-page-result", result);
+    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 0);
+    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 1);
+    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 2);
+
+    releaseFrame(frame1);
+    releaseFrame(frame2);
+    releaseFrame(frame3);
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();
