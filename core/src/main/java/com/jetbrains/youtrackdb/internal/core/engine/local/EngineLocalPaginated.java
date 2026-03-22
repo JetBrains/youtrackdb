@@ -61,7 +61,7 @@ public class EngineLocalPaginated extends EngineAbstract {
   private static int getOpenFilesLimit() {
     if (GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger() > 0) {
       final var additionalArgs =
-          new Object[]{GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger()};
+          new Object[] {GlobalConfiguration.OPEN_FILES_LIMIT.getValueAsInteger()};
       LogManager.instance()
           .info(
               EngineLocalPaginated.class,
@@ -90,7 +90,6 @@ public class EngineLocalPaginated extends EngineAbstract {
     }
 
     MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
-    super.startup();
 
     final var diskCacheSize =
         calculateReadCacheMaxMemory(
@@ -115,13 +114,17 @@ public class EngineLocalPaginated extends EngineAbstract {
       pages.clear();
     }
 
+    // Initialize readCache BEFORE setting running=true via super.startup().
+    // Otherwise, a concurrent thread in onEmbeddedFactoryInit() may see
+    // isRunning()==true and skip startup, then call createStorage() while
+    // readCache is still null.
     readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    super.startup();
   }
 
   private static long calculateReadCacheMaxMemory(final long cacheSize) {
-    return (long)
-        (cacheSize
-            * ((100 - GlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0));
+    return (long) (cacheSize
+        * ((100 - GlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0));
   }
 
   /**

@@ -1058,29 +1058,45 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
+  // Guards init/close to prevent TOCTOU races where a concurrent close
+  // sees an empty factories set (between remove and add) and shuts down engines
+  // while another thread is still initializing or using them.
+  // Uses ReentrantLock instead of synchronized to be virtual-thread friendly.
+  private final ReentrantLock factoryLifecycleLock = new ReentrantLock();
+
   public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
-    var memory = engines.get("memory");
-    if (memory != null && !memory.isRunning()) {
-      memory.startup();
+    factoryLifecycleLock.lock();
+    try {
+      var memory = engines.get("memory");
+      if (memory != null && !memory.isRunning()) {
+        memory.startup();
+      }
+      var disc = engines.get("disk");
+      if (disc != null && !disc.isRunning()) {
+        disc.startup();
+      }
+      factories.add(embeddedFactory);
+    } finally {
+      factoryLifecycleLock.unlock();
     }
-    var disc = engines.get("disk");
-    if (disc != null && !disc.isRunning()) {
-      disc.startup();
-    }
-    factories.add(embeddedFactory);
   }
 
   public void onEmbeddedFactoryClose(YouTrackDBInternalEmbedded embeddedFactory) {
-    factories.remove(embeddedFactory);
-    if (factories.isEmpty()) {
-      var memory = engines.get("memory");
-      if (memory != null && memory.isRunning()) {
-        memory.shutdown();
+    factoryLifecycleLock.lock();
+    try {
+      factories.remove(embeddedFactory);
+      if (factories.isEmpty()) {
+        var memory = engines.get("memory");
+        if (memory != null && memory.isRunning()) {
+          memory.shutdown();
+        }
+        var disc = engines.get("disk");
+        if (disc != null && disc.isRunning()) {
+          disc.shutdown();
+        }
       }
-      var disc = engines.get("disk");
-      if (disc != null && disc.isRunning()) {
-        disc.shutdown();
-      }
+    } finally {
+      factoryLifecycleLock.unlock();
     }
   }
 
