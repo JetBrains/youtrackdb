@@ -1146,8 +1146,9 @@ public class IncrementalMaintenanceTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

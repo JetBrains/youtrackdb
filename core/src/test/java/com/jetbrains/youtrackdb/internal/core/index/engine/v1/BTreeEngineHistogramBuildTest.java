@@ -279,11 +279,10 @@ public class BTreeEngineHistogramBuildTest {
             BinarySerializerFactory.currentBinaryFormatVersion()),
         (byte) 0);
 
-    // When no AtomicOperation is provided, statsFileExists delegates
-    // to writeCache.exists()
-    when(writeCache.exists("test-idx.ixs")).thenReturn(true);
-    // statsFileExists(null) → isFileExists(null, fullName) → writeCache.exists
-    assertEquals(true, mgr.statsFileExists(null));
+    // statsFileExists delegates to atomicOperation.isFileExists(fullName)
+    var atomicOp = mock(AtomicOperation.class);
+    when(atomicOp.isFileExists("test-idx.ixs")).thenReturn(true);
+    assertEquals(true, mgr.statsFileExists(atomicOp));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
