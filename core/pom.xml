@@ -166,6 +166,11 @@
                 <youtrackdb.storage.diskCache.bufferSize>16
                 </youtrackdb.storage.diskCache.bufferSize>
                 <youtrackdb.test.env>ci</youtrackdb.test.env>
+                <!-- Reduce BTree dataset sizes for fast eviction testing -->
+                <youtrackdb.test.btree.keysCount>10000
+                </youtrackdb.test.btree.keysCount>
+                <youtrackdb.test.btree.maxPower>14
+                </youtrackdb.test.btree.maxPower>
               </systemPropertyVariables>
               <includes>
                 <include>**/index/sbtree/singlevalue/v3/BTreeTestIT.java</include>

@@ -33,6 +33,14 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class BTreeTestIT {
 
+  /**
+   * Number of keys used in large-dataset tests. Override via system property
+   * {@code youtrackdb.test.btree.keysCount} to reduce dataset size for
+   * small-cache integration testing (e.g., 10_000 instead of 1_000_000).
+   */
+  private static final int KEYS_COUNT =
+      Integer.getInteger("youtrackdb.test.btree.keysCount", 1_000_000);
+
   private AtomicOperationsManager atomicOperationsManager;
   private BTree<String> singleValueTree;
   private YouTrackDBImpl youTrackDB;
@@ -73,7 +81,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyPut() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     final var rollbackInterval = 100;
     var lastKey = new String[1];
@@ -141,7 +149,7 @@ public class BTreeTestIT {
   public void testKeyPutRandomUniform() throws Exception {
     final NavigableSet<String> keys = new TreeSet<>();
     final var random = new Random();
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     final var rollbackRange = 100;
     while (keys.size() < keysCount) {
@@ -188,7 +196,7 @@ public class BTreeTestIT {
     System.out.println("testKeyPutRandomGaussian seed : " + seed);
 
     var random = new Random(seed);
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
     final var rollbackRange = 100;
 
     while (keys.size() < keysCount) {
@@ -234,7 +242,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyDeleteRandomUniform() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     NavigableSet<String> keys = new TreeSet<>();
     for (var i = 0; i < keysCount; i++) {
@@ -290,7 +298,7 @@ public class BTreeTestIT {
   @Test
   public void testKeyDeleteRandomGaussian() throws Exception {
     NavigableSet<String> keys = new TreeSet<>();
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
     var seed = System.currentTimeMillis();
     System.out.println("testKeyDeleteRandomGaussian seed : " + seed);
     var random = new Random(seed);
@@ -355,7 +363,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyDelete() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     for (var i = 0; i < keysCount; i++) {
       final var k = i;
@@ -404,7 +412,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyAddDelete() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     for (var i = 0; i < keysCount; i++) {
       final var key = i;
@@ -475,7 +483,7 @@ public class BTreeTestIT {
     for (var iterations = 0; iterations < 4; iterations++) {
       System.out.println("testKeyAddDeleteAll : iteration " + iterations);
 
-      final var keysCount = 1_000_000;
+      final var keysCount = KEYS_COUNT;
 
       for (var i = 0; i < keysCount; i++) {
         final var key = i;
@@ -524,7 +532,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyAddDeleteHalf() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     for (var i = 0; i < keysCount / 2; i++) {
       final var key = i;
@@ -582,7 +590,7 @@ public class BTreeTestIT {
 
   @Test
   public void testKeyCursor() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     NavigableMap<String, RID> keyValues = new TreeMap<>();
     final var seed = System.nanoTime();
@@ -638,7 +646,7 @@ public class BTreeTestIT {
 
   @Test
   public void testIterateEntriesMajor() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
 
     NavigableMap<String, RID> keyValues = new TreeMap<>();
     final var seed = System.nanoTime();
@@ -698,7 +706,7 @@ public class BTreeTestIT {
 
   @Test
   public void testIterateEntriesMinor() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
     NavigableMap<String, RID> keyValues = new TreeMap<>();
 
     final var seed = System.nanoTime();
@@ -751,7 +759,7 @@ public class BTreeTestIT {
 
   @Test
   public void testIterateEntriesBetween() throws Exception {
-    final var keysCount = 1_000_000;
+    final var keysCount = KEYS_COUNT;
     NavigableMap<String, RID> keyValues = new TreeMap<>();
     final var random = new Random();
 

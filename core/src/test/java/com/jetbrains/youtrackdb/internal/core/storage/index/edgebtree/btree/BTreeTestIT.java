@@ -45,9 +45,21 @@ public class BTreeTestIT {
   private static AbstractStorage storage;
   private static String buildDirectory;
 
+  /**
+   * Maximum power of 2 for key counts. Override via system property
+   * {@code youtrackdb.test.btree.maxPower} to reduce dataset sizes for
+   * small-cache integration testing (e.g., 14 → max 16384 keys instead of
+   * default 20 → max 1048576 keys).
+   */
+  private static final int MAX_POWER =
+      Integer.getInteger("youtrackdb.test.btree.maxPower", 20);
+
   @Parameterized.Parameters
   public static Iterable<Integer> keysCount() {
-    return IntStream.range(0, 21).map(val -> 1 << val).boxed().collect(Collectors.toList());
+    return IntStream.range(0, MAX_POWER + 1)
+        .map(val -> 1 << val)
+        .boxed()
+        .collect(Collectors.toList());
   }
 
   private final int keysCount;
