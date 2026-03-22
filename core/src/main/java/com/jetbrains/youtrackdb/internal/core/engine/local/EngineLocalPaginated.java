@@ -149,12 +149,19 @@ public class EngineLocalPaginated extends EngineAbstract {
       int storageId,
       YouTrackDBInternalEmbedded context) {
     try {
+      var cache = readCache;
+      if (cache == null) {
+        throw new DatabaseException(dbName,
+            "Disk engine readCache is null — engine has not been started."
+                + " This indicates a race condition in engine lifecycle management."
+                + " Engine running=" + isRunning());
+      }
 
       return new DiskStorage(
           dbName,
           dbName,
           storageId,
-          readCache,
+          cache,
           files,
           maxWalSegSize,
           doubleWriteLogMaxSegSize,
