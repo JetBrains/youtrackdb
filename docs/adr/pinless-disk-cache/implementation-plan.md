@@ -1860,7 +1860,7 @@ Phase 5: Remove component-level read lock from happy path
   > cases (deleted files, truncated files, new files, existing files) and
   > integrated the guard into `loadPageOptimistic()`.
 
-- [ ] Track 7: Remove component-level read lock from happy path
+- [x] Track 7: Remove component-level read lock from happy path
   > Replace StampedLock with ReentrantReadWriteLock in SharedResourceAbstract.
   > Make set-once fields volatile. Remove executeStorageRead wrappers. Read lock
   > only on fallback path. Eliminate AtomicOperationsManager read dispatch.
@@ -1868,6 +1868,21 @@ Phase 5: Remove component-level read lock from happy path
   > volatile field annotations, wrapper removal per component,
   > AtomicOperationsManager cleanup
   > **Depends on:** Track 5 (Track 6 subsumed by Track 5)
+  >
+  > **Track episode:**
+  > Replaced StampedLock with ReentrantReadWriteLock in SharedResourceAbstract,
+  > eliminating manual exclusive-owner tracking. Removed all
+  > `executeReadOperation`/`readUnderLock` wrappers from BTree (12),
+  > PaginatedCollectionV2 (14), and SharedLinkBagBTree (9). Non-migrated read
+  > methods now route through `executeOptimisticStorageRead` with pinned-only
+  > lambdas; cursor fetch methods use `acquireSharedLock()` directly to avoid
+  > state corruption on retry. Made set-once fields volatile across all
+  > DurableComponent subclasses. Deleted `ExecuteReadOperationTest` (1243 lines)
+  > as all tested methods were removed. Key discovery: cursor fetch methods
+  > mutate spliterator state, requiring explicit shared lock instead of the
+  > optimistic retry pattern.
+  >
+  > **Step file:** `tracks/track-7.md` (5 steps, 0 failed)
 
 - [ ] Track 8: Fix pre-existing test failures from rebase conflict resolution
   > Fix 24 test failures introduced during the develop rebase (commit 990f16fbd3).
