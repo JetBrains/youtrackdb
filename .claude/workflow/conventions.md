@@ -18,7 +18,7 @@ during Phase 3 execution.
 | **Episode** | Structured record of what happened during a step or track. |
 | **Scope indicator** | Rough sketch of expected work in a track. |
 | **Session** | One invocation of `/execute-tracks`. Handles one track (or resumes an incomplete one). Sessions are separated by context clearing. Episodes bridge context across sessions. |
-| **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, code-reviewer, track-level code review). Sub-agents provide fresh perspective; the main agent retains full context. |
+| **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, dimensional code review agents, test quality review). Sub-agents provide fresh perspective; the main agent retains full context. |
 
 ---
 
@@ -131,8 +131,16 @@ reviews (track-review.md), and track-level code review.
   - `T1, T2, ...` for technical review
   - `R1, R2, ...` for risk review
   - `A1, A2, ...` for adversarial review
-  - `C1, C2, ...` for track-level code review
-  - `Q1, Q2, ...` for track-level test quality review
+  - `CQ1, CQ2, ...` for code quality review
+  - `BC1, BC2, ...` for bugs & concurrency review
+  - `CS1, CS2, ...` for crash safety review
+  - `SE1, SE2, ...` for security review
+  - `PF1, PF2, ...` for performance review
+  - `TB1, TB2, ...` for test behavior review
+  - `TC1, TC2, ...` for test completeness review
+  - `TS1, TS2, ...` for test structure review
+  - `TX1, TX2, ...` for test concurrency review
+  - `TY1, TY2, ...` for test crash safety review
 - If blockers persist after 3 iterations, escalate
 - Severity levels: **blocker** / **should-fix** / **suggestion** / **skip** (track reviews only — recommends skipping the entire track)
 

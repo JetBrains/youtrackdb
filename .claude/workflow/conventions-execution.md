@@ -306,45 +306,101 @@ message explains why.
 
 ---
 
-## 2.4 Two-Tier Code Review
+## 2.4 Two-Tier Dimensional Code Review
 
-Code review happens at two levels, catching different classes of issues:
+Code review happens at two levels, both using **five specialized review
+agents** that each focus on a single dimension:
 
-### Step-level code review (within each execution agent step phase)
+| Agent | Dimension | Step prefix | Track prefix |
+|---|---|---|---|
+| `review-code-quality` | Conventions, readability, DRY, API boundaries | `cq1, cq2, ...` | `CQ1, CQ2, ...` |
+| `review-bugs-concurrency` | Logic errors, null safety, thread safety, races, leaks | `bc1, bc2, ...` | `BC1, BC2, ...` |
+| `review-crash-safety` | WAL correctness, durability, atomicity, recovery | `cs1, cs2, ...` | `CS1, CS2, ...` |
+| `review-security` | Injection, auth, data exposure, dependencies | `se1, se2, ...` | `SE1, SE2, ...` |
+| `review-performance` | Complexity, allocations, lock contention, I/O | `pf1, pf2, ...` | `PF1, PF2, ...` |
 
-After implementing and committing, the execution agent runs a code review loop:
+All five agents are launched **in parallel** at both levels. After all
+complete, the execution agent **synthesizes** findings: deduplicates across
+dimensions (merging findings for the same code location), assigns severity
+(blocker / should-fix / suggestion), and attributes each finding to its
+source dimension(s).
 
-1. Delegates review to the **code-reviewer agent** (fresh sub-agent).
-2. If findings are returned, fixes them and re-submits for review.
-3. Repeats until approved OR **max 3 iterations** reached.
-4. Each iteration spawns a fresh code-reviewer sub-agent.
+### Context passed to all review agents
+
+Both step-level and track-level reviews pass the same context structure to
+every agent:
+
+```
+## Review Target
+Track {N}, Step {M}: {description}   (step-level)
+Track {N}: {title}                    (track-level)
+Reviewing: {commit range or description}
+
+## Implementation Plan (strategic context)
+{contents of implementation-plan.md}
+
+## Track Steps (tactical context)
+{contents of tracks/track-N.md}
+
+## Skip These Files (generated code)
+- core/.../sql/parser/*, generated-sources/*, Gremlin DSL
+
+## Diff
+{the diff}
+```
+
+The implementation plan provides strategic context (goals, architecture,
+decision records, episodes from completed tracks). The step file provides
+tactical context (what each step does, what was discovered). Together they
+let each agent understand **why** the code was written this way, not just
+**what** it does.
+
+### Step-level dimensional review (within each execution agent step phase)
+
+After implementing and committing, the execution agent runs a review loop:
+
+1. Launches all five review agents in parallel (fresh sub-agents each
+   iteration).
+2. Synthesizes findings from all five into a unified, deduplicated list.
+3. If findings need fixes, applies them and re-runs only the dimension(s)
+   with open findings.
+4. Repeats until approved OR **max 3 iterations** reached.
 5. If max iterations reached, notes remaining findings in the episode.
    Some findings may be genuinely hard or non-fixable within the step's
    scope — this is an escalation signal, not a "try harder" signal.
 
-**What step-level review catches:** localized code quality — naming, error
-handling, edge cases, test coverage gaps, obvious bugs in the diff.
+**What step-level review catches:** localized issues within a single step's
+diff — naming, error handling, edge cases, null safety, resource leaks,
+obvious concurrency bugs, security gaps in input handling, performance
+anti-patterns.
 
-The code review loop runs **within the execution agent's context** — no context
-clearing between review iterations. The execution agent retains full knowledge
-of why it made each implementation choice, enabling targeted and accurate
-fixes.
+The code review loop runs **within the execution agent's context** — no
+context clearing between review iterations. The execution agent retains
+full knowledge of why it made each implementation choice, enabling targeted
+and accurate fixes.
 
-### Track-level code review (after all steps complete)
+### Track-level dimensional review (after all steps complete)
 
-After all steps are committed, the execution agent spawns **two sub-agents
+After all steps are committed, the execution agent spawns **ten sub-agents
 in parallel** that review the full track diff (`git diff <base>..HEAD`):
 
-1. **Code review** (`code-reviewer` agent type) — reviews the entire track
-   diff for systematic code quality issues.
-2. **Test quality review** (`test-quality-reviewer` agent type) — reviews
-   whether tests are behavior-driven, thorough, and meaningful.
+1. **Five dimensional code review agents** (same five as step-level) —
+   each reviews the entire track diff from its specialized perspective.
+2. **Five dimensional test quality agents** — each reviews test code from
+   its specialized perspective:
 
-Both run in parallel against the same diff. Findings use distinct prefixes
-(`C<N>` for code, `Q<N>` for test quality). The iteration loop merges
-findings from both and re-runs only the review type(s) with open findings.
-Max 3 iterations total (shared counter). See `track-code-review.md` for
-the full protocol.
+| Agent | Dimension | Finding prefix |
+|---|---|---|
+| `review-test-behavior` | Behavior-driven quality, assertion precision, exception testing | `TB1, TB2, ...` |
+| `review-test-completeness` | Corner cases, boundary conditions, test data quality | `TC1, TC2, ...` |
+| `review-test-structure` | Isolation, independence, readability, documentation | `TS1, TS2, ...` |
+| `review-test-concurrency` | Concurrent behavior testing quality | `TX1, TX2, ...` |
+| `review-test-crash-safety` | Crash/recovery test quality, production assert statements | `TY1, TY2, ...` |
+
+All ten run in parallel. The execution agent synthesizes all findings into
+a unified, deduplicated list. The iteration loop re-runs only the agent(s)
+with open findings. Max 3 iterations total (shared counter). See
+`track-code-review.md` for the full protocol.
 
 **What track-level code review catches:** systematic patterns repeated
 across steps, cross-step consistency issues, accumulated technical debt
@@ -355,7 +411,8 @@ interactions.
 **What track-level test quality review catches:** coverage-driven tests
 that exercise code without verifying behavior, shallow or imprecise
 assertions, missing corner cases and boundary conditions, test isolation
-issues, and opportunities for Java `assert` statements in production code.
+issues, concurrency testing gaps, missing crash/recovery test scenarios,
+and opportunities for Java `assert` statements in production code.
 
 ---
 

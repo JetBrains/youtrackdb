@@ -98,12 +98,50 @@ completion**, before moving to the next step:
 3. **Stage and commit** the code changes. You know exactly which files you
    modified, so stage them explicitly (no `git add -A`). Follow the project's
    commit message conventions (see `CLAUDE.md`).
-4. **Code review loop** (up to 3 iterations, within your context):
-   a. Spawn a **code-reviewer sub-agent** (fresh sub-agent each iteration).
-   b. If findings are returned, fix them, commit fixes (using the
-      `Review fix:` prefix — see `commit-conventions.md`), and re-submit.
-   c. Repeat until approved OR **max 3 iterations** reached.
-   d. If max iterations reached, note remaining findings in the episode.
+4. **Dimensional review loop** (up to 3 iterations, within your context):
+   a. Spawn **ten review sub-agents in parallel** (fresh sub-agents each
+      iteration):
+
+      **Five code review agents:**
+      - `review-code-quality` — code quality, conventions, readability
+      - `review-bugs-concurrency` — bugs, logic errors, concurrency
+      - `review-crash-safety` — WAL correctness, durability, crash recovery
+      - `review-security` — injection, auth, data exposure
+      - `review-performance` — complexity, allocations, contention
+
+      **Five test quality agents:**
+      - `review-test-behavior` — behavior-driven quality, assertion precision
+      - `review-test-completeness` — corner cases, boundary conditions
+      - `review-test-structure` — isolation, independence, readability
+      - `review-test-concurrency` — concurrent behavior testing quality
+      - `review-test-crash-safety` — crash/recovery tests, production asserts
+
+      Each agent receives the same context:
+      ```
+      ## Review Target
+      Track {N}, Step {M}: {step description}
+      Reviewing: uncommitted changes or last commit (as appropriate)
+
+      ## Implementation Plan (strategic context)
+      {contents of implementation-plan.md}
+
+      ## Track Steps (tactical context)
+      {contents of tracks/track-N.md — all steps with their episodes}
+
+      ## Skip These Files (generated code)
+      - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
+
+      ## Diff
+      {the step's diff}
+      ```
+   b. **Synthesize**: After all ten complete, deduplicate findings across
+      dimensions and prioritize (blocker > should-fix > suggestion). Merge
+      findings that multiple agents flagged for the same code location.
+   c. If findings need fixes, fix them, commit fixes (using the
+      `Review fix:` prefix — see `commit-conventions.md`), and re-run
+      **only the dimension(s) with open findings**.
+   d. Repeat until approved OR **max 3 iterations** reached.
+   e. If max iterations reached, note remaining findings in the episode.
 5. **Produce the step episode** — a structured record of what happened
    (see conventions-execution.md §2.2 for format). Write it to the step file
    under the step item. Mark the step as `[x]`. Update the **Progress**
