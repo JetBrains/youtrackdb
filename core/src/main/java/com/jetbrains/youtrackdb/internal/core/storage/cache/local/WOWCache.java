@@ -3457,8 +3457,12 @@ public final class WOWCache extends AbstractWriteCache
               chunk = new ArrayList<>(16);
             }
 
-            var underlyingFileSize =
-                files.get(externalFileId(pageKey.fileId)).getUnderlyingFileSize();
+            var fileForSize = files.get(externalFileId(pageKey.fileId));
+            // File may have been deleted — skip pages for deleted files.
+            if (fileForSize == null) {
+              continue;
+            }
+            var underlyingFileSize = fileForSize.getUnderlyingFileSize();
             // chunk size is reached flush limit, or we have a risk to have a hole in the file
             // that will lead to error during restore after crash process
             // we need to check only prevChunksSize because current chunk is empty
