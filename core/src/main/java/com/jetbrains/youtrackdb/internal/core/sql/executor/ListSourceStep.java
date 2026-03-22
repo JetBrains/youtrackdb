@@ -51,6 +51,6 @@ public class ListSourceStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new ListSourceStep(records, ctx, profilingEnabled);
+    return new ListSourceStep(List.copyOf(records), ctx, profilingEnabled);
   }
 }

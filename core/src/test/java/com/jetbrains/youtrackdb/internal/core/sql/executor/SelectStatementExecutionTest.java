@@ -8871,4 +8871,149 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Verifies that materialized LET handles an empty inner result set correctly:
+   * the outer COUNT(*) should return 0 for both LET variables.
+   */
+  @Test
+  public void testMaterializedLet_emptyInnerResultSet() {
+    session.execute("CREATE CLASS EmptyPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EmptyMessage EXTENDS V").close();
+    session.execute("CREATE CLASS EmptyHasCreator EXTENDS E").close();
+
+    session.begin();
+    // Create a person with NO edges to any messages
+    var personRs = session.execute(
+        "CREATE VERTEX EmptyPerson SET name = 'lonely'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM EmptyPerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('EmptyHasCreator')) FROM EmptyPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('EmptyHasCreator')) FROM EmptyPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    // Empty inner result set should yield count 0 for both
+    Assert.assertEquals(0L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(0L, ((Number) item.getProperty("comments")).longValue());
+    Assert.assertFalse(result.hasNext());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies LET with inter-variable dependency: $b references $a. The second
+   * LET variable depends on the first, ensuring ordering is preserved.
+   */
+  @Test
+  public void testCorrelatedLet_interVariableDependency() {
+    session.execute("CREATE CLASS DepPerson EXTENDS V").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX DepPerson SET name = 'alice', age = 10");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $a, $b FROM DepPerson"
+            + " LET $a = age * 2,"
+            + " $b = $a + 5"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(20, ((Number) item.getProperty("$a")).intValue());
+    Assert.assertEquals(25, ((Number) item.getProperty("$b")).intValue());
+    Assert.assertFalse(result.hasNext());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that running the same materialized LET query twice produces
+   * consistent results, exercising the plan caching path.
+   */
+  @Test
+  public void testMaterializedLet_planCachingConsistency() {
+    session.execute("CREATE CLASS CachePerson EXTENDS V").close();
+    session.execute("CREATE CLASS CacheMessage EXTENDS V").close();
+    session.execute("CREATE CLASS CacheHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX CachePerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 3; i++) {
+      String type = (i < 2) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX CacheMessage SET title = 'cm" + i
+              + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE CacheHasCreator FROM"
+              + " (SELECT FROM CacheMessage WHERE title = 'cm" + i
+              + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    String query =
+        "SELECT name, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM CachePerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('CacheHasCreator')) FROM CachePerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('CacheHasCreator')) FROM CachePerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid;
+
+    // First execution
+    session.begin();
+    var result1 = session.query(query);
+    Assert.assertTrue(result1.hasNext());
+    var item1 = result1.next();
+    long posts1 = ((Number) item1.getProperty("posts")).longValue();
+    long comments1 = ((Number) item1.getProperty("comments")).longValue();
+    result1.close();
+    session.commit();
+
+    // Second execution (exercises plan cache)
+    session.begin();
+    var result2 = session.query(query);
+    Assert.assertTrue(result2.hasNext());
+    var item2 = result2.next();
+    Assert.assertEquals(posts1, ((Number) item2.getProperty("posts")).longValue());
+    Assert.assertEquals(comments1,
+        ((Number) item2.getProperty("comments")).longValue());
+    result2.close();
+    session.commit();
+
+    Assert.assertEquals(2L, posts1);
+    Assert.assertEquals(1L, comments1);
+  }
 }

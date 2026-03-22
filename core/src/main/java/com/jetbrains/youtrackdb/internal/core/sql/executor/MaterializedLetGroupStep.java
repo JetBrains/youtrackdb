@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -48,6 +49,8 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
 
   private final SQLStatement sharedInnerQuery;
   private final List<LetEntry> entries;
+  /** Cached per-entry plan-cache flags — computed once on first use. */
+  private boolean[] entryPlanCacheFlags;
 
   /**
    * @param sharedInnerQuery the common inner FROM subquery shared by all entries
@@ -96,8 +99,17 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       return result;
     }
 
-    for (var entry : entries) {
-      executeWithMaterialized(result, entry, materializedBase, subCtx, session);
+    if (entryPlanCacheFlags == null) {
+      entryPlanCacheFlags = new boolean[entries.size()];
+      for (int i = 0; i < entries.size(); i++) {
+        entryPlanCacheFlags[i] = usePlanCache(entries.get(i).fullQuery);
+      }
+    }
+
+    for (int i = 0; i < entries.size(); i++) {
+      executeWithMaterialized(
+          result, entries.get(i), materializedBase, subCtx, session,
+          entryPlanCacheFlags[i]);
     }
     return result;
   }
@@ -121,8 +133,9 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       ResultInternal result, LetEntry entry,
       List<Result> materializedBase,
       BasicCommandContext subCtx,
-      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
-    var outerPlan = usePlanCache(entry.fullQuery)
+      DatabaseSessionEmbedded session,
+      boolean usePlanCache) {
+    var outerPlan = usePlanCache
         ? entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled)
         : entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
 
@@ -150,9 +163,10 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
   private void executeFallback(
       ResultInternal result, List<LetEntry> entries,
       BasicCommandContext subCtx,
-      com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session) {
+      DatabaseSessionEmbedded session) {
     for (var entry : entries) {
-      var plan = usePlanCache(entry.fullQuery)
+      var cache = usePlanCache(entry.fullQuery);
+      var plan = cache
           ? entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled)
           : entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
       result.setMetadata(entry.varName.getStringValue(),
@@ -171,12 +185,13 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
   }
 
   private List<Result> toList(LocalResultSet rs) {
-    List<Result> list = new ArrayList<>();
-    while (rs.hasNext()) {
-      list.add(rs.next());
+    try (rs) {
+      List<Result> list = new ArrayList<>();
+      while (rs.hasNext()) {
+        list.add(rs.next());
+      }
+      return list;
     }
-    rs.close();
-    return list;
   }
 
   @Override

@@ -1708,7 +1708,7 @@ public class SelectExecutionPlanner {
     var items = info.perRecordLetClause.getItems();
     items = sortLet(items, this.statement.getLetClause());
 
-    var sharedGroups = detectSharedLetBases(items);
+    var shared = detectSharedLetBases(items);
     var alreadyGrouped = new HashSet<SQLLetItem>();
 
     for (var item : items) {
@@ -1722,9 +1722,9 @@ public class SelectExecutionPlanner {
         continue;
       }
 
-      var group = sharedGroups.get(item);
+      var group = shared.groups().get(item);
       if (group != null && group.size() > 1) {
-        var sharedInner = extractInnerFromSubquery(item.getQuery());
+        var sharedInner = shared.innerByItem().get(item);
         var entries = new ArrayList<MaterializedLetGroupStep.LetEntry>();
         for (var grouped : group) {
           entries.add(new MaterializedLetGroupStep.LetEntry(
@@ -1749,7 +1749,12 @@ public class SelectExecutionPlanner {
    * same inner subquery). Items that don't match the pattern or have unique
    * inner subqueries map to a singleton list.
    */
-  private static Map<SQLLetItem, List<SQLLetItem>> detectSharedLetBases(
+  private record SharedLetBases(
+      Map<SQLLetItem, List<SQLLetItem>> groups,
+      Map<SQLLetItem, SQLStatement> innerByItem) {
+  }
+
+  private static SharedLetBases detectSharedLetBases(
       List<SQLLetItem> items) {
     // Group subquery items by the string representation of their inner FROM
     // subquery. Using toString() instead of equals() because SQLStatement.equals()
@@ -1765,18 +1770,18 @@ public class SelectExecutionPlanner {
       if (inner == null) {
         continue;
       }
+      innerByItem.put(item, inner);
       var key = inner.toString();
       byInnerText.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
-      innerByItem.put(item, inner);
     }
 
-    var result = new HashMap<SQLLetItem, List<SQLLetItem>>();
+    var groups = new HashMap<SQLLetItem, List<SQLLetItem>>();
     for (var group : byInnerText.values()) {
       for (var item : group) {
-        result.put(item, group);
+        groups.put(item, group);
       }
     }
-    return result;
+    return new SharedLetBases(groups, innerByItem);
   }
 
   /**

@@ -149,6 +149,8 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     if (steps.isEmpty()) {
       return;
     }
+    var old = steps.get(0);
+    old.setNext(null);
     replacement.setPrevious(null);
     if (steps.size() > 1) {
       var second = steps.get(1);
