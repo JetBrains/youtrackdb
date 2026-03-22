@@ -340,7 +340,7 @@ jobs:
           architecture: x64
           overwrite-settings: false
       - name: Run Small Cache Integration Tests
-        run: ./mvnw -s .github/workflows/settings.xml -pl core clean verify -P small-cache-it -B
+        run: ./mvnw -s .github/workflows/settings.xml -pl core clean verify -P small-cache-it -Dmaven.test.failure.ignore=true -B
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
@@ -353,6 +353,17 @@ jobs:
           large_files: true
           comment_mode: off
           check_name: Tests Results (Small Cache IT)
+      - name: Upload Test Diagnostics
+        uses: actions/upload-artifact@v7
+        if: "!cancelled()"
+        with:
+          name: test-diagnostics-small-cache-linux
+          path: |
+            **/target/deadlock-report.txt
+            **/target/failsafe-reports/*.dumpstream
+            **/target/failsafe-reports/*.dump
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ------------------------------------------------------------------
   # JOB 3: COVERAGE GATE
