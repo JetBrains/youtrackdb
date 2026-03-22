@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -36,9 +36,22 @@
   >
   > **Key files:** `.github/workflows/maven-pipeline.yml` (modified)
 
-- [ ] Step 3: Run small-cache integration tests locally and fix any failures
-  > Execute `./mvnw -pl core clean verify -P small-cache-it` locally.
-  > Fix any test failures caused by the small cache (e.g., timeout issues,
-  > assertion failures from changed timing behavior). If tests pass cleanly,
-  > this step produces a minimal commit documenting the verification.
-  > If fixes are needed, commit them with the verification results.
+- [x] Step 3: Parameterize BTree dataset sizes and verify small-cache tests
+  > **What was done:** Added system properties to control BTree IT dataset sizes:
+  > `youtrackdb.test.btree.keysCount` (sbtree, default 1M) and
+  > `youtrackdb.test.btree.maxPower` (edgebtree, default 20). The small-cache-it
+  > profile passes keysCount=10000 and maxPower=14. All 271 tests pass in 3:40.
+  >
+  > **What was discovered:** Original BTree tests with 1M keys + 16 MB cache
+  > took 90+ minutes (edgebtree 58 min, sbtree 31 min). FreeSpaceMapTestIT (1s)
+  > uses too few pages for eviction to trigger — acceptable since its value is
+  > testing FreeSpaceMap correctness, not eviction. LocalPaginatedCollectionV2TestIT
+  > (147s) is the main eviction-exercising test alongside the reduced BTree tests.
+  >
+  > **What changed from the plan:** Step 3 was originally "run and fix failures".
+  > Instead it became "parameterize datasets to make tests viable for CI" —
+  > a necessary adaptation since the full-size tests are too slow for PR pipeline.
+  > Default behavior (without the profile) is unchanged.
+  >
+  > **Key files:** `BTreeTestIT.java` (sbtree, modified),
+  > `BTreeTestIT.java` (edgebtree, modified), `core/pom.xml` (modified)
