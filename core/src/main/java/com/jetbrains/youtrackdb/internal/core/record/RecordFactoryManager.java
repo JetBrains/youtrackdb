@@ -24,9 +24,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 
 /**
@@ -59,10 +59,10 @@ public class RecordFactoryManager {
         "vertex",
         VertexEntityImpl.class,
         (rid, database) -> new VertexEntityImpl(database, rid));
-    declareRecordType(StatefullEdgeEntityImpl.RECORD_TYPE,
-        "statefulEdge",
-        StatefullEdgeEntityImpl.class,
-        (rid, database) -> new StatefullEdgeEntityImpl(database, rid));
+    declareRecordType(EdgeEntityImpl.RECORD_TYPE,
+        "edge",
+        EdgeEntityImpl.class,
+        (rid, database) -> new EdgeEntityImpl(database, rid));
     declareRecordType(
         Blob.RECORD_TYPE, "blob",
         Blob.class, (rid, database) -> new RecordBytes(database, rid));

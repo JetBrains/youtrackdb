@@ -73,7 +73,7 @@ public class GraphRecoveringTest {
     var v2 = tx.newVertex("V2");
     v2.setProperty("key", 2);
 
-    v0.addStateFulEdge(v1);
+    v0.addEdge(v1);
     v1.addEdge(v2, "E1");
     v2.addEdge(v0, "E2");
 
@@ -115,10 +115,9 @@ public class GraphRecoveringTest {
         init(session);
 
         var tx = session.begin();
-        for (var e :
-            tx.query("select from E").stream()
-                .map(Result::asStatefulEdge)
-                .toList()) {
+        for (var e : tx.query("select from E").stream()
+            .map(Result::asEdge)
+            .toList()) {
           var transaction = session.getActiveTransaction();
           transaction.<EntityImpl>load(e).removePropertyInternal("out");
         }
@@ -152,12 +151,11 @@ public class GraphRecoveringTest {
         init(session);
 
         var tx = session.begin();
-        for (var v :
-            tx.query("select from V").stream()
-                .map(Result::asEntityOrNull)
-                .filter(Objects::nonNull)
-                .map(Entity::asVertex)
-                .toList()) {
+        for (var v : tx.query("select from V").stream()
+            .map(Result::asEntityOrNull)
+            .filter(Objects::nonNull)
+            .map(Entity::asVertex)
+            .toList()) {
           var transaction1 = session.getActiveTransaction();
           for (var f : transaction1.<EntityImpl>load(v).getPropertyNamesInternal(false,
               true)) {

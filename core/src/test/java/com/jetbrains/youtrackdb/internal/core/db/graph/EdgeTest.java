@@ -15,7 +15,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class LightWeightEdgesTest {
+public class EdgeTest {
 
   private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
@@ -28,15 +28,15 @@ public class LightWeightEdgesTest {
     session = youTrackDB.open("test", "admin", "adminpwd");
 
     session.getSchema().createVertexClass("Vertex");
-    session.getSchema().createLightweightEdgeClass("Edge");
+    session.getSchema().createEdgeClass("Edge");
   }
 
   @Test
-  public void testSimpleLightWeight() {
+  public void testSimpleEdge() {
     var tx = session.begin();
     var v = tx.newVertex("Vertex");
     var v1 = tx.newVertex("Vertex");
-    v.addLightWeightEdge(v1, "Edge");
+    v.addEdge(v1, "Edge");
     v.setProperty("name", "aName");
     v1.setProperty("name", "bName");
     tx.commit();

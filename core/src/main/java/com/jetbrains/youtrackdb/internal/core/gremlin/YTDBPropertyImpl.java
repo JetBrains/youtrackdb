@@ -15,8 +15,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
   protected String key;
   protected V value;
   protected Object wrappedValue;
-  @Nullable
-  private final PropertyType propertyType;
+  @Nullable private final PropertyType propertyType;
   protected YTDBElementImpl element;
   private boolean removed = false;
 
@@ -24,8 +23,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       String key,
       @Nullable V value,
       @Nullable PropertyType propertyType,
-      YTDBElementImpl element
-  ) {
+      YTDBElementImpl element) {
     this.key = key;
     this.value = value;
     this.element = element;
@@ -47,7 +45,7 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       if (cls.isVertexType()) {
         return new YTDBVertexImpl(graph, rid);
       } else if (cls.isEdgeType()) {
-        return new YTDBStatefulEdgeImpl(graph, rid);
+        return new YTDBEdgeImpl(graph, rid);
       }
 
       throw new IllegalStateException("Unsupported schema class " + cls.getName());
@@ -57,8 +55,8 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
       if (entity.isVertex()) {
         result =
             new YTDBVertexImpl(graph, entity.asVertex());
-      } else if (entity.isStatefulEdge()) {
-        result = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
+      } else if (entity.isEdge()) {
+        result = new YTDBEdgeImpl(graph, entity.asEdge());
       }
     }
 

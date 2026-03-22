@@ -24,8 +24,8 @@ import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.common.util.SupportsContains;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeIterator;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.record.impl.RelationsIteratorAbstract;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -146,8 +146,7 @@ public class MultiCollectionIterator<T>
         if (isMapMode != valueIsAMap) {
           throw new IllegalStateException(
               "Type mismatch. Iterator is in " + (isMapMode ? "map" : "collection") + " mode,"
-                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode"
-          );
+                  + " but new value is in " + (valueIsAMap ? "map" : "collection") + " mode");
         }
       }
 
@@ -174,7 +173,8 @@ public class MultiCollectionIterator<T>
           size += sizeable.size();
         } else if (o.getClass().isArray()) {
           size += Array.getLength(o);
-        } else if (o instanceof Iterator<?> iter && o instanceof Resettable resettable) {
+        } else if (o instanceof Iterator<?> iter && o instanceof Resettable resettable
+            && resettable.isResetable()) {
           while (iter.hasNext()) {
             size++;
             iter.next();
@@ -245,7 +245,7 @@ public class MultiCollectionIterator<T>
         if (o instanceof Set<?> || o instanceof LinkBag) {
           // OK
         } else
-          return o instanceof RelationsIteratorAbstract<?, ?>;
+          return o instanceof EdgeIterator;
       }
     }
 
@@ -256,8 +256,8 @@ public class MultiCollectionIterator<T>
   public boolean contains(final Object value) {
     for (var o : sources) {
       if (o != null) {
-        if (o instanceof RelationsIteratorAbstract<?, ?> bidirectionalLinkIterator) {
-          o = bidirectionalLinkIterator.getMultiValue();
+        if (o instanceof EdgeIterator edgeIterator) {
+          o = edgeIterator.getMultiValue();
         }
 
         if (o instanceof Collection<?>) {
@@ -293,8 +293,8 @@ public class MultiCollectionIterator<T>
             }
 
           } else if (next instanceof Iterator<?>) {
-            if (next instanceof Resettable) {
-              ((Resettable) next).reset();
+            if (next instanceof Resettable resettable && resettable.isResetable()) {
+              resettable.reset();
             }
 
             if (((Iterator<T>) next).hasNext()) {

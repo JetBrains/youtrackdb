@@ -12,8 +12,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import org.junit.After;
 import org.junit.Assert;
@@ -44,7 +44,7 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();
@@ -67,11 +67,11 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();
-    tx.delete(tx.<StatefulEdge>load(edge));
+    tx.delete(tx.<Edge>load(edge));
     tx.commit();
 
     tx = session.begin();
@@ -84,7 +84,7 @@ public class TestGraphElementDelete {
     var tx = session.begin();
     var vertex = tx.newVertex("V");
     var vertex1 = tx.newVertex("V");
-    var edge = vertex.addStateFulEdge(vertex1, "E");
+    var edge = vertex.addEdge(vertex1, "E");
     tx.commit();
 
     tx = session.begin();

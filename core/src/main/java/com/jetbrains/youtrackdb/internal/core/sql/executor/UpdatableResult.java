@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -48,8 +47,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().getEntity(name);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Result getResult(@Nonnull String name) {
     assert checkSession();
     return this.asEntity().getResult(name);
@@ -67,8 +65,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().getEdge(name);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
     return this.asEntity().getLink(name);
@@ -113,8 +110,7 @@ public class UpdatableResult extends ResultInternal {
     return ((Entity) identifiable);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity asEntityOrNull() {
     assert checkSession();
     return this.asEntity();
@@ -139,8 +135,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DBRecord asRecordOrNull() {
     assert checkSession();
     return this.asEntity();
@@ -159,8 +154,7 @@ public class UpdatableResult extends ResultInternal {
     throw new DatabaseException("Result is not a blob");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob asBlobOrNull() {
     assert checkSession();
     return null;
@@ -178,12 +172,6 @@ public class UpdatableResult extends ResultInternal {
     }
   }
 
-  @Override
-  public void setRelation(Relation<?> relation) {
-    assert checkSession();
-    throw new UnsupportedOperationException();
-  }
-
   @Nonnull
   @Override
   public Map<String, Object> toMap() {
@@ -197,12 +185,6 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().isEdge();
   }
 
-  @Override
-  public boolean isStatefulEdge() {
-    assert checkSession();
-    return this.asEntity().isStatefulEdge();
-  }
-
   @Nonnull
   @Override
   public Edge asEdge() {
@@ -210,8 +192,7 @@ public class UpdatableResult extends ResultInternal {
     return this.asEntity().asEdge();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Edge asEdgeOrNull() {
     assert checkSession();
     return this.asEntity().asEdgeOrNull();

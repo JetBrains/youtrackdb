@@ -920,12 +920,12 @@ public class IndexTest extends BaseDBJUnit5Test {
     session.begin();
     var parent = session.newVertex("PreservingIdentityInIndexTxParent");
     var child = session.newVertex("PreservingIdentityInIndexTxChild");
-    session.newStatefulEdge(parent, child, "PreservingIdentityInIndexTxEdge");
+    session.newEdge(parent, child, "PreservingIdentityInIndexTxEdge");
     child.setProperty("name", "pokus");
 
     var parent2 = session.newVertex("PreservingIdentityInIndexTxParent");
     var child2 = session.newVertex("PreservingIdentityInIndexTxChild");
-    session.newStatefulEdge(parent2, child2, "preservingIdentityInIndexTxEdge");
+    session.newEdge(parent2, child2, "preservingIdentityInIndexTxEdge");
     child2.setProperty("name", "pokus2");
     session.commit();
 

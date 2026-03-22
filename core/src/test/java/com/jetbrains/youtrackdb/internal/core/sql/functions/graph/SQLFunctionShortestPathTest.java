@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
-
 import static java.util.Arrays.asList;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -66,18 +65,18 @@ public class SQLFunctionShortestPathTest {
     vertices.get(3).setProperty("node_id", "C");
     vertices.get(4).setProperty("node_id", "D");
 
-    session.newStatefulEdge(vertices.get(1), vertices.get(2), "Edge1");
-    session.newStatefulEdge(vertices.get(2), vertices.get(3), "Edge1");
-    session.newStatefulEdge(vertices.get(3), vertices.get(1), "Edge2");
-    session.newStatefulEdge(vertices.get(3), vertices.get(4), "Edge1");
+    session.newEdge(vertices.get(1), vertices.get(2), "Edge1");
+    session.newEdge(vertices.get(2), vertices.get(3), "Edge1");
+    session.newEdge(vertices.get(3), vertices.get(1), "Edge2");
+    session.newEdge(vertices.get(3), vertices.get(4), "Edge1");
 
     for (var i = 5; i <= 20; i++) {
       var v = session.newVertex();
       vertices.put(i, v);
       vertices.get(i).setProperty("node_id", "V" + i);
-      session.newStatefulEdge(vertices.get(i - 1), vertices.get(i), "Edge1");
+      session.newEdge(vertices.get(i - 1), vertices.get(i), "Edge1");
       if (i % 2 == 0) {
-        session.newStatefulEdge(vertices.get(i - 2), vertices.get(i), "Edge1");
+        session.newEdge(vertices.get(i - 2), vertices.get(i), "Edge1");
       }
     }
     session.commit();
@@ -96,8 +95,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(4)}, context
-        );
+            new Object[] {vertices.get(1), vertices.get(4)}, context);
 
     Assert.assertEquals(3, result.size());
     Assert.assertEquals(vertices.get(1).getIdentity(), result.get(0));
@@ -119,7 +117,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(4), "out", null},
+            new Object[] {vertices.get(1), vertices.get(4), "out", null},
             context);
 
     Assert.assertEquals(4, result.size());
@@ -143,7 +141,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(4), null, "Edge1"},
+            new Object[] {vertices.get(1), vertices.get(4), null, "Edge1"},
             context);
 
     Assert.assertEquals(4, result.size());
@@ -167,7 +165,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(4), "BOTH", asList("Edge1", "Edge2")},
+            new Object[] {vertices.get(1), vertices.get(4), "BOTH", asList("Edge1", "Edge2")},
             context);
 
     Assert.assertEquals(3, result.size());
@@ -190,7 +188,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(20)},
+            new Object[] {vertices.get(1), vertices.get(20)},
             context);
 
     Assert.assertEquals(11, result.size());
@@ -218,7 +216,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(20), null, null, additionalParams},
+            new Object[] {vertices.get(1), vertices.get(20), null, null, additionalParams},
             context);
 
     Assert.assertEquals(11, result.size());
@@ -240,7 +238,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(20), null, null, additionalParams},
+            new Object[] {vertices.get(1), vertices.get(20), null, null, additionalParams},
             context);
 
     Assert.assertEquals(11, result.size());
@@ -262,7 +260,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(20), null, null, additionalParams},
+            new Object[] {vertices.get(1), vertices.get(20), null, null, additionalParams},
             context);
 
     Assert.assertEquals(0, result.size());
@@ -284,7 +282,7 @@ public class SQLFunctionShortestPathTest {
             null,
             null,
             null,
-            new Object[]{vertices.get(1), vertices.get(20), null, null, additionalParams},
+            new Object[] {vertices.get(1), vertices.get(20), null, null, additionalParams},
             context);
 
     Assert.assertEquals(0, result.size());

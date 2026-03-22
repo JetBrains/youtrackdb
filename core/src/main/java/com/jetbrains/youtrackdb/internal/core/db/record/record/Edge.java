@@ -24,7 +24,11 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface Edge extends Element, Relation<Vertex> {
+/**
+ * Represents a graph edge connecting two vertices. Every Edge IS-A Entity (has a record, RID,
+ * and properties) with from/to vertex endpoints.
+ */
+public interface Edge extends Entity {
 
   /**
    * The name of the class of the edge record
@@ -55,51 +59,28 @@ public interface Edge extends Element, Relation<Vertex> {
    *
    * @return the vertex that this edge originates from
    */
-  @Override
-  @Nullable
-  Vertex getFrom();
+  @Nullable Vertex getFrom();
 
   /**
    * Retrieves the identifiable object from where this edge originates.
    *
    * @return the identifiable object from where this edge originates
    */
-  @Nullable
-  Identifiable getFromLink();
+  @Nullable Identifiable getFromLink();
 
   /**
    * Retrieves the vertex that this edge connects to.
    *
    * @return the vertex that this edge connects to
    */
-  @Override
-  @Nullable
-  Vertex getTo();
+  @Nullable Vertex getTo();
 
   /**
    * Retrieves the identifiable object from where the edge connects to.
    *
    * @return the identifiable object from where the edge connects to
    */
-  @Nullable
-  Identifiable getToLink();
-
-  /**
-   * Checks if the edge is lightweight.
-   *
-   * @return true if the edge is lightweight, false otherwise.
-   */
-  @Override
-  boolean isLightweight();
-
-  /**
-   * Checks if the edge is stateful.
-   *
-   * @return true if the edge is stateful, false otherwise.
-   */
-  default boolean isStateful() {
-    return !isLightweight();
-  }
+  @Nullable Identifiable getToLink();
 
   /**
    * Retrieves the vertex connected to this edge in the specified direction.
@@ -108,8 +89,7 @@ public interface Edge extends Element, Relation<Vertex> {
    * @return the vertex connected to this edge in the specified direction, or null if no vertex is
    * connected
    */
-  @Nullable
-  default Vertex getVertex(@Nonnull Direction dir) {
+  @Nullable default Vertex getVertex(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getTo();
     } else if (dir == Direction.OUT) {
@@ -126,8 +106,7 @@ public interface Edge extends Element, Relation<Vertex> {
    * @return the identifiable object of the vertex connected to this edge in the specified
    * direction, or null if no vertex is connected
    */
-  @Nullable
-  default Identifiable getVertexLink(@Nonnull Direction dir) {
+  @Nullable default Identifiable getVertexLink(@Nonnull Direction dir) {
     if (dir == Direction.IN) {
       return getToLink();
     } else if (dir == Direction.OUT) {
@@ -142,40 +121,28 @@ public interface Edge extends Element, Relation<Vertex> {
    * @param labels the labels to check
    * @return true if the labels match, false otherwise
    */
-  @Override
   boolean isLabeled(@Nonnull String[] labels);
 
   /**
-   * Retrieves the schema class associated with this edge.
+   * Retrieves the schema class associated with this edge. Edges always have a schema class.
    *
    * @return the schema class associated with this edge.
    */
+  @Override
   @Nonnull
   SchemaClass getSchemaClass();
 
   /**
-   * Retrieves the class name associated with this edge
+   * Retrieves the class name associated with this edge. Edges always have a schema class name.
    */
+  @Override
   @Nonnull
   String getSchemaClassName();
 
   /**
-   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
-   * an exception is thrown.
-   */
-  @Nonnull
-  StatefulEdge asStatefulEdge();
-
-  /**
-   * Casts this edge to a stateful edge if this is a stateful edge. If this is not a stateful edge,
-   * null is returned.
-   */
-  @Nullable
-  StatefulEdge asStatefulEdgeOrNull();
-
-  /**
    * Deletes the edge from the graph.
    */
+  @Override
   void delete();
 
   @Override
@@ -185,4 +152,12 @@ public interface Edge extends Element, Relation<Vertex> {
   @Override
   @Nonnull
   String toJSON();
+
+  /**
+   * Returns the schema class name of this edge as its label.
+   *
+   * @return the edge label (schema class name)
+   */
+  String label();
+
 }

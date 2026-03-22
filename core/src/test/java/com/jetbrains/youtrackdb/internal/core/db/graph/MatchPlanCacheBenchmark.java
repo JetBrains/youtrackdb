@@ -79,8 +79,8 @@ public class MatchPlanCacheBenchmark {
     bob.setProperty("name", "Bob");
     var carol = tx.newVertex("Person");
     carol.setProperty("name", "Carol");
-    center.addStateFulEdge(bob, "Knows");
-    center.addStateFulEdge(carol, "Knows");
+    center.addEdge(bob, "Knows");
+    center.addEdge(carol, "Knows");
     tx.commit();
 
     centerRid = center.getIdentity();

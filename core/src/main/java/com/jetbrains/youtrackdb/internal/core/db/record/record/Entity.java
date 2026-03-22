@@ -36,7 +36,6 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-
 /**
  * Implementation of a generic entity. It's bound to the record and allows to read and write
  * values.
@@ -44,7 +43,6 @@ import javax.annotation.Nullable;
 public interface Entity extends DBRecord, Result {
 
   String DEFAULT_CLASS_NAME = "O";
-
 
   /**
    * Gets a property value on time of transaction start. This will work for scalar values, and
@@ -60,11 +58,9 @@ public interface Entity extends DBRecord, Result {
   @SuppressWarnings("TypeParameterUnusedInFormals")
   <RET> RET getPropertyOnLoadValue(@Nonnull String name);
 
-  @Nullable
-  PropertyType getPropertyType(@Nonnull final String propertyName);
+  @Nullable PropertyType getPropertyType(@Nonnull final String propertyName);
 
-  @Nullable
-  EmbeddedEntity getEmbeddedEntity(@Nonnull String name);
+  @Nullable EmbeddedEntity getEmbeddedEntity(@Nonnull String name);
 
   /**
    * Sets a property value
@@ -290,16 +286,14 @@ public interface Entity extends DBRecord, Result {
    * @return the schema class associated with this entity, or null if it does not have a schema
    * class
    */
-  @Nullable
-  SchemaClass getSchemaClass();
+  @Nullable SchemaClass getSchemaClass();
 
   /**
    * Retrieves the class name associated with this entity.
    *
    * @return the class name associated with this entity, or null if it does not have a schema class
    */
-  @Nullable
-  String getSchemaClassName();
+  @Nullable String getSchemaClassName();
 
   /**
    * Returns true if the current entity is embedded
@@ -338,26 +332,16 @@ public interface Entity extends DBRecord, Result {
 
   @Nonnull
   @Override
-  StatefulEdge asStatefulEdge();
-
-  @Nullable
-  @Override
-  StatefulEdge asStatefulEdgeOrNull();
-
-  @Nonnull
-  @Override
   Edge asEdge();
 
-  @Nullable
-  @Override
+  @Nullable @Override
   Edge asEdgeOrNull();
 
   @Nonnull
   @Override
   Vertex asVertex();
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default Entity asEntityOrNull() {
     return this;
   }
@@ -374,8 +358,7 @@ public interface Entity extends DBRecord, Result {
     return this;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default Identifiable asIdentifiableOrNull() {
     return this;
   }
@@ -386,14 +369,12 @@ public interface Entity extends DBRecord, Result {
     throw new IllegalStateException("Entity is not a Blob");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default Blob asBlobOrNull() {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   Vertex asVertexOrNull();
 
   @Nonnull
@@ -402,8 +383,7 @@ public interface Entity extends DBRecord, Result {
     return this;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   default DBRecord asRecordOrNull() {
     return this;
   }
@@ -419,9 +399,6 @@ public interface Entity extends DBRecord, Result {
   }
 
   @Override
-  boolean isStatefulEdge();
-
-  @Override
   boolean isVertex();
 
   @Override
@@ -429,18 +406,4 @@ public interface Entity extends DBRecord, Result {
     return true;
   }
 
-  @Override
-  default boolean isRelation() {
-    return false;
-  }
-
-  @Override
-  default Relation<?> asRelation() {
-    throw new IllegalStateException("Entity is not a Relation");
-  }
-
-  @Override
-  default Relation<?> asRelationOrNull() {
-    return null;
-  }
 }

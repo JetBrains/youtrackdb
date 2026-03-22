@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -37,15 +36,11 @@ import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
@@ -79,6 +74,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,7 +92,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.collections4.IterableUtils;
 
 /**
  * Entity representation to handle values dynamically. Can be used in schema-less, schema-mixed and
@@ -121,8 +116,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private String className;
   private SchemaImmutableClass immutableClazz;
 
-  @Nullable
-  private ArrayList<BTreeBasedLinkBag> linkBagsToDelete;
+  @Nullable private ArrayList<BTreeBasedLinkBag> linkBagsToDelete;
 
   private int immutableSchemaVersion = 1;
 
@@ -173,8 +167,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       if (!isEmbedded() && cls.isAbstract()) {
         throw new SchemaException(session,
             "Standalone entities can be only of non-abstract classes. Provided class : "
-                + cls.getName(
-            ) + " is abstract.");
+                + cls.getName() + " is abstract.");
       }
     }
   }
@@ -205,34 +198,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return super.sourceIsParsedByProperties() || (properties != null && !properties.isEmpty());
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex asVertexOrNull() {
     checkForBinding();
     if (this instanceof Vertex vertex) {
       return vertex;
-    }
-
-    return null;
-  }
-
-  @Override
-  @Nonnull
-  public StatefulEdge asStatefulEdge() {
-    checkForBinding();
-    if (this instanceof StatefulEdge edge) {
-      return edge;
-    }
-
-    throw new DatabaseException("Entity is not an edge");
-  }
-
-  @Override
-  @Nullable
-  public StatefulEdge asStatefulEdgeOrNull() {
-    checkForBinding();
-    if (this instanceof StatefulEdge edge) {
-      return edge;
     }
 
     return null;
@@ -254,7 +224,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public boolean isStatefulEdge() {
+  public boolean isEdge() {
     checkForBinding();
     if (this instanceof Edge) {
       return true;
@@ -269,20 +239,24 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public boolean isEdge() {
-    return isStatefulEdge();
-  }
-
-  @Override
   @Nonnull
   public Edge asEdge() {
-    return asStatefulEdgeOrNull();
+    checkForBinding();
+    if (this instanceof Edge edge) {
+      return edge;
+    }
+
+    throw new DatabaseException("Entity is not an edge");
   }
 
   @Override
-  @Nullable
-  public Edge asEdgeOrNull() {
-    return asStatefulEdgeOrNull();
+  @Nullable public Edge asEdgeOrNull() {
+    checkForBinding();
+    if (this instanceof Edge edge) {
+      return edge;
+    }
+
+    return null;
   }
 
   @Override
@@ -346,12 +320,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return properties;
   }
 
-
   @Override
   public @Nonnull List<String> getPropertyNames() {
     return getPropertyNamesInternal(false, true);
   }
-
 
   public List<String> getPropertyNamesInternal(boolean includeSystemProperties,
       boolean checkAccess) {
@@ -379,8 +351,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   /// Retrieve a property value along with its type from the current entity. If the property does
   /// not exist or is not accessible, this method will return `null`.
-  @Nullable
-  public <RET> ValueAndType<RET> getPropertyAndType(final @Nonnull String propertyName) {
+  @Nullable public <RET> ValueAndType<RET> getPropertyAndType(final @Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
 
     if (!isPropertyAccessible(propertyName)) {
@@ -389,12 +360,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     return getPropertyAndChooseReturnValue(
         propertyName, isLazyLoad(),
-        PropertyOperationReturnValue.propertyValueAndType()
-    );
+        PropertyOperationReturnValue.propertyValueAndType());
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public EmbeddedEntity getEmbeddedEntity(@Nonnull String name) {
     var propertyValue = getProperty(name);
     if (propertyValue == null) {
@@ -408,8 +377,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public Entity getEntity(@Nonnull String name) {
+  @Nullable public Entity getEntity(@Nonnull String name) {
     var property = getProperty(name);
 
     return switch (property) {
@@ -428,14 +396,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public Result getResult(@Nonnull String name) {
+  @Nullable public Result getResult(@Nonnull String name) {
     return getEntity(name);
   }
 
   @Override
-  @Nullable
-  public Blob getBlob(@Nonnull String propertyName) {
+  @Nullable public Blob getBlob(@Nonnull String propertyName) {
     var property = getProperty(propertyName);
 
     return switch (property) {
@@ -458,8 +424,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyInternal(name, isLazyLoad());
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
     return getPropertyAndChooseReturnValue(name, lazyLoad,
         PropertyOperationReturnValue.propertyValue());
@@ -467,11 +432,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   /// This method will return `null` if the property doesn't exist. If it exists, it'll return
   /// whatever is chosen by `returnValue`.
-  @Nullable
-  private <T> T getPropertyAndChooseReturnValue(
+  @Nullable private <T> T getPropertyAndChooseReturnValue(
       String name, boolean lazyLoad,
-      PropertyOperationReturnValue<T> returnValue
-  ) {
+      PropertyOperationReturnValue<T> returnValue) {
     if (name == null) {
       return null;
     }
@@ -526,8 +489,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getDirtyPropertiesBetweenCallbacksInternal(false, true);
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET getPropertyOnLoadValueInternal(@Nonnull String name) {
     checkForBinding();
     checkForProperties();
@@ -563,13 +525,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
   private static <RET> RET convertToGraphElement(RET value) {
     if (value instanceof Entity entity) {
       if (entity.isVertex()) {
         value = (RET) entity.asVertex();
       } else {
-        if (entity.isStatefulEdge()) {
+        if (entity.isEdge()) {
           value = (RET) entity.asEdge();
         }
       }
@@ -587,8 +548,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @see Result#getProperty(String)
    */
   @Override
-  @Nullable
-  public RID getLink(@Nonnull String propertyName) {
+  @Nullable public RID getLink(@Nonnull String propertyName) {
     validatePropertyName(propertyName, true);
     if (!isPropertyAccessible(propertyName)) {
       return null;
@@ -597,8 +557,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getLinkPropertyInternal(propertyName);
   }
 
-  @Nullable
-  public RID getLinkPropertyInternal(String name) {
+  @Nullable public RID getLinkPropertyInternal(String name) {
     var result = getPropertyInternal(name, false);
 
     return switch (result) {
@@ -611,8 +570,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
+  @Nullable public <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
     var value = getProperty(name);
     if (value == null) {
       return null;
@@ -627,8 +585,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public LinkList getLinkList(@Nonnull String name) {
+  @Nullable public LinkList getLinkList(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -644,8 +601,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
+  @Nullable public <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -661,8 +617,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public LinkMap getLinkMap(@Nonnull String name) {
+  @Nullable public LinkMap getLinkMap(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -678,8 +633,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
+  @Nullable public <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -695,8 +649,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public LinkSet getLinkSet(@Nonnull String name) {
+  @Nullable public LinkSet getLinkSet(@Nonnull String name) {
     var value = getProperty(name);
 
     if (value == null) {
@@ -720,7 +673,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new SecurityException("Property " + propertyName + " is not accessible");
     }
   }
-
 
   @Override
   public @Nonnull <T> EmbeddedList<T> getOrCreateEmbeddedList(@Nonnull String name) {
@@ -800,7 +752,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setProperty(name, value, PropertyType.EMBEDDEDLIST, linkedType.getPublicPropertyType());
     return value;
   }
-
 
   @Override
   @Nonnull
@@ -882,7 +833,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return value;
   }
 
-
   @Override
   public @Nonnull <T> EmbeddedSet<T> getOrCreateEmbeddedSet(@Nonnull String name) {
     var value = this.<EmbeddedSet<T>>getProperty(name);
@@ -944,7 +894,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return value;
   }
 
-
   @Override
   public @Nonnull <T> EmbeddedMap<T> getOrCreateEmbeddedMap(@Nonnull String name) {
     var value = this.<EmbeddedMap<T>>getProperty(name);
@@ -982,7 +931,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (EmbeddedMap<T>) setProperty(name, value, PropertyType.EMBEDDEDMAP);
   }
 
-
   @Override
   public @Nonnull <T> EmbeddedMap<T> newEmbeddedMap(@Nonnull String name,
       @Nonnull PropertyType linkedType) {
@@ -1006,7 +954,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setProperty(name, value, PropertyType.EMBEDDEDMAP, linkedType);
     return value;
   }
-
 
   @Override
   public @Nonnull LinkList getOrCreateLinkList(@Nonnull String name) {
@@ -1233,7 +1180,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
         PropertyValidationMode.FULL);
   }
 
-
   @Override
   public void setProperty(@Nonnull String propertyName, @Nullable Object propertyValue,
       @Nonnull PropertyType propertyType, @Nonnull PropertyType linkedType) {
@@ -1246,13 +1192,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /// Set the value of the property and return its computed property type.
-  @Nullable
-  public PropertyType setPropertyAndReturnType(@Nonnull String propertyName,
+  @Nullable public PropertyType setPropertyAndReturnType(@Nonnull String propertyName,
       @Nullable Object propertyValue) {
     return setPropertyAndChooseReturnValue(
         propertyName, propertyValue, null, null,
-        PropertyValidationMode.FULL, PropertyOperationReturnValue.propertyType()
-    );
+        PropertyValidationMode.FULL, PropertyOperationReturnValue.propertyType());
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1268,11 +1212,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setPropertyInternal(name, value, null);
   }
 
-
   public void setPropertyInternal(
       String name, Object value,
-      @Nullable PropertyTypeInternal type
-  ) {
+      @Nullable PropertyTypeInternal type) {
     setPropertyInternal(name, value, type, null, PropertyValidationMode.SKIP);
   }
 
@@ -1280,12 +1222,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String name, Object value,
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
-      PropertyValidationMode validationMode
-  ) {
+      PropertyValidationMode validationMode) {
     return setPropertyAndChooseReturnValue(
         name, value, type, linkedType, validationMode,
-        PropertyOperationReturnValue.propertyValue()
-    );
+        PropertyOperationReturnValue.propertyValue());
   }
 
   private <T> T setPropertyAndChooseReturnValue(
@@ -1293,8 +1233,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
       PropertyValidationMode validationMode,
-      PropertyOperationReturnValue<T> returnValue
-  ) {
+      PropertyOperationReturnValue<T> returnValue) {
 
     if (name == null) {
       throw new IllegalArgumentException("Field is null");
@@ -1442,7 +1381,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
   public void setDeserializedPropertyInternal(String name, Object value,
       PropertyTypeInternal propertyType) {
     if (this.properties == null) {
@@ -1466,8 +1404,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     entry.enableTracking(this);
   }
 
-  @Nullable
-  private Object preprocessAssignedValue(Object value,
+  @Nullable private Object preprocessAssignedValue(Object value,
       PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {
@@ -1506,8 +1443,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     removePropertyInternal(name, PropertyValidationMode.SKIP);
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
 
     if (validationMode != PropertyValidationMode.SKIP) {
@@ -1853,7 +1789,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         for (var object : event) {
           if (object.getChangeType() == ChangeType.ADD
               || (object.getChangeType() == ChangeType.UPDATE
-              && object.getValue() != null)) {
+                  && object.getValue() != null)) {
             validateLink(schema, db, property, object.getValue(), true);
           }
         }
@@ -1892,7 +1828,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
                 + " of type '"
                 + p.getLinkedType()
                 + "' but the value is "
-                + value), e, session);
+                + value),
+            e, session);
       }
 
     }
@@ -2003,7 +1940,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' that is vertex class");
           }
 
-          if (entity.isStatefulEdge()) {
+          if (entity.isEdge()) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -2412,7 +2349,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
   private void updatePropertyFromNonTypedMapValue(Object value,
       DatabaseSessionEmbedded session, String key) {
     value = convertMapValue(session, value);
@@ -2616,7 +2552,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-
   @Override
   public final EntityImpl updateFromJSON(final String iSource, final String iOptions) {
     return super.updateFromJSON(iSource, iOptions);
@@ -2697,8 +2632,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    *
    * @param iFieldName Property name to retrieve the original value
    */
-  @Nullable
-  public Object getOriginalValue(final String iFieldName) {
+  @Nullable public Object getOriginalValue(final String iFieldName) {
     checkForBinding();
 
     if (properties != null) {
@@ -2711,8 +2645,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return null;
   }
 
-  @Nullable
-  public MultiValueChangeTimeLine<Object, Object> getCollectionTimeLine(final String iFieldName) {
+  @Nullable public MultiValueChangeTimeLine<Object, Object> getCollectionTimeLine(final String iFieldName) {
     checkForBinding();
 
     var entry = properties != null ? properties.get(iFieldName) : null;
@@ -2914,8 +2847,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param propertyName name of property to check
    */
   @Override
-  @Nullable
-  public PropertyType getPropertyType(final @Nonnull String propertyName) {
+  @Nullable public PropertyType getPropertyType(final @Nonnull String propertyName) {
     checkForBinding();
     validatePropertyName(propertyName, false);
 
@@ -2937,8 +2869,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return null;
   }
 
-  @Nullable
-  public PropertyTypeInternal getPropertyTypeInternal(String propertyName) {
+  @Nullable public PropertyTypeInternal getPropertyTypeInternal(String propertyName) {
     checkForBinding();
     checkForProperties(propertyName);
 
@@ -3000,9 +2931,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     internalReset();
   }
 
-
-  @Nullable
-  public ArrayList<BTreeBasedLinkBag> getLinkBagsToDelete() {
+  @Nullable public ArrayList<BTreeBasedLinkBag> getLinkBagsToDelete() {
     return linkBagsToDelete;
   }
 
@@ -3056,7 +2985,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForProperties();
   }
 
-
   public void clearTrackData() {
     if (properties != null) {
       // FREE RESOURCES
@@ -3085,7 +3013,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
   }
-
 
   public int getPropertiesCount() {
     checkForBinding();
@@ -3235,8 +3162,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaClass getSchemaClass() {
     checkForBinding();
 
@@ -3252,8 +3178,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  @Nullable
-  public String getSchemaClassName() {
+  @Nullable public String getSchemaClassName() {
     if (className == null) {
       fetchClassName(session);
     }
@@ -3299,7 +3224,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     this.className = this.immutableClazz.getName();
   }
-
 
   /**
    * Validates the record following the declared constraints defined in schema such as mandatory,
@@ -3457,8 +3381,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return prop;
   }
 
-  @Nullable
-  public SchemaImmutableClass getImmutableSchemaClass(
+  @Nullable public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionEmbedded session) {
     if (this.session != null && this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
@@ -3688,8 +3611,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     propertyEncryption = PropertyEncryptionNone.instance();
   }
 
-  @Nullable
-  Object accessProperty(final String property) {
+  @Nullable Object accessProperty(final String property) {
     checkForBinding();
 
     if (checkForProperties(property)) {
@@ -3727,114 +3649,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForProperties();
     return properties == null ? new HashSet<>() : properties.entrySet();
-  }
-
-  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
-    checkForBinding();
-    if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getEntities(Direction.OUT, linkNames),
-          getEntities(Direction.IN, linkNames));
-    } else {
-      var links = getBidirectionalLinksInternal(direction, linkNames);
-      return new BidirectionalLinksIterable<>(links, direction);
-    }
-  }
-
-  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(
-      Direction direction, String... linkNames) {
-    checkForBinding();
-    if (direction == Direction.BOTH) {
-      return IterableUtils.chainedIterable(
-          getBidirectionalLinks(Direction.OUT, linkNames),
-          getBidirectionalLinks(Direction.IN, linkNames));
-    } else {
-      return getBidirectionalLinksInternal(direction, linkNames);
-    }
-  }
-
-  protected Iterable<? extends Relation<Entity>> getBidirectionalLinksInternal(
-      Direction direction, String... linkNames) {
-    if (linkNames == null || linkNames.length == 0) {
-      var propertyNames = getPropertyNames();
-      var linkCandidates = new ArrayList<String>(propertyNames.size());
-
-      for (var propertyName : propertyNames) {
-        var propertyType = getPropertyTypeInternal(propertyName);
-        if (propertyType != null && propertyType.isLink()) {
-          linkCandidates.add(propertyName);
-        }
-      }
-
-      linkNames = linkCandidates.toArray(new String[0]);
-    }
-    var iterables = new ArrayList<Iterable<LightweightRelationImpl<Entity>>>(
-        linkNames.length);
-    Object fieldValue;
-
-    for (var linkName : linkNames) {
-      if (!isPropertyAccessible(linkName)) {
-        return Collections.emptyList();
-      }
-
-      String propertyName;
-      if (direction == Direction.OUT) {
-        propertyName = linkName;
-      } else {
-        propertyName = OPPOSITE_LINK_CONTAINER_PREFIX + linkName;
-      }
-
-      fieldValue = getPropertyInternal(propertyName);
-      if (fieldValue != null) {
-        switch (fieldValue) {
-          case Identifiable identifiable -> {
-            if (identifiable instanceof Entity entity && entity.isEmbedded()) {
-              throw new IllegalArgumentException("Embedded entities are not supported");
-            }
-            var coll = Collections.singleton(identifiable);
-            iterables.add(
-                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
-                    session,
-                    coll, 1, coll));
-          }
-          case EntityLinkSetImpl set -> iterables.add(
-              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  set, -1, set));
-          case EntityLinkListImpl list -> iterables.add(
-              new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames, session,
-                  list, -1, list));
-          case LinkBag bag -> {
-            Iterable<RID> ridIterable =
-                () -> bag.stream().map(RidPair::primaryRid).iterator();
-            iterables.add(
-                new EntityRelationsIterable(
-                    this, new Pair<>(direction, linkName), linkNames, session,
-                    ridIterable, bag.size(), bag));
-          }
-          case EntityLinkMapIml map -> {
-            var values = map.values();
-            iterables.add(
-                new EntityRelationsIterable(this, new Pair<>(direction, linkName), linkNames,
-                    session,
-                    values, -1, values));
-          }
-
-          default -> {
-            throw new IllegalArgumentException(
-                "Unsupported property type: " + getPropertyType(propertyName));
-          }
-        }
-      }
-    }
-
-    if (iterables.size() == 1) {
-      return iterables.getFirst();
-    } else if (iterables.isEmpty()) {
-      return Collections.emptyList();
-    }
-
-    //noinspection unchecked
-    return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
   public List<Entry<String, EntityEntry>> getFilteredEntries() {
@@ -3947,8 +3761,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  @Nullable
-  protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
+  @Nullable protected String checkPropertyValue(String propertyName, @Nullable Object propertyValue) {
     if (propertyValue == null) {
       return null;
     }
@@ -4034,8 +3847,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @SuppressWarnings({"unchecked", "TypeParameterUnusedInFormals"})
-  @Nullable
-  private static <RET> RET convertField(
+  @Nullable private static <RET> RET convertField(
       @Nonnull DatabaseSessionEmbedded session, @Nonnull final EntityImpl entity,
       @Nonnull final String fieldName,
       @Nullable PropertyTypeInternal type,
@@ -4078,10 +3890,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     var cls = getImmutableSchemaClass(session);
     if (cls != null && !cls.isAbstract()) {
       throw new DatabaseException(session,
-          "Embedded entities can be only of abstract classes. Provided class : " + cls.getName(
-          ) + " is not abstract");
+          "Embedded entities can be only of abstract classes. Provided class : " + cls.getName()
+              + " is not abstract");
     }
-    if (isVertex() || isStatefulEdge()) {
+    if (isVertex() || isEdge()) {
       throw new DatabaseException(session.getDatabaseName(),
           "Vertices or Edges cannot be stored as embedded");
     }
@@ -4143,18 +3955,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
         (propertyType, value) -> value;
 
     PropertyOperationReturnValue<PropertyType> PROPERTY_TYPE =
-        (propertyType, value) ->
-            propertyType == null ? null : propertyType.getPublicPropertyType();
+        (propertyType, value) -> propertyType == null ? null : propertyType.getPublicPropertyType();
 
     PropertyOperationReturnValue<ValueAndType<Object>> PROPERTY_VALUE_AND_TYPE =
         (propertyType, value) -> new ValueAndType<>(
             value,
-            propertyType == null ? null : propertyType.getPublicPropertyType()
-        );
+            propertyType == null ? null : propertyType.getPublicPropertyType());
 
     /// Choose the value to return
-    @Nullable
-    T choose(PropertyTypeInternal propertyType, Object value);
+    @Nullable T choose(PropertyTypeInternal propertyType, Object value);
   }
 
   public record ValueAndType<T>(T value, PropertyType type) {

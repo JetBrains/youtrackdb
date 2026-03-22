@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -64,8 +63,6 @@ public class ScriptTransformerImpl implements ScriptTransformer {
           var hostObject = v.getArrayElement(i).asHostObject();
           if (hostObject instanceof Identifiable identifiable) {
             array.add(new ResultInternal(db, identifiable));
-          } else if (hostObject instanceof EdgeInternal edge) {
-            array.add(new ResultInternal(db, edge));
           } else {
             array.add(toResult(db, hostObject));
           }
@@ -114,8 +111,7 @@ public class ScriptTransformerImpl implements ScriptTransformer {
     return transformer.transform(db, value);
   }
 
-  @Nullable
-  public ResultTransformer getTransformer(final Class clazz) {
+  @Nullable public ResultTransformer getTransformer(final Class clazz) {
     if (clazz != null) {
       for (var entry : transformers.entrySet()) {
         if (entry.getKey().isAssignableFrom(clazz)) {

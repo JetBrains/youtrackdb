@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -31,10 +30,6 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   protected abstract Object move(
       final DatabaseSessionEmbedded db, final Identifiable record, final String[] labels);
-
-  protected abstract Object move(
-      final DatabaseSessionEmbedded db, final Relation<?> bidirectionalLink,
-      final String[] labels);
 
   @Override
   public String getSyntax(DatabaseSessionEmbedded session) {
@@ -63,9 +58,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
     return SQLEngine.foreachRecord(
         iArgument -> {
-          if (iArgument instanceof Relation<?> bidirectionalLink) {
-            return move(db, bidirectionalLink, labels);
-          } else if (iArgument instanceof Identifiable identifiable) {
+          if (iArgument instanceof Identifiable identifiable) {
             return move(db, identifiable, labels);
           } else {
             throw new IllegalArgumentException(
@@ -76,8 +69,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
         iContext);
   }
 
-  @Nullable
-  protected static Object v2v(
+  @Nullable protected static Object v2v(
       final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final Direction iDirection,
@@ -93,29 +85,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
           // directly from LinkBag secondary RIDs without loading edge records.
           return rec.asVertex().getVertices(iDirection, labels);
         } else {
-          return rec.getEntities(iDirection, labels);
-        }
-      } catch (RecordNotFoundException rnf) {
-        return null;
-      }
-    } else {
-      return null;
-    }
-  }
-
-  @Nullable
-  protected static Object v2e(
-      final DatabaseSessionEmbedded graph,
-      final Identifiable iRecord,
-      final Direction iDirection,
-      final String[] labels) {
-    if (iRecord != null) {
-      try {
-        var transaction = graph.getActiveTransaction();
-        var rec = (EntityImpl) transaction.loadEntity(iRecord);
-        if (!rec.isEdge()) {
-          return rec.getBidirectionalLinks(iDirection, labels);
-        } else {
+          // Plain entities are not graph elements — no vertex traversal.
           return null;
         }
       } catch (RecordNotFoundException rnf) {
@@ -126,8 +96,30 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
     }
   }
 
-  @Nullable
-  protected static Object e2v(
+  @Nullable protected static Object v2e(
+      final DatabaseSessionEmbedded graph,
+      final Identifiable iRecord,
+      final Direction iDirection,
+      final String[] labels) {
+    if (iRecord != null) {
+      try {
+        var transaction = graph.getActiveTransaction();
+        var rec = (EntityImpl) transaction.loadEntity(iRecord);
+        if (rec.isVertex()) {
+          return rec.asVertex().getEdges(iDirection, labels);
+        } else {
+          // Edge records and plain entities have no outgoing edges to traverse.
+          return null;
+        }
+      } catch (RecordNotFoundException rnf) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  @Nullable protected static Object e2v(
       final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final Direction iDirection) {
@@ -155,24 +147,4 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
     }
   }
 
-  @Nullable
-  protected static Object e2v(
-      final Relation<?> bidirectionalLink,
-      final Direction iDirection) {
-    if (bidirectionalLink != null) {
-      try {
-        if (iDirection == Direction.BOTH) {
-          var results = new ArrayList<Entity>(2);
-          results.add(bidirectionalLink.getEntity(Direction.OUT));
-          results.add(bidirectionalLink.getEntity(Direction.IN));
-          return results;
-        }
-        return bidirectionalLink.getEntity(iDirection);
-      } catch (RecordNotFoundException e) {
-        return null;
-      }
-    } else {
-      return null;
-    }
-  }
 }

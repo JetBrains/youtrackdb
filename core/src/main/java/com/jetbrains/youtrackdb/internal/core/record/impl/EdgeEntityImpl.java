@@ -1,13 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -17,21 +14,20 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal, StatefulEdge {
+public class EdgeEntityImpl extends EntityImpl implements EdgeInternal {
 
   public static final byte RECORD_TYPE = 'e';
 
-  public StatefullEdgeEntityImpl(@Nonnull RecordIdInternal recordId,
+  public EdgeEntityImpl(@Nonnull RecordIdInternal recordId,
       @Nonnull DatabaseSessionEmbedded session, String iClassName) {
     super(recordId, session, iClassName);
   }
 
-  public StatefullEdgeEntityImpl(DatabaseSessionEmbedded database, RecordIdInternal rid) {
+  public EdgeEntityImpl(DatabaseSessionEmbedded database, RecordIdInternal rid) {
     super(database, rid);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex getFrom() {
     var result = getPropertyInternal(DIRECTION_OUT);
     if (!(result instanceof Entity v)) {
@@ -69,14 +65,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return false;
   }
 
-  @Override
-  public Vertex getEntity(@Nonnull Direction dir) {
-    return getVertex(dir);
-  }
-
-
-  @Nullable
-  @Override
+  @Nullable @Override
   public Identifiable getFromLink() {
     var db = getSession();
     var schema = db.getMetadata().getImmutableSchemaSnapshot();
@@ -94,8 +83,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex getTo() {
     var result = getPropertyInternal(DIRECTION_IN);
     if (!(result instanceof Entity v)) {
@@ -109,8 +97,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return v.asVertex();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Identifiable getToLink() {
     checkForBinding();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
@@ -125,11 +112,6 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
 
     return null;
-  }
-
-  @Override
-  public boolean isLightweight() {
-    return false;
   }
 
   @Nonnull
@@ -155,8 +137,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     super.validatePropertyName(propertyName, allowMetadata);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String fieldName) {
     EdgeInternal.checkPropertyName(fieldName);
 
@@ -192,14 +173,4 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     return RECORD_TYPE;
   }
 
-  @Override
-  public Iterable<Entity> getEntities(Direction direction, String... linkNames) {
-    throw new UnsupportedOperationException("Operation not supported for edges");
-  }
-
-  @Override
-  public Iterable<? extends Relation<Entity>> getBidirectionalLinks(Direction direction,
-      String... linkNames) {
-    throw new UnsupportedOperationException("Operation not supported for edges");
-  }
 }

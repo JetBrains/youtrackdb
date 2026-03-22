@@ -34,7 +34,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -1485,13 +1484,13 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+  public Edge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     checkIfActive();
     return session.loadEdge(id);
   }
 
   @Nullable @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     checkIfActive();
     try {
       return session.loadEdge(id);
@@ -1502,10 +1501,10 @@ public class FrontendTransactionImpl implements
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+  public Edge loadEdge(@Nonnull Identifiable id)
       throws DatabaseException, RecordNotFoundException {
     checkIfActive();
-    if (id instanceof StatefulEdge edge) {
+    if (id instanceof Edge edge) {
       if (edge.isNotBound(session)) {
         return loadEdge(edge.getIdentity());
       }
@@ -1519,9 +1518,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
-    if (id instanceof StatefulEdge edge) {
+    if (id instanceof Edge edge) {
       if (edge.isNotBound(session)) {
         return loadEdgeOrNull(edge.getIdentity());
       }
@@ -1653,27 +1652,15 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newEdge(Vertex from, Vertex to, SchemaClass type) {
     checkIfActive();
-    return session.newStatefulEdge(from, to, type);
+    return session.newEdge(from, to, type);
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+  public Edge newEdge(Vertex from, Vertex to, String type) {
     checkIfActive();
-    return session.newStatefulEdge(from, to, type);
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
-    checkIfActive();
-    return session.newLightweightEdge(from, to, type);
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
-    checkIfActive();
-    return session.newLightweightEdge(from, to, type);
+    return session.newEdge(from, to, type);
   }
 
   @Override
@@ -1689,9 +1676,9 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newEdge(Vertex from, Vertex to) {
     checkIfActive();
-    return session.newStatefulEdge(from, to);
+    return session.newEdge(from, to);
   }
 
   @Nonnull

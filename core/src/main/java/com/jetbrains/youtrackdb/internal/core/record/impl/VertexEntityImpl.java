@@ -7,11 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -170,19 +167,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
               iterables.add(new VertexFromLinkBagIterable(bag, session));
           case Identifiable identifiable -> {
             var coll = Collections.singleton(identifiable);
-            var edges = new EdgeIterable(
-                this, connection, labels, session, coll, 1, coll);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            var edges = new EdgeIterable(session, coll, 1, coll);
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkSetImpl set -> {
-            var edges = new EdgeIterable(
-                this, connection, labels, session, set, -1, set);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            var edges = new EdgeIterable(session, set, -1, set);
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           case EntityLinkListImpl list -> {
-            var edges = new EdgeIterable(
-                this, connection, labels, session, list, -1, list);
-            iterables.add(new BidirectionalLinksIterable<>(edges, connection.getKey()));
+            var edges = new EdgeIterable(session, list, -1, list);
+            iterables.add(new BidirectionalLinksIterable(edges, connection.getKey()));
           }
           default -> throw new IllegalArgumentException(
               "Unsupported property type: " + getPropertyType(fieldName));
@@ -210,42 +204,18 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    return getVertices(direction, types.toArray(new String[]{}));
+    return getVertices(direction, types.toArray(new String[] {}));
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to) {
-    return (StatefulEdge) addEdge(to, EdgeInternal.CLASS_NAME);
+  public Edge addEdge(Vertex to) {
+    return addEdge(to, EdgeInternal.CLASS_NAME);
   }
 
   @Override
   public Edge addEdge(Vertex to, String type) {
     checkForBinding();
-    if (type == null) {
-      return session.newStatefulEdge(this, to, EdgeInternal.CLASS_NAME);
-    }
-
-    var schemaClass = session.getClass(type);
-    if (schemaClass == null) {
-      throw new IllegalArgumentException("Schema class for label " + type + " not found");
-    }
-    if (schemaClass.isAbstract()) {
-      return session.newLightweightEdge(this, to, type);
-    }
-
-    return session.newStatefulEdge(this, to, schemaClass);
-  }
-
-  @Override
-  public StatefulEdge addStateFulEdge(Vertex to, String label) {
-    checkForBinding();
-    return session.newStatefulEdge(this, to, label == null ? EdgeInternal.CLASS_NAME : label);
-  }
-
-  @Override
-  public Edge addLightWeightEdge(Vertex to, String label) {
-    checkForBinding();
-    return session.newLightweightEdge(this, to, label);
+    return session.newEdge(this, to, type == null ? EdgeInternal.CLASS_NAME : type);
   }
 
   @Override
@@ -261,32 +231,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to, SchemaClass label) {
-    final String className;
-
-    if (label != null) {
-      className = label.getName();
-    } else {
-      className = EdgeInternal.CLASS_NAME;
-    }
-
-    return addStateFulEdge(to, className);
-  }
-
-  @Override
-  public Edge addLightWeightEdge(Vertex to, SchemaClass label) {
-    final String className;
-
-    if (label != null) {
-      className = label.getName();
-    } else {
-      className = EdgeInternal.CLASS_NAME;
-    }
-
-    return addLightWeightEdge(to, className);
-  }
-
-  @Override
   public Iterable<Edge> getEdges(Direction direction, SchemaClass... type) {
     List<String> types = new ArrayList<>();
 
@@ -295,9 +239,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         types.add(t.getName());
       }
     }
-    return getEdges(direction, types.toArray(new String[]{}));
+    return getEdges(direction, types.toArray(new String[] {}));
   }
-
 
   @Override
   public Iterable<Edge> getEdges(Direction direction) {
@@ -305,9 +248,9 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var prefixes =
         switch (direction) {
-          case IN -> new String[]{DIRECTION_IN_PREFIX};
-          case OUT -> new String[]{DIRECTION_OUT_PREFIX};
-          case BOTH -> new String[]{DIRECTION_IN_PREFIX, DIRECTION_OUT_PREFIX};
+          case IN -> new String[] {DIRECTION_IN_PREFIX};
+          case OUT -> new String[] {DIRECTION_OUT_PREFIX};
+          case BOTH -> new String[] {DIRECTION_IN_PREFIX, DIRECTION_OUT_PREFIX};
         };
 
     Set<String> candidateClasses = new HashSet<>();
@@ -324,7 +267,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       }
     }
 
-    return getEdges(direction, candidateClasses.toArray(new String[]{}));
+    return getEdges(direction, candidateClasses.toArray(new String[] {}));
   }
 
   @Override
@@ -337,15 +280,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   @Override
   public byte getRecordType() {
     return RECORD_TYPE;
-  }
-
-  @Override
-  protected Iterable<Relation<Entity>> getBidirectionalLinksInternal(
-      Direction direction, String... linkNames) {
-    //noinspection unchecked,rawtypes
-    return IterableUtils.chainedIterable(
-        super.getBidirectionalLinksInternal(direction, linkNames),
-        (Iterable) getEdgesInternal(direction, linkNames));
   }
 
   /**
@@ -369,10 +303,10 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
       var toLoadPropertyNames = getAllPossibleEdgePropertyNames(
-          schema, direction, EdgeType.BOTH, labels);
+          schema, direction, labels);
 
       if (toLoadPropertyNames != null) {
-        deserializeProperties(toLoadPropertyNames.toArray(new String[]{}));
+        deserializeProperties(toLoadPropertyNames.toArray(new String[] {}));
         propertyNames = toLoadPropertyNames;
       }
     }
@@ -410,20 +344,17 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           case Identifiable identifiable -> {
             var coll = Collections.singleton(identifiable);
             iterables.add(
-                new EdgeIterable(this, connection, labels, session, coll, 1, coll));
+                new EdgeIterable(session, coll, 1, coll));
           }
           case EntityLinkSetImpl set -> iterables.add(
-              new EdgeIterable(this, connection, labels, session,
-                  set, -1, set));
+              new EdgeIterable(session, set, -1, set));
           case EntityLinkListImpl list -> iterables.add(
-              new EdgeIterable(this, connection, labels, session,
-                  list, -1, list));
+              new EdgeIterable(session, list, -1, list));
           case LinkBag bag -> {
             Iterable<RID> ridIterable =
                 () -> bag.stream().map(RidPair::primaryRid).iterator();
             iterables.add(
-                new EdgeIterable(
-                    this, connection, labels, session, ridIterable, bag.size(), bag));
+                new EdgeIterable(session, ridIterable, bag.size(), bag));
           }
           default -> {
             throw new IllegalArgumentException(
@@ -451,9 +382,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   ///
   /// As each label is represented by a class and the class may have subclasses, those subclasses
   /// are also considered and added to the list of possible edge labels.
-  @Nullable
-  public static List<String> getAllPossibleEdgePropertyNames(
-      Schema schema, final Direction direction, EdgeType edgeType,
+  @Nullable public static List<String> getAllPossibleEdgePropertyNames(
+      Schema schema, final Direction direction,
       String... labels) {
     if (labels == null) {
       return null;
@@ -466,12 +396,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
       if (clazz != null) {
         if (!clazz.isEdgeType()) {
-          continue;
-        }
-
-        if (edgeType == EdgeType.LIGHTWEIGHT && !clazz.isAbstract()) {
-          continue;
-        } else if (edgeType == EdgeType.STATEFUL && clazz.isAbstract()) {
           continue;
         }
 
@@ -509,8 +433,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return result;
   }
 
-  @Nullable
-  public static Pair<Direction, String> getConnection(
+  @Nullable public static Pair<Direction, String> getConnection(
       final Schema schema,
       final Direction direction,
       final String fieldName,
@@ -636,8 +559,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
-  @Nullable
-  private static String[] resolveAliases(Schema schema, String[] labels) {
+  @Nullable private static String[] resolveAliases(Schema schema, String[] labels) {
     if (labels == null) {
       return null;
     }
@@ -659,7 +581,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     return label;
   }
 
-
   private static void removeVertexLink(
       EntityImpl vertex,
       String fieldName,
@@ -677,33 +598,15 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   /**
-   * Creates a lightweight link between a vertex and the opposite vertex.
-   * For lightweight edges, both primary and secondary RIDs in the LinkBag point to the same
-   * opposite vertex (i.e. RidPair(vertexRid, vertexRid)). This overload should only be used
-   * for lightweight edges; for heavyweight edges use the 5-parameter overload that accepts
-   * separate primary (edge record) and secondary (opposite vertex) identifiables.
-   *
-   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, Identifiable, String)
-   */
-  public static void createLink(
-      DatabaseSessionEmbedded session, final EntityImpl fromVertex, final Identifiable to,
-      final String fieldName) {
-    createLink(session, fromVertex, to, to, fieldName);
-  }
-
-  /**
    * Creates a link between a vertex and a graph element, storing both primary and secondary
-   * RIDs in the LinkBag. For heavyweight edges, the primary RID is the edge record and the
-   * secondary RID is the opposite vertex (i.e. RidPair(edgeRid, oppositeVertexRid)).
-   * For lightweight edges, both RIDs point to the same opposite vertex.
+   * RIDs in the LinkBag. The primary RID is the edge record and the secondary RID is the
+   * opposite vertex (i.e. RidPair(edgeRid, oppositeVertexRid)).
    *
    * @param session the database session
    * @param fromVertex the vertex to add the link to
-   * @param primaryIdentifiable the primary identifiable to store (edge record for heavyweight,
-   *     opposite vertex for lightweight)
+   * @param primaryIdentifiable the primary identifiable to store (edge record)
    * @param secondaryIdentifiable the secondary identifiable (opposite vertex)
    * @param fieldName the edge field name (e.g. "out_E" or "in_E")
-   * @see #createLink(DatabaseSessionEmbedded, EntityImpl, Identifiable, String)
    */
   public static void createLink(
       DatabaseSessionEmbedded session, final EntityImpl fromVertex,
@@ -727,7 +630,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       case null -> {
         if (propType == PropertyType.LINKLIST
             || (prop != null
-            && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
+                && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(primaryIdentifiable);
           out = coll;
@@ -752,8 +655,6 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         // In normal edge creation flow this branch is not reached because the first edge
         // creates a LinkBag directly (when propType is null or LINKBAG). It can only be
         // reached if the property was manually set to a single Identifiable externally.
-        // The existing foundId is added as lightweight (primary == secondary) since we
-        // have no secondary RID information for the pre-existing entry.
         if (prop != null && propType == PropertyType.LINK) {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
@@ -770,7 +671,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           outType = PropertyTypeInternal.LINKLIST;
         } else {
           final var bag = new LinkBag(fromVertex.getSession());
-          bag.add(foundId.getIdentity());
+          // Load the pre-existing edge record to determine the opposite vertex RID.
+          // The fieldName prefix determines the direction: out_ means the secondaryRid
+          // is the "in" vertex, in_ means it's the "out" vertex.
+          EntityImpl existingEdge =
+              session.getActiveTransaction().load(foundId);
+          var existingSecondaryRid = resolveSecondaryRid(existingEdge, fieldName);
+          bag.add(foundId.getIdentity(), existingSecondaryRid);
           bag.add(primaryIdentifiable.getIdentity(), secondaryIdentifiable.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
@@ -801,54 +708,52 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     }
   }
 
+  /// Resolves the secondary RID (opposite vertex) for a pre-existing edge record
+  /// stored in a vertex LinkBag field. The fieldName prefix determines direction:
+  /// "out_" fields store the target vertex ("in"), "in_" fields store the source ("out").
+  private static RID resolveSecondaryRid(EntityImpl edgeRecord, String fieldName) {
+    String oppositeDirection;
+    if (fieldName.startsWith(DIRECTION_OUT_PREFIX)) {
+      oppositeDirection = Edge.DIRECTION_IN;
+    } else if (fieldName.startsWith(DIRECTION_IN_PREFIX)) {
+      oppositeDirection = Edge.DIRECTION_OUT;
+    } else {
+      throw new IllegalArgumentException("Unexpected edge field name: " + fieldName);
+    }
+    Identifiable oppositeVertex = edgeRecord.getPropertyInternal(oppositeDirection);
+    if (oppositeVertex == null) {
+      throw new IllegalStateException(
+          "Edge record " + edgeRecord.getIdentity() + " has no '"
+              + oppositeDirection + "' vertex; cannot resolve secondary RID for field "
+              + fieldName);
+    }
+    return oppositeVertex.getIdentity();
+  }
+
   private static void removeLinkFromEdge(EntityImpl vertex, Edge edge,
       Direction direction) {
     var className = edge.getSchemaClassName();
-    Identifiable edgeId;
-    if (edge instanceof StatefulEdge statefulEdge) {
-      edgeId = statefulEdge.getIdentity();
-    } else {
-      edgeId = null;
-    }
+    var edgeId = edge.getIdentity();
 
     removeLinkFromEdge(
-        vertex, edge, Vertex.getEdgeLinkFieldName(direction, className), edgeId, direction);
+        vertex, Vertex.getEdgeLinkFieldName(direction, className), edgeId);
   }
 
   private static void removeLinkFromEdge(
-      EntityImpl vertex, Edge edge, String edgeField, Identifiable edgeId,
-      Direction direction) {
+      EntityImpl vertex, String edgeField, Identifiable edgeId) {
     var edgeProp = vertex.getPropertyInternal(edgeField);
-    RID oppositeVertexId = null;
-    if (direction == Direction.IN) {
-      var fromIdentifiable = edge.getFromLink();
-      if (fromIdentifiable != null) {
-        oppositeVertexId = fromIdentifiable.getIdentity();
-      }
-    } else {
-      var toIdentifiable = edge.getToLink();
-      if (toIdentifiable != null) {
-        oppositeVertexId = toIdentifiable.getIdentity();
-      }
-    }
 
-    if (edgeId == null) {
-      // lightweight edge
-      edgeId = oppositeVertexId;
-    }
-
-    removeEdgeLinkFromProperty(vertex, edge, edgeField, edgeId, edgeProp);
+    removeEdgeLinkFromProperty(vertex, edgeField, edgeId, edgeProp);
   }
 
   private static void removeEdgeLinkFromProperty(
-      EntityImpl vertex, Edge edge, String edgeField, Identifiable edgeId, Object edgeProp) {
+      EntityImpl vertex, String edgeField, Identifiable edgeId, Object edgeProp) {
     if (edgeProp instanceof Collection) {
       ((Collection<?>) edgeProp).remove(edgeId);
     } else if (edgeProp instanceof LinkBag linkBag) {
       linkBag.remove(edgeId.getIdentity());
-    } else if (
-        (edgeProp instanceof Identifiable identifiable && identifiable.getIdentity().equals(edgeId))
-            || edge.isLightweight()) {
+    } else if (edgeProp instanceof Identifiable identifiable
+        && identifiable.getIdentity().equals(edgeId)) {
       vertex.removePropertyInternal(edgeField);
     } else {
       LogManager.instance()
@@ -867,9 +772,4 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     removeLinkFromEdge((EntityImpl) vertex, edge, Direction.OUT);
   }
 
-  public enum EdgeType {
-    LIGHTWEIGHT,
-    STATEFUL,
-    BOTH
-  }
 }

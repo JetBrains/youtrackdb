@@ -1,23 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBStatefulEdge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBStatefulEdgeImpl extends YTDBElementImpl implements YTDBEdgeInternal,
-    YTDBStatefulEdge {
+public final class YTDBEdgeImpl extends YTDBElementImpl implements YTDBEdgeInternal,
+    YTDBEdge {
 
-  public YTDBStatefulEdgeImpl(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
+  public YTDBEdgeImpl(YTDBGraphInternal graph, Edge ytdbEdge) {
     super(graph, ytdbEdge);
   }
 
-  public YTDBStatefulEdgeImpl(YTDBGraphInternal graph, RID ytdbEdgeRid) {
+  public YTDBEdgeImpl(YTDBGraphInternal graph, RID ytdbEdgeRid) {
     super(graph, ytdbEdgeRid);
   }
 
@@ -59,7 +59,7 @@ public final class YTDBStatefulEdgeImpl extends YTDBElementImpl implements YTDBE
   }
 
   @Override
-  public StatefulEdge getRawEntity() {
-    return super.getRawEntity().asStatefulEdge();
+  public Edge getRawEntity() {
+    return super.getRawEntity().asEdge();
   }
 }

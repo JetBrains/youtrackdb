@@ -97,7 +97,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
       Stream<Result> stream =
           StreamSupport.stream(edges.spliterator(), false)
               .filter((edge) -> matchesClass(session, edge) && matchesCollection(edge))
-              .map(e -> new ResultInternal(session, e));
+              .map(e -> new ResultInternal(session, (Identifiable) e));
       return ExecutionStream.resultIterator(stream.iterator());
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);
@@ -108,15 +108,9 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     if (targetCollection == null) {
       return true;
     }
-    if (edge.isStateful()) {
-      var statefulEdge = edge.asStatefulEdge();
-
-      var collectionId = statefulEdge.getIdentity().getCollectionId();
-      var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
-      return collectionName.equals(targetCollection.getStringValue());
-    }
-
-    return false;
+    var collectionId = edge.getIdentity().getCollectionId();
+    var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
+    return collectionName.equals(targetCollection.getStringValue());
   }
 
   private boolean matchesClass(DatabaseSessionEmbedded unusedDb, Edge edge) {

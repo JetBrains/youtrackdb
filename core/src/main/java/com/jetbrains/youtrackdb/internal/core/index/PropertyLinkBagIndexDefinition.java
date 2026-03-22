@@ -60,9 +60,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToRemove) {
     switch (changeEvent.getChangeType()) {
       case ADD -> {
-        // Index only by primaryRid (the key in the change event).
-        // For heavyweight edges primaryRid is the edge record RID;
-        // for lightweight edges it equals the opposite vertex RID.
+        // Index by primaryRid (the edge record RID) from the change event.
         var primaryKey = createSingleValue(transaction, changeEvent.getKey());
         processAdd(primaryKey, keysToAdd, keysToRemove);
       }
@@ -82,8 +80,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     return createValue(transaction, entity.<Object>getPropertyInternal(field));
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
     if (!(params.get(0) instanceof LinkBag linkBag)) {
       return null;
@@ -96,8 +93,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     return values;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     var param = params[0];
     if (!(param instanceof LinkBag linkBag)) {

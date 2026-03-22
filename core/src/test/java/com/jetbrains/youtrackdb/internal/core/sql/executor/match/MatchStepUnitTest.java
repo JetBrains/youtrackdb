@@ -18,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -431,7 +430,7 @@ public class MatchStepUnitTest extends DbTestBase {
     node.alias = "v";
 
     // Track whether the previous step was drained
-    var drained = new boolean[]{false};
+    var drained = new boolean[] {false};
     var prevStep = new AbstractExecutionStep(ctx, false) {
       @Override
       public ExecutionStream internalStart(CommandContext ctx) {
@@ -1199,9 +1198,9 @@ public class MatchStepUnitTest extends DbTestBase {
           var row = new ResultInternal(session);
           var resultVal = new ResultInternal(session);
           resultVal.setProperty("x", 1);
-          row.setProperty("resultProp", resultVal);     // Result → emitted
-          row.setProperty("identProp", vertex);          // Identifiable → wrapped & emitted
-          row.setProperty("primitiveProp", "ignored");   // Primitive → skipped
+          row.setProperty("resultProp", resultVal); // Result → emitted
+          row.setProperty("identProp", vertex); // Identifiable → wrapped & emitted
+          row.setProperty("primitiveProp", "ignored"); // Primitive → skipped
           return ExecutionStream.singleton(row);
         }
 
@@ -2182,9 +2181,9 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
-  /** Verifies toOResultInternal wraps a Relation into a ResultInternal. */
+  /** Verifies toOResultInternal wraps an Edge into a ResultInternal. */
   @Test
-  public void testToOResultInternalRelation() {
+  public void testToOResultInternalEdge() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("TestEdge", "E");
 
@@ -2382,9 +2381,9 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
-  /** Verifies dispatchTraversalResult handles a single Relation. */
+  /** Verifies dispatchTraversalResult handles a single Edge. */
   @Test
-  public void testDispatchSingleRelation() {
+  public void testDispatchSingleEdge() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("DispatchRelEdge", "E");
 
@@ -2405,11 +2404,11 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * Verifies dispatchTraversalResult handles a single Relation with a filter
+   * Verifies dispatchTraversalResult handles a single Edge with a filter
    * that rejects it.
    */
   @Test
-  public void testDispatchSingleRelationRejected() {
+  public void testDispatchSingleEdgeRejected() {
     session.createClassIfNotExist("V");
     session.createClassIfNotExist("DispatchRelEdge2", "E");
 
@@ -2842,9 +2841,9 @@ public class MatchStepUnitTest extends DbTestBase {
 
     var row = new MatchResultRow(session, parent, "b", "Bob");
 
-    assertTrue(row.hasProperty("b"));   // new alias
-    assertTrue(row.hasProperty("a"));   // parent property
-    assertFalse(row.hasProperty("z"));  // does not exist
+    assertTrue(row.hasProperty("b")); // new alias
+    assertTrue(row.hasProperty("a")); // parent property
+    assertFalse(row.hasProperty("z")); // does not exist
 
     // Add a local content property
     row.setProperty("extra", "val");
@@ -3302,21 +3301,6 @@ public class MatchStepUnitTest extends DbTestBase {
     }
 
     @Override
-    public boolean isRelation() {
-      return false;
-    }
-
-    @Override
-    public Relation<?> asRelation() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Relation<?> asRelationOrNull() {
-      return null;
-    }
-
-    @Override
     public boolean isEdge() {
       return false;
     }
@@ -3330,11 +3314,6 @@ public class MatchStepUnitTest extends DbTestBase {
     @Override
     public Edge asEdgeOrNull() {
       return null;
-    }
-
-    @Override
-    public boolean isStatefulEdge() {
-      return false;
     }
 
     @Override

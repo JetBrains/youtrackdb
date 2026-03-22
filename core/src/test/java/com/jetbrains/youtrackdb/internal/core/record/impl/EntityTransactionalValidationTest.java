@@ -96,16 +96,16 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test
   public void requiredLinkBagPositiveTest() {
-    var edgeClass = session.createLightweightEdgeClass("lst");
+    var edgeClass = session.createEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
     var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, edgeClass)
         .setMandatory(true);
     session.begin();
     var vrt = session.newVertex(clazz.getName());
     var link = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link, edgeClass);
+    vrt.addEdge(link, edgeClass);
     session.commit();
   }
 
@@ -147,23 +147,23 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test
   public void requiredLinkBagCanBeEmptyDuringTransaction() {
-    var edgeClass = session.createLightweightEdgeClass("lst");
+    var edgeClass = session.createEdgeClass("lst");
     var clazz = session.createVertexClass("Validation");
     var linkClass = session.createVertexClass("links");
     var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
+    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, edgeClass)
         .setMandatory(true);
     session.begin();
     var vrt = session.newVertex(clazz.getName());
     var link = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link, edgeClass);
+    vrt.addEdge(link, edgeClass);
     session.commit();
     session.begin();
     var activeTx = session.getActiveTransaction();
     vrt = activeTx.load(vrt);
     vrt.getEdges(Direction.OUT, edgeClass).forEach(Edge::delete);
     var link2 = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link2, edgeClass);
+    vrt.addEdge(link2, edgeClass);
     session.commit();
     session.begin();
     vrt = session.load(vrt.getIdentity());

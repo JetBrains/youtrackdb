@@ -2,21 +2,22 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.util.Collection;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
 /**
- * Iterable that resolves bidirectional relation links in a given direction.
+ * Iterable that resolves edge links in a given direction, returning the
+ * opposite vertex from each edge.
  */
-public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>, Sizeable {
+public class BidirectionalLinksIterable implements Iterable<Vertex>, Sizeable {
 
-  private final Iterable<? extends Relation<T>> links;
+  private final Iterable<? extends Edge> links;
   private final Direction direction;
 
-  public BidirectionalLinksIterable(Iterable<? extends Relation<T>> links,
+  public BidirectionalLinksIterable(Iterable<? extends Edge> links,
       Direction direction) {
     this.links = links;
     this.direction = direction;
@@ -24,8 +25,8 @@ public class BidirectionalLinksIterable<T extends Entity> implements Iterable<T>
 
   @Nonnull
   @Override
-  public Iterator<T> iterator() {
-    return new BidirectionalLinkToEntityIterator<>(links.iterator(), direction);
+  public Iterator<Vertex> iterator() {
+    return new BidirectionalLinkToEntityIterator(links.iterator(), direction);
   }
 
   @Override

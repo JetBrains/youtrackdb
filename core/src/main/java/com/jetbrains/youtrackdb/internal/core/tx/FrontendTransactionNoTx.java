@@ -31,7 +31,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandSQLParsingException;
@@ -129,7 +128,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+  public Edge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -191,22 +190,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public Edge newEdge(Vertex from, Vertex to, SchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+  public Edge newEdge(Vertex from, Vertex to, String type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -221,7 +210,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+  public Edge newEdge(Vertex from, Vertex to) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -504,20 +493,20 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Nullable @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+  public Edge loadEdge(@Nonnull Identifiable id)
       throws DatabaseException, RecordNotFoundException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
   @Nonnull
   @Override
-  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+  public Edge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

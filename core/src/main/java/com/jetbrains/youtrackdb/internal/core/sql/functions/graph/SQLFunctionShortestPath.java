@@ -146,10 +146,10 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         ctx.edgeTypeParam = (String[]) coll.toArray(new String[0]);
       } else {
         ctx.edgeType = param == null ? null : "" + param;
-        ctx.edgeTypeParam = new String[]{ctx.edgeType};
+        ctx.edgeTypeParam = new String[] {ctx.edgeType};
       }
     } else {
-      ctx.edgeTypeParam = new String[]{null};
+      ctx.edgeTypeParam = new String[] {null};
     }
 
     if (iParams.length > 4) {
@@ -250,8 +250,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
   }
 
-  @Nullable
-  private Integer integer(Object fromObject) {
+  @Nullable private Integer integer(Object fromObject) {
     if (fromObject == null) {
       return null;
     }
@@ -271,8 +270,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
    * @return the boolean value converted from the given object, or null if conversion is not
    *     possible
    */
-  @Nullable
-  private Boolean toBoolean(Object fromObject) {
+  @Nullable private Boolean toBoolean(Object fromObject) {
     if (fromObject == null) {
       return null;
     }
@@ -308,8 +306,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     } else {
       var edges1 = srcVertex.getEdges(direction, types);
       var edges2 = srcVertex.getEdges(direction, types);
-      //noinspection unchecked,rawtypes
-      return new RawPair<>(new BidirectionalLinksIterable<>((Iterable) edges1, direction), edges2);
+      return new RawPair<>(new BidirectionalLinksIterable(edges1, direction), edges2);
     }
   }
 
@@ -332,8 +329,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         + " ]])";
   }
 
-  @Nullable
-  protected List<RID> walkLeft(final ShortestPathContext ctx) {
+  @Nullable protected List<RID> walkLeft(final ShortestPathContext ctx) {
     var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {
       while (!ctx.queueLeft.isEmpty()) {
@@ -378,12 +374,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           final var neighborVertexIdentity = v.getIdentity();
           var edge = edgeIterator.next();
 
-          RID neighborEdgeIdentity;
-          if (edge.isStateful()) {
-            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
-          } else {
-            neighborEdgeIdentity = null;
-          }
+          RID neighborEdgeIdentity = edge.getIdentity();
 
           if (ctx.rightVisited.contains(neighborVertexIdentity)) {
             ctx.previouses.put(neighborVertexIdentity, neighborEdgeIdentity);
@@ -404,8 +395,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return null;
   }
 
-  @Nullable
-  protected List<RID> walkRight(final ShortestPathContext ctx) {
+  @Nullable protected List<RID> walkRight(final ShortestPathContext ctx) {
     final var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {
       while (!ctx.queueRight.isEmpty()) {
@@ -452,12 +442,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           final var neighborVertexIdentity = v.getIdentity();
           var edge = edgeIterator.next();
 
-          RID neighborEdgeIdentity;
-          if (edge.isStateful()) {
-            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
-          } else {
-            neighborEdgeIdentity = null;
-          }
+          RID neighborEdgeIdentity = edge.getIdentity();
 
           if (ctx.leftVisited.contains(neighborVertexIdentity)) {
             ctx.nexts.put(neighborVertexIdentity, neighborEdgeIdentity);

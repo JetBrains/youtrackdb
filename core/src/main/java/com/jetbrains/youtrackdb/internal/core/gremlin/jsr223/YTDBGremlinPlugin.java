@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBDomainObject;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBStatefulEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
@@ -34,7 +33,6 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
       imports =
           DefaultImportCustomizer.build()
               .addClassImports(
-                  YTDBStatefulEdge.class,
                   YTDBEdge.class,
                   YTDBElement.class,
                   YTDBGraph.class,
@@ -52,8 +50,8 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
                   YTDBDomainObjectObjectOutToken.class,
                   YTDBIoRegistry.class,
                   DatabaseType.class,
-                  RID.class
-              ).create();
+                  RID.class)
+              .create();
     } catch (Exception ex) {
       throw new RuntimeException(ex);
     }

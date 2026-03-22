@@ -22,8 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.StatefulEdge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -45,7 +45,7 @@ import javax.annotation.Nullable;
  */
 public class RecordBytes extends RecordAbstract implements Blob {
 
-  private static final byte[] EMPTY_SOURCE = new byte[]{};
+  private static final byte[] EMPTY_SOURCE = new byte[] {};
 
   public RecordBytes(RecordIdInternal recordId, final DatabaseSessionEmbedded iDatabase,
       final byte[] iSource) {
@@ -173,11 +173,6 @@ public class RecordBytes extends RecordAbstract implements Blob {
   }
 
   @Override
-  public boolean isStatefulEdge() {
-    return false;
-  }
-
-  @Override
   public boolean isVertex() {
     return false;
   }
@@ -196,8 +191,8 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   @Nonnull
   @Override
-  public StatefulEdge asStatefulEdge() {
-    throw new IllegalStateException("Blob is not a StatefulEdge");
+  public Edge asEdge() {
+    throw new IllegalStateException("Blob is not an Edge");
   }
 
   @Nonnull
@@ -206,27 +201,28 @@ public class RecordBytes extends RecordAbstract implements Blob {
     throw new IllegalStateException("Blob is not a Vertex");
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Entity asEntityOrNull() {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Blob asBlobOrNull() {
     return this;
   }
 
-  @Nullable
-  @Override
-  public StatefulEdge asStatefulEdgeOrNull() {
+  @Nullable @Override
+  public Edge asEdgeOrNull() {
     return null;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Vertex asVertexOrNull() {
     return null;
+  }
+
+  @Override
+  public boolean isEdge() {
+    return false;
   }
 }

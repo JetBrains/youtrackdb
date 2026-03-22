@@ -31,7 +31,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Parameterized.Parameters(name = "{0}")
   public static Iterable<Object[]> documentTypes() {
     return Arrays.asList(
-        new Object[][]{
+        new Object[][] {
             {VERTEX_CLASS_NAME}, {EDGE_CLASS_NAME},
         });
   }
@@ -39,10 +39,10 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   @Test(expected = CommandExecutionException.class)
   public void shouldNotDeleteVertexAndEdge() {
     switch (className) {
-      case VERTEX_CLASS_NAME:
+      case VERTEX_CLASS_NAME :
         session.createVertexClass(VERTEX_CLASS_NAME);
         break;
-      case EDGE_CLASS_NAME:
+      case EDGE_CLASS_NAME :
         session.createEdgeClass(EDGE_CLASS_NAME);
         break;
     }
@@ -78,7 +78,7 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
                       var from = db.newVertex();
                       var to = db.newVertex();
 
-                      var edge = db.newStatefulEdge(from, to, className);
+                      var edge = db.newEdge(from, to, className);
                       result.add(new ResultInternal(db, (Identifiable) edge));
                     }
                   }

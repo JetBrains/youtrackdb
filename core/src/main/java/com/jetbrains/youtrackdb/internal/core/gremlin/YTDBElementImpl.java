@@ -27,8 +27,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
   private static final List<String> EDGE_LINK_FIELDS =
       List.of(Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
 
-  @Nullable
-  private final Entity fastPathEntity;
+  @Nullable private final Entity fastPathEntity;
 
   protected YTDBGraphInternal graph;
   protected final RID rid;
@@ -117,9 +116,8 @@ public abstract class YTDBElementImpl implements YTDBElement {
       YTDBPropertyFactory<V, P> propFactory, final String... propertyKeys) {
     this.graph.tx().readWrite();
     final var entity = ((EntityImpl) getRawEntity());
-    final var keysToReturn = propertyKeys.length > 0 ?
-        Arrays.stream(propertyKeys) :
-        entity.getPropertyNames().stream();
+    final var keysToReturn =
+        propertyKeys.length > 0 ? Arrays.stream(propertyKeys) : entity.getPropertyNames().stream();
 
     return keysToReturn
         .map(key -> readFromEntity(propFactory, key, entity, null))
@@ -127,20 +125,17 @@ public abstract class YTDBElementImpl implements YTDBElement {
         .iterator();
   }
 
-  @Nullable
-  private <V, P extends Property<V>> P readFromEntity(
+  @Nullable private <V, P extends Property<V>> P readFromEntity(
       YTDBPropertyFactory<V, P> propFactory,
       String key,
       EntityImpl source,
-      @Nullable P emptyValue
-  ) {
+      @Nullable P emptyValue) {
     if (keyIgnored(source, key)) {
       return emptyValue;
     }
     final var valueAndType = source.<V>getPropertyAndType(key);
-    return valueAndType == null ?
-        emptyValue :
-        propFactory.create(key, valueAndType.value(), valueAndType.type(), this);
+    return valueAndType == null ? emptyValue
+        : propFactory.create(key, valueAndType.value(), valueAndType.type(), this);
   }
 
   @Override
@@ -217,6 +212,6 @@ public abstract class YTDBElementImpl implements YTDBElement {
   private static boolean keyIgnored(Entity entity, String key) {
     return key == null || key.isEmpty() ||
         key.charAt(0) == INTERNAL_PREFIX ||
-        (entity.isStatefulEdge() && EDGE_LINK_FIELDS.contains(key));
+        (entity.isEdge() && EDGE_LINK_FIELDS.contains(key));
   }
 }

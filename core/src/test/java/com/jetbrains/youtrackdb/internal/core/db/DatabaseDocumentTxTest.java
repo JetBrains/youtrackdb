@@ -264,7 +264,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var doc2 = session.newVertex(vertexClass);
     doc2.setProperty("name", "second");
     var activeTx = session.getActiveTransaction();
-    session.newStatefulEdge(activeTx.load(doc1), doc2, "testEdge");
+    session.newEdge(activeTx.load(doc1), doc2, "testEdge");
     session.commit();
 
     session.begin();
@@ -299,8 +299,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var doc3 = session.newVertex(vertexClass);
     doc3.setProperty("name", "third");
 
-    session.newStatefulEdge(doc1, doc2, "testEdge");
-    session.newStatefulEdge(doc1, doc3, "testEdge");
+    session.newEdge(doc1, doc2, "testEdge");
+    session.newEdge(doc1, doc3, "testEdge");
     session.commit();
 
     session.begin();
@@ -334,8 +334,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       var doc3 = session.newVertex(vertexClass);
       doc3.setProperty("name", "third");
 
-      session.newStatefulEdge(doc1, doc2, "testEdge");
-      session.newStatefulEdge(doc1, doc3, "testEdge");
+      session.newEdge(doc1, doc2, "testEdge");
+      session.newEdge(doc1, doc3, "testEdge");
     });
   }
 

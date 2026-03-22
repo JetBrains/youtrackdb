@@ -46,9 +46,9 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     var porsche = session.newVertex("GraphCar");
     porsche.setProperty("brand", "Porsche");
 
-    session.newStatefulEdge(tom, ferrari, "drives");
-    session.newStatefulEdge(tom, maserati, "drives");
-    session.newStatefulEdge(tom, porsche, "owns");
+    session.newEdge(tom, ferrari, "drives");
+    session.newEdge(tom, maserati, "drives");
+    session.newEdge(tom, porsche, "owns");
 
     session.commit();
 
@@ -115,7 +115,7 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     vertexB.setProperty("field1", "value1");
     vertexB.setProperty("field2", "value2");
 
-    var edgeC = session.newStatefulEdge(vertexA, vertexB);
+    var edgeC = session.newEdge(vertexA, vertexB);
     edgeC.setProperty("edgeF1", "edgeV2");
 
     session.commit();
@@ -148,11 +148,11 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     var targetVertex = session.newVertex();
     targetVertex.setProperty("car", "audi");
 
-    var edge = session.newStatefulEdge(vertex1, vertex2);
+    var edge = session.newEdge(vertex1, vertex2);
     edge.setProperty("color", "red");
     edge.setProperty("action", "owns");
 
-    edge = session.newStatefulEdge(vertex1, targetVertex);
+    edge = session.newEdge(vertex1, targetVertex);
     edge.setProperty("color", "red");
     edge.setProperty("action", "wants");
 
@@ -202,8 +202,8 @@ public class GraphDatabaseTest extends BaseDBJUnit5Test {
     cityVertex2.setProperty("lat", "53.47497");
     cityVertex2.setProperty("long", "-2.25769");
 
-    session.newStatefulEdge(countryVertex1, cityVertex1, "owns");
-    session.newStatefulEdge(countryVertex1, cityVertex2, "owns");
+    session.newEdge(countryVertex1, cityVertex1, "owns");
+    session.newEdge(countryVertex1, cityVertex2, "owns");
 
     session.commit();
     var subquery = "select out('owns') as out from V where name = 'UK'";

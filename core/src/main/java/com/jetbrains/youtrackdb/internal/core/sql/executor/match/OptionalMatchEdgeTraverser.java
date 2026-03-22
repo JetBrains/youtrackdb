@@ -77,8 +77,7 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
    * If no traversal result was found, the alias is set to `null` in the output row.
    */
   @Override
-  @Nullable
-  protected Result computeNext(CommandContext ctx) {
+  @Nullable protected Result computeNext(CommandContext ctx) {
     var endPointAlias = getEndpointAlias();
     var prevValue = sourceRecord.getProperty(endPointAlias);
     var next = downstream.next(ctx);
@@ -118,10 +117,6 @@ public class OptionalMatchEdgeTraverser extends MatchEdgeTraverser {
     if (next.isEntity()) {
       // The traversal found a matching entity — bind it to the alias
       endPointValue = toResult(session, next.asEntity());
-    } else if (next.isRelation()) {
-      // The traversal found a matching relation (edge record) — bind it to the alias
-      endPointValue = ResultInternal.toResultInternal(
-          next.asRelation(), ctx.getDatabaseSession(), null);
     } else {
       // EMPTY_OPTIONAL sentinel or an unrecognized result type — set alias to null.
       // The sentinel case is the normal "no match found" path for optional nodes;

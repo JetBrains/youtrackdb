@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Relation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -30,13 +29,6 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
   protected Object move(
       final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
     return v2v(graph, record, Direction.OUT, labels);
-  }
-
-  @Override
-  protected Object move(DatabaseSessionEmbedded db,
-      Relation<?> bidirectionalRelation, String[] labels) {
-    throw new UnsupportedOperationException(
-        "Function 'out' is not supported for bidirectional links");
   }
 
   @Override
@@ -67,8 +59,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     return v2v(graph, iRecord, Direction.OUT, iLabels);
   }
 
-  @Nullable
-  private static Object fetchFromIndex(
+  @Nullable private static Object fetchFromIndex(
       DatabaseSessionEmbedded session,
       Identifiable iFrom,
       Iterable<Identifiable> iTo,
@@ -114,8 +105,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     return result;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {

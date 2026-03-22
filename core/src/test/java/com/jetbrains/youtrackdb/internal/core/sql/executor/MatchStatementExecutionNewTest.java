@@ -2281,8 +2281,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           var v3 = session.newVertex(clazz);
           v3.setProperty("name", "c");
 
-          v1.addStateFulEdge(v2);
-          v2.addStateFulEdge(v3);
+          v1.addEdge(v2);
+          v2.addEdge(v3);
         });
 
     var query = "MATCH { class:" + clazz + ", as:a} --> {as:b} --> {as:c}, ";
@@ -2315,9 +2315,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           var v3 = session.newVertex(clazz);
           v3.setProperty("name", "c");
 
-          v1.addStateFulEdge(v2);
-          v2.addStateFulEdge(v3);
-          v1.addStateFulEdge(v3);
+          v1.addEdge(v2);
+          v2.addEdge(v3);
+          v1.addEdge(v3);
         });
 
     var query = "MATCH { class:" + clazz + ", as:a} --> {as:b} --> {as:c}, ";
@@ -2348,9 +2348,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           var v3 = session.newVertex(clazz);
           v3.setProperty("name", "c");
 
-          v1.addStateFulEdge(v2);
-          v2.addStateFulEdge(v3);
-          v1.addStateFulEdge(v3);
+          v1.addEdge(v2);
+          v2.addEdge(v3);
+          v1.addEdge(v3);
         });
 
     var query = "MATCH { class:" + clazz + ", as:a} --> {as:b} --> {as:c}, ";

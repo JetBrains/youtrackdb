@@ -331,13 +331,13 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
   }
 
   /**
-   * Verify that adding a lightweight entry to a persisted LinkBag via direct API
+   * Verify that adding a single-RID entry to a persisted LinkBag via direct API
    * correctly adds the new key to the index while preserving existing entries.
    */
   @Test
   void testIndexRidBagUpdateAddItem() {
 
-    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
+    // 1. Create a document with a LinkBag containing two single-RID entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -575,13 +575,13 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
   }
 
   /**
-   * Verify that removing a lightweight entry from a persisted LinkBag via direct API
+   * Verify that removing a single-RID entry from a persisted LinkBag via direct API
    * correctly removes the key from the index while preserving remaining entries.
    */
   @Test
   void testIndexRidBagUpdateRemoveItem() {
 
-    // 1. Create a document with a LinkBag containing two lightweight entries and commit.
+    // 1. Create a document with a LinkBag containing two single-RID entries and commit.
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
 
@@ -775,14 +775,14 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    */
   @Test
   void testIndexRidBagWithPairsOnVertex() {
-    // 1. Create a vertex with two heavyweight edges and populate ridBag
+    // 1. Create a vertex with two double-sided edges and populate ridBag
     //    with double-sided pairs (edgeRid, targetVertexRid).
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
     final var target2 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
-    final var edge2 = session.newStatefulEdge(vertex, target2, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge2 = session.newEdge(vertex, target2, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());
@@ -810,17 +810,17 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
   }
 
   /**
-   * Verify that a vertex LinkBag containing both a lightweight entry (single RID)
+   * Verify that a vertex LinkBag containing both a single-RID entry
    * and a double-sided RidPair entry indexes only the primary RIDs.
    */
   @Test
   void testIndexRidBagWithMixedSingleAndPairOnVertex() {
-    // 1. Create a vertex ridBag with one lightweight entry and one double-sided pair.
+    // 1. Create a vertex ridBag with one single-RID entry and one double-sided pair.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -829,8 +829,8 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
 
     session.commit();
 
-    // 2. Verify the index contains 2 keys: single1 (lightweight primary)
-    //    + edge1 (heavyweight primary). target1 (secondary) is NOT indexed.
+    // 2. Verify the index contains 2 keys: single1 (single-RID primary)
+    //    + edge1 (double-sided primary). target1 (secondary) is NOT indexed.
     final var index = getIndex("ridBagVertexIndex");
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
@@ -854,12 +854,12 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    */
   @Test
   void testIndexRidBagUpdateAddPairItemOnVertex() {
-    // 1. Create a vertex with a lightweight-only ridBag and commit.
+    // 1. Create a vertex with a single-RID-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -898,12 +898,12 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    */
   @Test
   void testIndexRidBagUpdateAddPairItemOnVertexInTx() {
-    // 1. Create a vertex with a lightweight-only ridBag and commit.
+    // 1. Create a vertex with a single-RID-only ridBag and commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -947,12 +947,12 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
    */
   @Test
   void testIndexRidBagUpdateRemovePairItemOnVertex() {
-    // 1. Create a vertex ridBag with one lightweight and one pair entry, commit.
+    // 1. Create a vertex ridBag with one single-RID and one pair entry, commit.
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var single1 = session.newVertex("V");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(single1.getIdentity());
@@ -967,7 +967,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     loaded.<LinkBag>getProperty("ridBag").remove(edge1.getIdentity());
     session.commit();
 
-    // 3. Verify the index contains only the lightweight entry.
+    // 3. Verify the index contains only the single-RID entry.
     final var index = getIndex("ridBagVertexIndex");
     var activeTx = session.begin();
     var ato = activeTx.getAtomicOperation();
@@ -993,7 +993,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());
@@ -1030,7 +1030,7 @@ public class LinkBagIndexTest extends BaseDBJUnit5Test {
     session.begin();
     final var vertex = session.newVertex("RidBagIndexVertexClass");
     final var target1 = session.newVertex("V");
-    final var edge1 = session.newStatefulEdge(vertex, target1, "RidBagIndexEdgeClass");
+    final var edge1 = session.newEdge(vertex, target1, "RidBagIndexEdgeClass");
 
     final var ridBag = new LinkBag(session);
     ridBag.add(edge1.getIdentity(), target1.getIdentity());

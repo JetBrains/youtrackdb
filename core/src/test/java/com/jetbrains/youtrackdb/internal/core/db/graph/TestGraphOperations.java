@@ -29,7 +29,7 @@ public class TestGraphOperations extends DbTestBase {
 
     var vertex1 = session.newVertex("TestVertex");
 
-    var edge = vertex.addStateFulEdge(vertex1, "TestLabel");
+    var edge = vertex.addEdge(vertex1, "TestLabel");
 
     edge.setProperty("key", "unique");
     session.commit();
@@ -38,7 +38,7 @@ public class TestGraphOperations extends DbTestBase {
       session.begin();
       var tx = session.getActiveTransaction();
       edge = tx.<Vertex>load(vertex)
-          .addStateFulEdge(tx.load(vertex1), "TestLabel");
+          .addEdge(tx.load(vertex1), "TestLabel");
       edge.setProperty("key", "unique");
       session.commit();
       Assert.fail("It should not be inserted  a duplicated edge");
@@ -49,7 +49,7 @@ public class TestGraphOperations extends DbTestBase {
     session.begin();
     var tx2 = session.getActiveTransaction();
     edge = tx2.<Vertex>load(vertex)
-        .addStateFulEdge(tx2.load(vertex1), "TestLabel");
+        .addEdge(tx2.load(vertex1), "TestLabel");
     edge.setProperty("key", "notunique");
     session.commit();
   }

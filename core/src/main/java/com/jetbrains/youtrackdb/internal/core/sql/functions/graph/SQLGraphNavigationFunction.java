@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInte
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
-import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl.EdgeType;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -23,8 +22,9 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
   /// function to return the same result.
   ///
   /// Those properties are returned only if property values are mapped directly to the function
-  /// result. For example, the ` out ` function will return `null` in case of usage of stateful
-  /// edges.
+  /// result. For example, `outE` returns edge LinkBag property names for vertex entities,
+  /// and `out` returns the same properties since the RidPair's secondaryRid provides direct
+  /// access to the opposite vertex without loading the edge record.
   ///
   /// SQL engine treats each of those properties in the list as a collection of the `rid`s of some
   /// of the supported types.
@@ -37,55 +37,38 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
   /// || collectionN.contains(valueToSearch)
   ///```
 
-  @Nullable
-  Collection<String> propertyNamesForIndexCandidates(String[] labels,
+  @Nullable Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session);
 
-
-  @Nullable
-  static Collection<String> propertiesForV2ENavigation(SchemaClass schemaClass,
+  /// Returns edge LinkBag property names for vertex-to-edge navigation index optimization.
+  ///
+  /// For vertex entities, returns the property names of LinkBags that contain edges matching
+  /// the given labels and direction. For non-vertex entities, returns `null` (no index candidates).
+  @Nullable static Collection<String> propertiesForV2ENavigation(SchemaClass schemaClass,
       DatabaseSessionEmbedded session, Direction direction,
       String[] labels) {
-    //As we support graph function for all relations both graph and non-graph.
-    //
-    //We should handle two cases:
-    // 1. Processed entity is vertex
-    // 2. Non-vertex case.
-    //
-    // In the last one we do not generate property names for indexed edges
-    // as they are always lightweight and cannot be fetched from the database.
-    //
-    // For the first case we fetch class names of for labels and check if they are represented
-    // by edges backed by records in the database.
-    // In the last case we return related property names.
-
     if (schemaClass.isVertexType()) {
       var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
 
       return VertexEntityImpl.getAllPossibleEdgePropertyNames(
           immutableSchema,
-          direction, EdgeType.STATEFUL, labels);
+          direction, labels);
     } else {
       return null;
     }
   }
 
-  @Nullable
-  static Collection<String> propertiesForV2VNavigation(SchemaClass schemaClass,
+  /// Returns property names for vertex-to-vertex navigation index optimization.
+  ///
+  /// For non-vertex entities, returns LINK-type property names (OUT direction) or their
+  /// back-reference system properties (IN direction). For vertex entities, returns the same
+  /// edge LinkBag property names as V2E — the RidPair's secondaryRid stores the opposite
+  /// vertex RID, enabling V2V optimization without loading edge records.
+  @Nullable static Collection<String> propertiesForV2VNavigation(SchemaClass schemaClass,
       DatabaseSessionEmbedded session, Direction direction,
       String[] labels) {
-    //As we support graph function for all relations both graph and non-graph.
-    //We should handle two cases:
-    //
-    // 1. Non-vertex case.
-    // 2. Processed entity is vertex.
-
     if (!schemaClass.isVertexType()) {
-      //If an entity is not a vertex:
-      // 1. 'Out' direction - we return all labels that are link-based properties.
-      // 2. 'In' direction - we return names of system properties that are containers
-      // for back references used to track link consistency.
       if (direction == Direction.OUT) {
         var result = new ArrayList<String>(labels.length);
 
@@ -125,11 +108,12 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
       throw new IllegalStateException("Incorrect value for direction: " + direction);
     }
 
-    //if an entity is vertex, we collect property names that are references of lightweight edges,
-    // so we return only properties that directly reference opposite vertices.
+    // For vertex entities, the LinkBag RidPair stores both the edge RID (primaryRid)
+    // and the opposite vertex RID (secondaryRid). V2V navigation is optimized via
+    // the secondaryRid, so the same edge property names apply.
     var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,
-        direction, EdgeType.LIGHTWEIGHT, labels);
+        direction, labels);
   }
 }

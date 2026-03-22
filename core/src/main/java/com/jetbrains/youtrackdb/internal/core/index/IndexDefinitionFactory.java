@@ -236,7 +236,11 @@ public class IndexDefinitionFactory {
       }
       indexDefinition = new PropertyListIndexDefinition(className, fieldName, indexType);
     } else if (type.equals(PropertyTypeInternal.LINKBAG)) {
-      indexDefinition = new PropertyLinkBagIndexDefinition(className, fieldName);
+      if (indexBy == PropertyMapIndexDefinition.INDEX_BY.VALUE) {
+        indexDefinition = new PropertyLinkBagSecondaryIndexDefinition(className, fieldName);
+      } else {
+        indexDefinition = new PropertyLinkBagIndexDefinition(className, fieldName);
+      }
     } else {
       indexDefinition = new PropertyIndexDefinition(className, fieldName, type);
     }
@@ -256,7 +260,8 @@ public class IndexDefinitionFactory {
 
       if ("by".equalsIgnoreCase(fieldNameParts[1])) {
         try {
-          return PropertyMapIndexDefinition.INDEX_BY.valueOf(fieldNameParts[2].toUpperCase(Locale.ROOT));
+          return PropertyMapIndexDefinition.INDEX_BY
+              .valueOf(fieldNameParts[2].toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException iae) {
           throw new IllegalArgumentException(
               "Illegal field name format, should be '<property> [by key|value]' but was '"

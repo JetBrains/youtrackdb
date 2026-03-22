@@ -2,31 +2,36 @@ package com.jetbrains.youtrackdb.internal.core.db.graph;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeIterator;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
@@ -35,16 +40,10 @@ import org.junit.Test;
 /**
  * Tests that double-sided edge storage in LinkBag correctly stores primary and secondary RIDs.
  *
- * <p>For heavyweight (stateful) edges, the LinkBag should store:
+ * <p>After edge unification, all edges are record-based. The LinkBag stores:
  * <ul>
  *   <li>primaryRid = edge record RID</li>
  *   <li>secondaryRid = opposite vertex RID</li>
- * </ul>
- *
- * <p>For lightweight edges, the LinkBag should store:
- * <ul>
- *   <li>primaryRid = opposite vertex RID</li>
- *   <li>secondaryRid = opposite vertex RID (same as primary)</li>
  * </ul>
  */
 public class DoubleSidedEdgeLinkBagTest {
@@ -62,7 +61,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     session.getSchema().createVertexClass("TestVertex");
     session.getSchema().createEdgeClass("HeavyEdge");
-    session.getSchema().createLightweightEdgeClass("LightEdge");
+    session.getSchema().createEdgeClass("LightEdge");
   }
 
   @After
@@ -83,7 +82,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
     var edgeRid = edge.getIdentity();
 
     tx.commit();
@@ -106,9 +105,9 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Outgoing LinkBag secondary RID should be the target (in) vertex",
         inVertex.getIdentity(), outPair.secondaryRid());
-    assertFalse(
-        "Heavyweight edge pair should not be lightweight",
-        outPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        outPair.primaryRid(), outPair.secondaryRid());
 
     // Check incoming vertex: in_HeavyEdge should contain RidPair(edgeRid, outVertexRid)
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
@@ -123,25 +122,26 @@ public class DoubleSidedEdgeLinkBagTest {
     assertEquals(
         "Incoming LinkBag secondary RID should be the source (out) vertex",
         outVertex.getIdentity(), inPair.secondaryRid());
-    assertFalse(
-        "Heavyweight edge pair should not be lightweight",
-        inPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
 
   /**
-   * Verifies that a lightweight edge stores the opposite vertex RID as both primary
-   * and secondary (i.e. the pair is "lightweight") in both the outgoing and incoming
-   * vertex LinkBags.
+   * Verifies that a "LightEdge" (which after edge unification is record-based like all
+   * edges) stores the edge record RID as primary and the opposite vertex RID as secondary
+   * in both the outgoing and incoming vertex LinkBags.
    */
   @Test
-  public void testLightweightEdgeStoresSameVertexRidAsBothPrimaryAndSecondary() {
+  public void testEdgeStoresEdgeRidAsPrimaryAndVertexRidAsSecondary() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    var edge = outVertex.addEdge(inVertex, "LightEdge");
+    var edgeRid = edge.getIdentity();
 
     tx.commit();
 
@@ -149,7 +149,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedOut = (EntityImpl) tx.load(outVertex.getIdentity());
     var loadedIn = (EntityImpl) tx.load(inVertex.getIdentity());
 
-    // Check outgoing vertex: out_LightEdge should contain RidPair(inVertexRid, inVertexRid)
+    // Check outgoing vertex: out_LightEdge should contain RidPair(edgeRid, inVertexRid)
     var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     var outBag = (LinkBag) loadedOut.getPropertyInternal(outFieldName);
     assertNotNull("Outgoing vertex should have out_LightEdge LinkBag", outBag);
@@ -157,16 +157,16 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outPair = outBag.iterator().next();
     assertEquals(
-        "Lightweight outgoing primary RID should be the target (in) vertex",
-        inVertex.getIdentity(), outPair.primaryRid());
+        "Outgoing primary RID should be the edge record",
+        edgeRid, outPair.primaryRid());
     assertEquals(
-        "Lightweight outgoing secondary RID should also be the target (in) vertex",
+        "Outgoing secondary RID should be the target (in) vertex",
         inVertex.getIdentity(), outPair.secondaryRid());
-    assertTrue(
-        "Lightweight edge pair should be lightweight (primary == secondary)",
-        outPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        outPair.primaryRid(), outPair.secondaryRid());
 
-    // Check incoming vertex: in_LightEdge should contain RidPair(outVertexRid, outVertexRid)
+    // Check incoming vertex: in_LightEdge should contain RidPair(edgeRid, outVertexRid)
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "LightEdge");
     var inBag = (LinkBag) loadedIn.getPropertyInternal(inFieldName);
     assertNotNull("Incoming vertex should have in_LightEdge LinkBag", inBag);
@@ -174,14 +174,14 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var inPair = inBag.iterator().next();
     assertEquals(
-        "Lightweight incoming primary RID should be the source (out) vertex",
-        outVertex.getIdentity(), inPair.primaryRid());
+        "Incoming primary RID should be the edge record",
+        edgeRid, inPair.primaryRid());
     assertEquals(
-        "Lightweight incoming secondary RID should also be the source (out) vertex",
+        "Incoming secondary RID should be the source (out) vertex",
         outVertex.getIdentity(), inPair.secondaryRid());
-    assertTrue(
-        "Lightweight edge pair should be lightweight (primary == secondary)",
-        inPair.isLightweight());
+    assertNotEquals(
+        "Edge RID and vertex RID must differ",
+        inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
@@ -198,8 +198,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
 
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
 
     var edge1Rid = edge1.getIdentity();
     var edge2Rid = edge2.getIdentity();
@@ -219,7 +219,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var foundEdge1 = false;
     var foundEdge2 = false;
     for (var pair : outBag) {
-      assertFalse("All pairs should be heavyweight", pair.isLightweight());
+      assertNotEquals("Edge RID and vertex RID must differ",
+          pair.primaryRid(), pair.secondaryRid());
       if (pair.primaryRid().equals(edge1Rid)) {
         assertEquals(
             "Edge1 secondary should be inVertex1",
@@ -258,19 +259,21 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that mixing lightweight and heavyweight edges on the same vertex stores
-   * the correct RidPair format for each type.
+   * Verifies that both LightEdge and HeavyEdge classes on the same vertex store
+   * the correct RidPair format (edgeRid, oppositeVertexRid). After edge unification,
+   * both edge classes are record-based and produce identical RidPair patterns.
    */
   @Test
-  public void testMixedLightweightAndHeavyweightEdgesOnSameVertex() {
+  public void testMultipleEdgeClassesOnSameVertexStoreCorrectRidPairs() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertexLight = tx.newVertex("TestVertex");
     var inVertexHeavy = tx.newVertex("TestVertex");
 
-    outVertex.addLightWeightEdge(inVertexLight, "LightEdge");
-    var heavyEdge = outVertex.addStateFulEdge(inVertexHeavy, "HeavyEdge");
+    var lightEdge = outVertex.addEdge(inVertexLight, "LightEdge");
+    var lightEdgeRid = lightEdge.getIdentity();
+    var heavyEdge = outVertex.addEdge(inVertexHeavy, "HeavyEdge");
     var heavyEdgeRid = heavyEdge.getIdentity();
 
     tx.commit();
@@ -278,23 +281,25 @@ public class DoubleSidedEdgeLinkBagTest {
     tx = session.begin();
     var loadedOut = (EntityImpl) tx.load(outVertex.getIdentity());
 
-    // Check lightweight edge field
+    // Check LightEdge field: should store RidPair(edgeRid, oppositeVertexRid)
     var lightOutField = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     var lightBag = (LinkBag) loadedOut.getPropertyInternal(lightOutField);
     assertNotNull(lightBag);
     assertEquals(1, lightBag.size());
     var lightPair = lightBag.iterator().next();
-    assertTrue("Light edge should be lightweight", lightPair.isLightweight());
-    assertEquals(inVertexLight.getIdentity(), lightPair.primaryRid());
+    assertNotEquals("Edge RID and vertex RID must differ",
+        lightPair.primaryRid(), lightPair.secondaryRid());
+    assertEquals(lightEdgeRid, lightPair.primaryRid());
     assertEquals(inVertexLight.getIdentity(), lightPair.secondaryRid());
 
-    // Check heavyweight edge field
+    // Check HeavyEdge field: should store RidPair(edgeRid, oppositeVertexRid)
     var heavyOutField = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
     var heavyBag = (LinkBag) loadedOut.getPropertyInternal(heavyOutField);
     assertNotNull(heavyBag);
     assertEquals(1, heavyBag.size());
     var heavyPair = heavyBag.iterator().next();
-    assertFalse("Heavy edge should not be lightweight", heavyPair.isLightweight());
+    assertNotEquals("Edge RID and vertex RID must differ",
+        heavyPair.primaryRid(), heavyPair.secondaryRid());
     assertEquals(heavyEdgeRid, heavyPair.primaryRid());
     assertEquals(inVertexHeavy.getIdentity(), heavyPair.secondaryRid());
 
@@ -311,7 +316,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
@@ -335,7 +340,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var outPair = outBag.iterator().next();
     assertEquals(edgeRid, outPair.primaryRid());
     assertEquals(inRid, outPair.secondaryRid());
-    assertFalse(outPair.isLightweight());
+    assertNotEquals(outPair.primaryRid(), outPair.secondaryRid());
 
     // Verify incoming LinkBag still has correct double-sided pair
     var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
@@ -345,7 +350,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var inPair = inBag.iterator().next();
     assertEquals(edgeRid, inPair.primaryRid());
     assertEquals(outRid, inPair.secondaryRid());
-    assertFalse(inPair.isLightweight());
+    assertNotEquals(inPair.primaryRid(), inPair.secondaryRid());
 
     tx.commit();
   }
@@ -362,7 +367,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
@@ -382,16 +387,16 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that getVertices(OUT) on a lightweight edge returns the correct opposite
-   * vertex. Lightweight edges store the same vertex RID as both primary and secondary.
+   * Verifies that getVertices(OUT) on a LightEdge returns the correct opposite
+   * vertex. After edge unification, LightEdge is record-based like all edges.
    */
   @Test
-  public void testGetVerticesOutReturnsOppositeVertexForLightweightEdge() {
+  public void testGetVerticesOutReturnsOppositeVertexForLightEdge() {
     var tx = session.begin();
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    outVertex.addEdge(inVertex, "LightEdge");
 
     tx.commit();
 
@@ -419,7 +424,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
@@ -450,8 +455,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var heavyTarget = tx.newVertex("TestVertex");
     var lightTarget = tx.newVertex("TestVertex");
 
-    outVertex.addStateFulEdge(heavyTarget, "HeavyEdge");
-    outVertex.addLightWeightEdge(lightTarget, "LightEdge");
+    outVertex.addEdge(heavyTarget, "HeavyEdge");
+    outVertex.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
 
@@ -488,8 +493,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var vertexC = tx.newVertex("TestVertex");
 
     // A --HeavyEdge--> B, C --HeavyEdge--> A
-    vertexA.addStateFulEdge(vertexB, "HeavyEdge");
-    vertexC.addStateFulEdge(vertexA, "HeavyEdge");
+    vertexA.addEdge(vertexB, "HeavyEdge");
+    vertexC.addEdge(vertexA, "HeavyEdge");
 
     tx.commit();
 
@@ -514,9 +519,8 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that getVertices works correctly when a vertex has both heavyweight
-   * and lightweight edges, and returns all adjacent vertices when no label filter
-   * is applied.
+   * Verifies that getVertices works correctly when a vertex has edges from multiple
+   * edge classes, and returns all adjacent vertices when no label filter is applied.
    */
   @Test
   public void testGetVerticesWithMixedEdgeTypesReturnsAllAdjacentVertices() {
@@ -526,8 +530,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var heavyTarget = tx.newVertex("TestVertex");
     var lightTarget = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(heavyTarget, "HeavyEdge");
-    center.addLightWeightEdge(lightTarget, "LightEdge");
+    center.addEdge(heavyTarget, "HeavyEdge");
+    center.addEdge(lightTarget, "LightEdge");
 
     tx.commit();
 
@@ -542,10 +546,10 @@ public class DoubleSidedEdgeLinkBagTest {
 
     assertEquals("Should have 2 adjacent vertices", 2, adjacentRids.size());
     assertTrue(
-        "Should contain heavyweight target",
+        "Should contain HeavyEdge target",
         adjacentRids.contains(heavyTarget.getIdentity()));
     assertTrue(
-        "Should contain lightweight target",
+        "Should contain LightEdge target",
         adjacentRids.contains(lightTarget.getIdentity()));
 
     tx.commit();
@@ -564,9 +568,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var target2 = tx.newVertex("TestVertex");
     var target3 = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(target1, "HeavyEdge");
-    center.addStateFulEdge(target2, "HeavyEdge");
-    center.addStateFulEdge(target3, "HeavyEdge");
+    center.addEdge(target1, "HeavyEdge");
+    center.addEdge(target2, "HeavyEdge");
+    center.addEdge(target3, "HeavyEdge");
 
     tx.commit();
 
@@ -623,13 +627,13 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     tx.commit();
 
     // Delete the edge in a new transaction
     tx = session.begin();
-    var loadedEdge = tx.load(edge.getIdentity()).asStatefulEdge();
+    var loadedEdge = tx.load(edge.getIdentity()).asEdge();
     loadedEdge.delete();
     tx.commit();
 
@@ -666,7 +670,7 @@ public class DoubleSidedEdgeLinkBagTest {
     tx = session.begin();
     var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
     var loadedIn = tx.load(inVertex.getIdentity()).asVertex();
-    loadedOut.addStateFulEdge(loadedIn, "HeavyEdge");
+    loadedOut.addEdge(loadedIn, "HeavyEdge");
     tx.rollback();
 
     // After rollback, the vertex should have no edges
@@ -688,14 +692,14 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
+    outVertex.addEdge(inVertex1, "HeavyEdge");
     tx.commit();
 
     // In a new transaction, add another edge then rollback
     tx = session.begin();
     var loadedOut = tx.load(outVertex.getIdentity()).asVertex();
     var loadedIn2 = tx.load(inVertex2.getIdentity()).asVertex();
-    loadedOut.addStateFulEdge(loadedIn2, "HeavyEdge");
+    loadedOut.addEdge(loadedIn2, "HeavyEdge");
     tx.rollback();
 
     // After rollback, only the original edge should remain
@@ -724,7 +728,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
 
     // Remove the edge within the same transaction
     edge.delete();
@@ -750,9 +754,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var lightTarget = tx.newVertex("TestVertex");
     var heavySource = tx.newVertex("TestVertex");
 
-    center.addStateFulEdge(heavyTarget, "HeavyEdge");
-    center.addLightWeightEdge(lightTarget, "LightEdge");
-    heavySource.addStateFulEdge(center, "HeavyEdge");
+    center.addEdge(heavyTarget, "HeavyEdge");
+    center.addEdge(lightTarget, "LightEdge");
+    heavySource.addEdge(center, "HeavyEdge");
 
     tx.commit();
 
@@ -766,11 +770,11 @@ public class DoubleSidedEdgeLinkBagTest {
     }
 
     assertEquals("Should have 3 adjacent vertices", 3, allAdjacentRids.size());
-    assertTrue("Should contain heavyweight outgoing target",
+    assertTrue("Should contain HeavyEdge outgoing target",
         allAdjacentRids.contains(heavyTarget.getIdentity()));
-    assertTrue("Should contain lightweight outgoing target",
+    assertTrue("Should contain LightEdge outgoing target",
         allAdjacentRids.contains(lightTarget.getIdentity()));
-    assertTrue("Should contain heavyweight incoming source",
+    assertTrue("Should contain HeavyEdge incoming source",
         allAdjacentRids.contains(heavySource.getIdentity()));
 
     tx.commit();
@@ -791,7 +795,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     tx.commit();
@@ -820,9 +824,9 @@ public class DoubleSidedEdgeLinkBagTest {
 
     // Verify RidPairs are correctly formed: each should be heavyweight
     for (var pair : outBag) {
-      assertFalse(
-          "Each BTree pair should be heavyweight (edge RID != vertex RID)",
-          pair.isLightweight());
+      assertNotEquals(
+          "Edge RID and vertex RID must differ",
+          pair.primaryRid(), pair.secondaryRid());
       assertTrue(
           "Each pair's secondary RID should be a reachable target vertex",
           foundRids.contains(pair.secondaryRid()));
@@ -844,7 +848,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     var centerRid = center.getIdentity();
@@ -892,7 +896,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     for (int i = 0; i < edgeCount; i++) {
       var target = tx.newVertex("TestVertex");
-      center.addStateFulEdge(target, "HeavyEdge");
+      center.addEdge(target, "HeavyEdge");
     }
 
     tx.commit();
@@ -902,7 +906,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedCenter = tx.load(center.getIdentity()).asVertex();
     var edgeIter = loadedCenter.getEdges(Direction.OUT, "HeavyEdge").iterator();
     assertTrue("Should have edges to delete", edgeIter.hasNext());
-    var edgeToDelete = edgeIter.next().asStatefulEdge();
+    var edgeToDelete = edgeIter.next().asEdge();
     var deletedTargetRid = edgeToDelete.getTo().getIdentity();
     edgeToDelete.delete();
     tx.commit();
@@ -932,7 +936,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
 
     var vertex = tx.newVertex("TestVertex");
-    vertex.addStateFulEdge(vertex, "HeavyEdge");
+    vertex.addEdge(vertex, "HeavyEdge");
 
     tx.commit();
 
@@ -977,8 +981,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var target1 = tx.newVertex("TestVertex");
     var target2 = tx.newVertex("TestVertex");
 
-    vertex.addStateFulEdge(target1, "HeavyEdge");
-    vertex.addStateFulEdge(target2, "HeavyEdge");
+    vertex.addEdge(target1, "HeavyEdge");
+    vertex.addEdge(target2, "HeavyEdge");
 
     tx.commit();
 
@@ -1007,9 +1011,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var target2 = tx.newVertex("TestVertex");
     var target3 = tx.newVertex("TestVertex");
 
-    vertex.addStateFulEdge(target1, "HeavyEdge");
-    vertex.addStateFulEdge(target2, "HeavyEdge");
-    vertex.addStateFulEdge(target3, "HeavyEdge");
+    vertex.addEdge(target1, "HeavyEdge");
+    vertex.addEdge(target2, "HeavyEdge");
+    vertex.addEdge(target3, "HeavyEdge");
 
     tx.commit();
 
@@ -1055,9 +1059,9 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    // addStateFulEdge stores the edge RID as a single LINK (not a LinkBag)
+    // addEdge stores the edge RID as a single LINK (not a LinkBag)
     // because the property is typed as LINK
-    outVertex.addStateFulEdge(inVertex, "LinkEdge");
+    outVertex.addEdge(inVertex, "LinkEdge");
     tx.commit();
 
     tx = session.begin();
@@ -1101,8 +1105,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
 
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
 
     var edge1Rid = edge1.getIdentity();
     var edge2Rid = edge2.getIdentity();
@@ -1156,8 +1160,8 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex1 = tx.newVertex("TestVertex");
     var inVertex2 = tx.newVertex("TestVertex");
-    var edge1 = outVertex.addStateFulEdge(inVertex1, "HeavyEdge");
-    var edge2 = outVertex.addStateFulEdge(inVertex2, "HeavyEdge");
+    var edge1 = outVertex.addEdge(inVertex1, "HeavyEdge");
+    var edge2 = outVertex.addEdge(inVertex2, "HeavyEdge");
     tx.commit();
 
     tx = session.begin();
@@ -1200,7 +1204,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    var edge = outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    var edge = outVertex.addEdge(inVertex, "HeavyEdge");
     var edgeRid = edge.getIdentity();
     tx.commit();
 
@@ -1230,12 +1234,12 @@ public class DoubleSidedEdgeLinkBagTest {
   }
 
   /**
-   * Verifies that a LINKBAG index on an edge field stores the opposite vertex RID
-   * for lightweight edges (since primaryRid == secondaryRid == opposite vertex for
-   * lightweight edges).
+   * Verifies that a LINKBAG index on a LightEdge field stores the edge record RID
+   * (primaryRid) as the index key, not the opposite vertex RID. After edge unification,
+   * LightEdge is record-based and behaves identically to HeavyEdge.
    */
   @Test
-  public void testLinkBagIndexContainsVertexRidForLightweightEdges() {
+  public void testLinkBagIndexContainsEdgeRidForLightEdges() {
     var vertexClass = session.getSchema().getClass("TestVertex");
     var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "LightEdge");
     vertexClass.createProperty(outFieldName, PropertyType.LINKBAG);
@@ -1247,13 +1251,14 @@ public class DoubleSidedEdgeLinkBagTest {
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
 
-    outVertex.addLightWeightEdge(inVertex, "LightEdge");
+    var edge = outVertex.addEdge(inVertex, "LightEdge");
 
+    var edgeRid = edge.getIdentity();
     var inVertexRid = inVertex.getIdentity();
 
     tx.commit();
 
-    // Verify the index contains the opposite vertex RID (primaryRid for lightweight)
+    // Verify the index contains the edge record RID (primaryRid)
     tx = session.begin();
     var ato = tx.getAtomicOperation();
     var index = session.getSharedContext().getIndexManager().getIndex("testLightEdgeIndex");
@@ -1269,7 +1274,9 @@ public class DoubleSidedEdgeLinkBagTest {
     }
 
     assertEquals("Index should have exactly 1 key", 1, indexKeys.size());
-    assertTrue("Index key should be the opposite vertex RID",
+    assertTrue("Index key should be the edge record RID (primaryRid)",
+        indexKeys.contains(edgeRid));
+    assertFalse("Index key should NOT be the opposite vertex RID (secondaryRid)",
         indexKeys.contains(inVertexRid));
 
     tx.commit();
@@ -1295,7 +1302,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
     tx.commit();
@@ -1305,7 +1312,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedOut = (EntityImpl) tx.load(outRid);
     var fieldValue = loadedOut.getPropertyInternal(outFieldName);
     assertTrue("Edge property should be EntityLinkListImpl, but was: "
-            + fieldValue.getClass().getSimpleName(),
+        + fieldValue.getClass().getSimpleName(),
         fieldValue instanceof EntityLinkListImpl);
 
     // Verify getVertices() correctly resolves the adjacent vertex through the LINKLIST
@@ -1320,7 +1327,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var loadedIn = (EntityImpl) tx.load(inRid);
     var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
     assertTrue("Incoming edge property should be EntityLinkListImpl, but was: "
-            + inFieldValue.getClass().getSimpleName(),
+        + inFieldValue.getClass().getSimpleName(),
         inFieldValue instanceof EntityLinkListImpl);
 
     var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
@@ -1347,7 +1354,7 @@ public class DoubleSidedEdgeLinkBagTest {
     var tx = session.begin();
     var outVertex = tx.newVertex("TestVertex");
     var inVertex = tx.newVertex("TestVertex");
-    outVertex.addStateFulEdge(inVertex, "HeavyEdge");
+    outVertex.addEdge(inVertex, "HeavyEdge");
     var outRid = outVertex.getIdentity();
     var inRid = inVertex.getIdentity();
     tx.commit();
@@ -1373,7 +1380,7 @@ public class DoubleSidedEdgeLinkBagTest {
     // Verify the property is now EntityLinkSetImpl
     var outFieldValue = loadedOut.getPropertyInternal(outFieldName);
     assertTrue("Outgoing edge property should be EntityLinkSetImpl, but was: "
-            + outFieldValue.getClass().getSimpleName(),
+        + outFieldValue.getClass().getSimpleName(),
         outFieldValue instanceof EntityLinkSetImpl);
 
     // Verify getVertices() correctly resolves the adjacent vertex through the LINKSET
@@ -1400,7 +1407,7 @@ public class DoubleSidedEdgeLinkBagTest {
 
     var inFieldValue = loadedIn.getPropertyInternal(inFieldName);
     assertTrue("Incoming edge property should be EntityLinkSetImpl, but was: "
-            + inFieldValue.getClass().getSimpleName(),
+        + inFieldValue.getClass().getSimpleName(),
         inFieldValue instanceof EntityLinkSetImpl);
 
     var inVertices = loadedIn.asVertex().getVertices(Direction.IN, "HeavyEdge");
@@ -1410,5 +1417,560 @@ public class DoubleSidedEdgeLinkBagTest {
         outRid, inIter.next().getIdentity());
     assertFalse("Should have exactly one incoming adjacent vertex", inIter.hasNext());
     tx.rollback();
+  }
+
+  /**
+   * Verifies that getEdges(Direction.BOTH) returns edges from both outgoing and incoming
+   * directions. This exercises the VertexEntityImpl.getEdges(Direction) no-label overload,
+   * which scans property names with both "out_" and "in_" prefixes.
+   */
+  @Test
+  public void testGetEdgesBothDirection() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    var left = tx.newVertex("TestVertex");
+    var right = tx.newVertex("TestVertex");
+
+    // center --HeavyEdge--> right
+    var outEdge = center.addEdge(right, "HeavyEdge");
+    // left --HeavyEdge--> center
+    var inEdge = left.addEdge(center, "HeavyEdge");
+
+    var outEdgeRid = outEdge.getIdentity();
+    var inEdgeRid = inEdge.getIdentity();
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+
+    // getEdges(BOTH) should return both edges
+    Set<RID> edgeRids = new HashSet<>();
+    for (var edge : loaded.getEdges(Direction.BOTH)) {
+      edgeRids.add(edge.getIdentity());
+    }
+
+    assertEquals("Should have 2 edges (one out, one in)", 2, edgeRids.size());
+    assertTrue("Should contain the outgoing edge", edgeRids.contains(outEdgeRid));
+    assertTrue("Should contain the incoming edge", edgeRids.contains(inEdgeRid));
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getEdges(Direction.IN) without labels discovers all incoming
+   * edge classes from the vertex's "in_" prefix fields. This covers the switch
+   * expression IN case in the no-label getEdges overload.
+   */
+  @Test
+  public void testGetEdgesInDirectionNoLabel() {
+    var tx = session.begin();
+    var target = tx.newVertex("TestVertex");
+    var source1 = tx.newVertex("TestVertex");
+    var source2 = tx.newVertex("TestVertex");
+
+    source1.addEdge(target, "HeavyEdge");
+    source2.addEdge(target, "LightEdge");
+
+    var targetRid = target.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(targetRid).asVertex();
+
+    // getEdges(IN) with no labels should discover both incoming edge classes
+    Set<String> edgeClasses = new HashSet<>();
+    for (var edge : loaded.getEdges(Direction.IN)) {
+      edgeClasses.add(edge.getSchemaClassName());
+    }
+
+    assertEquals("Should discover 2 incoming edge classes", 2, edgeClasses.size());
+    assertTrue(edgeClasses.contains("HeavyEdge"));
+    assertTrue(edgeClasses.contains("LightEdge"));
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getEdges(Direction.BOTH) correctly discovers edges of multiple types
+   * by scanning all "out_" and "in_" property names.
+   */
+  @Test
+  public void testGetEdgesBothWithMultipleEdgeClasses() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    var v1 = tx.newVertex("TestVertex");
+    var v2 = tx.newVertex("TestVertex");
+
+    // center --HeavyEdge--> v1
+    center.addEdge(v1, "HeavyEdge");
+    // v2 --LightEdge--> center
+    v2.addEdge(center, "LightEdge");
+
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+
+    Set<String> edgeClasses = new HashSet<>();
+    for (var edge : loaded.getEdges(Direction.BOTH)) {
+      edgeClasses.add(edge.getSchemaClassName());
+    }
+
+    assertEquals("Should have edges of 2 different classes", 2, edgeClasses.size());
+    assertTrue(edgeClasses.contains("HeavyEdge"));
+    assertTrue(edgeClasses.contains("LightEdge"));
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterator.next() throws NoSuchElementException when exhausted.
+   */
+  @Test
+  public void testEdgeIteratorNextOnExhausted() {
+    var tx = session.begin();
+    var v1 = tx.newVertex("TestVertex");
+    var v2 = tx.newVertex("TestVertex");
+    v1.addEdge(v2, "HeavyEdge");
+    var v1Rid = v1.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(v1Rid).asVertex();
+    var iter = loaded.getEdges(Direction.OUT, "HeavyEdge").iterator();
+
+    // Consume the only edge
+    assertTrue(iter.hasNext());
+    iter.next();
+    assertFalse(iter.hasNext());
+
+    // next() on exhausted iterator should throw
+    try {
+      iter.next();
+      fail("Expected NoSuchElementException");
+    } catch (NoSuchElementException expected) {
+      // expected
+    }
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterator.size() returns the correct count for LinkBag-backed edges,
+   * and EdgeIterator.isSizeable() returns true.
+   */
+  @Test
+  public void testEdgeIteratorSizeAndIsSizeable() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+
+    for (int i = 0; i < 5; i++) {
+      center.addEdge(tx.newVertex("TestVertex"), "HeavyEdge");
+    }
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var edgeIter = loaded.getEdges(Direction.OUT, "HeavyEdge").iterator();
+
+    // EdgeIterator implements Sizeable
+    assertTrue("EdgeIterator should be Sizeable", edgeIter instanceof Sizeable);
+    var sizeable = (Sizeable) edgeIter;
+    assertTrue("isSizeable should be true for LinkBag-backed edges", sizeable.isSizeable());
+    assertEquals("size should be 5", 5, sizeable.size());
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterable.size() and isSizeable() work correctly for LinkBag-backed edges.
+   */
+  @Test
+  public void testEdgeIterableSizeAndIsSizeable() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+
+    for (int i = 0; i < 3; i++) {
+      center.addEdge(tx.newVertex("TestVertex"), "HeavyEdge");
+    }
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var edgeIterable = loaded.getEdges(Direction.OUT, "HeavyEdge");
+
+    // EdgeIterable implements Sizeable
+    assertTrue("EdgeIterable should be Sizeable", edgeIterable instanceof Sizeable);
+    var sizeable = (Sizeable) edgeIterable;
+    assertTrue("isSizeable should be true", sizeable.isSizeable());
+    assertEquals("size should be 3", 3, sizeable.size());
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterator.reset() throws UnsupportedOperationException when the underlying
+   * LinkBag iterator does not support reset, and that isResetable() returns false.
+   */
+  @Test
+  public void testEdgeIteratorResetThrowsForNonResettable() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    center.addEdge(tx.newVertex("TestVertex"), "HeavyEdge");
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var edgeIter = loaded.getEdges(Direction.OUT, "HeavyEdge").iterator();
+
+    // Consume the edge
+    assertTrue(edgeIter.hasNext());
+    edgeIter.next();
+
+    // The runtime type is EdgeIterator; LinkBag iterator is not Resettable
+    var ei = (EdgeIterator) (Object) edgeIter;
+    assertFalse("LinkBag-backed EdgeIterator should not be resetable", ei.isResetable());
+
+    try {
+      ei.reset();
+      fail("Expected UnsupportedOperationException from reset()");
+    } catch (UnsupportedOperationException expected) {
+      // Expected: the underlying LinkBag iterator is not Resettable
+    }
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterator.getMultiValue() returns the backing multiValue object.
+   */
+  @Test
+  public void testEdgeIteratorGetMultiValue() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    center.addEdge(tx.newVertex("TestVertex"), "HeavyEdge");
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var iter = loaded.getEdges(Direction.OUT, "HeavyEdge").iterator();
+
+    var rawIter = (Object) iter;
+    assertTrue("Expected EdgeIterator instance", rawIter instanceof EdgeIterator);
+    var edgeIter = (EdgeIterator) rawIter;
+    Object multiValue = edgeIter.getMultiValue();
+    // The multiValue should be a LinkBag for standard edge storage
+    assertNotNull("getMultiValue should return non-null", multiValue);
+    assertTrue("multiValue should be a LinkBag", multiValue instanceof LinkBag);
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getEdges(Direction.OUT) with no label argument discovers all outgoing
+   * edge classes from the vertex's "out_" fields. This covers the no-label getEdges()
+   * overload that scans property names ending with edge class suffixes.
+   */
+  @Test
+  public void testGetEdgesNoLabelDiscoversBothEdgeClasses() {
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    var v1 = tx.newVertex("TestVertex");
+    var v2 = tx.newVertex("TestVertex");
+    center.addEdge(v1, "HeavyEdge");
+    center.addEdge(v2, "LightEdge");
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+
+    // getEdges(OUT) with no labels should discover both edge classes
+    Set<String> edgeClasses = new HashSet<>();
+    for (var edge : loaded.getEdges(Direction.OUT)) {
+      edgeClasses.add(edge.getSchemaClassName());
+    }
+
+    assertEquals(2, edgeClasses.size());
+    assertTrue(edgeClasses.contains("HeavyEdge"));
+    assertTrue(edgeClasses.contains("LightEdge"));
+    tx.commit();
+  }
+
+  /**
+   * Verifies that adding a second edge of the same type converts the vertex's edge property
+   * from a single Identifiable to a LinkBag, and that the resulting edges are correctly
+   * iterable. This exercises the resolveSecondaryRid path when converting single→LinkBag.
+   */
+  @Test
+  public void testSecondEdgeOfSameTypeCreatesLinkBag() {
+    // Set up a vertex with one edge stored as LINK type
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINK);
+
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    var target = tx.newVertex("TestVertex");
+    center.addEdge(target, "HeavyEdge");
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    // Verify the property is stored as LINK (single Identifiable)
+    tx = session.begin();
+    var loadedCenter = (EntityImpl) tx.load(centerRid);
+    var fieldValue = loadedCenter.getPropertyInternal(outFieldName);
+    assertTrue("First edge should be stored as single Identifiable, but was: "
+        + (fieldValue == null ? "null" : fieldValue.getClass().getSimpleName()),
+        fieldValue instanceof Identifiable);
+    tx.commit();
+
+    // Now remove the LINK property type constraint to allow conversion to LinkBag
+    vertexClass.dropProperty(outFieldName);
+
+    // Add a second edge — this triggers Identifiable→LinkBag conversion
+    // which calls resolveSecondaryRid to determine the opposite vertex of the existing edge
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var target2 = tx.newVertex("TestVertex");
+    loaded.addEdge(target2, "HeavyEdge");
+    tx.commit();
+
+    // Verify both edges are now correctly iterable
+    tx = session.begin();
+    var reloaded = tx.load(centerRid).asVertex();
+    int edgeCount = 0;
+    for (var edge : reloaded.getEdges(Direction.OUT, "HeavyEdge")) {
+      assertNotNull(edge);
+      edgeCount++;
+    }
+    assertEquals("Should have 2 outgoing edges after conversion", 2, edgeCount);
+    tx.commit();
+  }
+
+  /**
+   * Verifies EdgeIterable.size() and isSizeable() work correctly for EntityLinkListImpl-backed
+   * edges (where the internal size is -1, requiring delegation to the backing collection).
+   * This covers EdgeIterable.size() Collection branch and EdgeIterator.size() Collection branch.
+   */
+  @Test
+  public void testEdgeIterableAndIteratorSizeWithLinkList() {
+    // Set up edge property as LINKLIST type to force EntityLinkListImpl storage
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
+    vertexClass.createProperty(outFieldName, PropertyType.LINKLIST);
+    vertexClass.createProperty(inFieldName, PropertyType.LINKLIST);
+
+    var tx = session.begin();
+    var center = tx.newVertex("TestVertex");
+    for (int i = 0; i < 3; i++) {
+      center.addEdge(tx.newVertex("TestVertex"), "HeavyEdge");
+    }
+    var centerRid = center.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(centerRid).asVertex();
+    var edgeIterable = loaded.getEdges(Direction.OUT, "HeavyEdge");
+
+    // EdgeIterable backed by EntityLinkListImpl should report size via Collection.size()
+    assertTrue("LINKLIST-backed EdgeIterable should be Sizeable",
+        edgeIterable instanceof Sizeable);
+    var sizeableIterable = (Sizeable) edgeIterable;
+    assertTrue("isSizeable should be true", sizeableIterable.isSizeable());
+    assertEquals("size should be 3", 3, sizeableIterable.size());
+
+    // Verify the EdgeIterator also reports size correctly
+    var iter = edgeIterable.iterator();
+    assertTrue("LINKLIST-backed EdgeIterator should be Sizeable",
+        iter instanceof Sizeable);
+    var sizeableIter = (Sizeable) iter;
+    assertTrue("Iterator isSizeable should be true", sizeableIter.isSizeable());
+    assertEquals("Iterator size should be 3", 3, sizeableIter.size());
+
+    // Verify iteration works correctly
+    int count = 0;
+    while (iter.hasNext()) {
+      assertNotNull(iter.next());
+      count++;
+    }
+    assertEquals(3, count);
+    tx.rollback();
+  }
+
+  /**
+   * Verifies EdgeIterable.size() and isSizeable() work correctly for EntityLinkSetImpl-backed
+   * edges (where the internal size is -1, requiring delegation to the backing collection).
+   */
+  @Test
+  public void testEdgeIterableSizeWithLinkSet() {
+    // Create a single edge first via normal LinkBag
+    var tx = session.begin();
+    var outVertex = tx.newVertex("TestVertex");
+    var inVertex = tx.newVertex("TestVertex");
+    outVertex.addEdge(inVertex, "HeavyEdge");
+    var outRid = outVertex.getIdentity();
+    tx.commit();
+
+    // Replace the edge property with EntityLinkSetImpl
+    tx = session.begin();
+    var loadedOut = (EntityImpl) tx.load(outRid);
+    var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, "HeavyEdge");
+    var bag = (LinkBag) loadedOut.getPropertyInternal(outFieldName);
+
+    var edgeRids = new ArrayList<Identifiable>();
+    for (var pair : bag) {
+      edgeRids.add(pair.primaryRid());
+    }
+
+    var linkSet = new EntityLinkSetImpl(loadedOut, edgeRids);
+    loadedOut.setPropertyInternal(outFieldName, linkSet);
+
+    // Now getEdges should return EdgeIterable backed by EntityLinkSetImpl
+    var edgeIterable = loadedOut.asVertex().getEdges(Direction.OUT, "HeavyEdge");
+    assertTrue("LINKSET-backed EdgeIterable should be Sizeable",
+        edgeIterable instanceof Sizeable);
+    var sizeable = (Sizeable) edgeIterable;
+    assertTrue(sizeable.isSizeable());
+    assertEquals(1, sizeable.size());
+    tx.rollback();
+  }
+
+  /**
+   * Verifies FrontendTransactionImpl.loadEdge(Identifiable) with an already-loaded Edge
+   * returns the same edge when it's bound to the current session. This covers the
+   * "id instanceof Edge" branch in FrontendTransactionImpl.loadEdge.
+   */
+  @Test
+  public void testLoadEdgeWithAlreadyLoadedEdge() {
+    session.createEdgeClass("LoadEdgeTestE");
+
+    var edgeRid = session.computeInTx(tx -> {
+      var v1 = tx.newVertex("TestVertex");
+      var v2 = tx.newVertex("TestVertex");
+      var edge = v1.addEdge(v2, "LoadEdgeTestE");
+      return edge.getIdentity();
+    });
+
+    session.executeInTx(tx -> {
+      // Load the edge once
+      var edge = tx.loadEdge(edgeRid);
+      assertNotNull(edge);
+
+      // loadEdge with the already-loaded Edge object should return the same instance
+      var edgeAgain = tx.loadEdge(edge);
+      assertNotNull(edgeAgain);
+      assertEquals(edge.getIdentity(), edgeAgain.getIdentity());
+
+      // loadEdgeOrNull with the already-loaded Edge should also work
+      var edgeOrNull = tx.loadEdgeOrNull(edge);
+      assertNotNull(edgeOrNull);
+      assertEquals(edge.getIdentity(), edgeOrNull.getIdentity());
+    });
+  }
+
+  /**
+   * Verifies ResultInternal.toMapValue converts an edge to its identity RID, and
+   * ResultInternal.asEdge() works when the result directly wraps an Edge instance.
+   */
+  @Test
+  public void testResultInternalToMapValueForEdge() {
+    session.createEdgeClass("MapValueTestE");
+
+    session.executeInTx(tx -> {
+      var v1 = tx.newVertex("TestVertex");
+      var v2 = tx.newVertex("TestVertex");
+      var edge = v1.addEdge(v2, "MapValueTestE");
+      edge.setString("label", "test");
+
+      // Wrap the edge directly in a ResultInternal
+      var result = new ResultInternal(session, edge);
+
+      // toMapValue for an Edge should return its identity
+      var mapValue = ResultInternal.toMapValue(edge, false);
+      assertNotNull(mapValue);
+      assertEquals(edge.getIdentity(), mapValue);
+
+      // asEdge() on a result wrapping an Edge directly should return the edge
+      var resultEdge = result.asEdge();
+      assertNotNull(resultEdge);
+      assertEquals(edge.getIdentity(), resultEdge.getIdentity());
+    });
+  }
+
+  /**
+   * Verifies that adding a second incoming edge of the same type to a vertex whose in_field
+   * is a single Identifiable triggers conversion to LinkBag via resolveSecondaryRid for the
+   * IN direction. This exercises the "in_" prefix branch in resolveSecondaryRid.
+   */
+  @Test
+  public void testSecondIncomingEdgeTriggersResolveSecondaryRidForInDirection() {
+    // Set up incoming edge property as LINK type on the vertex class
+    var vertexClass = session.getSchema().getClass("TestVertex");
+    var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, "HeavyEdge");
+    vertexClass.createProperty(inFieldName, PropertyType.LINK);
+
+    // Create a single incoming edge (stored as LINK/single Identifiable)
+    var tx = session.begin();
+    var target = tx.newVertex("TestVertex");
+    var source1 = tx.newVertex("TestVertex");
+    source1.addEdge(target, "HeavyEdge");
+    var targetRid = target.getIdentity();
+    tx.commit();
+
+    // Verify the property is stored as LINK (single Identifiable)
+    tx = session.begin();
+    var loaded = (EntityImpl) tx.load(targetRid);
+    var fieldValue = loaded.getPropertyInternal(inFieldName);
+    assertTrue("First incoming edge should be stored as single Identifiable",
+        fieldValue instanceof Identifiable);
+    tx.commit();
+
+    // Drop the LINK constraint to allow conversion to LinkBag
+    vertexClass.dropProperty(inFieldName);
+
+    // Add a second incoming edge — triggers Identifiable→LinkBag conversion
+    // with resolveSecondaryRid reading the "out" property (IN prefix → DIRECTION_OUT)
+    tx = session.begin();
+    var loadedTarget = tx.load(targetRid).asVertex();
+    var source2 = tx.newVertex("TestVertex");
+    source2.addEdge(loadedTarget, "HeavyEdge");
+    tx.commit();
+
+    // Verify both incoming edges are iterable
+    tx = session.begin();
+    var reloaded = tx.load(targetRid).asVertex();
+    int edgeCount = 0;
+    for (var edge : reloaded.getEdges(Direction.IN, "HeavyEdge")) {
+      assertNotNull(edge);
+      edgeCount++;
+    }
+    assertEquals("Should have 2 incoming edges after conversion", 2, edgeCount);
+    tx.commit();
+  }
+
+  /**
+   * Verifies that getEdges via SchemaClass parameter correctly delegates to string-based
+   * getEdges. This covers the VertexEntityImpl.getEdges(Direction, SchemaClass...) overload.
+   */
+  @Test
+  public void testGetEdgesWithSchemaClass() {
+    var tx = session.begin();
+    var v1 = tx.newVertex("TestVertex");
+    var v2 = tx.newVertex("TestVertex");
+    v1.addEdge(v2, "HeavyEdge");
+    var v1Rid = v1.getIdentity();
+    tx.commit();
+
+    tx = session.begin();
+    var loaded = tx.load(v1Rid).asVertex();
+    var edgeClass = session.getSchema().getClass("HeavyEdge");
+
+    int count = 0;
+    for (var edge : loaded.getEdges(Direction.OUT, edgeClass)) {
+      assertNotNull(edge);
+      count++;
+    }
+    assertEquals(1, count);
+    tx.commit();
   }
 }

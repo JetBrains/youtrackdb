@@ -217,8 +217,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
     return toVertex(neighborEdge.getFrom(), db);
   }
 
-  @Nullable
-  private static Vertex toVertex(Identifiable outVertex, DatabaseSessionEmbedded db) {
+  @Nullable private static Vertex toVertex(Identifiable outVertex, DatabaseSessionEmbedded db) {
     if (outVertex == null) {
       return null;
     }
@@ -324,8 +323,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
         break;
       }
     }
-    if (e != null && e.isStateful()) {
-      final var fieldValue = e.asStatefulEdge().getProperty(paramWeightFieldName);
+    if (e != null) {
+      final var fieldValue = e.getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float f) {
           return f;
@@ -339,8 +338,8 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
   }
 
   protected double getDistance(final Edge edge) {
-    if (edge != null && edge.isStateful()) {
-      final var fieldValue = edge.asStatefulEdge().getProperty(paramWeightFieldName);
+    if (edge != null) {
+      final var fieldValue = edge.getProperty(paramWeightFieldName);
       if (fieldValue != null) {
         if (fieldValue instanceof Float f) {
           return f;

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +82,7 @@ public class GremlinResultMapperTest extends GraphBaseTest {
     var results = sqlCommand("SELECT FROM Road");
 
     Assert.assertEquals(1, results.size());
-    Assert.assertSame(YTDBStatefulEdgeImpl.class, results.getFirst().getClass());
+    Assert.assertSame(YTDBEdgeImpl.class, results.getFirst().getClass());
   }
 
   @Test

@@ -316,7 +316,7 @@ public class DbImportExportTest extends BaseDBJUnit5Test
       final var vClass = original.getSchema().createVertexClass("AVertex");
       final var eClass = original.getSchema().createEdgeClass("AnEdge");
       final var leClass =
-          original.getSchema().createLightweightEdgeClass("LightweightEdge");
+          original.getSchema().createEdgeClass("LightweightEdge");
 
       original.executeInTx(tx -> {
         final var v1 = tx.newVertex(vClass);
@@ -326,11 +326,11 @@ public class DbImportExportTest extends BaseDBJUnit5Test
         final var v3 = tx.newVertex(vClass);
         v3.setProperty("no", 3);
 
-        v1.addStateFulEdge(v2, eClass).setProperty("lbl", "1to2");
-        v2.addStateFulEdge(v1, eClass).setProperty("lbl", "2to1");
+        v1.addEdge(v2, eClass).setProperty("lbl", "1to2");
+        v2.addEdge(v1, eClass).setProperty("lbl", "2to1");
 
-        v1.addLightWeightEdge(v3, leClass);
-        v3.addLightWeightEdge(v2, leClass);
+        v1.addEdge(v3, leClass);
+        v3.addEdge(v2, leClass);
       });
 
       new DatabaseExport(
@@ -357,26 +357,24 @@ public class DbImportExportTest extends BaseDBJUnit5Test
         final var v3 = vs.get(2);
 
         final var v1Tov2 =
-            v1.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+            v1.getEdges(Direction.OUT, eClass).iterator().next();
         assertThat(v1Tov2.getFrom()).isEqualTo(v1);
         assertThat(v1Tov2.getTo()).isEqualTo(v2);
         assertThat(v1Tov2.getString("lbl")).isEqualTo("1to2");
 
         final var v2Tov1 =
-            v2.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+            v2.getEdges(Direction.OUT, eClass).iterator().next();
         assertThat(v2Tov1.getFrom()).isEqualTo(v2);
         assertThat(v2Tov1.getTo()).isEqualTo(v1);
         assertThat(v2Tov1.getString("lbl")).isEqualTo("2to1");
 
         final var v1Tov3 =
             v1.getEdges(Direction.OUT, leClass).iterator().next();
-        assertThat(v1Tov3.isLightweight()).isTrue();
         assertThat(v1Tov3.getFrom()).isEqualTo(v1);
         assertThat(v1Tov3.getTo()).isEqualTo(v3);
 
         final var v3tov2 =
             v3.getEdges(Direction.OUT, leClass).iterator().next();
-        assertThat(v3tov2.isLightweight()).isTrue();
         assertThat(v3tov2.getFrom()).isEqualTo(v3);
         assertThat(v3tov2.getTo()).isEqualTo(v2);
       });

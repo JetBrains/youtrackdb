@@ -17,25 +17,25 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class CreateLightWeightEdgesSQLTest {
+public class CreateEdgesSQLTest {
 
   private YouTrackDBImpl youTrackDB;
 
   @Before
   public void before() {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
-    youTrackDB.create(CreateLightWeightEdgesSQLTest.class.getSimpleName(), DatabaseType.MEMORY,
+    youTrackDB.create(CreateEdgesSQLTest.class.getSimpleName(), DatabaseType.MEMORY,
         new LocalUserCredential("admin", DbTestBase.ADMIN_PASSWORD, PredefinedLocalRole.ADMIN));
   }
 
   @Test
   public void test() {
     var session = youTrackDB.open(
-        CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        CreateEdgesSQLTest.class.getSimpleName(),
         "admin",
         DbTestBase.ADMIN_PASSWORD);
 
-    session.getSchema().createLightweightEdgeClass("lightweight");
+    session.getSchema().createEdgeClass("lightweight");
 
     var tx = session.begin();
     tx.command("create vertex v set name='a' ");
@@ -57,13 +57,13 @@ public class CreateLightWeightEdgesSQLTest {
   public void mtTest() throws InterruptedException {
     SessionPool pool = new SessionPoolImpl(
         youTrackDB,
-        CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        CreateEdgesSQLTest.class.getSimpleName(),
         "admin",
         DbTestBase.ADMIN_PASSWORD);
 
     var session = pool.acquire();
 
-    session.getSchema().createLightweightEdgeClass("lightweight");
+    session.getSchema().createEdgeClass("lightweight");
 
     var tx = session.begin();
     tx.command("create vertex v set id = 1 ");
