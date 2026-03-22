@@ -307,8 +307,8 @@ The output looks like: `ctx: 7% level=safe`
 |---|---|---|
 | `safe` | <15% | Continue normally. |
 | `info` | 15–24% | Continue, but prefer delegating exploration to sub-agents and avoid reading large files. |
-| `warning` | 25–39% | **Stop after current unit of work.** Save progress and ask for session refresh. |
-| `critical` | ≥40% | **Stop after current unit of work.** Save progress and ask for session refresh. |
+| `warning` | 25–39% | **Do not start next unit of work.** Save progress and ask for session refresh. |
+| `critical` | ≥40% | **Do not start next unit of work.** Save progress and ask for session refresh. |
 
 **If the file does not exist or the command fails**, treat as `safe` and
 continue normally — the statusline script may not have written the file
