@@ -262,8 +262,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with item to remove.
    * @return Removed item.
    */
-  @Nullable
-  public V remove(K key) {
+  @Nullable public V remove(K key) {
     final var removed = data.remove(key);
 
     if (removed != null) {
@@ -294,8 +293,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return doAcquireEntry(key);
   }
 
-  @Nullable
-  private ClosableEntry<K, V> doAcquireEntry(K key) {
+  @Nullable private ClosableEntry<K, V> doAcquireEntry(K key) {
     final var entry = data.get(key);
 
     if (entry == null) {
@@ -329,8 +327,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     return entry;
   }
 
-  @Nullable
-  public ClosableEntry<K, V> tryAcquire(K key) throws InterruptedException {
+  @Nullable public ClosableEntry<K, V> tryAcquire(K key) throws InterruptedException {
     final var ok = tryCheckOpenFilesLimit();
     if (!ok) {
       return null;
@@ -420,8 +417,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @param key Key associated with required item.
    * @return Item associated with given key.
    */
-  @Nullable
-  public V get(K key) {
+  @Nullable public V get(K key) {
     final var entry = data.get(key);
     if (entry != null) {
       return entry.get();
@@ -452,8 +448,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
 
       stateBuffer.clear();
 
-      while (lruList.poll() != null)
-        ;
+      while (lruList.poll() != null);
     } finally {
       lruLock.unlock();
     }
@@ -863,7 +858,10 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
 
     if (closedFiles > 0) {
-      fileEvictionRate().record(closedFiles);
+      var rate = fileEvictionRate();
+      if (rate != null) {
+        rate.record(closedFiles);
+      }
       LogManager.instance()
           .debug(
               this,
@@ -958,9 +956,15 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     // lazy initialization, because YouTrackDBEnginesManager.instance() can be
     // not initialized at the moment of container creation.
     if (fileEvictionRate == null) {
-      fileEvictionRate = YouTrackDBEnginesManager.instance()
-          .getMetricsRegistry()
-          .globalMetric(CoreMetrics.FILE_EVICTION_RATE);
+      var manager = YouTrackDBEnginesManager.instance();
+      // The profiler may not yet be initialized if startup() is still in progress
+      // (instance is assigned before startup() completes). Return null and retry
+      // on the next eviction cycle.
+      var registry = manager.getMetricsRegistry();
+      if (registry == null) {
+        return null;
+      }
+      fileEvictionRate = registry.globalMetric(CoreMetrics.FILE_EVICTION_RATE);
     }
 
     return fileEvictionRate;

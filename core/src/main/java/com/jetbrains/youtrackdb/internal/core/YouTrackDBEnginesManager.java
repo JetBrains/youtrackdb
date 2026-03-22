@@ -821,11 +821,13 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   public MetricsRegistry getMetricsRegistry() {
-    return profiler.getMetricsRegistry();
+    var p = profiler;
+    return p != null ? p.getMetricsRegistry() : null;
   }
 
   public Ticker getTicker() {
-    return profiler.getTicker();
+    var p = profiler;
+    return p != null ? p.getTicker() : null;
   }
 
   public void registerThreadDatabaseFactory(final DatabaseThreadLocalFactory iDatabaseFactory) {
