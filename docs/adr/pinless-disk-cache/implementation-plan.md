@@ -1886,7 +1886,7 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 7 completed the read lock removal as planned. Track 8 is a standalone rebase fix track with no dependency on architectural changes.
 
-- [ ] Track 8: Fix pre-existing test failures from rebase conflict resolution
+- [x] Track 8: Fix pre-existing test failures from rebase conflict resolution
   > Fix 24 test failures introduced during the develop rebase (commit 990f16fbd3).
   > Two failure categories:
   > (1) **Histogram engine tests (13 failures):** IncrementalMaintenanceTest (4),
@@ -1900,6 +1900,34 @@ Phase 5: Remove component-level read lock from happy path
   > or backup metadata handling introduced during the rebase.
   > **Scope:** ~2-3 steps covering histogram engine test fixes, StorageBackupTest fixes,
   > and verification of the full core test suite passing
+  >
+  > **Track episode:**
+  > Fixed 23 of 24 test failures introduced during the develop rebase. Two root
+  > causes: (1) `WOWCache.flushExclusiveWriteCache()` NPE on deleted files — added
+  > null guards at three `files.get()` call sites. (2) Histogram engine test mocks
+  > lacked `startAtomicOperation()` stubs after Track 1 removed the null-AtomicOperation
+  > fallback — stubbed across all four test files. Full core test suite: 4321 tests,
+  > 0 failures, 0 errors. `DatabaseImportTest` crashes the surefire fork with OOM —
+  > this is a real regression (passes on develop), deferred to Track 9.
+  >
+  > **Step file:** `tracks/track-8.md` (3 steps, 0 failed)
+
+- [ ] Track 9: Fix DatabaseImportTest OOM regression
+  > Investigate and fix the surefire fork OOM crash in `DatabaseImportTest`, which
+  > passes on develop but crashes the fork JVM on this branch. Likely a memory leak
+  > or excessive allocation introduced during the rebase conflict resolution or by
+  > the pinless disk cache changes (e.g., PageFramePool sizing, cache entry lifecycle).
+  > **Scope:** ~1-2 steps covering root cause analysis and fix, verification
+  > **Depends on:** Track 8
+
+- [ ] Track 10: Small disk cache eviction tests + CI job
+  > Create the `test-small-cache` CI action/Maven profile that runs existing integration
+  > tests (`BTreeTestIT`, `LocalPaginatedCollectionV2TestIT`, `FreeSpaceMapTestIT`,
+  > `CollectionPositionMapV2Test`) with `diskCache.bufferSize=4` (4 MB) to exercise the
+  > optimistic read fallback path under extreme eviction pressure. Add as a CI matrix
+  > entry on Linux x86/JDK 21.
+  > **Scope:** ~2-3 steps covering Maven profile setup, CI workflow entry, verification
+  > **Depends on:** Track 8
 
 ## Testing Strategy
 
