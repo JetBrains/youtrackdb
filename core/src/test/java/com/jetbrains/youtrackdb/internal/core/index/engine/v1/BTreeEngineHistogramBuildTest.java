@@ -267,9 +267,8 @@ public class BTreeEngineHistogramBuildTest {
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void histogramManager_statsFileExists_delegatesToWriteCache() {
+  public void histogramManager_statsFileExists_delegatesToAtomicOperation() {
     var storage = createMockStorage();
-    var writeCache = storage.getWriteCache();
 
     var mgr = new IndexHistogramManager(
         storage, "test-idx", 0, true,
@@ -356,8 +355,9 @@ public class BTreeEngineHistogramBuildTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;
