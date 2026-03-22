@@ -230,9 +230,13 @@ public class ByteBufferPoolTest {
   @Test
   public void testPageFramePoolExplicitLimitOverridesAutoSize() {
     // Verify that an explicit PAGE_FRAME_POOL_LIMIT overrides the auto-sizing.
+    // Set DISK_CACHE_SIZE to 16 MB so auto-size would be 4096 — the explicit
+    // limit of 5 clearly overrides it.
     var origLimit = GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValue();
+    var origCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
     try {
       GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(5);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(16);
 
       int pageSize = 8192;
       var allocator = new DirectMemoryAllocator();
@@ -247,7 +251,7 @@ public class ByteBufferPoolTest {
       for (var f : frames) {
         framePool.release(f);
       }
-      // Explicit limit of 5 should cap the pool
+      // Explicit limit of 5 should cap the pool (not auto-size of 4096)
       Assert.assertEquals(5, framePool.getPoolSize());
 
       framePool.clear();
@@ -255,6 +259,7 @@ public class ByteBufferPoolTest {
       allocator.checkMemoryLeaks();
     } finally {
       GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(origLimit);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(origCacheSize);
     }
   }
 
