@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,21 +12,21 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step: Fix WOWCache flushExclusiveWriteCache NPE on deleted files (14 tests)
-  > Add a null guard in `WOWCache.flushExclusiveWriteCache()` at line 3331
-  > where `files.get(externalFileId(pageKeyToFlush.fileId))` can return null
-  > when a file has been deleted (e.g., during backup restore). When the file
-  > is null, skip pages for that file — they will be cleaned up by
-  > `doRemoveCachePages` or the next flush cycle. This fixes 14 tests:
-  > StorageBackupTest (11), IndexHistogramDurabilityTest (2),
-  > DatabaseImportTest (1). The NPE sets `AbstractStorage.error`, causing all
-  > subsequent operations to fail with "Internal error happened in storage."
+- [x] Step: Fix WOWCache flushExclusiveWriteCache NPE on deleted files (14 tests)
+  > **What was done:** Added null guards at three `files.get()` call sites in
+  > `WOWCache.flushExclusiveWriteCache()`: (1) the file size lookup at the
+  > start of each page iteration, (2) the inner loop's pointer-null branch,
+  > and (3) the lock-contention branch (found during code review — the third
+  > site was missed in the original plan). When a file is deleted concurrently,
+  > pages for that file are skipped instead of throwing NPE.
   >
-  > **Key files:** `WOWCache.java` (modified), `StorageBackupTest` (verify)
+  > **What was discovered:** A third unguarded `files.get()` call existed in
+  > the lock-contention path (`tryAcquireSharedLock() == 0`), not identified
+  > in the plan's analysis. Also, `DatabaseImportTest` crashes the surefire
+  > fork when run in isolation (OOM-killed, not a code bug) — will verify it
+  > passes as part of the full suite in Step 3.
   >
-  > **Note:** This same bug exists on develop but doesn't trigger there
-  > because the RRWL→StampedLock timing change makes the periodic flush
-  > consistently race with file deletion during restore on this branch.
+  > **Key files:** `WOWCache.java` (modified)
 
 - [ ] Step: Fix histogram engine test mocks — stub startAtomicOperation (10 tests)
   > The rebase changed `keyStreamSupplier` from `Supplier<Stream<Object>>`
