@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,21 +12,20 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step 1: Create Maven profile `small-cache-it` in root and core pom.xml
-  > Create a `small-cache-it` Maven profile that configures the
-  > `maven-failsafe-plugin` with `<systemPropertyVariables>` to set
-  > `youtrackdb.storage.diskCache.bufferSize=16` (16 MB — forces heavy
-  > eviction with ~2048 pages while keeping runtime manageable). The profile
-  > activates integration tests for the core module only. Uses
-  > `systemPropertyVariables` to override the buffer size without duplicating
-  > the `argLine` `--add-opens` flags.
+- [x] Step 1: Create Maven profile `small-cache-it` in core pom.xml
+  > **What was done:** Added `small-cache-it` profile to `core/pom.xml` with
+  > failsafe configuration: `systemPropertyVariables` overrides
+  > `diskCache.bufferSize=16` (16 MB), includes 4 IT classes (sbtree + edgebtree
+  > BTreeTestIT, LocalPaginatedCollectionV2TestIT, FreeSpaceMapTestIT), skips
+  > surefire unit tests. Explicit failsafe execution goals ensure tests run
+  > during `verify` phase.
   >
-  > Test classes to run: both `BTreeTestIT` variants (sbtree + edgebtree),
-  > `LocalPaginatedCollectionV2TestIT`, `FreeSpaceMapTestIT`. Note:
-  > `CollectionPositionMapV2Test` is excluded — it's a unit test with mocks
-  > that doesn't exercise real storage (T1 finding).
+  > **What was discovered:** `systemPropertyVariables` successfully overrides
+  > argLine `-D` flags — confirmed by BTreeTestIT taking 31 min (vs ~2-5 min
+  > with default 4096 MB cache), proving heavy eviction is active. Profile placed
+  > only in core/pom.xml (not root) since only core module needs it.
   >
-  > Verify locally: `./mvnw -pl core clean verify -P small-cache-it`
+  > **Key files:** `core/pom.xml` (modified)
 
 - [ ] Step 2: Add `test-small-cache` CI job to maven-pipeline.yml
   > Add a separate `test-small-cache-linux` job (not a matrix entry — T6
