@@ -19,17 +19,19 @@ name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Plan file: docs/adr/<dir-name>/implementation-plan.md
+Design document: docs/adr/<dir-name>/design.md
 Review output directory: docs/adr/<dir-name>/reviews/
 
 Steps:
-1. Read the plan file and the workflow documents (conventions.md and
-   structural-review.md). Also consult `planning.md` §Architecture Notes
-   format for the rules the structural review validates against (architecture
-   notes, track descriptions, scope indicators, track sizing).
+1. Read the plan file, the design document, and the workflow documents
+   (conventions.md and structural-review.md). Also consult `planning.md`
+   §Architecture Notes format and §Design Document for the rules the
+   structural review validates against (architecture notes, design document,
+   track descriptions, scope indicators, track sizing).
 2. Spawn the structural review sub-agent with the prompt from
    `.claude/workflow/prompts/structural-review.md`. Pass the workflow
-   directory path (`.claude/workflow/`) so the sub-agent can reference
-   the conventions.
+   directory path (`.claude/workflow/`) and the design document path so
+   the sub-agent can reference the conventions and review the design document.
 3. Receive the findings report.
 4. Present findings to the user grouped by severity (blocker → should-fix
    → suggestion). For each finding, show:

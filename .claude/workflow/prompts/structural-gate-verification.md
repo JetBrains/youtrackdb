@@ -3,6 +3,7 @@ structural review findings.
 
 Inputs:
 - Updated plan file: {plan_path}
+- Design document: {design_path}
 - Previous findings: {findings_file}
 
 For each previous finding:

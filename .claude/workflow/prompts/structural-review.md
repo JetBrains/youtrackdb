@@ -4,6 +4,7 @@ not technical accuracy.
 
 Inputs:
 - Plan file: {plan_path}
+- Design document: {design_path}
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
@@ -49,6 +50,24 @@ ARCHITECTURE NOTES
 - Are Invariants listed where applicable? Do they map to testable assertions?
 - Are Integration Points documented?
 - Are Non-Goals stated where the scope boundary could be ambiguous?
+
+DESIGN DOCUMENT
+- Does the design document exist at `docs/adr/<dir-name>/design.md`?
+- Does it include an Overview section summarizing the design approach?
+- Does it include class diagrams (Mermaid `classDiagram`) when the plan
+  introduces 2+ new classes/interfaces or modifies class relationships?
+- Does it include workflow diagrams (Mermaid `sequenceDiagram` or `flowchart`)
+  when the plan introduces new operation flows or modifies existing ones?
+- Are all diagrams Mermaid (no external tools or image references)?
+- Is every diagram paired with prose explaining what it shows and why?
+- Are diagrams reasonably sized (class diagrams ≤ ~12 classes, sequence
+  diagrams ≤ ~8 participants)?
+- Are complex or opaque parts of the design covered with dedicated sections?
+  Specifically: concurrency/locking strategies, crash recovery/durability,
+  performance-critical paths, non-obvious invariants must have dedicated
+  sections if they appear in the plan.
+- Is the design document consistent with the Architecture Notes (Component Map,
+  Decision Records) and track descriptions in the implementation plan?
 
 DECISION TRACEABILITY
 - Does every Decision Record reference the track(s) that implement it?

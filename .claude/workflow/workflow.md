@@ -13,10 +13,11 @@ parallel execution is valuable.
 
 ### Terminology: Phases 1/2/3 vs Phases A/B/C
 
-The overall workflow has three stages:
-- **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan
+The overall workflow has four stages:
+- **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document
 - **Phase 2 (Structural Review)**: `/review-plan` — validate plan structure
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
+- **Phase 4 (Final Design Document)**: `/create-final-design` — produce post-implementation design document
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -567,6 +568,56 @@ phases `[x]` in the step file, track still `[ ]` in the plan file).
 
 ---
 
+## Final Design Document (Phase 4)
+
+After all tracks are complete, a **separate session** produces a final design
+document that reflects what was actually built. This runs in its own session
+via `/create-final-design` — the execution context is deliberately shed so
+the final design is written from a fresh reading of the implemented code,
+not from stale implementation memories.
+
+### Why a separate document
+
+The original `design.md` (created during Phase 1) captures the **planned**
+design — what the solution was expected to look like before implementation
+began. The final `design-final.md` captures the **actual** design — what
+was really built after all tracks executed, including adaptations, discoveries,
+and deviations that emerged during implementation.
+
+The original `design.md` is **never modified**. Both documents are kept so
+that planned vs actual design can be compared. This comparison is valuable
+for:
+- Understanding how well the planning phase predicted the final shape
+- Documenting design deviations and their reasons (captured in track episodes)
+- Future reference when revisiting or extending the feature
+
+### When to run
+
+After the last track is marked `[x]` and its strategy refresh is complete
+(or there is no next track to refresh into), the workflow is done with
+Phase 3. The user starts a new session and runs `/create-final-design`.
+
+### Process
+
+See the `/create-final-design` command for the full instructions. The
+session:
+
+1. Reads the implementation plan (with all track episodes), the original
+   design document, and the actual implemented code
+2. Produces `design-final.md` with the same structure as `design.md` but
+   reflecting the actual implementation:
+   - Class diagrams showing the classes/interfaces as they actually exist
+   - Workflow diagrams showing the actual runtime flows
+   - Dedicated sections for complex parts as they were actually implemented
+3. Does NOT modify `design.md` — the original stays as-is for comparison
+
+### Output
+
+The final design document is saved to
+`docs/adr/<dir-name>/design-final.md` and committed.
+
+---
+
 ## Conventions
 
 This document defines the session lifecycle and cross-track coordination.
@@ -583,3 +634,4 @@ For other workflow components, see:
 - **`track-code-review.md`** — Phase C: track-level code review
 - **`planning.md`** — Phase 1 (planning)
 - **`structural-review.md`** — Phase 2 (structural review)
+- **`/create-final-design`** — Phase 4 (final design document)

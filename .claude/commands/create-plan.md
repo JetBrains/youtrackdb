@@ -56,10 +56,23 @@ Once the user provides the aim, help them develop the plan:
    `> **Depends on:** Track N`.
 7. Identify key test scenarios and invariants that must be covered — this
    is strategic (what to test and why), not tactical (how to implement tests).
+8. Produce a **Design Document** (separate file) following the workflow rules
+   in `planning.md` §Design Document. Write it to
+   `docs/adr/<dir-name>/design.md`. The design document must include:
+   - **Class diagrams** (Mermaid `classDiagram`) showing new/modified classes,
+     interfaces, and their relationships
+   - **Workflow diagrams** (Mermaid `sequenceDiagram` or `flowchart`) showing
+     runtime behavior of key operations
+   - **Dedicated sections for complex or opaque parts** — concurrency,
+     crash recovery, performance-critical paths, non-obvious invariants, etc.
+   - All diagrams must be Mermaid. Every diagram must be paired with prose.
+   - Design level, not code level — describe structure and behavior, not
+     implementation details.
 
 Do NOT implement anything. Only research and plan.
 
-Write the result to the plan file using this structure:
+Write the implementation plan to `docs/adr/<dir-name>/implementation-plan.md`
+using this structure:
 
 ```
 # <Feature Name>
@@ -102,6 +115,31 @@ Write the result to the plan file using this structure:
   > <track description: what/how/constraints/interactions>
   > **Scope:** ~N steps covering A, B
   > **Depends on:** Track 1
+```
+
+Write the design document to `docs/adr/<dir-name>/design.md` using this
+structure:
+
+```
+# <Feature Name> — Design
+
+## Overview
+<Brief summary of the design approach — what the solution looks like at a
+structural level, which major components are involved, and how they interact.>
+
+## Class Design
+<Mermaid classDiagram(s) showing new/modified classes, interfaces, relationships.
+Pair each diagram with prose explaining responsibilities and design choices.>
+
+## Workflow
+<Mermaid sequenceDiagram(s) and/or flowchart(s) showing runtime behavior of key
+operations. Pair each diagram with prose explaining the flow.>
+
+## <Complex Topic 1>
+<What the complex part is, why it is designed this way, gotchas/edge cases.>
+
+## <Complex Topic 2>
+<What the complex part is, why it is designed this way, gotchas/edge cases.>
 ```
 
 When I'm satisfied, I'll run `/review-plan` to review the plan, then
