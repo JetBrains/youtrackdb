@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -27,7 +28,9 @@ import java.util.concurrent.TimeUnit;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class StorageBackupMTIT {
 
   private final CountDownLatch latch = new CountDownLatch(1);

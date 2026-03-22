@@ -6,6 +6,7 @@ import static org.apache.tinkerpop.gremlin.structure.Graph.Features.VertexProper
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -17,6 +18,7 @@ import org.apache.tinkerpop.gremlin.structure.TransactionTest;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /// Overrides {@link TransactionTest#shouldExecuteWithCompetingThreads()} to replace
 /// the bare spin-loop with a bounded {@link CountDownLatch#await} call.
@@ -27,17 +29,25 @@ import org.junit.Test;
 ///
 /// The fix uses a {@link CountDownLatch} that is always decremented in a {@code finally}
 /// block, so thread failures cannot cause the main thread to hang.
+@Category(SequentialTest.class)
 public class YTDBTransactionStructureTest extends TransactionTest {
 
   @Test
   @Override
-  @FeatureRequirement(featureClass = Graph.Features.GraphFeatures.class, feature = Graph.Features.GraphFeatures.FEATURE_TRANSACTIONS)
-  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class, feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexPropertyFeatures.class, feature = FEATURE_DOUBLE_VALUES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexPropertyFeatures.class, feature = FEATURE_INTEGER_VALUES)
-  @FeatureRequirement(featureClass = Graph.Features.EdgePropertyFeatures.class, feature = EdgePropertyFeatures.FEATURE_FLOAT_VALUES)
-  @FeatureRequirement(featureClass = Graph.Features.EdgePropertyFeatures.class, feature = EdgePropertyFeatures.FEATURE_INTEGER_VALUES)
+  @FeatureRequirement(featureClass = Graph.Features.GraphFeatures.class,
+      feature = Graph.Features.GraphFeatures.FEATURE_TRANSACTIONS)
+  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class,
+      feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexPropertyFeatures.class,
+      feature = FEATURE_DOUBLE_VALUES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexPropertyFeatures.class,
+      feature = FEATURE_INTEGER_VALUES)
+  @FeatureRequirement(featureClass = Graph.Features.EdgePropertyFeatures.class,
+      feature = EdgePropertyFeatures.FEATURE_FLOAT_VALUES)
+  @FeatureRequirement(featureClass = Graph.Features.EdgePropertyFeatures.class,
+      feature = EdgePropertyFeatures.FEATURE_INTEGER_VALUES)
   public void shouldExecuteWithCompetingThreads() {
     int totalThreads = 250;
     final AtomicInteger vertices = new AtomicInteger(0);

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -25,7 +26,9 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class AsyncReadCacheTestIT {
 
   @Test
@@ -184,7 +187,7 @@ public class AsyncReadCacheTestIT {
   }
 
   private record PageWriter(int fileLimit, int pageLimit, WriteCache writeCache, int pageCount,
-                            LockFreeReadCache readCache) implements Callable<Void> {
+      LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -206,7 +209,7 @@ public class AsyncReadCacheTestIT {
   }
 
   private record PageReader(int fileLimit, int pageLimit, WriteCache writeCache, int pageCount,
-                            LockFreeReadCache readCache) implements Callable<Void> {
+      LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -227,7 +230,7 @@ public class AsyncReadCacheTestIT {
   }
 
   private record ZiphianPageWriter(int pageLimit, WriteCache writeCache, int pageCount,
-                                   LockFreeReadCache readCache) implements Callable<Void> {
+      LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {
@@ -247,7 +250,7 @@ public class AsyncReadCacheTestIT {
   }
 
   private record ZiphianPageReader(int pageLimit, WriteCache writeCache, int pageCount,
-                                   LockFreeReadCache readCache) implements Callable<Void> {
+      LockFreeReadCache readCache) implements Callable<Void> {
 
     @Override
     public Void call() {

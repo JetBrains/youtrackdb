@@ -1,10 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Integration tests for SQL SELECT statement execution under high-volume workloads. */
+@Category(SequentialTest.class)
 public class SelectStatementExecutionTestIT extends DbTestBase {
 
   @Test

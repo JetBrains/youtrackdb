@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -24,7 +25,9 @@ import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class DoubleWriteLogGLTestIT {
 
   private static String buildDirectory;
@@ -924,18 +927,20 @@ public class DoubleWriteLogGLTestIT {
             paths.get(3).getFileName().toString());
 
         final var doubleWriteLogRestore = new DoubleWriteLogGL(maxLogSize, maxLogSize);
-        doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME
-            , Paths.get(buildDirectory), pageSize);
+        doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
 
         paths = listFiles();
         Assert.assertEquals(5, paths.size());
 
         Assert.assertEquals(
             ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
-                "_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+                "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
             ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
-                "_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+                "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
             ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
             paths.get(2).getFileName().toString());

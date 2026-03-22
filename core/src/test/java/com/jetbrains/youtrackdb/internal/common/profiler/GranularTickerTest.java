@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +14,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+// The testTimeApproximation() method asserts monotonicity of approximateCurrentTimeMillis(),
+// which reads two volatile fields (nanoTime, nanoTimeDifference) non-atomically. Under parallel
+// test execution, CPU contention can cause a 1ms backward jump. Sequential execution avoids this.
+@Category(SequentialTest.class)
 public class GranularTickerTest {
 
   @Test

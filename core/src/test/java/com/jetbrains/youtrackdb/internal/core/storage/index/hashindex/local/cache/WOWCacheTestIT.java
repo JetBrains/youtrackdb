@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -42,8 +43,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
-
+@Category(SequentialTest.class)
 public class WOWCacheTestIT {
 
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
@@ -230,7 +232,7 @@ public class WOWCacheTestIT {
 
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     Files.createDirectories(storagePath);
 
@@ -458,7 +460,7 @@ public class WOWCacheTestIT {
 
     final var aesKeyEncoded = "T1JJRU5UREJfSVNfQ09PTA==";
     final var aesKey = Base64.getDecoder().decode(aesKeyEncoded);
-    final var iv = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+    final var iv = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 
     Files.createDirectories(storagePath);
 
@@ -707,7 +709,7 @@ public class WOWCacheTestIT {
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
-        ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+        ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     try {
@@ -746,7 +748,7 @@ public class WOWCacheTestIT {
     final File file = new AsyncFile(path, pageSize, false, Executors.newCachedThreadPool(),
         storageName);
     file.open();
-    file.write(0, ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+    file.write(0, ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     try {
@@ -787,7 +789,7 @@ public class WOWCacheTestIT {
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
-        ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+        ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     wowCache.load(fileId, 0, new ModifiableBoolean(), false).decrementReadersReferrer();
@@ -823,7 +825,7 @@ public class WOWCacheTestIT {
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
-        ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+        ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     wowCache.load(fileId, 0, new ModifiableBoolean(), true).decrementReadersReferrer();
@@ -859,7 +861,7 @@ public class WOWCacheTestIT {
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
-        ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+        ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     wowCache.load(fileId, 0, new ModifiableBoolean(), true).decrementReadersReferrer();
@@ -895,7 +897,7 @@ public class WOWCacheTestIT {
     file.open();
     file.write(
         DurablePage.NEXT_FREE_POSITION,
-        ByteBuffer.wrap(new byte[]{1}).order(ByteOrder.nativeOrder()));
+        ByteBuffer.wrap(new byte[] {1}).order(ByteOrder.nativeOrder()));
     file.close();
 
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);

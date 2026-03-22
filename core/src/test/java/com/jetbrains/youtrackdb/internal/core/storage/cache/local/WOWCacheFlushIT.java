@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Regression tests for the WOWCache flush path (YTDB-556). Verifies that
@@ -25,6 +27,7 @@ import org.junit.Test;
  * permanently lost on clean shutdown. The fix replaced the non-blocking
  * {@code tryAcquireSharedLock()} with a blocking {@code acquireSharedLock()}.
  */
+@Category(SequentialTest.class)
 public class WOWCacheFlushIT {
 
   private YouTrackDBImpl memoryYtdb;

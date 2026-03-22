@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Integration tests for the records GC feature. Verifies end-to-end behavior of the GC
@@ -31,6 +33,7 @@ import org.junit.Test;
  * <p>All tests use an in-memory database with cleanup threshold set to 0 so that snapshot
  * index entries are evicted eagerly, making dead records visible to the GC.
  */
+@Category(SequentialTest.class)
 public class RecordsGcIntegrationTest {
 
   private YouTrackDBImpl youTrackDB;

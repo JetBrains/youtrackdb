@@ -376,11 +376,12 @@ public class ExecuteReadOperationTest extends DbTestBase {
     var component = fakeComponent("stampedLock_mutex_test");
 
     var exclusiveAcquired = new CountDownLatch(1);
+    var readerReady = new CountDownLatch(1);
     var releaseExclusive = new CountDownLatch(1);
     var sharedAcquired = new AtomicBoolean(false);
     var errors = new AtomicReference<Throwable>();
 
-    // Thread A: hold the exclusive lock for 200ms
+    // Thread A: hold the exclusive lock until told to release
     var writerThread = new Thread(() -> {
       try {
         component.testAcquireExclusiveLock();
@@ -392,25 +393,16 @@ public class ExecuteReadOperationTest extends DbTestBase {
       }
     });
 
-    // Thread B: try to acquire the shared lock — should block until A releases
+    // Thread B: signal readiness, then try to acquire the shared lock — should block
+    // until A releases
     var readerThread = new Thread(() -> {
       try {
         exclusiveAcquired.await(5, TimeUnit.SECONDS);
-        // small delay to ensure writer holds lock before reader attempts
-        Thread.sleep(50);
-        long startNanos = System.nanoTime();
+        // Signal that we are about to attempt the shared lock acquisition
+        readerReady.countDown();
         component.testAcquireSharedLock();
-        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         sharedAcquired.set(true);
         component.testReleaseSharedLock();
-
-        // The shared lock should have waited a meaningful amount of time
-        if (elapsedMs < 20) {
-          errors.compareAndSet(null,
-              new AssertionError(
-                  "Shared lock acquired too quickly (" + elapsedMs
-                      + "ms) — exclusion may be broken"));
-        }
       } catch (Throwable t) {
         errors.compareAndSet(null, t);
       }
@@ -419,14 +411,19 @@ public class ExecuteReadOperationTest extends DbTestBase {
     writerThread.start();
     readerThread.start();
 
-    // Verify that during the exclusive hold, shared is NOT acquired
-    assertTrue("Exclusive lock should be acquired",
-        exclusiveAcquired.await(5, TimeUnit.SECONDS));
+    // Wait until the reader is about to attempt acquiring the shared lock,
+    // then give it time to actually enter the blocking lock call
+    assertTrue("Reader should be ready",
+        readerReady.await(5, TimeUnit.SECONDS));
+    // 100ms is generous for the reader to enter the blocking lock call.
+    // A truly timing-free assertion would require lock instrumentation.
     Thread.sleep(100);
+
+    // While the exclusive lock is held, the shared lock must still be blocked
     assertFalse("Shared lock should still be blocked while exclusive is held",
         sharedAcquired.get());
 
-    // Release the exclusive lock
+    // Release the exclusive lock — reader should now unblock
     releaseExclusive.countDown();
 
     readerThread.join(5000);

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -13,9 +14,11 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+@Category(SequentialTest.class)
 @RunWith(Parameterized.class)
 public class CheckSafeDeleteStepTest extends TestUtilsFixture {
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
@@ -16,8 +17,10 @@ import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(GremlinProcessRunner.class)
 public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest {
 

@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -18,8 +19,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.assertj.core.api.ListAssert;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(GremlinProcessRunner.class)
 public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
 
@@ -68,23 +71,19 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
 
     checkSize(
         1,
-        () -> gp().V().hasLabel("Parent").hasLabel("Child")
-    );
+        () -> gp().V().hasLabel("Parent").hasLabel("Child"));
 
     checkSize(
         1,
-        () -> gp().V().hasLabel("Child").hasLabel("Parent")
-    );
+        () -> gp().V().hasLabel("Child").hasLabel("Parent"));
 
     checkSize(
         0,
-        () -> gp().V().hasLabel("Parent").where(__.not(__.hasLabel("Child")))
-    );
+        () -> gp().V().hasLabel("Parent").where(__.not(__.hasLabel("Child"))));
 
     checkSize(
         0,
-        () -> gp().V().hasLabel("Child").where(__.not(__.hasLabel("Parent")))
-    );
+        () -> gp().V().hasLabel("Child").where(__.not(__.hasLabel("Parent"))));
   }
 
   @Test
@@ -219,56 +218,48 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
 
     assertThatNames(
         "character", true,
-        t -> t.has("noOfEyes", P.lt(2))
-    ).containsExactlyInAnyOrder("Blind Pew");
+        t -> t.has("noOfEyes", P.lt(2))).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
         "character", false,
-        t -> t.has("noOfEyes", P.lt(2))
-    ).isEmpty();
+        t -> t.has("noOfEyes", P.lt(2))).isEmpty();
 
     assertThatNames(
         "pirate", true,
-        t -> t.has("noOfEyes", P.lt(2))
-    ).containsExactlyInAnyOrder("Blind Pew");
+        t -> t.has("noOfEyes", P.lt(2))).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
         "pirate", false,
-        t -> t.has("noOfEyes", P.lt(2))
-    ).containsExactlyInAnyOrder("Blind Pew");
+        t -> t.has("noOfEyes", P.lt(2))).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
         "character", false,
-        t -> t.has("name", TextP.startingWith("J"))
-    ).containsExactlyInAnyOrder("Jim Hawkins");
+        t -> t.has("name", TextP.startingWith("J"))).containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames(
         "character", true,
-        t -> t.has("name", TextP.startingWith("J"))
-    ).containsExactlyInAnyOrder("Jim Hawkins", "John Silver");
+        t -> t.has("name", TextP.startingWith("J")))
+        .containsExactlyInAnyOrder("Jim Hawkins", "John Silver");
 
     assertThatNames(
         "character", false,
-        t -> t.has("name", TextP.startingWith("J"))
-    ).containsExactlyInAnyOrder("Jim Hawkins");
+        t -> t.has("name", TextP.startingWith("J"))).containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames(
         "character", true,
-        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
-    ).containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones");
+        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1)))
+        .containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones");
 
     assertThatNames(
         "character", false,
-        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
-    ).containsExactlyInAnyOrder("Jim Hawkins");
+        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1)))
+        .containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames("character", false,
-        t -> t.has("noOfLegs", P.neq(2))
-    ).isEmpty();
+        t -> t.has("noOfLegs", P.neq(2))).isEmpty();
 
     assertThatNames("character", true,
-        t -> t.has("noOfLegs", P.neq(2))
-    ).containsExactlyInAnyOrder("John Silver");
+        t -> t.has("noOfLegs", P.neq(2))).containsExactlyInAnyOrder("John Silver");
   }
 
   @Test
@@ -288,144 +279,112 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     // union semantics
     assertThatNames(
         List.of(
-            List.of("animal", "mammal")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
+            List.of("animal", "mammal")),
+        true).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman",
+            "someFish");
 
     assertThatNames(
         List.of(
-            List.of("animal", "mammal")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal");
+            List.of("animal", "mammal")),
+        false).containsExactlyInAnyOrder("someAnimal", "someMammal");
 
     assertThatNames(
         List.of(
-            List.of("animal", "mammal", "human")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
+            List.of("animal", "mammal", "human")),
+        true).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman",
+            "someFish");
 
     assertThatNames(
         List.of(
-            List.of("animal", "mammal", "human")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someHuman");
+            List.of("animal", "mammal", "human")),
+        false).containsExactlyInAnyOrder("someAnimal", "someMammal", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of("mammal", "dolphin", "fish")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish", "someHuman");
+            List.of("mammal", "dolphin", "fish")),
+        true).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of("mammal", "dolphin", "fish")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish");
+            List.of("mammal", "dolphin", "fish")),
+        false).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish");
 
     assertThatNames(
         List.of(
             List.of("mammal", "human"),
             List.of("fish"),
-            List.of("animal")
-        ),
-        true
-    ).isEmpty();
+            List.of("animal")),
+        true).isEmpty();
 
     assertThatNames(
         List.of(
             List.of("mammal", "human"),
             List.of("fish"),
-            List.of("animal")
-        ),
-        false
-    ).isEmpty();
+            List.of("animal")),
+        false).isEmpty();
 
     // intersection semantics
     assertThatNames(
         List.of(
             List.of("animal"),
-            List.of("mammal")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
+            List.of("mammal")),
+        true).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
 
     assertThatNames(
         List.of(
             List.of("animal"),
-            List.of("mammal")
-        ),
-        false
-    ).isEmpty();
+            List.of("mammal")),
+        false).isEmpty();
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("human")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someHuman");
+            List.of("human")),
+        true).containsExactlyInAnyOrder("someHuman");
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("human")
-        ),
-        false
-    ).isEmpty();
+            List.of("human")),
+        false).isEmpty();
 
     assertThatNames(
         List.of(
             List.of("animal"),
-            List.of("animal")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
+            List.of("animal")),
+        true).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman",
+            "someFish");
 
     assertThatNames(
         List.of(
             List.of("animal"),
-            List.of("animal")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someAnimal");
+            List.of("animal")),
+        false).containsExactlyInAnyOrder("someAnimal");
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("mammal", "human")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
+            List.of("mammal", "human")),
+        true).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("mammal", "human")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someMammal");
+            List.of("mammal", "human")),
+        false).containsExactlyInAnyOrder("someMammal");
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("animal", "human")
-        ),
-        true
-    ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
+            List.of("animal", "human")),
+        true).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman",
+            "someFish");
 
     assertThatNames(
         List.of(
             List.of("animal", "mammal"),
-            List.of("animal", "human")
-        ),
-        false
-    ).containsExactlyInAnyOrder("someAnimal");
+            List.of("animal", "human")),
+        false).containsExactlyInAnyOrder("someAnimal");
   }
 
   @Test
@@ -450,39 +409,33 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
         childCount * childCount,
         () -> gp()
             .V().hasLabel("Child")
-            .V().hasLabel("Child")
-    );
+            .V().hasLabel("Child"));
 
     checkSize(
         parentCount * parentCount,
         () -> gn()
             .V().hasLabel("Parent")
-            .V().hasLabel("Parent")
-    );
+            .V().hasLabel("Parent"));
     checkSize(
         parentCount * parentCount,
         () -> gn()
             .V().where(__.hasLabel("Parent"))
-            .V().where(__.hasLabel("Parent"))
-    );
+            .V().where(__.hasLabel("Parent")));
     checkSize(
         (childCount + parentCount) * (childCount + parentCount),
         () -> gp()
             .V().hasLabel("Parent")
-            .V().hasLabel("Parent")
-    );
+            .V().hasLabel("Parent"));
     checkSize(
         (childCount + parentCount) * (childCount + parentCount),
         () -> gp()
             .V().where(__.hasLabel("Parent"))
-            .V().where(__.hasLabel("Parent"))
-    );
+            .V().where(__.hasLabel("Parent")));
     checkSize(
         (parentCount + childCount) * grandparentCount,
         () -> gp()
             .V().hasLabel("Parent")
-            .V().hasLabel("Grandparent").not(__.hasLabel("Parent"))
-    );
+            .V().hasLabel("Grandparent").not(__.hasLabel("Parent")));
   }
 
   @Test
@@ -497,8 +450,7 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
       final var result = g()
           .union(
               __.V().hasLabel(label).has("name", "child1"),
-              __.V().hasLabel(label).has("name", "child2")
-          )
+              __.V().hasLabel(label).has("name", "child2"))
           .aggregate("var1")
           .fold()
           .V()
@@ -511,7 +463,6 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
       assertEquals("child2", result.getFirst().value("name"));
     }
   }
-
 
   @After
   @Override

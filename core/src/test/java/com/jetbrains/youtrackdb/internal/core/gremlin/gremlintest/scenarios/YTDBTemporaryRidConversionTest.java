@@ -4,6 +4,7 @@ import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.stream.IntStream;
@@ -21,8 +22,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @SuppressWarnings("AbstractClassWithOnlyOneDirectInheritor")
 @RunWith(GremlinProcessRunner.class)
 public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlinTest {
@@ -41,7 +44,8 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
 
   @Test
   @LoadGraphWith(MODERN)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
   public void g_V_addV_repeat128_in_tx() {
     for (var i = 1; i < 128; i++) {
       long initialCount = g.V().count().next();
@@ -82,9 +86,12 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
 
   @Test
   @LoadGraphWith(MODERN)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = VertexFeatures.FEATURE_ADD_PROPERTY)
-  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class, feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = VertexFeatures.FEATURE_ADD_PROPERTY)
+  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class,
+      feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
   public void g_createGraph_v() {
     var traversal = get_g_createGraph_v();
     var vertices = traversal.toList();
@@ -97,9 +104,12 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
 
   @Test
   @LoadGraphWith(MODERN)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = VertexFeatures.FEATURE_ADD_PROPERTY)
-  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class, feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = VertexFeatures.FEATURE_ADD_PROPERTY)
+  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class,
+      feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
   public void g_createGraph_e() {
     var traversal = get_g_createGraph_e();
     var edges = traversal.toList();
@@ -112,9 +122,12 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
 
   @Test
   @LoadGraphWith(MODERN)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
-  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class, feature = VertexFeatures.FEATURE_ADD_PROPERTY)
-  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class, feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = Graph.Features.VertexFeatures.FEATURE_ADD_VERTICES)
+  @FeatureRequirement(featureClass = Graph.Features.VertexFeatures.class,
+      feature = VertexFeatures.FEATURE_ADD_PROPERTY)
+  @FeatureRequirement(featureClass = Graph.Features.EdgeFeatures.class,
+      feature = Graph.Features.EdgeFeatures.FEATURE_ADD_EDGES)
   public void g_createGraph_p() {
     var traversal = get_g_createGraph_p();
     var properties = traversal.toList();
@@ -135,8 +148,7 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
       //noinspection unchecked
       return g.inject((Vertex) null).union(
           __.repeat(__.addV("person")).times(firstSteps).fail("exception during vertex creation"),
-          __.repeat(__.addV("person")).times(128 - firstSteps)
-      );
+          __.repeat(__.addV("person")).times(128 - firstSteps));
     }
 
     @Override
@@ -145,8 +157,7 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
       return g.inject((Vertex) null).union(
           __.repeat(__.addV("person")).times(firstSteps),
           __.repeat(__.addV("person")).times(128 - firstSteps)
-              .fail("exception during vertex creation")
-      );
+              .fail("exception during vertex creation"));
     }
 
     @Override
@@ -154,8 +165,7 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
       //noinspection unchecked
       return g.inject((Vertex) null).union(
           __.repeat(__.addV("person")).times(firstSteps).emit(),
-          __.repeat(__.addV("person")).times(128 - firstSteps).emit()
-      );
+          __.repeat(__.addV("person")).times(128 - firstSteps).emit());
     }
 
     @Override
@@ -177,10 +187,9 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
 
     private GraphTraversal<?, ?> createGraph() {
       //noinspection unchecked
-      return g.inject(IntStream.rangeClosed(1, 128).boxed().toList()).unfold().
-          addV("person").property("property", "value").as("from").
-          addV("person").property("property", "value").as("to").
-          addE("knows").from("from").to("to").as("e");
+      return g.inject(IntStream.rangeClosed(1, 128).boxed().toList()).unfold().addV("person")
+          .property("property", "value").as("from").addV("person").property("property", "value")
+          .as("to").addE("knows").from("from").to("to").as("e");
     }
   }
 }

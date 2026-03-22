@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -29,7 +30,9 @@ import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAbstract {
   @BeforeClass
   public static void beforeClass() throws IOException {
@@ -90,7 +93,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // Write the record to keep the collection consistent, then verify PRESENT
     atomicOps().executeInsideAtomicOperation(
-        op -> paginatedCollection.createRecord(new byte[]{1}, (byte) 1, pos, op));
+        op -> paginatedCollection.createRecord(new byte[] {1}, (byte) 1, pos, op));
 
     var filledStatus = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.getRecordStatus(pos.collectionPosition, op));
@@ -100,7 +103,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that a written record has PRESENT status, and after deletion it becomes REMOVED.
   @Test
   public void testGetRecordStatusFilledThenRemoved() throws IOException {
-    var data = new byte[]{10, 20, 30};
+    var data = new byte[] {10, 20, 30};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -122,7 +125,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // after deletion or for a never-written position.
   @Test
   public void testRecordExistsForExistingAndDeletedRecord() throws IOException {
-    var data = new byte[]{1, 2, 3, 4, 5};
+    var data = new byte[] {1, 2, 3, 4, 5};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -234,7 +237,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that synch completes without errors when the collection has data.
   @Test
   public void testSynch() throws IOException {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -250,7 +253,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testNextPageForwardBrowsing() throws IOException {
     var records = new ArrayList<Long>();
     for (var i = 0; i < 50; i++) {
-      var data = new byte[]{(byte) i, (byte) (i + 1)};
+      var data = new byte[] {(byte) i, (byte) (i + 1)};
       var pos = atomicOps().calculateInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
       records.add(pos.collectionPosition);
@@ -289,7 +292,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that backward page browsing via nextPage returns records in descending order.
   @Test
   public void testNextPageBackwardBrowsing() throws IOException {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     for (var i = 0; i < 20; i++) {
       atomicOps().executeInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
@@ -334,7 +337,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     collection.configure(99, "reopenTest");
     atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
 
-    var data = new byte[]{10, 20, 30, 40, 50};
+    var data = new byte[] {10, 20, 30, 40, 50};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.createRecord(data, (byte) 2, null, op));
 
@@ -395,7 +398,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
 
     // Add a record before rename
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.createRecord(data, (byte) 1, null, op));
 
@@ -455,7 +458,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // findHistoricalPositionEntry and readRecordFromHistoricalEntry code paths.
   @Test
   public void testMvccReadSeesOldVersionAfterConcurrentUpdate() throws Exception {
-    var oldData = new byte[]{1, 2, 3, 4, 5};
+    var oldData = new byte[] {1, 2, 3, 4, 5};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(oldData, (byte) 1, null, op));
 
@@ -493,7 +496,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         readerStarted.await(30, TimeUnit.SECONDS));
 
     // Writer: update the record while the reader's atomic operation is still active
-    var newData = new byte[]{10, 20, 30, 40, 50};
+    var newData = new byte[] {10, 20, 30, 40, 50};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
             pos.collectionPosition, newData, (byte) 2, op));
@@ -514,7 +517,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // in doReadRecord.
   @Test
   public void testMvccReadSeesRecordAfterConcurrentDelete() throws Exception {
-    var data = new byte[]{5, 6, 7, 8, 9};
+    var data = new byte[] {5, 6, 7, 8, 9};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -570,7 +573,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // Create several records
     var positions = new ArrayList<Long>();
     for (var i = 0; i < 5; i++) {
-      var data = new byte[]{(byte) i};
+      var data = new byte[] {(byte) i};
       var pos = atomicOps().calculateInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
       positions.add(pos.collectionPosition);
@@ -631,7 +634,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // correctly, and that the version and content are updated.
   @Test
   public void testUpdateSmallRecordToBigRecord() throws IOException {
-    var smallRecord = new byte[]{1, 2, 3};
+    var smallRecord = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(smallRecord, (byte) 1, null, op));
 
@@ -664,7 +667,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(bigRecord, (byte) 1, null, op));
 
-    var smallRecord = new byte[]{1, 2, 3};
+    var smallRecord = new byte[] {1, 2, 3};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
             pos.collectionPosition, smallRecord, (byte) 2, op));
@@ -685,7 +688,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var nonExistent = lastPos + 1000;
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            nonExistent, new byte[]{1}, (byte) 1, op));
+            nonExistent, new byte[] {1}, (byte) 1, op));
   }
 
   // Verifies that attempting to update a record version on a non-existent record throws
@@ -715,7 +718,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that a rolled-back update leaves the record in its original state.
   @Test
   public void testUpdateRecordRollbackPreservesOriginal() throws IOException {
-    var originalData = new byte[]{10, 20, 30};
+    var originalData = new byte[] {10, 20, 30};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(originalData, (byte) 1, null, op));
 
@@ -725,7 +728,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     try {
       atomicOps().executeInsideAtomicOperation(op -> {
         paginatedCollection.updateRecord(
-            pos.collectionPosition, new byte[]{99, 99, 99}, (byte) 2, op);
+            pos.collectionPosition, new byte[] {99, 99, 99}, (byte) 2, op);
         throw new RollbackException("test rollback");
       });
     } catch (RollbackException ignore) {
@@ -815,7 +818,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that getPhysicalPosition returns correct type and version for an existing record.
   @Test
   public void testGetPhysicalPositionReturnsCorrectMetadata() throws IOException {
-    var data = new byte[]{1, 2, 3, 4, 5};
+    var data = new byte[] {1, 2, 3, 4, 5};
     var created = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 7, null, op));
 
@@ -861,23 +864,23 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // oldRecordVersion == newRecordVersion (i.e., both writes share the same commitTs).
   @Test
   public void testDoubleUpdateWithinSameAtomicOperation() throws IOException {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
     // Update twice within the same atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       paginatedCollection.updateRecord(
-          pos.collectionPosition, new byte[]{10, 20}, (byte) 2, op);
+          pos.collectionPosition, new byte[] {10, 20}, (byte) 2, op);
       paginatedCollection.updateRecord(
-          pos.collectionPosition, new byte[]{30, 40, 50}, (byte) 3, op);
+          pos.collectionPosition, new byte[] {30, 40, 50}, (byte) 3, op);
     });
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.readRecord(pos.collectionPosition, op));
     Assertions.assertThat(buffer.buffer())
         .as("Second update should win")
-        .isEqualTo(new byte[]{30, 40, 50});
+        .isEqualTo(new byte[] {30, 40, 50});
     Assert.assertEquals(3, buffer.recordType());
   }
 
@@ -888,14 +891,14 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var pos = new PhysicalPosition[1];
     atomicOps().executeInsideAtomicOperation(op -> {
       pos[0] = paginatedCollection.createRecord(
-          new byte[]{1, 2, 3}, (byte) 1, null, op);
+          new byte[] {1, 2, 3}, (byte) 1, null, op);
       paginatedCollection.updateRecord(
-          pos[0].collectionPosition, new byte[]{4, 5, 6, 7}, (byte) 2, op);
+          pos[0].collectionPosition, new byte[] {4, 5, 6, 7}, (byte) 2, op);
     });
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.readRecord(pos[0].collectionPosition, op));
-    Assertions.assertThat(buffer.buffer()).isEqualTo(new byte[]{4, 5, 6, 7});
+    Assertions.assertThat(buffer.buffer()).isEqualTo(new byte[] {4, 5, 6, 7});
     Assert.assertEquals(2, buffer.recordType());
   }
 
@@ -962,7 +965,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testMvccGetEntriesWithMixedUpdates() throws Exception {
     var positions = new ArrayList<Long>();
     for (var i = 0; i < 5; i++) {
-      var data = new byte[]{(byte) i};
+      var data = new byte[] {(byte) i};
       var pos = atomicOps().calculateInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
       positions.add(pos.collectionPosition);
@@ -999,10 +1002,10 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // Update 2 records and delete 1 while reader's operation is active
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            positions.get(0), new byte[]{99}, (byte) 2, op));
+            positions.get(0), new byte[] {99}, (byte) 2, op));
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            positions.get(1), new byte[]{98}, (byte) 2, op));
+            positions.get(1), new byte[] {98}, (byte) 2, op));
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.deleteRecord(op, positions.get(2)));
 
@@ -1050,7 +1053,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var allocated = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.allocatePosition((byte) 1, op));
 
-    var data = new byte[]{10, 20, 30, 40};
+    var data = new byte[] {10, 20, 30, 40};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, allocated, op));
 
@@ -1067,7 +1070,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testGetEntriesExcludesRecordsDeletedInSameOperation() throws IOException {
     var positions = new ArrayList<Long>();
     for (var i = 0; i < 5; i++) {
-      var data = new byte[]{(byte) i};
+      var data = new byte[] {(byte) i};
       var pos = atomicOps().calculateInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
       positions.add(pos.collectionPosition);
@@ -1090,7 +1093,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   @Test
   public void testReadRecordCreatedInSameOperation() throws IOException {
     atomicOps().executeInsideAtomicOperation(op -> {
-      var data = new byte[]{42, 43, 44};
+      var data = new byte[] {42, 43, 44};
       var pos = paginatedCollection.createRecord(data, (byte) 5, null, op);
 
       var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
@@ -1110,7 +1113,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testCreateAndDeleteInSameOperationThenCount() throws IOException {
     atomicOps().executeInsideAtomicOperation(op -> {
       var pos = paginatedCollection.createRecord(
-          new byte[]{1, 2, 3}, (byte) 1, null, op);
+          new byte[] {1, 2, 3}, (byte) 1, null, op);
       paginatedCollection.deleteRecord(op, pos.collectionPosition);
 
       // The record was created and deleted in the same operation, so it should not be
@@ -1128,12 +1131,12 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // exercises more MVCC paths through findHistoricalPositionEntry.
   @Test
   public void testMvccReadAfterMultipleUpdates() throws Exception {
-    var data1 = new byte[]{1, 2, 3};
+    var data1 = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data1, (byte) 1, null, op));
 
     // First update
-    var data2 = new byte[]{4, 5, 6};
+    var data2 = new byte[] {4, 5, 6};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
             pos.collectionPosition, data2, (byte) 2, op));
@@ -1169,7 +1172,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         readerStarted.await(30, TimeUnit.SECONDS));
 
     // Second update (reader's snapshot predates this)
-    var data3 = new byte[]{7, 8, 9};
+    var data3 = new byte[] {7, 8, 9};
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
             pos.collectionPosition, data3, (byte) 3, op));
@@ -1205,7 +1208,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // Clean up: write a record to the allocated position so the collection stays consistent
     atomicOps().executeInsideAtomicOperation(
-        op -> paginatedCollection.createRecord(new byte[]{1}, (byte) 1, allocated, op));
+        op -> paginatedCollection.createRecord(new byte[] {1}, (byte) 1, allocated, op));
   }
 
   // Verifies that a new record created by another operation AFTER the reader's snapshot
@@ -1253,7 +1256,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // Writer: create a new record while reader's operation is active
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(
-            new byte[]{42}, (byte) 1, null, op));
+            new byte[] {42}, (byte) 1, null, op));
     writerPos.set(pos);
 
     writerDone.countDown();
@@ -1273,7 +1276,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // where the previous version is stored in the snapshot index.
   @Test
   public void testUpdateRecordVersionRollbackExercisesSnapshotIndex() throws IOException {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -1298,7 +1301,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   public void testMvccGetEntriesWithFilledNonVisibleVersion() throws Exception {
     var positions = new ArrayList<Long>();
     for (var i = 0; i < 3; i++) {
-      var data = new byte[]{(byte) i};
+      var data = new byte[] {(byte) i};
       var pos = atomicOps().calculateInsideAtomicOperation(
           op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
       positions.add(pos.collectionPosition);
@@ -1336,7 +1339,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     for (var position : positions) {
       atomicOps().executeInsideAtomicOperation(
           op -> paginatedCollection.updateRecord(
-              position, new byte[]{99}, (byte) 2, op));
+              position, new byte[] {99}, (byte) 2, op));
     }
 
     writerDone.countDown();
@@ -1356,7 +1359,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   @Test
   public void testMvccHistoricalChainSkipsNonVisibleVersions() throws Exception {
     // Create the initial record (V1)
-    var originalData = new byte[]{10, 20, 30};
+    var originalData = new byte[] {10, 20, 30};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(originalData, (byte) 1, null, op));
 
@@ -1393,10 +1396,10 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // with two non-visible entries
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            pos.collectionPosition, new byte[]{40, 50}, (byte) 2, op));
+            pos.collectionPosition, new byte[] {40, 50}, (byte) 2, op));
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            pos.collectionPosition, new byte[]{60, 70, 80}, (byte) 3, op));
+            pos.collectionPosition, new byte[] {60, 70, 80}, (byte) 3, op));
 
     writersDone.countDown();
     readerThread.join(30_000);
@@ -1414,7 +1417,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // whose historical version IS visible, with multiple intermediate non-visible versions.
   @Test
   public void testMvccGetEntriesSkipsNonVisibleIntermediateVersions() throws Exception {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     var pos = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -1449,10 +1452,10 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // traverse the historical chain
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            pos.collectionPosition, new byte[]{10}, (byte) 2, op));
+            pos.collectionPosition, new byte[] {10}, (byte) 2, op));
     atomicOps().executeInsideAtomicOperation(
         op -> paginatedCollection.updateRecord(
-            pos.collectionPosition, new byte[]{20}, (byte) 3, op));
+            pos.collectionPosition, new byte[] {20}, (byte) 3, op));
 
     writersDone.countDown();
     readerThread.join(30_000);
@@ -1470,7 +1473,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   @Test
   public void testMvccGetEntriesExcludesRecordsCreatedAfterSnapshot() throws Exception {
     // Start with a known number of records
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -1505,7 +1508,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     for (var i = 0; i < 3; i++) {
       atomicOps().executeInsideAtomicOperation(
           op -> paginatedCollection.createRecord(
-              new byte[]{42}, (byte) 1, null, op));
+              new byte[] {42}, (byte) 1, null, op));
     }
 
     writersDone.countDown();
@@ -1603,7 +1606,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
   // Verifies that getPhysicalPosition returns null after a record is deleted.
   @Test
   public void testGetPhysicalPositionAfterDelete() throws IOException {
-    var data = new byte[]{1, 2, 3};
+    var data = new byte[] {1, 2, 3};
     var created = atomicOps().calculateInsideAtomicOperation(
         op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
 
@@ -1644,7 +1647,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var recordCount = 10;
     for (var i = 0; i < recordCount; i++) {
       atomicOps().executeInsideAtomicOperation(
-          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+          op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
     }
 
     Assert.assertEquals(recordCount, collection.getApproximateRecordsCount());
@@ -1664,7 +1667,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var positions = new ArrayList<PhysicalPosition>();
     for (var i = 0; i < 5; i++) {
       var pos = atomicOps().calculateInsideAtomicOperation(
-          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+          op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
       positions.add(pos);
     }
     Assert.assertEquals(5L, collection.getApproximateRecordsCount());
@@ -1693,7 +1696,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var positions = new ArrayList<PhysicalPosition>();
     for (var i = 0; i < 8; i++) {
       var pos = atomicOps().calculateInsideAtomicOperation(
-          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+          op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
       positions.add(pos);
     }
 
@@ -1746,7 +1749,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     for (var i = 0; i < 5; i++) {
       var pos = atomicOps().calculateInsideAtomicOperation(op -> {
         var c = findRegisteredCollection(collectionId);
-        return c.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op);
+        return c.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op);
       });
       positions.add(pos);
     }
@@ -1786,7 +1789,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     for (var i = 0; i < 3; i++) {
       atomicOps().executeInsideAtomicOperation(
           op -> findRegisteredCollection(collectionId)
-              .createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+              .createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
     }
 
     Assert.assertEquals(3L, databaseDocumentTx.getApproximateCollectionCount(collectionId));
@@ -1809,7 +1812,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     for (var i = 0; i < 4; i++) {
       var pos = atomicOps().calculateInsideAtomicOperation(op -> {
         var c = findRegisteredCollection(collectionId);
-        return c.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op);
+        return c.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op);
       });
       positions.add(pos);
     }
@@ -1855,7 +1858,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     var positions = new ArrayList<PhysicalPosition>();
     for (var i = 0; i < 7; i++) {
       var pos = atomicOps().calculateInsideAtomicOperation(
-          op -> collection.createRecord(new byte[]{1, 2, 3}, (byte) 1, null, op));
+          op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 1, null, op));
       positions.add(pos);
     }
 

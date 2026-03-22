@@ -21,7 +21,14 @@ package com.jetbrains.youtrackdb.internal.core.engine;
 
 public abstract class EngineAbstract implements Engine {
 
-  private boolean running = false;
+  // Volatile to guarantee cross-thread visibility. While the factoryLifecycleLock
+  // in YouTrackDBEnginesManager provides happens-before for init/close paths,
+  // isRunning() is also called outside the lock (e.g. getEngineIfRunning,
+  // getRunningEngine), and the volatile write in startup() acts as a StoreStore
+  // fence ensuring that all fields initialized before super.startup() (such as
+  // EngineLocalPaginated.readCache) are visible to any thread that observes
+  // running==true.
+  private volatile boolean running = false;
 
   @Override
   public void startup() {

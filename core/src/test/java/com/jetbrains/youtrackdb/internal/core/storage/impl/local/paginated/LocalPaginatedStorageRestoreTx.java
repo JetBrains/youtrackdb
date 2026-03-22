@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -34,12 +35,14 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for restoring local paginated storage transactions from WAL.
  *
  * @since 14.06.13
  */
+@Category(SequentialTest.class)
 public class LocalPaginatedStorageRestoreTx {
 
   private static YouTrackDBImpl youTrackDB;

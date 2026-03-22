@@ -17,6 +17,7 @@
 
 package com.jetbrains.youtrackdb.internal.core;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -43,7 +44,9 @@ import javax.annotation.Nonnull;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class PostponedEngineStartTest {
 
   private static YouTrackDBEnginesManager YOUTRACKDB;
@@ -199,7 +202,6 @@ public class PostponedEngineStartTest {
         int storageId,
         YouTrackDBInternalEmbedded context) {
       return new Storage() {
-
 
         @Override
         public String getCollectionName(DatabaseSessionEmbedded database, int collectionId) {
@@ -459,7 +461,6 @@ public class PostponedEngineStartTest {
         @Override
         public void setConflictStrategy(RecordConflictStrategy iResolver) {
         }
-
 
         @Override
         public void shutdown() {

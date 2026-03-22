@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Gauge;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -35,6 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Integration tests for the stale transaction detection and monitoring feature (YTDB-550).
@@ -48,6 +50,7 @@ import org.junit.Test;
  *   <li>The monitor stops cleanly on storage shutdown</li>
  * </ul>
  */
+@Category(SequentialTest.class)
 public class StaleTransactionMonitorIT {
 
   private YouTrackDBImpl youTrackDB;

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import org.apache.tinkerpop.gremlin.FeatureRequirement;
 import org.apache.tinkerpop.gremlin.FeatureRequirementSet;
 import org.apache.tinkerpop.gremlin.FeatureRequirementSet.Package;
@@ -11,8 +12,10 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty.Cardinality;
 import org.apache.tinkerpop.gremlin.structure.VertexPropertyTest;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /// VertexPropertyProperties test with corrected "empty" properties logic.
+@Category(SequentialTest.class)
 public class YTDBVertexPropertyPropertiesStructureTest
     extends VertexPropertyTest.VertexPropertyProperties {
 
@@ -20,8 +23,7 @@ public class YTDBVertexPropertyPropertiesStructureTest
   @FeatureRequirementSet(Package.VERTICES_ONLY)
   @FeatureRequirement(
       featureClass = Graph.Features.VertexFeatures.class,
-      feature = "MetaProperties"
-  )
+      feature = "MetaProperties")
   @Override
   public void shouldReturnEmptyIfNoMetaProperties() {
     Vertex v = this.graph.addVertex(new Object[0]);

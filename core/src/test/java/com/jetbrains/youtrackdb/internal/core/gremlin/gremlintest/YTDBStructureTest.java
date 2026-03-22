@@ -18,11 +18,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites.YTDBStructureSuite;
 import org.apache.tinkerpop.gremlin.GraphProviderClass;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(YTDBStructureSuite.class)
 @GraphProviderClass(provider = YTDBGraphProvider.class, graph = YTDBGraph.class)
 public class YTDBStructureTest {

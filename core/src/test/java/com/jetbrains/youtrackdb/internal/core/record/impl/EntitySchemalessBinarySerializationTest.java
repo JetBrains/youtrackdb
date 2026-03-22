@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -30,10 +31,12 @@ import java.util.Map;
 import java.util.Set;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
+@Category(SequentialTest.class)
 @RunWith(Parameterized.class)
 public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
@@ -41,7 +44,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   public static Collection<Object[]> generateParams() {
     List<Object[]> params = new ArrayList<>();
     for (byte i = 0; i < RecordSerializerBinary.INSTANCE.getNumberOfSupportedVersions(); i++) {
-      params.add(new Object[]{i});
+      params.add(new Object[] {i});
     }
 
     return params;
@@ -99,7 +102,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     c.set(Calendar.MILLISECOND, 0);
     c.set(Calendar.SECOND, 0);
@@ -204,7 +207,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("listStrings"), document.getProperty("listStrings"));
@@ -298,7 +301,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
         var res = serializer.toStream(session, document);
         var extr = (EntityImpl) session.newEntity();
-        serializer.fromStream(session, res, extr, new String[]{});
+        serializer.fromStream(session, res, extr, new String[] {});
 
         assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
         assertEquals(extr.<Object>getProperty("listStrings"), document.getProperty("listStrings"));
@@ -338,7 +341,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         var res = serializer.toStream(session, document);
 
         var extr = (EntityImpl) session.newEntity();
-        serializer.fromStream(session, res, extr, new String[]{});
+        serializer.fromStream(session, res, extr, new String[] {});
 
         assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
         assertTrue(extr.getLinkSet("linkSet").containsAll(document.getLinkSet("linkSet")));
@@ -361,7 +364,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(document.getPropertiesCount(), extr.getPropertiesCount());
     EntityImpl emb = extr.getProperty("embed");
@@ -424,7 +427,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("mapString"), document.getProperty("mapString"));
@@ -450,7 +453,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("complexList"), document.getProperty("complexList"));
@@ -474,7 +477,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("list"), document.getProperty("list"));
@@ -496,7 +499,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     Map<String, EntityImpl> mapS = extr.getProperty("map");
     assertEquals(1, mapS.size());
@@ -525,7 +528,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         var res = serializer.toStream(session, document);
 
         var extr = (EntityImpl) session.newEntity();
-        serializer.fromStream(session, res, extr, new String[]{});
+        serializer.fromStream(session, res, extr, new String[] {});
         assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
         assertEquals(extr.<Object>getProperty("map"), document.getProperty("map"));
         session.rollback();
@@ -549,7 +552,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         var res = serializer.toStream(session, document);
 
         var extr = (EntityImpl) session.newEntity();
-        serializer.fromStream(session, res, extr, new String[]{});
+        serializer.fromStream(session, res, extr, new String[] {});
 
         assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
         assertEquals(extr.<Object>getProperty("test"), document.getProperty("test"));
@@ -558,7 +561,6 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
       ytdb.drop("test");
     }
   }
-
 
   @Test(expected = SchemaException.class)
   public void testSetOfWrongData() {
@@ -633,7 +635,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     List<EntityImpl> ser = extr.getProperty("embeddedList");
     assertEquals(4, ser.size());
@@ -669,7 +671,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     final var fields = extr.propertyNames();
 
@@ -709,7 +711,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     var res = serializer.toStream(session, document);
 
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{"name", "age"});
+    serializer.fromStream(session, res, extr, new String[] {"name", "age"});
 
     assertEquals(document.getProperty("name"), extr.<Object>getProperty("name"));
     assertEquals(document.<Object>getProperty("age"), extr.getProperty("age"));
@@ -731,7 +733,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(document.getProperty("name"), extr.<Object>getProperty("name"));
     assertEquals(document.<Object>getProperty("age"), extr.getProperty("age"));
@@ -784,7 +786,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     var res = serializer.toStream(session, document);
     var extr = (EntityImpl) session.newEntity();
-    serializer.fromStream(session, res, extr, new String[]{});
+    serializer.fromStream(session, res, extr, new String[] {});
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("list"), document.getProperty("list"));

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
@@ -13,7 +14,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class SchemaClassSecurityTest {
 
   private static final String PASSWORD = "password";
@@ -42,8 +45,7 @@ public class SchemaClassSecurityTest {
     youTrackDB.create(DB_NAME, DatabaseType.MEMORY,
         "admin", PASSWORD, "admin",
         "writer", PASSWORD, "writer",
-        "reader", PASSWORD, "reader"
-    );
+        "reader", PASSWORD, "reader");
 
     this.session = youTrackDB.open(DB_NAME, "admin", PASSWORD);
   }

@@ -2,14 +2,17 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.shutdown.ShutdownHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests the YouTrackDB engine shutdown handler mechanism.
  */
+@Category(SequentialTest.class)
 public class YouTrackShutDownTest {
 
   private int test = 0;

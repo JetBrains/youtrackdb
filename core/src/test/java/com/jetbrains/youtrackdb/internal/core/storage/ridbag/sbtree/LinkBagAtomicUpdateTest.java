@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.sbtree;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -18,7 +19,9 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class LinkBagAtomicUpdateTest extends DbTestBase {
 
   private int topThreshold;
@@ -376,7 +379,8 @@ public class LinkBagAtomicUpdateTest extends DbTestBase {
 
     Assert.assertEquals(2, ridBag.size());
 
-    List<RID> addedDocs = new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
+    List<RID> addedDocs =
+        new ArrayList<>(Arrays.asList(docOne.getIdentity(), docTwo.getIdentity()));
 
     var iterator = ridBag.iterator();
     Assert.assertTrue(addedDocs.remove(iterator.next().primaryRid()));

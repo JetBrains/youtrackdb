@@ -2,12 +2,15 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(GremlinProcessRunner.class)
 public class YTDBAddVertexProcessTest extends YTDBAbstractGremlinTest {
 
@@ -21,8 +24,7 @@ public class YTDBAddVertexProcessTest extends YTDBAbstractGremlinTest {
 
     assertEquals(
         6,
-        g().V().has("animal", "age", 0).count().next().longValue()
-    );
+        g().V().has("animal", "age", 0).count().next().longValue());
   }
 
   @Test
@@ -38,14 +40,12 @@ public class YTDBAddVertexProcessTest extends YTDBAbstractGremlinTest {
     g().tx().commit();
     assertEquals(
         1,
-        g().V().count().next().longValue()
-    );
+        g().V().count().next().longValue());
 
     g().V().addV("bar").iterate();
 
     assertEquals(
         2,
-        g().V().count().next().longValue()
-    );
+        g().V().count().next().longValue());
   }
 }

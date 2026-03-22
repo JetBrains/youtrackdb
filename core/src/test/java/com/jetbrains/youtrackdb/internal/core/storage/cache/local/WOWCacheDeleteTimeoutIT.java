@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -25,6 +26,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Verifies that WOWCache.delete() completes within a reasonable time even after many rapid
@@ -34,6 +36,7 @@ import org.junit.Test;
  * TimeUnit.MILLISECONDS for the WAL_SHUTDOWN_TIMEOUT, causing an effectively infinite wait
  * (~7 days) when the periodic flush task was slow to complete.
  */
+@Category(SequentialTest.class)
 public class WOWCacheDeleteTimeoutIT {
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;

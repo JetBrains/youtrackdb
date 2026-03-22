@@ -8,14 +8,17 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 
+@Category(SequentialTest.class)
 @RunWith(GremlinProcessRunner.class)
 public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
 
@@ -27,12 +30,10 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
             .removeProperty("age")
             .valueMap("age")
             .next()
-            .isEmpty()
-    );
+            .isEmpty());
     assertEquals(
         3,
-        people().has("age").toList().size()
-    );
+        people().has("age").toList().size());
   }
 
   @Test
@@ -43,12 +44,10 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
         people()
             .has("age", P.gt(100))
             .removeProperty("age")
-            .hasNext()
-    );
+            .hasNext());
     assertEquals(
         4,
-        people().has("age").toList().size()
-    );
+        people().has("age").toList().size());
   }
 
   @Test
@@ -56,12 +55,10 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void removeFromAll() {
     assertEquals(
         4,
-        people().removeProperty("age").toList().size()
-    );
+        people().removeProperty("age").toList().size());
     assertEquals(
         0,
-        people().has("age").toList().size()
-    );
+        people().has("age").toList().size());
   }
 
   @Test
@@ -69,12 +66,10 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void removeFromOther() {
     assertEquals(
         6,
-        g().V().removeProperty("age").toList().size()
-    );
+        g().V().removeProperty("age").toList().size());
     assertEquals(
         0,
-        people().has("age").toList().size()
-    );
+        people().has("age").toList().size());
   }
 
   @Test
@@ -82,8 +77,7 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void removeNonExisting() {
     assertEquals(
         4,
-        people().removeProperty("non-existing").toList().size()
-    );
+        people().removeProperty("non-existing").toList().size());
 
     // check that all properties are still there
     assertEquals(
@@ -93,8 +87,7 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
             .by(__.properties().key().fold())
             .select("keys")
             .dedup()
-            .toList()
-    );
+            .toList());
   }
 
   @Test
@@ -102,15 +95,13 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void removeFromEdge() {
     assertEquals(
         2,
-        g().E().hasLabel("knows").removeProperty("weight").toList().size()
-    );
+        g().E().hasLabel("knows").removeProperty("weight").toList().size());
 
     assertFalse(
         g().E()
             .hasLabel("knows")
             .has("weight")
-            .hasNext()
-    );
+            .hasNext());
 
     assertEquals(
         4,
@@ -118,8 +109,7 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
             .hasLabel("created")
             .has("weight")
             .toList()
-            .size()
-    );
+            .size());
   }
 
   @Test
@@ -152,16 +142,13 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void removeInvalid() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> people().removeProperty(null).iterate()
-    );
+        () -> people().removeProperty(null).iterate());
     assertThrows(
         IllegalArgumentException.class,
-        () -> people().removeProperty("  ").iterate()
-    );
+        () -> people().removeProperty("  ").iterate());
     assertThrows(
         IllegalArgumentException.class,
-        () -> people().removeProperty("valid", "   ").iterate()
-    );
+        () -> people().removeProperty("valid", "   ").iterate());
   }
 
   @Test
@@ -169,14 +156,12 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
   public void ignoreEdgeInOutRemoval() {
     assertEquals(
         2,
-        marko().outE("knows").removeProperty("in", "out").toList().size()
-    );
+        marko().outE("knows").removeProperty("in", "out").toList().size());
 
     // checking that edges are still valid
     assertEquals(
         List.of("marko"),
-        marko().outE("knows").outV().dedup().values("name").toList()
-    );
+        marko().outE("knows").outV().dedup().values("name").toList());
 
     assertEquals(
         List.of("vadas", "josh"),
@@ -185,8 +170,7 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
             .order().by("weight")
             .inV()
             .values("name")
-            .toList()
-    );
+            .toList());
   }
 
   private YTDBGraphTraversal<Vertex, Vertex> marko() {
