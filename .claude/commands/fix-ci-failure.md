@@ -103,24 +103,63 @@ CI gates enforce policies on PRs. When a gate fails:
 3. If the test requires a suite runner (e.g., GremlinProcessRunner, graph provider), note that it cannot be run standalone — verify the code change is correct by inspection and rely on CI.
 4. Run `./mvnw -pl {module} spotless:check` to ensure formatting compliance.
 
-### Step 7: Code review
+### Step 7: Dimensional code review + test quality review
 
-Run the `code-reviewer` agent to review the changes. Address any feedback. Repeat until the reviewer is satisfied with no critical issues.
+**If you changed any code or added/fixed/changed any tests**, run a
+dimensional code review and test quality review. This step is mandatory
+whenever code or tests were modified.
 
-### Step 8: Test quality review loop
+1. **Launch ten review agents in parallel** (fresh sub-agents):
 
-**If you changed any code or added/fixed/changed any tests**, run the `test-quality-reviewer` agent to review test quality. This step is mandatory whenever code or tests were modified.
+   **Five dimensional code review agents:**
+   - `review-code-quality` — conventions, readability, DRY, API boundaries
+   - `review-bugs-concurrency` — logic errors, null safety, concurrency, leaks
+   - `review-crash-safety` — WAL correctness, durability, crash recovery
+   - `review-security` — injection, auth, data exposure, dependencies
+   - `review-performance` — complexity, allocations, contention, I/O
 
-1. Run the `test-quality-reviewer` agent on the uncommitted changes (Mode 3: uncommitted changes).
-2. Review its findings. Address all **Critical Issues** and as many **Test Quality Findings** as practical:
-   - Add missing behavior assertions flagged by the reviewer
-   - Add corner case tests for gaps identified by the reviewer
-   - Add recommended `assert` statements in production code (zero-overhead only)
+   **Five dimensional test quality agents:**
+   - `review-test-behavior` — behavior-driven quality, assertion precision, exception testing
+   - `review-test-completeness` — corner cases, boundary conditions, test data quality
+   - `review-test-structure` — isolation, independence, readability, documentation
+   - `review-test-concurrency` — concurrent behavior testing quality
+   - `review-test-crash-safety` — crash/recovery test quality, production assert statements
+
+   Each agent receives the same context:
+   ```
+   ## Review Target
+   CI fix: {brief description of the fix}
+   Reviewing: changes on current branch vs develop
+
+   ## Changed Files
+   {git diff develop...HEAD --name-only}
+
+   ## Skip These Files (generated code)
+   - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
+
+   ## Diff
+   {git diff develop...HEAD}
+   ```
+
+2. **Synthesize findings**: After all ten complete, deduplicate across
+   dimensions. Prioritize: blocker > should-fix > suggestion.
+
+3. Address all **blocker** and **should-fix** findings:
+   - Fix code quality, bug, safety, security, and performance issues
+   - Add missing behavior assertions flagged by the test quality reviewer
+   - Add corner case tests for gaps identified
+   - Add recommended `assert` statements in production code (zero-overhead)
    - Fix any test isolation, readability, or precision issues
-3. After applying fixes, run `./mvnw -pl {module} spotless:apply` and re-run the affected tests to confirm they pass.
-4. **Re-run the `test-quality-reviewer` agent** on the updated changes.
-5. **Repeat steps 2-4** until the reviewer reports no Critical Issues and the remaining findings are minor/cosmetic.
-   - A maximum of 3 iterations is expected. If after 3 rounds there are still critical issues, present the remaining findings to the user and ask for guidance.
+
+4. After applying fixes, run `./mvnw -pl {module} spotless:apply` and
+   re-run the affected tests to confirm they pass.
+
+5. **Re-run only the agent(s) with open findings** on the updated changes.
+
+6. **Repeat steps 3-5** until no blocker/should-fix findings remain.
+   - A maximum of 3 iterations. If after 3 rounds there are still
+     critical issues, present the remaining findings to the user and ask
+     for guidance.
 
 ### Step 9: Summarize and wait for approval
 
@@ -154,7 +193,7 @@ Present to the user:
 - **NEVER run multiple test processes simultaneously**: Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another. Running tests in parallel across separate Maven processes causes classloading errors, database file locking conflicts, and false test failures. This includes any combination of unit tests, integration tests, and coverage runs.
 - **Add `assert` statements generously**: When fixing or testing production code, add Java `assert` statements for invariants, preconditions, postconditions, and consistency checks. These cost nothing in production (assertions disabled by default) but catch bugs during development and testing. Do not add assertions that duplicate existing checks or have side effects.
 - **Internal classes may be refactored for testability**: Classes under `com.jetbrains.youtrackdb.internal` can be modified to improve testability (e.g., extract methods, widen visibility to package-private, add state-inspection accessors). **Never modify the public API** under `com.jetbrains.youtrackdb.api`.
-- **Test quality review is mandatory**: After making any code or test changes, run the `test-quality-reviewer` agent in a loop until it reports no critical issues. Do not skip this step.
+- **Dimensional review is mandatory**: After making any code or test changes, run all five dimensional review agents + test-quality-reviewer in parallel, synthesize findings, and iterate until no blocker/should-fix findings remain. Do not skip this step.
 
 ## YouTrackDB-Specific Knowledge
 
