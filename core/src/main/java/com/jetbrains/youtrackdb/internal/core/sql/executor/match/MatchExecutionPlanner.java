@@ -1603,28 +1603,39 @@ public class MatchExecutionPlanner {
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+
+    // Check if any step in this pattern has a while condition. If so, skip
+    // edge-schema class inference for the entire pattern. Inferring classes
+    // changes cost estimates which can reorder the schedule, causing the
+    // while/where recursive step to be traversed in the wrong direction.
+    boolean patternHasWhile = false;
+    for (var item : expr.getItems()) {
+      if (item.getFilter() != null
+          && item.getFilter().getWhileCondition() != null) {
+        patternHasWhile = true;
+        break;
+      }
+    }
+
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
-        // Infer target class from edge LINK schema when no explicit class is set.
-        // For out('CONTAINER_OF'), the target vertices are the "in" endpoint of the
-        // CONTAINER_OF edge class; if that endpoint declares LINK Message, the target
-        // class is Message.
-        var alias = item.getFilter().getAlias();
-        // Skip inference for steps with a while condition: the while/where
-        // recursive traversal has special semantics and inferring a class
-        // from the edge schema can change cost estimates or schedule order,
-        // breaking the recursion.
-        var hasWhile = item.getFilter().getWhileCondition() != null;
-        if (alias != null && !hasWhile && !aliasClasses.containsKey(alias)) {
-          var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
-          if (inferred != null) {
-            aliasClasses.put(alias, inferred);
-            logger.debug(
-                "MATCH class inference: alias '{}' -> class '{}' "
-                    + "(from edge LINK schema)",
-                alias, inferred);
+        if (!patternHasWhile) {
+          // Infer target class from edge LINK schema when no explicit class
+          // is set. For out('CONTAINER_OF'), the target vertices are the "in"
+          // endpoint of the CONTAINER_OF edge class; if that endpoint declares
+          // LINK Message, the target class is Message.
+          var alias = item.getFilter().getAlias();
+          if (alias != null && !aliasClasses.containsKey(alias)) {
+            var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
+            if (inferred != null) {
+              aliasClasses.put(alias, inferred);
+              logger.debug(
+                  "MATCH class inference: alias '{}' -> class '{}' "
+                      + "(from edge LINK schema)",
+                  alias, inferred);
+            }
           }
         }
       }
