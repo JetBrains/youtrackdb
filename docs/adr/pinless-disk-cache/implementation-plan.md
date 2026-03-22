@@ -1914,13 +1914,27 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 8 fixed rebase-related test failures; DatabaseImportTest OOM deferred to Track 9 as planned.
 
-- [ ] Track 9: Fix DatabaseImportTest OOM regression
+- [x] Track 9: Fix DatabaseImportTest OOM regression
   > Investigate and fix the surefire fork OOM crash in `DatabaseImportTest`, which
   > passes on develop but crashes the fork JVM on this branch. Likely a memory leak
   > or excessive allocation introduced during the rebase conflict resolution or by
   > the pinless disk cache changes (e.g., PageFramePool sizing, cache entry lifecycle).
   > **Scope:** ~1-2 steps covering root cause analysis and fix, verification
   > **Depends on:** Track 8
+  >
+  > **Track episode:**
+  > Fixed the DatabaseImportTest OOM/hang regression. Two root causes:
+  > (1) `PageFramePool` maxPoolSize was derived from `DIRECT_MEMORY_POOL_LIMIT`
+  > (Integer.MAX_VALUE), causing unbounded `allocatedFrames` ConcurrentHashMap growth
+  > that exhausted heap. Fixed by auto-sizing from `2 × DISK_CACHE_SIZE / PAGE_SIZE`.
+  > Added `PAGE_FRAME_POOL_LIMIT` config option (-1 = auto-size).
+  > (2) `WOWCache.flushExclusiveWriteCache()` infinite loop when exclusive write pages
+  > have no corresponding `writeCachePages` entry — monopolized the single `commitExecutor`
+  > thread, deadlocking `deleteFile()`. Fixed with progress tracking that breaks out when
+  > no pages are flushed. Track-level code review added 5 auto-sizing unit tests and
+  > Java assert statements for the progress invariant. No cross-track impact.
+  >
+  > **Step file:** `tracks/track-9.md` (2 steps, 0 failed)
 
 - [ ] Track 10: Small disk cache eviction tests + CI job
   > Create the `test-small-cache` CI action/Maven profile that runs existing integration
