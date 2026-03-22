@@ -3307,6 +3307,11 @@ public final class WOWCache extends AbstractWriteCache
 
     var flushedPages = 0;
     var copiedPages = 0;
+    // Tracks flushedPages at the start of each cycle to detect infinite loops:
+    // if a flushCycle reset occurs but no pages were flushed since the last reset,
+    // the same conditions will repeat forever (e.g., pages in exclusiveWritePages
+    // with no corresponding writeCachePages entry and file too small to extend).
+    var flushedPagesAtCycleStart = 0;
 
     // total amount of pages in chunks that precedes current/active chunk
     var prevChunksSize = 0;
@@ -3383,7 +3388,17 @@ public final class WOWCache extends AbstractWriteCache
               latch.countDown();
             }
 
+            // If no pages were flushed since the last cycle reset, the same conditions
+            // will repeat: pages exist in exclusiveWritePages with null writeCachePages
+            // entries and the file is too small to extend. Break to avoid an infinite
+            // loop that would monopolize the commitExecutor thread and deadlock callers
+            // waiting to submit tasks (e.g., deleteFile).
+            if (flushedPages == flushedPagesAtCycleStart) {
+              break flushCycle;
+            }
+
             // reset flush cycle
+            flushedPagesAtCycleStart = flushedPages;
             chunks.clear();
             prevChunksSize = 0;
             iterator = exclusiveWritePages.iterator();
@@ -3479,7 +3494,13 @@ public final class WOWCache extends AbstractWriteCache
             }
 
             if (underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
+              // Break if no progress was made — same reasoning as the first
+              // flushCycle reset above.
+              if (flushedPages == flushedPagesAtCycleStart) {
+                break flushCycle;
+              }
               // reset flush cycle, we can not afford holes in files
+              flushedPagesAtCycleStart = flushedPages;
               iterator = exclusiveWritePages.iterator();
               fileSizeMap.clear();
               continue flushCycle;

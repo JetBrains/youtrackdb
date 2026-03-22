@@ -200,7 +200,11 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
   }
 
   /**
-   * Returns a {@link PageFramePool} backed by the same page size, allocator, and pool limit.
+   * Returns a {@link PageFramePool} backed by the same page size and allocator.
+   * The pool's max size is derived from the disk cache capacity ({@code DISK_CACHE_SIZE /
+   * pageSize}) rather than {@link GlobalConfiguration#DIRECT_MEMORY_POOL_LIMIT}, which
+   * defaults to {@code Integer.MAX_VALUE} and would cause unbounded growth of the
+   * {@code allocatedFrames} tracking set.
    * The pool is created lazily on first call and cached for subsequent calls.
    */
   public PageFramePool pageFramePool() {
@@ -213,7 +217,21 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
       if (pool != null) {
         return pool;
       }
-      this.pageFramePool = new PageFramePool(pageSize, allocator, poolSize);
+      int configuredLimit =
+          GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValueAsInteger();
+      int maxFrames;
+      if (configuredLimit >= 0) {
+        maxFrames = configuredLimit;
+      } else {
+        // Auto-size: 2x the disk cache page count. The disk cache size is a soft
+        // limit — transient over-allocation is possible during concurrent loads and
+        // evictions, so the 2x headroom avoids premature frame deallocation.
+        long diskCacheSizeBytes =
+            GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024L * 1024L;
+        maxFrames = (int) Math.min(
+            2L * diskCacheSizeBytes / pageSize, Integer.MAX_VALUE);
+      }
+      this.pageFramePool = new PageFramePool(pageSize, allocator, maxFrames);
       return this.pageFramePool;
     }
   }
