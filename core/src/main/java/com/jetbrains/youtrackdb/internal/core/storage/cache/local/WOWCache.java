@@ -3328,7 +3328,14 @@ public final class WOWCache extends AbstractWriteCache
       final var pageKeyToFlush = iterator.next();
       var fileSize = fileSizeMap.get(pageKeyToFlush.fileId);
       if (fileSize < 0) {
-        fileSize = files.get(externalFileId(pageKeyToFlush.fileId)).getUnderlyingFileSize();
+        var file = files.get(externalFileId(pageKeyToFlush.fileId));
+        // File may have been deleted (e.g., during backup restore). Skip pages for
+        // deleted files — they will be cleaned up by doRemoveCachePages or the next
+        // flush cycle.
+        if (file == null) {
+          continue;
+        }
+        fileSize = file.getUnderlyingFileSize();
         fileSizeMap.put(pageKeyToFlush.fileId, fileSize);
       }
 
@@ -3357,6 +3364,10 @@ public final class WOWCache extends AbstractWriteCache
         // truth.
         if (pointer == null) {
           var file = files.get(externalFileId(pageKey.fileId));
+          // File may have been deleted — skip pages for deleted files.
+          if (file == null) {
+            continue;
+          }
           if (file.getUnderlyingFileSize() < (pageKey.pageIndex + 1) * pageSize) {
             // if we can not write at least one page outside the size of the file on disk
             // we should stop the process because otherwise hole in the file during restore
