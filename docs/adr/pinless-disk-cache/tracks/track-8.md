@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -28,20 +28,14 @@
   >
   > **Key files:** `WOWCache.java` (modified)
 
-- [ ] Step: Fix histogram engine test mocks — stub startAtomicOperation (10 tests)
-  > The rebase changed `keyStreamSupplier` from `Supplier<Stream<Object>>`
-  > to `Function<AtomicOperation, Stream<Object>>`, adding a call to
-  > `storage.getAtomicOperationsManager().startAtomicOperation()` inside
-  > `doRebalance()`. All histogram unit test fixtures use
-  > `mock(AtomicOperationsManager.class)` without stubbing this method, so
-  > it returns null, causing NPE in `doRebalance`.
-  >
-  > Fix: In histogram test fixtures (`IncrementalMaintenanceTest`,
-  > `RebalanceTriggerTest`, `ThreeTierTransitionTest`), stub
-  > `startAtomicOperation()` to return a mock `AtomicOperation`. Also fix
-  > `BTreeEngineHistogramBuildTest.statsFileExists` test to pass a mock
-  > `AtomicOperation` instead of null (the null fallback was removed in
-  > Track 1).
+- [x] Step: Fix histogram engine test mocks — stub startAtomicOperation (10 tests)
+  > **What was done:** Stubbed `startAtomicOperation()` to return a mock
+  > `AtomicOperation` in `createMockStorage()` across all four histogram
+  > test files. Changed `BTreeEngineHistogramBuildTest.statsFileExists` to
+  > pass a mock `AtomicOperation` and stub `isFileExists()` on it (null
+  > fallback removed in Track 1). Code review also caught that
+  > `BTreeEngineHistogramBuildTest.createMockStorage()` lacked the stub —
+  > aligned it for consistency.
   >
   > **Key files:** `IncrementalMaintenanceTest.java` (modified),
   > `RebalanceTriggerTest.java` (modified), `ThreeTierTransitionTest.java`
