@@ -1025,7 +1025,12 @@
               </execution>
               <execution>
                 <id>jacoco-report</id>
-                <phase>test</phase>
+                <!-- Use prepare-package (not test) so the report runs AFTER all
+                     surefire executions. The core module has two surefire
+                     executions (parallel + sequential) both in the test phase;
+                     binding report to test causes it to run between them,
+                     missing coverage from the sequential execution. -->
+                <phase>prepare-package</phase>
                 <goals><goal>report</goal></goals>
                 <configuration>
                   <outputDirectory>${maven.multiModuleProjectDirectory}/.coverage/reports/${project.artifactId}</outputDirectory>

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -21,8 +23,10 @@ public class YouTrackDBEnginesManagerStartUpTest {
 
   private Field instanceField;
   private Field initInProgressField;
+  private Field profilerField;
   private Object originalInstance;
   private boolean originalInitInProgress;
+  private Object originalProfiler;
 
   @Before
   public void saveStaticState() throws Exception {
@@ -33,6 +37,10 @@ public class YouTrackDBEnginesManagerStartUpTest {
     initInProgressField = YouTrackDBEnginesManager.class.getDeclaredField("initInProgress");
     initInProgressField.setAccessible(true);
     originalInitInProgress = (boolean) initInProgressField.get(null);
+
+    profilerField = YouTrackDBEnginesManager.class.getDeclaredField("profiler");
+    profilerField.setAccessible(true);
+    originalProfiler = profilerField.get(YouTrackDBEnginesManager.instance());
   }
 
   /**
@@ -46,6 +54,11 @@ public class YouTrackDBEnginesManagerStartUpTest {
     YouTrackDBEnginesManager.instanceFactory = null;
     instanceField.set(null, originalInstance);
     initInProgressField.set(null, originalInitInProgress);
+    // Restore profiler on the live instance (may have been nulled by tests).
+    var instance = (YouTrackDBEnginesManager) instanceField.get(null);
+    if (instance != null) {
+      profilerField.set(instance, originalProfiler);
+    }
   }
 
   /**
@@ -206,6 +219,50 @@ public class YouTrackDBEnginesManagerStartUpTest {
         manager.shutdownPools();
       }
     }
+  }
+
+  /**
+   * Calling createStorage() on an EngineLocalPaginated that has not been started
+   * must throw DatabaseException because readCache is null. This covers the
+   * defensive null-readCache guard added to detect lifecycle race conditions.
+   */
+  @Test
+  public void createStorageBeforeStartupThrowsDatabaseException() {
+    var engine = new EngineLocalPaginated();
+    assertThat(engine.isRunning()).isFalse();
+
+    // The null-readCache DatabaseException is caught and re-wrapped by the
+    // outer catch block in createStorage(), so the original message is in the cause.
+    assertThatThrownBy(
+        () -> engine.createStorage("testDb", 128 * 1024 * 1024, 16 * 1024 * 1024,
+            Integer.MAX_VALUE, null))
+        .isInstanceOf(DatabaseException.class)
+        .hasMessageContaining("Error on opening database")
+        .cause()
+        .hasMessageContaining("readCache is null");
+  }
+
+  /**
+   * When the profiler has not yet been initialized (null), getMetricsRegistry()
+   * must return null instead of throwing NPE. This covers the null-profiler
+   * branch added to guard against early access during startup.
+   */
+  @Test
+  public void getMetricsRegistryReturnsNullWhenProfilerIsNull() throws Exception {
+    var manager = YouTrackDBEnginesManager.instance();
+    profilerField.set(manager, null);
+    assertThat(manager.getMetricsRegistry()).isNull();
+  }
+
+  /**
+   * When the profiler has not yet been initialized (null), getTicker()
+   * must return null instead of throwing NPE.
+   */
+  @Test
+  public void getTickerReturnsNullWhenProfilerIsNull() throws Exception {
+    var manager = YouTrackDBEnginesManager.instance();
+    profilerField.set(manager, null);
+    assertThat(manager.getTicker()).isNull();
   }
 
   /**
