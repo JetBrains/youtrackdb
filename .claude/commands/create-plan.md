@@ -1,17 +1,17 @@
 Read and follow the workflow for Phase 1 (Planning).
 
-**Step 1 — Read workflow documents.** Read these in order before doing
-anything else (do NOT ask the user anything yet):
+**Step 1 — Read workflow documents.**
+
+Read these in order before doing anything else (do NOT ask the user anything yet):
 1. `.claude/workflow/conventions.md` — shared formats,
    glossary, plan file structure, scope indicators, review iteration protocol
 2. `.claude/workflow/planning.md` — Phase 1 instructions:
    goal, plan file structure, architecture notes format, track descriptions,
    scope indicators, checklist decomposition rules
 
-**Step 2 — Ask the user for the aim.** After you have finished reading
-the workflow documents, ask the user to describe the aim and goal for this
-planning session. Do NOT proceed until the user provides the aim. Wait for
-the user's response before starting any research or planning work.
+**Step 2 — Ask the user for the aim.**
+
+After you have finished reading the workflow documents, ask the user to describe the aim and goal for this planning session. Do NOT proceed until the user provides the aim. Wait for the user's response before starting any research or planning work.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
