@@ -3408,6 +3408,9 @@ public final class WOWCache extends AbstractWriteCache
             }
 
             // reset flush cycle
+            assert flushedPages > flushedPagesAtCycleStart
+                : "Expected flush progress: flushedPages=" + flushedPages
+                    + " flushedPagesAtCycleStart=" + flushedPagesAtCycleStart;
             flushedPagesAtCycleStart = flushedPages;
             chunks.clear();
             prevChunksSize = 0;
@@ -3520,6 +3523,9 @@ public final class WOWCache extends AbstractWriteCache
                 break flushCycle;
               }
               // reset flush cycle, we can not afford holes in files
+              assert flushedPages > flushedPagesAtCycleStart
+                  : "Expected flush progress: flushedPages=" + flushedPages
+                      + " flushedPagesAtCycleStart=" + flushedPagesAtCycleStart;
               flushedPagesAtCycleStart = flushedPages;
               iterator = exclusiveWritePages.iterator();
               fileSizeMap.clear();

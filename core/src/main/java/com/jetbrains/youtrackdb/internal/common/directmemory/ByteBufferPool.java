@@ -231,6 +231,7 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
         maxFrames = (int) Math.min(
             2L * diskCacheSizeBytes / pageSize, Integer.MAX_VALUE);
       }
+      assert maxFrames >= 0 : "maxFrames must be non-negative, was " + maxFrames;
       this.pageFramePool = new PageFramePool(pageSize, allocator, maxFrames);
       return this.pageFramePool;
     }
