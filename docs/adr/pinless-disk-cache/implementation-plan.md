@@ -1935,6 +1935,8 @@ Phase 5: Remove component-level read lock from happy path
   > Java assert statements for the progress invariant. No cross-track impact.
   >
   > **Step file:** `tracks/track-9.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 9 fixes are self-contained; Track 10 small-cache tests will naturally validate them.
 
 - [ ] Track 10: Small disk cache eviction tests + CI job
   > Create the `test-small-cache` CI action/Maven profile that runs existing integration

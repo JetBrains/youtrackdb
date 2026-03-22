@@ -6,7 +6,7 @@
 - [ ] Track-level code review
 
 ## Base commit
-_(to be set at Phase B start)_
+`883c296bf1`
 
 ## Reviews completed
 - [x] Technical
