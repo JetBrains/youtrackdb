@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -27,17 +27,14 @@
   >
   > **Key files:** `core/pom.xml` (modified)
 
-- [ ] Step 2: Add `test-small-cache` CI job to maven-pipeline.yml
-  > Add a separate `test-small-cache-linux` job (not a matrix entry — T6
-  > finding) to the PR/develop CI workflow. Runs on Linux x86, JDK 21,
-  > temurin only. Command:
-  > `./mvnw -pl core clean verify -P small-cache-it`
-  > Set explicit `timeout-minutes` (e.g., 120) to bound runtime.
-  > The job depends on `detect-changes` (skip if no build-relevant changes).
-  > Do NOT add to `ci-status-gate` required checks — this is an advisory
-  > job that should not block PRs.
+- [x] Step 2: Add `test-small-cache` CI job to maven-pipeline.yml
+  > **What was done:** Added `test-small-cache-linux` job to
+  > `maven-pipeline.yml`. Runs on self-hosted Linux x86 (cpx42), JDK 21,
+  > temurin with 120-min timeout. Depends on `detect-changes`, not in
+  > `ci-status` gate. Code review added `-Dmaven.test.failure.ignore=true`
+  > and test diagnostics artifact upload.
   >
-  > Verify: push branch and confirm the job appears in CI.
+  > **Key files:** `.github/workflows/maven-pipeline.yml` (modified)
 
 - [ ] Step 3: Run small-cache integration tests locally and fix any failures
   > Execute `./mvnw -pl core clean verify -P small-cache-it` locally.
