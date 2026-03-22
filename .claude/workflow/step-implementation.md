@@ -28,7 +28,7 @@ When resuming Phase B (mid-phase checkpoint or session restart), the next
 `[ ]` step may have been **partially completed** in the previous session —
 code committed but episode not yet written. This happens when a session ends
 between sub-step 3 (code commit) and sub-step 5 (episode commit), e.g., due
-to context window exhaustion or an unexpected session termination.
+to high context consumption or an unexpected session termination.
 
 **Detection:** After identifying the next `[ ]` step, check for orphan
 commits — implementation commits that exist after the last episoded step
@@ -119,12 +119,19 @@ completion**, before moving to the next step:
 
 **→ GATE: Step is now complete.**
 
-**Before proceeding to the next step**, check whether a context window
-monitor warning (`CONTEXT WINDOW MONITOR — WARNING` or `CRITICAL`) has
-been received during this session. If yes: do NOT start the next step.
-Instead, save all work and ask the user for a session refresh (see
-workflow.md §Context Window Monitoring). If no warning was received,
-proceed to the next step.
+**Before proceeding to the next step** (skip this check after the last
+step — the session ends anyway), run a context consumption check:
+
+```bash
+cat /tmp/claude-code-context-usage-$PPID.txt
+```
+
+If the level is `warning` (≥25%) or `critical` (≥40%): do NOT start the
+next step. Instead, save all work and ask the user for a session refresh
+(see workflow.md §Context Consumption Check).
+
+If the file does not exist, the command fails, or the level is `safe` or
+`info`, proceed to the next step.
 
 ---
 

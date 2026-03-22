@@ -266,10 +266,10 @@ exactly one phase:
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
 
-- **Context window warning** — if a context monitor hook emits a
-  `CONTEXT WINDOW MONITOR — WARNING` or `CONTEXT WINDOW MONITOR — CRITICAL`
-  message, finish the current unit of work, save progress, and end the
-  session. See §Context Window Monitoring below for phase-specific behavior.
+- **Context consumption too high** — if an active context check (see
+  §Context Consumption Check below) shows usage at `warning` level (≥25%)
+  or above, finish the current unit of work, save progress, and end the
+  session.
 
 ### Why mandatory phase boundaries
 
@@ -286,53 +286,51 @@ Mixing phases in one session dilutes focus and carries stale context
 forward. Episodes bridge what matters across sessions; everything else is
 deliberately shed.
 
-### Context Window Monitoring
+### Context Consumption Check
 
-A context monitor hook runs constantly and may inject warning messages
-into the conversation at any point during any phase. These messages
-indicate that the context window is running low and the session should
-end soon to avoid degraded output quality. In practice, alerts are most
-likely during Phase B (step implementation) due to its heavy tool use.
+At the end of each intermediate action within a phase (i.e., after every
+step except the last one), the agent actively checks its context window
+consumption. This replaces passive hook-based monitoring with an explicit
+check built into the workflow.
 
-**WARNING level** — the message looks like:
-```
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  CONTEXT WINDOW MONITOR — WARNING (XX% used)
-  Tokens: XXXK / XXXK
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+**How to check:**
+
+Run:
+```bash
+cat /tmp/claude-code-context-usage-$PPID.txt
 ```
 
-**CRITICAL level** — the message looks like:
-```
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-   CONTEXT WINDOW MONITOR — CRITICAL (XX% used)
-   Tokens: XXXK / XXXK
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
+The output looks like: `ctx: 7% level=safe`
 
-**Required behavior on either level:**
+**Levels:**
 
-1. **Finish the current unit of work** — do not leave work half-done:
-   - **Phase A:** finish the current review or decomposition activity,
-     write results to the step/review file.
-   - **Phase B:** complete all 6 sub-steps of the current step (implement,
-     test, commit, code review, episode, cross-track check).
-   - **Phase C:** if a code review iteration is in progress, finish it and
-     record the outcome.
-2. **Do NOT start the next unit of work.** No next step (Phase B), no
+| Level | Trigger | Action |
+|---|---|---|
+| `safe` | <15% | Continue normally. |
+| `info` | 15–24% | Continue, but prefer delegating exploration to sub-agents and avoid reading large files. |
+| `warning` | 25–39% | **Do not start next unit of work.** Save progress and ask for session refresh. |
+| `critical` | ≥40% | **Do not start next unit of work.** Save progress and ask for session refresh. |
+
+**If the file does not exist or the command fails**, treat as `safe` and
+continue normally — the statusline script may not have written the file
+yet.
+
+**Required behavior at `warning` or `critical`:**
+
+1. **Do NOT start the next unit of work.** No next step (Phase B), no
    next review iteration (Phase C), no further decomposition (Phase A).
-3. **Save all work:**
+2. **Save all work:**
    - Ensure all progress is written to the step/review files and committed
    - Update the **Progress** section in the step file to reflect current
      state
    - Commit the step file update
-4. **Ask the user for a session refresh:**
+3. **Ask the user for a session refresh:**
    - Inform them of current progress and what remains
    - Instruct: "Context window is running low. Please clear the session
      and re-run `/execute-tracks` to continue with fresh context."
 
 This is **mandatory** — the agent must not continue to the next unit of
-work after receiving a context window warning.
+work when context consumption is at `warning` level or above.
 
 ### What persists across phase boundaries
 
