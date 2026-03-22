@@ -3394,6 +3394,16 @@ public final class WOWCache extends AbstractWriteCache
             // loop that would monopolize the commitExecutor thread and deadlock callers
             // waiting to submit tasks (e.g., deleteFile).
             if (flushedPages == flushedPagesAtCycleStart) {
+              LogManager.instance()
+                  .warn(
+                      this,
+                      storageName
+                          + ": flushExclusiveWriteCache: no progress in flush cycle, breaking."
+                          + " exclusiveWritePages.size=%d, pageKey=(%d,%d)",
+                      (Throwable) null,
+                      exclusiveWritePages.size(),
+                      pageKey.fileId,
+                      pageKey.pageIndex);
               break flushCycle;
             }
 
@@ -3497,6 +3507,16 @@ public final class WOWCache extends AbstractWriteCache
               // Break if no progress was made — same reasoning as the first
               // flushCycle reset above.
               if (flushedPages == flushedPagesAtCycleStart) {
+                LogManager.instance()
+                    .warn(
+                        this,
+                        storageName
+                            + ": flushExclusiveWriteCache: no progress in flush cycle, breaking."
+                            + " exclusiveWritePages.size=%d, pageKey=(%d,%d)",
+                        (Throwable) null,
+                        exclusiveWritePages.size(),
+                        pageKey.fileId,
+                        pageKey.pageIndex);
                 break flushCycle;
               }
               // reset flush cycle, we can not afford holes in files
