@@ -152,7 +152,10 @@ public class MatchStep extends AbstractExecutionStep {
    * visible in execution plans.
    */
   void appendIntersectionDescriptor(StringBuilder result) {
-    var descriptor = edge.getIntersectionDescriptor();
+    appendDescriptor(result, edge.getIntersectionDescriptor());
+  }
+
+  private void appendDescriptor(StringBuilder result, RidFilterDescriptor descriptor) {
     if (descriptor instanceof RidFilterDescriptor.DirectRid) {
       result.append(" (intersection: direct-rid)");
     } else if (descriptor instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
@@ -162,6 +165,10 @@ public class MatchStep extends AbstractExecutionStep {
     } else if (descriptor instanceof RidFilterDescriptor.IndexLookup indexLookup) {
       result.append(" (intersection: index ")
           .append(indexLookup.indexDescriptor().getIndex().getName()).append(")");
+    } else if (descriptor instanceof RidFilterDescriptor.Composite composite) {
+      for (var inner : composite.descriptors()) {
+        appendDescriptor(result, inner);
+      }
     }
   }
 
