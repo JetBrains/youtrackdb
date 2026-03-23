@@ -123,7 +123,7 @@ After all 5 agents complete, produce a unified review report. Do NOT simply conc
 2. **Prioritize**: Order findings by severity:
    - **blocker** — tests that give false confidence, missing tests for dangerous code paths
    - **should-fix** — missing corner cases for critical code, weak assertions that could hide bugs
-   - **suggestion** — recommended improvements (test data quality, readability, naming, organization, optional edge cases)
+   - **suggestion** — recommended improvements (test data quality, readability, additional scenarios, naming, organization, optional edge cases)
 
 3. **Attribute**: For each finding, indicate which review dimension(s) identified it.
 
