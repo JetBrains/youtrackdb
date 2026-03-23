@@ -303,17 +303,19 @@ public class IndexesSnapshotCleanupTest {
 
   @Test
   public void testEvictNullKeyMultiValueEntries() {
-    // Null-key entry as stored by BTreeMultiValueIndexEngine (null sentinel + RID + version)
+    // Null-key entries from BTreeMultiValueIndexEngine use a separate sub-snapshot
+    // with a negative indexId. Keys are CompositeKey(RID, version) — no sentinel.
+    var nullSnapshot = new IndexesSnapshot().subIndexSnapshot(-(INDEX_ID + 1));
     var rid = new RecordId(1, 100L);
-    indexesSnapshot.addSnapshotPair(
-        new CompositeKey((Object) null, rid, 5L),
-        new CompositeKey((Object) null, rid, 15L),
+    nullSnapshot.addSnapshotPair(
+        new CompositeKey(rid, 5L),
+        new CompositeKey(rid, 15L),
         rid);
 
     // lwm = 10: should be evicted
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, nullSnapshot);
 
-    assertThat(indexesSnapshot.allEntries()).isEmpty();
+    assertThat(nullSnapshot.allEntries()).isEmpty();
   }
 
   @Test

@@ -199,14 +199,15 @@ public class BTreeEngineHistogramBuildTest {
   public void multiValue_buildInitialHistogram_delegatesToManager()
       throws IOException {
     // Given a multi-value engine with 2 sv entries and 1 null entry.
-    // getNullCount → get(null) → nullTree.iterateEntriesMajor + visibilityFilter
+    // getNullCount → get(null) → nullTree.firstKey + nullTree.iterateEntriesMajor
     // getTotalCount → size → stream().count() + get(null).count()
     //   stream → svTree.firstKey + svTree.iterateEntriesMajor + visibilityFilter
     var f = new MultiValueFixture();
-    var nullSentinelPrefix = new CompositeKey((Object) null);
-    when(f.nullTree.iterateEntriesMajor(eq(nullSentinelPrefix), eq(true), eq(true), any()))
+    var nullFirstKey = new CompositeKey(new RecordId(1, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
         .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, new RecordId(1, 1), 0L),
+            new RawPair<>(new CompositeKey(new RecordId(1, 1), 0L),
                 new RecordId(1, 1))));
     var firstKey = new CompositeKey("a", new RecordId(2, 1), 0L);
     when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
@@ -231,9 +232,7 @@ public class BTreeEngineHistogramBuildTest {
       throws IOException {
     // Given a multi-value engine with 2 sv entries and no null entries
     var f = new MultiValueFixture();
-    var nullSentinelPrefix = new CompositeKey((Object) null);
-    when(f.nullTree.iterateEntriesMajor(eq(nullSentinelPrefix), eq(true), eq(true), any()))
-        .thenAnswer(inv -> Stream.empty());
+    when(f.nullTree.firstKey(f.op)).thenReturn(null);
     var firstKey = new CompositeKey("x", new RecordId(1, 1), 0L);
     when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
@@ -272,14 +271,15 @@ public class BTreeEngineHistogramBuildTest {
 
   @Test
   public void multiValue_getNullCount_returnsNullTreeSize() {
-    // getNullCount → get(null) → nullTree.iterateEntriesMajor + visibilityFilter
+    // getNullCount → get(null) → nullTree.firstKey + nullTree.iterateEntriesMajor
     var f = new MultiValueFixture();
-    var nullSentinelPrefix = new CompositeKey((Object) null);
-    when(f.nullTree.iterateEntriesMajor(eq(nullSentinelPrefix), eq(true), eq(true), any()))
+    var nullFirstKey = new CompositeKey(new RecordId(1, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
         .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, new RecordId(1, 1), 0L),
+            new RawPair<>(new CompositeKey(new RecordId(1, 1), 0L),
                 new RecordId(1, 1)),
-            new RawPair<>(new CompositeKey((Object) null, new RecordId(1, 2), 0L),
+            new RawPair<>(new CompositeKey(new RecordId(1, 2), 0L),
                 new RecordId(1, 2))));
 
     assertEquals(2, f.engine.getNullCount(f.op));
@@ -297,10 +297,11 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", new RecordId(2, 2), 0L), new RecordId(2, 2))));
     // nullTree: 1 entry
-    var nullSentinelPrefix = new CompositeKey((Object) null);
-    when(f.nullTree.iterateEntriesMajor(eq(nullSentinelPrefix), eq(true), eq(true), any()))
+    var nullFirstKey = new CompositeKey(new RecordId(1, 1), 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
+    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
         .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, new RecordId(1, 1), 0L),
+            new RawPair<>(new CompositeKey(new RecordId(1, 1), 0L),
                 new RecordId(1, 1))));
 
     // totalCount = 2 (sv) + 1 (null) = 3

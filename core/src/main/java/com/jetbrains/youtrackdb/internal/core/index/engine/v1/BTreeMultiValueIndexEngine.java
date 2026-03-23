@@ -35,15 +35,14 @@ public final class BTreeMultiValueIndexEngine
   private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
   public static final String M_CONTAINER_EXTENSION = ".mbt";
 
-  // Sentinel for null-keyed entries in indexesSnapshot/nullTree.
-  private static final Object NULL_KEY_SENTINEL = null;
-
   @Nonnull
   private final CellBTreeSingleValue<CompositeKey> svTree;
   @Nonnull
   private final CellBTreeSingleValue<CompositeKey> nullTree;
   @Nonnull
   private final IndexesSnapshot indexesSnapshot;
+  @Nonnull
+  private final IndexesSnapshot nullIndexesSnapshot;
 
   private final String name;
   private final int id;
@@ -68,6 +67,7 @@ public final class BTreeMultiValueIndexEngine
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       indexesSnapshot = storage.subIndexSnapshot(id);
+      nullIndexesSnapshot = storage.subIndexSnapshot(-(id + 1));
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -102,9 +102,8 @@ public final class BTreeMultiValueIndexEngine
           data.getKeySize() + 1);
       nullTree.create(
           atomicOperation, new IndexMultiValuKeySerializer(),
-          new PropertyTypeInternal[] {PropertyTypeInternal.LONG, PropertyTypeInternal.LINK,
-              PropertyTypeInternal.LONG},
-          3);
+          new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
+          2);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during creation of index " + name), e,
@@ -117,6 +116,7 @@ public final class BTreeMultiValueIndexEngine
     try {
       doClearSVTree(atomicOperation);
       indexesSnapshot.clear();
+      nullIndexesSnapshot.clear();
       svTree.delete(atomicOperation);
       nullTree.delete(atomicOperation);
       var mgr = histogramManager;
@@ -183,9 +183,8 @@ public final class BTreeMultiValueIndexEngine
 
     svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
     nullTree.load(
-        nullTreeName, 3,
-        new PropertyTypeInternal[] {PropertyTypeInternal.LONG, PropertyTypeInternal.LINK,
-            PropertyTypeInternal.LONG},
+        nullTreeName, 2,
+        new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
         new IndexMultiValuKeySerializer(), atomicOperation);
   }
 
@@ -223,7 +222,7 @@ public final class BTreeMultiValueIndexEngine
         }
       } else {
 
-        var compositeKey = new CompositeKey(NULL_KEY_SENTINEL, value);
+        var compositeKey = new CompositeKey(value);
         var res = nullTree.iterateEntriesBetween(
             compositeKey, true, compositeKey, true, true, atomicOperation)
             .findAny();
@@ -242,7 +241,7 @@ public final class BTreeMultiValueIndexEngine
           var newKey = new CompositeKey(compositeKey, removedVersion);
           nullTree.put(atomicOperation, newKey, new TombstoneRID(value));
 
-          indexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
+          nullIndexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
           removed = true;
         }
       }
@@ -271,6 +270,7 @@ public final class BTreeMultiValueIndexEngine
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     doClearSVTree(atomicOperation);
     indexesSnapshot.clear();
+    nullIndexesSnapshot.clear();
     var mgr = histogramManager;
     if (mgr != null) {
       try {
@@ -305,10 +305,13 @@ public final class BTreeMultiValueIndexEngine
       return indexesSnapshot.visibilityFilter(atomicOperation, stream)
           .map(RawPair::second);
     } else {
-      var prefixKey = new CompositeKey(NULL_KEY_SENTINEL);
+      var prefixKey = nullTree.firstKey(atomicOperation);
+      if (prefixKey == null) {
+        return Stream.empty();
+      }
       var stream = nullTree.iterateEntriesMajor(
           prefixKey, true, true, atomicOperation);
-      return indexesSnapshot.visibilityFilter(atomicOperation, stream)
+      return nullIndexesSnapshot.visibilityFilter(atomicOperation, stream)
           .map(RawPair::second);
     }
   }
@@ -381,7 +384,7 @@ public final class BTreeMultiValueIndexEngine
         }
       } else {
 
-        var compositeKey = new CompositeKey(NULL_KEY_SENTINEL, value);
+        var compositeKey = new CompositeKey(value);
         var res = nullTree.iterateEntriesBetween(
             compositeKey, true, compositeKey, true, true, atomicOperation)
             .findAny();
