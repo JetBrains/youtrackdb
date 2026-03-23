@@ -1213,8 +1213,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         document.setProperty("firstName", "Charlie");
         document.setProperty("lastName", "Brown");
         document.setProperty("score", 99);
-        var rid = document.getIdentity();
         dbSession.commit();
+        var rid = document.getIdentity();
 
         // Reload the entity from storage — its properties are lazy-loaded
         // from the serialized binary bytes, triggering partial deserialization
