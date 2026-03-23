@@ -92,6 +92,13 @@ public final class TraversalPreFilterHelper {
    */
   @Nullable public static RidSet resolveIndexToRidSet(
       IndexSearchDescriptor desc, CommandContext ctx) {
+    // Up-front estimate guard: if the index estimates more hits than
+    // the absolute cap, skip iteration entirely.
+    long estimated = desc.estimateHits(ctx);
+    if (estimated > 0 && estimated > maxRidSetSize()) {
+      return null;
+    }
+
     List<Stream<RawPair<Object, RID>>> streams;
     streams = FetchFromIndexStep.init(desc, true, ctx);
     if (streams.isEmpty()) {
