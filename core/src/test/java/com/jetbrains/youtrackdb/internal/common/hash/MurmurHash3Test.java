@@ -479,4 +479,44 @@ public class MurmurHash3Test {
     assertThat(MurmurHash3.hash32WithSeed("createdAt".getBytes(), 0, 9, 0))
         .isEqualTo(515696882);
   }
+
+  @Test
+  public void hash32_blocksPlusTail2() {
+    // 14 bytes = 3 blocks + tail length 2: exercises tail case 2 after block loop
+    assertThat(MurmurHash3.hash32WithSeed(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, 0, 14, 42))
+        .isEqualTo(1236488183);
+  }
+
+  @Test
+  public void hash32_blocksPlusTail3() {
+    // 15 bytes = 3 blocks + tail length 3: exercises tail case 3 after block loop
+    assertThat(MurmurHash3.hash32WithSeed(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}, 0, 15, 42))
+        .isEqualTo(-580403171);
+  }
+
+  @Test
+  public void hash32_highByteValues_block() {
+    // Bytes with high bit set exercise the & 0xff sign-extension masking in block read
+    assertThat(MurmurHash3.hash32WithSeed(
+        new byte[] {(byte) 0xff, (byte) 0x80, (byte) 0xfe, (byte) 0x7f}, 0, 4, 0))
+        .isEqualTo(0x14c023d3);
+  }
+
+  @Test
+  public void hash32_highByteValues_tail() {
+    // High-bit bytes in tail path exercise & 0xff masking in tail handling
+    assertThat(MurmurHash3.hash32WithSeed(
+        new byte[] {(byte) 0xff, (byte) 0x80, (byte) 0xfe}, 0, 3, 0))
+        .isEqualTo(0x2db15157);
+  }
+
+  @Test
+  public void hash32_offsetWithTailBytes() {
+    // Offset + block + tail: exercises offset correctness across both code paths
+    byte[] padded = {0, 0, 1, 2, 3, 4, 5, 0, 0};
+    assertThat(MurmurHash3.hash32WithSeed(padded, 2, 5, 0))
+        .isEqualTo(MurmurHash3.hash32WithSeed(new byte[] {1, 2, 3, 4, 5}, 0, 5, 0));
+  }
 }
