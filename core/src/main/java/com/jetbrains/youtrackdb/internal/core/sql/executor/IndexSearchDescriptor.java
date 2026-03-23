@@ -365,7 +365,7 @@ public class IndexSearchDescriptor {
     return Math.max(1, (long) (indexStats.totalCount() * selectivity));
   }
 
-  protected Index getIndex() {
+  public Index getIndex() {
     return index;
   }
 

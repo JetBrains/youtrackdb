@@ -3687,6 +3687,23 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("Should find Post1", titles.contains("Post1"));
     assertTrue("Should find Post3", titles.contains("Post3"));
     assertFalse("Should NOT find Post2", titles.contains("Post2"));
+
+    // Verify EXPLAIN shows the intersection optimization on the creator edge
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonV, as: person, where: (name = 'PersonA')}"
+            + "   .in('MHasCreator'){as: post}"
+            + "   .in('MContainerOf'){as: forum}"
+            + "   .out('MContainerOf'){as: post2}"
+            + "   .out('MHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title as title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -3759,6 +3776,24 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     // PersonB has no posts, so friendPost step yields nothing
     assertEquals(0, result.size());
+
+    // Verify EXPLAIN shows intersection optimization on the creator edge
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonBV, as: starter, where: (name = 'PersonA')}"
+            + "   .out('MKnowsB'){as: friend}"
+            + "   .in('MHasCreatorB'){as: friendPost}"
+            + "   .in('MContainerOfB'){as: forum}"
+            + "   .out('MContainerOfB'){as: post}"
+            + "   .out('MHasCreatorB'){as: creator,"
+            + "     where: (@rid = $matched.friend.@rid)}"
+            + " RETURN post.title as title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -3853,6 +3888,24 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("Should find P3", titles.contains("P3"));
     assertFalse("Should NOT find P2", titles.contains("P2"));
     assertFalse("Should NOT find P4", titles.contains("P4"));
+
+    // Verify EXPLAIN shows intersection optimization
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonCV, as: person, where: (name = 'Alice')}"
+            + "   .in('MHasCreatorC'){as: myPost}"
+            + "   .in('MContainerOfC'){as: forum}"
+            + "   .out('MContainerOfC'){as: post}"
+            + "   .out('MHasCreatorC'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN forum.name as forumName, post.title as title"
+            + " ORDER BY title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -3914,6 +3967,23 @@ public class MatchStatementExecutionTest extends DbTestBase {
     }
     assertTrue("Should find Item1", names.contains("Item1"));
     assertFalse("Should NOT find Item2", names.contains("Item2"));
+
+    // Verify EXPLAIN shows intersection optimization
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MNodeDV, as: owner, where: (name = 'Owner1')}"
+            + "   .in('MCreatedByD'){as: myItem}"
+            + "   .out('MLinkD'){as: container}"
+            + "   .in('MLinkD'){as: item}"
+            + "   .out('MCreatedByD'){as: creator,"
+            + "     where: (@rid = $matched.owner.@rid)}"
+            + " RETURN item.name as itemName")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -4017,6 +4087,23 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals("Should find exactly 2 distinct articles", 2, titles.size());
     assertTrue("Should find A1", titles.contains("A1"));
     assertTrue("Should find A2", titles.contains("A2"));
+
+    // Verify EXPLAIN shows intersection optimization using edge LINK inference
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: Author, as: author, where: (name = 'Author1')}"
+            + "   .out('WROTE'){as: article}"
+            + "   .out('PUBLISHED_IN'){as: journal}"
+            + "   .in('PUBLISHED_IN'){as: otherArticle}"
+            + "   .in('WROTE'){as: otherAuthor,"
+            + "     where: (@rid = $matched.author.@rid)}"
+            + " RETURN DISTINCT otherArticle.title AS title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
     session.commit();
   }
 

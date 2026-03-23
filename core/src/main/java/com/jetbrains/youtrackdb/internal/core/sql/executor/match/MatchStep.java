@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
@@ -141,7 +142,27 @@ public class MatchStep extends AbstractExecutionStep {
       result.append(edge.edge.item.getMethod());
     }
     result.append("{").append(edge.edge.in.alias).append("}");
+    appendIntersectionDescriptor(result);
     return result.toString();
+  }
+
+  /**
+   * Appends a human-readable description of the intersection descriptor (if present)
+   * to the EXPLAIN output. This makes adjacency list intersection optimizations
+   * visible in execution plans.
+   */
+  void appendIntersectionDescriptor(StringBuilder result) {
+    var descriptor = edge.getIntersectionDescriptor();
+    if (descriptor instanceof RidFilterDescriptor.DirectRid) {
+      result.append(" (intersection: direct-rid)");
+    } else if (descriptor instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
+      result.append(" (intersection: ")
+          .append(lookup.traversalDirection()).append("('")
+          .append(lookup.edgeClassName()).append("'))");
+    } else if (descriptor instanceof RidFilterDescriptor.IndexLookup indexLookup) {
+      result.append(" (intersection: index ")
+          .append(indexLookup.indexDescriptor().getIndex().getName()).append(")");
+    }
   }
 
   @Override
