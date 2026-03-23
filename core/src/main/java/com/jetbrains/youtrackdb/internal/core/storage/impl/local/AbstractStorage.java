@@ -339,6 +339,7 @@ public abstract class AbstractStorage
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
   private IndexesSnapshot indexesSnapshot = new IndexesSnapshot();
+  private IndexesSnapshot nullIndexesSnapshot = new IndexesSnapshot();
 
   // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
@@ -5927,7 +5928,7 @@ public abstract class AbstractStorage
       evictStaleEdgeSnapshotEntries(
           lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
           edgeSnapshotIndexSize);
-      evictStaleIndexesSnapshotEntries(lwm, indexesSnapshot);
+      evictStaleIndexesSnapshotEntries(lwm, indexesSnapshot, nullIndexesSnapshot);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -6125,8 +6126,9 @@ public abstract class AbstractStorage
 
   static void evictStaleIndexesSnapshotEntries(
       long lwm,
-      IndexesSnapshot indexesSnapshot) {
+      IndexesSnapshot indexesSnapshot, IndexesSnapshot nullIndexesSnapshot) {
     indexesSnapshot.evictStaleIndexesSnapshotEntries(lwm);
+    nullIndexesSnapshot.evictStaleIndexesSnapshotEntries(lwm);
   }
 
   /**
@@ -6163,6 +6165,10 @@ public abstract class AbstractStorage
 
   public IndexesSnapshot subIndexSnapshot(long indexId) {
     return indexesSnapshot.subIndexSnapshot(indexId);
+  }
+
+  public IndexesSnapshot subNullIndexSnapshot(long indexId) {
+    return nullIndexesSnapshot.subIndexSnapshot(indexId);
   }
 
   /**

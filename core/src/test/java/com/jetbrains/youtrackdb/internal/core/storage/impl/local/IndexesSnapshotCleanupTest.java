@@ -23,15 +23,18 @@ public class IndexesSnapshotCleanupTest {
 
   private static final long INDEX_ID = 42L;
   private IndexesSnapshot indexesSnapshot;
+  private IndexesSnapshot nullIndexesSnapshot;
 
   @Before
   public void setUp() {
     indexesSnapshot = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    nullIndexesSnapshot = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
   }
 
   @After
   public void tearDown() {
     indexesSnapshot = null;
+    nullIndexesSnapshot = null;
   }
 
   // --- evictStaleIndexesSnapshotEntries: basic eviction ---
@@ -53,7 +56,7 @@ public class IndexesSnapshotCleanupTest {
         rid2);
 
     // lwm = 10: entries with addedKey version < 10 (i.e., version 5 and 8) should be evicted
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot, nullIndexesSnapshot);
 
     // Both pairs should be fully evicted (addedKey and removedKey entries removed)
     assertThat(indexesSnapshot.allEntries()).isEmpty();
@@ -69,7 +72,7 @@ public class IndexesSnapshotCleanupTest {
         rid);
 
     // lwm = 10: entry with version=10 should be PRESERVED
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot, nullIndexesSnapshot);
 
     // 1 pair = 2 entries (addedKey + removedKey)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -89,7 +92,7 @@ public class IndexesSnapshotCleanupTest {
         rid2);
 
     // lwm = 100: all entries should be evicted
-    AbstractStorage.evictStaleIndexesSnapshotEntries(100L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(100L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -97,7 +100,8 @@ public class IndexesSnapshotCleanupTest {
   @Test
   public void testEvictWithEmptySnapshot() {
     // Eviction on an empty snapshot should not fail
-    AbstractStorage.evictStaleIndexesSnapshotEntries(100L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        100L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -111,7 +115,7 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyA", 10L),
         rid);
 
-    AbstractStorage.evictStaleIndexesSnapshotEntries(0L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(0L, indexesSnapshot, nullIndexesSnapshot);
 
     // 1 pair = 2 entries preserved
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -126,7 +130,8 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyA", 15L),
         rid);
 
-    AbstractStorage.evictStaleIndexesSnapshotEntries(Long.MAX_VALUE, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        Long.MAX_VALUE, indexesSnapshot, nullIndexesSnapshot);
 
     // Entries should be preserved because MAX_VALUE triggers early return
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -155,7 +160,7 @@ public class IndexesSnapshotCleanupTest {
         rid3);
 
     // lwm = 15: evicts pairs with addedKey version 5 and 10, preserves version 20
-    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot, nullIndexesSnapshot);
 
     // Only the third pair should remain (1 pair = 2 entries: addedKey + removedKey)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -186,7 +191,7 @@ public class IndexesSnapshotCleanupTest {
         .count();
     assertThat(tombstoneCount).isEqualTo(1);
 
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -211,7 +216,7 @@ public class IndexesSnapshotCleanupTest {
         rid2);
 
     // lwm = 5: evicts pair with addedKey version 3, preserves pair with version 7
-    AbstractStorage.evictStaleIndexesSnapshotEntries(5L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(5L, indexesSnapshot, nullIndexesSnapshot);
 
     // Remaining: 1 pair = 2 entries (addedKey version=7 + removedKey version=15)
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
@@ -228,9 +233,9 @@ public class IndexesSnapshotCleanupTest {
         new CompositeKey("keyA", 15L),
         rid);
 
-    AbstractStorage.evictStaleIndexesSnapshotEntries(20L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(20L, indexesSnapshot, nullIndexesSnapshot);
     // Second call — snapshot is already empty, should not fail
-    AbstractStorage.evictStaleIndexesSnapshotEntries(20L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(20L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -247,7 +252,7 @@ public class IndexesSnapshotCleanupTest {
         rid);
 
     // lwm = 10: entry with addedKey version 5 should be evicted
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
@@ -262,7 +267,7 @@ public class IndexesSnapshotCleanupTest {
         rid);
 
     // lwm = 10: entry with addedKey version 15 should be preserved
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
   }
@@ -291,7 +296,7 @@ public class IndexesSnapshotCleanupTest {
         rid3);
 
     // lwm = 15: evicts null-key v5 and non-null v8, preserves null-key v20
-    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot, nullIndexesSnapshot);
 
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
     var remainingVersions = indexesSnapshot.allEntries().stream()
@@ -303,19 +308,91 @@ public class IndexesSnapshotCleanupTest {
 
   @Test
   public void testEvictNullKeyMultiValueEntries() {
-    // Null-key entries from BTreeMultiValueIndexEngine use a separate sub-snapshot
-    // with a negative indexId. Keys are CompositeKey(RID, version) — no sentinel.
-    var nullSnapshot = new IndexesSnapshot().subIndexSnapshot(-(INDEX_ID + 1));
+    // Null-key entries from BTreeMultiValueIndexEngine use a separate null snapshot.
+    // Keys are CompositeKey(RID, version). Eviction must be called on the sub-snapshot
+    // where entries (and the versionIndex) live.
     var rid = new RecordId(1, 100L);
-    nullSnapshot.addSnapshotPair(
+    nullIndexesSnapshot.addSnapshotPair(
         new CompositeKey(rid, 5L),
         new CompositeKey(rid, 15L),
         rid);
 
-    // lwm = 10: should be evicted
-    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, nullSnapshot);
+    // lwm = 10: should be evicted via the nullIndexesSnapshot parameter
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        10L, indexesSnapshot, nullIndexesSnapshot);
 
-    assertThat(nullSnapshot.allEntries()).isEmpty();
+    assertThat(nullIndexesSnapshot.allEntries()).isEmpty();
+  }
+
+  @Test
+  public void testEvictViaSubSnapshotsEvictsBothSvAndNullEntries() {
+    // Eviction via AbstractStorage must clean up entries from both indexesSnapshot
+    // and nullIndexesSnapshot in a single call.
+    var rid1 = new RecordId(1, 100L);
+    var rid2 = new RecordId(1, 200L);
+
+    // svTree entry at version 5
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey("keyA", rid1, 5L),
+        new CompositeKey("keyA", rid1, 15L),
+        rid1);
+
+    // nullTree entry at version 7
+    nullIndexesSnapshot.addSnapshotPair(
+        new CompositeKey(rid2, 7L),
+        new CompositeKey(rid2, 17L),
+        rid2);
+
+    assertThat(indexesSnapshot.allEntries()).hasSize(2);
+    assertThat(nullIndexesSnapshot.allEntries()).hasSize(2);
+
+    // Evict both sub-snapshots in a single call
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        10L, indexesSnapshot, nullIndexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries())
+        .as("svTree sub-snapshot must be empty after eviction")
+        .isEmpty();
+    assertThat(nullIndexesSnapshot.allEntries())
+        .as("nullTree sub-snapshot must be empty after eviction")
+        .isEmpty();
+  }
+
+  @Test
+  public void testEvictPreservesEntriesAboveLwmInBothSnapshots() {
+    // Mixed versions across sv and null sub-snapshots: some below lwm, some above
+    var rid1 = new RecordId(1, 100L);
+    var rid2 = new RecordId(1, 200L);
+    var rid3 = new RecordId(1, 300L);
+
+    // svTree entry at version 5 (below lwm)
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey("keyA", rid1, 5L),
+        new CompositeKey("keyA", rid1, 15L),
+        rid1);
+
+    // nullTree entry at version 20 (above lwm)
+    nullIndexesSnapshot.addSnapshotPair(
+        new CompositeKey(rid2, 20L),
+        new CompositeKey(rid2, 30L),
+        rid2);
+
+    // nullTree entry at version 3 (below lwm)
+    nullIndexesSnapshot.addSnapshotPair(
+        new CompositeKey(rid3, 3L),
+        new CompositeKey(rid3, 12L),
+        rid3);
+
+    // Evict both sub-snapshots
+    AbstractStorage.evictStaleIndexesSnapshotEntries(
+        10L, indexesSnapshot, nullIndexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries())
+        .as("svTree entry at version 5 must be evicted")
+        .isEmpty();
+    assertThat(nullIndexesSnapshot.allEntries())
+        .as("nullTree entry at version 20 must be preserved, version 3 evicted")
+        .hasSize(2);
   }
 
   @Test
@@ -339,15 +416,15 @@ public class IndexesSnapshotCleanupTest {
         rid3);
 
     // First eviction: lwm=8, evicts version 5 only → 2 pairs remain (4 entries)
-    AbstractStorage.evictStaleIndexesSnapshotEntries(8L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(8L, indexesSnapshot, nullIndexesSnapshot);
     assertThat(indexesSnapshot.allEntries()).hasSize(4);
 
     // Second eviction: lwm=15, evicts version 10 → 1 pair remains (2 entries)
-    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot, nullIndexesSnapshot);
     assertThat(indexesSnapshot.allEntries()).hasSize(2);
 
     // Third eviction: lwm=25, evicts version 20 → all gone
-    AbstractStorage.evictStaleIndexesSnapshotEntries(25L, indexesSnapshot);
+    AbstractStorage.evictStaleIndexesSnapshotEntries(25L, indexesSnapshot, nullIndexesSnapshot);
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
 }

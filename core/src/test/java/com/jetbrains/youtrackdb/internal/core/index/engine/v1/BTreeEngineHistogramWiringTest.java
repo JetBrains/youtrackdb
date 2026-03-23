@@ -745,6 +745,7 @@ public class BTreeEngineHistogramWiringTest {
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     when(storage.subIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
+    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
     return storage;
   }
 
