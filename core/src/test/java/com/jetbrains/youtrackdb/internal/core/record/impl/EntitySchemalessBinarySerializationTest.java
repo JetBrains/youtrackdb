@@ -824,7 +824,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   /**
    * Partial deserialization of an entity with null-valued properties should preserve
-   * null when that null-valued field is requested.
+   * null when that null-valued field is requested. Verifies via getFieldNames that
+   * the null-valued field is actually present in the serialized bytes (not elided).
    */
   @Test
   public void testPartialDeserializationNullValuedProperty() {
@@ -835,6 +836,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     document.setProperty("age", 25);
 
     var res = serializer.toStream(session, document);
+
+    // Verify the null-valued field is present in the serialized form
+    var fieldNames = serializer.getFieldNames(session, document, res);
+    Assertions.assertThat(fieldNames).contains("nickname");
 
     var extr = (EntityImpl) session.newEntity();
     serializer.fromStream(session, res, extr, new String[] {"nickname", "name"});
@@ -976,8 +981,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
           session, bytes, null, fieldName, false, null, encryption);
       assertNotNull("deserializeField returned null for binary-comparable field: " + fieldName,
           bf);
+      assertEquals("Wrong name for field: " + fieldName,
+          fieldName, bf.name);
       assertEquals("Wrong type for field: " + fieldName,
           expectedType, bf.type.name());
+      assertNotNull("BinaryField.bytes should not be null for: " + fieldName, bf.bytes);
     }
     session.rollback();
   }
@@ -1007,7 +1015,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   /**
    * deserializeField for a null-valued property should return null because a null
-   * value has zero field length in the binary format.
+   * value has zero field length in the binary format. Verifies via getFieldNames
+   * that the field is present in the serialized form (not simply absent).
    */
   @Test
   public void testDeserializeFieldNullValuedProperty() {
@@ -1017,6 +1026,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     document.setProperty("missing", null);
 
     var res = serializer.toStream(session, document);
+
+    // Verify the null-valued field is present in serialized bytes
+    var fieldNames = serializer.getFieldNames(session, document, res);
+    Assertions.assertThat(fieldNames).contains("missing");
+
     var entitySer = getEntitySerializer(res);
     var encryption = PropertyEncryptionNone.instance();
 
