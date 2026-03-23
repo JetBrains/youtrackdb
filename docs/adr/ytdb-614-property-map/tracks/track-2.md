@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/2 complete)
+- [ ] Step implementation (1/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,7 +12,16 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step: Schema-less partial deserialization and deserializeField tests
+- [x] Step: Schema-less partial deserialization and deserializeField tests
+  > **What was done:** Added 8 test methods to `EntitySchemalessBinarySerializationTest`:
+  > 4 partial deserialization edge cases (non-existent field, null-valued property,
+  > embedded entity, subset of 15 properties) and 4 `deserializeField` unit tests
+  > (all 13 binary-comparable types, non-binary-comparable EMBEDDED, null-valued
+  > property, non-existent field). Code review added `getFieldNames` verification
+  > for null-valued fields and `BinaryField.name`/`bytes` assertions.
+  >
+  > **Key files:** `EntitySchemalessBinarySerializationTest.java` (modified)
+
   Add test methods to `EntitySchemalessBinarySerializationTest` covering:
   1. **Partial deserialization edge cases** via serializer-level `fromStream(session, bytes, entity, fields)`:
      - Request a non-existent field → entity should not contain that field
