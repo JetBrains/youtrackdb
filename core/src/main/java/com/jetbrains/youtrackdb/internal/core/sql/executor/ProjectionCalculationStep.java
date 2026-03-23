@@ -45,10 +45,30 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   /** The projection definition (list of expressions with aliases). */
   protected final SQLProjection projection;
 
+  /**
+   * Cached {@link SQLProjection#isExpand()} for this step — same for all rows; evaluated once when the
+   * step is first built so per-row projection does not call {@code isExpand()}. Preserved across {@link
+   * #copy} without recomputing on {@link SQLProjection#copy()}.
+   */
+  protected final boolean expandProjection;
+
   public ProjectionCalculationStep(
       SQLProjection projection, CommandContext ctx, boolean profilingEnabled) {
+    this(projection, ctx, profilingEnabled, projection.isExpand());
+  }
+
+  /**
+   * Used by subclasses and {@link #copy}; {@code expandProjection} must be the expand state of {@code
+   * projection} (as {@link SQLProjection#isExpand()}).
+   */
+  protected ProjectionCalculationStep(
+      SQLProjection projection,
+      CommandContext ctx,
+      boolean profilingEnabled,
+      boolean expandProjection) {
     super(ctx, profilingEnabled);
     this.projection = projection;
+    this.expandProjection = expandProjection;
   }
 
   @Override
@@ -72,7 +92,7 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   }
 
   private Result calculateProjections(CommandContext ctx, Result next) {
-    return this.projection.calculateSingle(ctx, next);
+    return this.projection.calculateSingle(ctx, next, expandProjection);
   }
 
   @Override
@@ -95,6 +115,7 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new ProjectionCalculationStep(projection.copy(), ctx, profilingEnabled);
+    return new ProjectionCalculationStep(projection.copy(), ctx, profilingEnabled,
+        expandProjection);
   }
 }

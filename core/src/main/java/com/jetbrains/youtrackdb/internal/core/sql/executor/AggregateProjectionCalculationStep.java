@@ -82,6 +82,25 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
     this.limit = limit;
   }
 
+  /**
+   * Same as the public constructor but reuses {@code expandProjection} from an existing step when
+   * {@link #copy} already deep-copied {@code projection} — avoids a redundant {@link
+   * SQLProjection#isExpand()} on the copy.
+   */
+  private AggregateProjectionCalculationStep(
+      SQLProjection projection,
+      SQLGroupBy groupBy,
+      long limit,
+      CommandContext ctx,
+      long timeoutMillis,
+      boolean profilingEnabled,
+      boolean expandProjection) {
+    super(projection, ctx, profilingEnabled, expandProjection);
+    this.groupBy = groupBy;
+    this.timeoutMillis = timeoutMillis;
+    this.limit = limit;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     var finalResults = executeAggregation(ctx);
@@ -210,6 +229,7 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
         limit,
         ctx,
         timeoutMillis,
-        profilingEnabled);
+        profilingEnabled,
+        expandProjection);
   }
 }

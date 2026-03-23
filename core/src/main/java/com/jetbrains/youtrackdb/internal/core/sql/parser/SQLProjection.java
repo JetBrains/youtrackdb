@@ -122,9 +122,23 @@ public class SQLProjection extends SimpleNode {
     }
   }
 
+  /**
+   * Delegates to {@link #calculateSingle(CommandContext, Result, boolean)} using {@link #isExpand()}.
+   * Hot paths should use the 3-arg overload with a value computed once at plan construction.
+   */
   public Result calculateSingle(CommandContext iContext, Result inResult) {
+    return calculateSingle(iContext, inResult, isExpand());
+  }
+
+  /**
+   * Computes one output row for this projection. {@code isExpandProjection} must agree with the result of
+   * {@link #isExpand()} for this AST; pass a value computed once at plan construction to avoid per-row
+   * {@code isExpand()} overhead.
+   */
+  public Result calculateSingle(
+      CommandContext iContext, Result inResult, boolean isExpandProjection) {
     initExcludes();
-    if (isExpand()) {
+    if (isExpandProjection) {
       throw new IllegalStateException(
           "This is an expand projection, it cannot be calculated as a single result" + this);
     }
