@@ -942,12 +942,11 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     document.setProperty("boolProp", true);
 
     var cal = Calendar.getInstance();
+    cal.set(2025, Calendar.JANUARY, 15, 0, 0, 0);
     cal.set(Calendar.MILLISECOND, 0);
-    cal.set(Calendar.SECOND, 0);
-    cal.set(Calendar.MINUTE, 0);
-    cal.set(Calendar.HOUR_OF_DAY, 0);
     document.setProperty("dateProp", cal.getTime(), PropertyType.DATE);
-    document.setProperty("dateTimeProp", new Date());
+    cal.set(2025, Calendar.JUNE, 20, 10, 30, 45);
+    document.setProperty("dateTimeProp", cal.getTime());
     document.setProperty("binaryProp", new byte[] {1, 2, 3});
     document.setProperty("linkProp", new RecordId(10, 20));
     document.setProperty("decimalProp", new BigDecimal("99.99"));
