@@ -122,7 +122,7 @@ CI gates enforce policies on PRs. When a gate fails:
 
 ### Step 7: Dimensional code review + test quality review (MANDATORY GATE)
 
-**BLOCKING: Do NOT proceed to Step 9 (summarize) until this step is fully
+**BLOCKING: Do NOT proceed to Step 8 (summarize) until this step is fully
 complete. Skipping this step is never acceptable — it exists to catch bugs
 in the fix itself before presenting to the user.**
 
@@ -182,7 +182,7 @@ whenever code or tests were modified.
      critical issues, present the remaining findings to the user and ask
      for guidance.
 
-### Step 9: Summarize and wait for approval
+### Step 8: Summarize and wait for approval
 
 Present to the user:
 - **Problem**: The exact failure (test name, error message, CI link)
@@ -192,7 +192,7 @@ Present to the user:
 
 **Do NOT commit or push until the user approves.**
 
-### Step 10: Commit and PR (only after approval)
+### Step 9: Commit and PR (only after approval)
 
 1. Commit following the project's git conventions (YTDB-NNN prefix, imperative summary).
 2. Push and create a PR targeting `develop` with:
