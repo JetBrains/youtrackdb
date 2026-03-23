@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -45,7 +45,17 @@
      `PropertyEncryptionNone.instance()` for encryption parameter; pass null
      for `iClass` and `schema` in schema-less mode.
 
-- [ ] Step: Schema-aware/mixed getFieldNames, deserializeField, and getProperty integration test
+- [x] Step: Schema-aware/mixed getFieldNames, deserializeField, and getProperty integration test
+  > **What was done:** Added 4 test methods to `EntitySchemalessBinarySerializationTest`:
+  > `getFieldNames` for schema-aware properties (global property ID encoding),
+  > `getFieldNames` for mixed schema-aware + schema-less properties,
+  > `deserializeField` with real `ImmutableSchema` and `SchemaClass` for
+  > STRING/INTEGER/BOOLEAN types, and a persist-reload integration test
+  > verifying `getProperty()` triggers partial deserialization correctly.
+  > Each schema-aware test creates a temporary database with typed schema classes.
+  >
+  > **Key files:** `EntitySchemalessBinarySerializationTest.java` (modified)
+
   Add tests covering schema-aware and mixed-mode serialization:
   1. **`getFieldNames()` for schema-aware properties**: Create a temporary
      database with a schema class, serialize an entity with schema-defined
