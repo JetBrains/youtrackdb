@@ -1591,26 +1591,16 @@ public class MatchExecutionPlanner {
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
-    // Check if ANY match expression has a while condition. If so, skip
-    // edge-schema class inference globally — inferred classes change cost
-    // estimates which can reorder the schedule, causing while/where
-    // recursive steps to be traversed in the wrong direction.
-    boolean anyPatternHasWhile = false;
+    // Collect aliases from patterns that contain a while condition.
+    // Class inference on these (and patterns sharing aliases with them)
+    // must be skipped — inferred classes change cost estimates which can
+    // reorder the schedule, causing while/where recursive steps to be
+    // traversed in the wrong direction.
+    var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
     for (var expr : this.matchExpressions) {
-      for (var item : expr.getItems()) {
-        if (item.getFilter() != null
-            && item.getFilter().getWhileCondition() != null) {
-          anyPatternHasWhile = true;
-          break;
-        }
-      }
-      if (anyPatternHasWhile) {
-        break;
-      }
-    }
-    for (var expr : this.matchExpressions) {
+      boolean skipInference = sharesAliases(expr, whileAliases);
       addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
-          ctx, anyPatternHasWhile);
+          ctx, skipInference);
     }
 
     this.aliasFilters = aliasFilters;
@@ -1635,6 +1625,61 @@ public class MatchExecutionPlanner {
         item.getFilter().setFilter(newFilter);
       }
     }
+  }
+
+  /**
+   * Collects all aliases that appear in patterns containing a {@code while}
+   * condition. Used to determine which patterns must skip class inference.
+   */
+  private static Set<String> collectAliasesFromWhilePatterns(
+      List<SQLMatchExpression> expressions) {
+    var result = new HashSet<String>();
+    for (var expr : expressions) {
+      boolean hasWhile = false;
+      for (var item : expr.getItems()) {
+        if (item.getFilter() != null
+            && item.getFilter().getWhileCondition() != null) {
+          hasWhile = true;
+          break;
+        }
+      }
+      if (hasWhile) {
+        // Collect origin alias
+        if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
+          result.add(expr.getOrigin().getAlias());
+        }
+        // Collect all item aliases
+        for (var item : expr.getItems()) {
+          if (item.getFilter() != null && item.getFilter().getAlias() != null) {
+            result.add(item.getFilter().getAlias());
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Returns true if the expression shares any alias with the given set.
+   * Used to detect patterns connected to while-containing patterns via
+   * shared aliases (e.g. {@code {as: post}} appearing in both patterns).
+   */
+  private static boolean sharesAliases(
+      SQLMatchExpression expr, Set<String> aliases) {
+    if (aliases.isEmpty()) {
+      return false;
+    }
+    if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null
+        && aliases.contains(expr.getOrigin().getAlias())) {
+      return true;
+    }
+    for (var item : expr.getItems()) {
+      if (item.getFilter() != null && item.getFilter().getAlias() != null
+          && aliases.contains(item.getFilter().getAlias())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
