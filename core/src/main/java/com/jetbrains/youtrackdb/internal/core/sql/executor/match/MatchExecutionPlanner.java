@@ -1591,8 +1591,26 @@ public class MatchExecutionPlanner {
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
+    // Check if ANY match expression has a while condition. If so, skip
+    // edge-schema class inference globally — inferred classes change cost
+    // estimates which can reorder the schedule, causing while/where
+    // recursive steps to be traversed in the wrong direction.
+    boolean anyPatternHasWhile = false;
     for (var expr : this.matchExpressions) {
-      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids, ctx);
+      for (var item : expr.getItems()) {
+        if (item.getFilter() != null
+            && item.getFilter().getWhileCondition() != null) {
+          anyPatternHasWhile = true;
+          break;
+        }
+      }
+      if (anyPatternHasWhile) {
+        break;
+      }
+    }
+    for (var expr : this.matchExpressions) {
+      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
+          ctx, anyPatternHasWhile);
     }
 
     this.aliasFilters = aliasFilters;
@@ -1629,27 +1647,15 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasClasses,
       Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
-      CommandContext context) {
+      CommandContext context,
+      boolean skipClassInference) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
-
-    // Check if any step in this pattern has a while condition. If so, skip
-    // edge-schema class inference for the entire pattern. Inferring classes
-    // changes cost estimates which can reorder the schedule, causing the
-    // while/where recursive step to be traversed in the wrong direction.
-    boolean patternHasWhile = false;
-    for (var item : expr.getItems()) {
-      if (item.getFilter() != null
-          && item.getFilter().getWhileCondition() != null) {
-        patternHasWhile = true;
-        break;
-      }
-    }
 
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
-        if (!patternHasWhile) {
+        if (!skipClassInference) {
           // Infer target class from edge LINK schema when no explicit class
           // is set. For out('CONTAINER_OF'), the target vertices are the "in"
           // endpoint of the CONTAINER_OF edge class; if that endpoint declares
