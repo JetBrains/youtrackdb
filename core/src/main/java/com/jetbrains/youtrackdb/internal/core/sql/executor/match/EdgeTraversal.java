@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.List;
 import javax.annotation.Nullable;
 
 /**
@@ -116,6 +117,20 @@ public class EdgeTraversal {
   public void setIntersectionDescriptor(
       @Nullable RidFilterDescriptor intersectionDescriptor) {
     this.intersectionDescriptor = intersectionDescriptor;
+  }
+
+  /**
+   * Adds a descriptor to this edge. If a descriptor is already set,
+   * wraps both in a {@link RidFilterDescriptor.Composite} that intersects
+   * their results at the bitmap level.
+   */
+  public void addIntersectionDescriptor(RidFilterDescriptor descriptor) {
+    if (intersectionDescriptor == null) {
+      intersectionDescriptor = descriptor;
+    } else {
+      intersectionDescriptor = new RidFilterDescriptor.Composite(
+          List.of(intersectionDescriptor, descriptor));
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import java.util.List;
 import javax.annotation.Nullable;
 
 /**
@@ -137,10 +138,37 @@ public sealed interface RidFilterDescriptor {
     /**
      * Index query parameters are {@code :namedParams} or literals (never
      * {@code $matched}), so the result is constant for the entire query.
+     * The index name uniquely identifies the result within a single query.
      */
     @Override
     @Nullable public Object cacheKey(CommandContext ctx) {
-      return IndexLookup.class;
+      return indexDescriptor.getIndex().getName();
+    }
+  }
+
+  /**
+   * Combines multiple descriptors by resolving each and intersecting
+   * the results at the bitmap level. Used when an edge has both a
+   * back-reference lookup and an index pre-filter.
+   */
+  record Composite(
+      List<RidFilterDescriptor> descriptors) implements RidFilterDescriptor {
+
+    @Override
+    @Nullable public RidSet resolve(CommandContext ctx) {
+      RidSet combined = null;
+      for (var desc : descriptors) {
+        var partial = desc.resolve(ctx);
+        combined = TraversalPreFilterHelper.intersect(combined, partial);
+      }
+      return combined;
+    }
+
+    @Override
+    @Nullable public Object cacheKey(CommandContext ctx) {
+      return descriptors.stream()
+          .map(d -> d.cacheKey(ctx))
+          .toList();
     }
   }
 }

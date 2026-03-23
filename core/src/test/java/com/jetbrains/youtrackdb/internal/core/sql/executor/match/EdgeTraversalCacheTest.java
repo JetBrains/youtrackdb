@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
@@ -288,25 +289,31 @@ public class EdgeTraversalCacheTest {
   // =========================================================================
 
   /**
-   * {@link IndexLookup#cacheKey} returns a non-null sentinel constant.
+   * {@link IndexLookup#cacheKey} returns the index name, which uniquely
+   * identifies the result within a single query execution.
    */
   @Test
-  public void indexLookup_cacheKey_returnsSentinel() {
+  public void indexLookup_cacheKey_returnsIndexName() {
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn("Post.creationDate");
     var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
     var desc = new IndexLookup(indexDesc);
     var key = desc.cacheKey(new BasicCommandContext());
 
-    assertThat(key).isNotNull();
-    assertThat(key).isEqualTo(IndexLookup.class);
+    assertThat(key).isEqualTo("Post.creationDate");
   }
 
   /**
    * Two calls to {@link IndexLookup#cacheKey} return equal objects,
-   * confirming that the sentinel is stable.
+   * confirming that the key is stable.
    */
   @Test
   public void indexLookup_cacheKey_isStable() {
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn("Post.creationDate");
     var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
     var desc = new IndexLookup(indexDesc);
     var ctx = new BasicCommandContext();
 

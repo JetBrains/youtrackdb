@@ -1291,18 +1291,15 @@ public class MatchExecutionPlanner {
             var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
             if (producingEdgeIdx != null) {
               var edgeI = schedule.get(producingEdgeIdx);
-              if (edgeI.getIntersectionDescriptor() == null) {
-                edgeI.setIntersectionDescriptor(
-                    new RidFilterDescriptor.EdgeRidLookup(
-                        edgeClass, edgeDirection, ridExpr));
-                logger.debug(
-                    "MATCH pre-filter: EdgeRidLookup on edge[{}] "
-                        + "({}({}) back-ref from alias '{}')",
-                    producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
-              }
+              edgeI.addIntersectionDescriptor(
+                  new RidFilterDescriptor.EdgeRidLookup(
+                      edgeClass, edgeDirection, ridExpr));
+              logger.debug(
+                  "MATCH pre-filter: EdgeRidLookup on edge[{}] "
+                      + "({}({}) back-ref from alias '{}')",
+                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
             }
           }
-          continue;
         }
       }
 
@@ -1324,8 +1321,8 @@ public class MatchExecutionPlanner {
 
       var indexDesc = TraversalPreFilterHelper.findIndexForFilter(
           indexableFilter, targetClass, ctx);
-      if (indexDesc != null && edgeJ.getIntersectionDescriptor() == null) {
-        edgeJ.setIntersectionDescriptor(
+      if (indexDesc != null) {
+        edgeJ.addIntersectionDescriptor(
             new RidFilterDescriptor.IndexLookup(indexDesc));
         logger.debug(
             "MATCH pre-filter: IndexLookup on edge[{}] "
