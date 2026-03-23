@@ -17,7 +17,11 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -790,6 +794,256 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     assertEquals(extr.getPropertiesCount(), document.getPropertiesCount());
     assertEquals(extr.<Object>getProperty("list"), document.getProperty("list"));
+    session.rollback();
+  }
+
+  // --- Partial deserialization edge case tests ---
+
+  /**
+   * Requesting a non-existent field via partial deserialization should not populate
+   * that field in the target entity — getProperty returns null and the entity does
+   * not contain the field name.
+   */
+  @Test
+  public void testPartialDeserializationNonExistentField() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("name", "Alice");
+    document.setProperty("age", 30);
+
+    var res = serializer.toStream(session, document);
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[] {"nonExistent"});
+
+    assertNull(extr.getProperty("nonExistent"));
+    assertNull(extr.getProperty("name"));
+    assertNull(extr.getProperty("age"));
+    session.rollback();
+  }
+
+  /**
+   * Partial deserialization of an entity with null-valued properties should preserve
+   * null when that null-valued field is requested.
+   */
+  @Test
+  public void testPartialDeserializationNullValuedProperty() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("name", "Bob");
+    document.setProperty("nickname", null);
+    document.setProperty("age", 25);
+
+    var res = serializer.toStream(session, document);
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[] {"nickname", "name"});
+
+    assertEquals("Bob", extr.<Object>getProperty("name"));
+    assertNull(extr.getProperty("nickname"));
+    // age was not requested
+    assertNull(extr.getProperty("age"));
+    session.rollback();
+  }
+
+  /**
+   * Partial deserialization of an entity with an embedded entity property should
+   * correctly deserialize the embedded entity when its field is requested.
+   */
+  @Test
+  public void testPartialDeserializationEmbeddedEntity() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("title", "main");
+
+    var embedded = (EntityImpl) session.newEmbeddedEntity();
+    embedded.setProperty("innerName", "nested");
+    embedded.setProperty("innerValue", 42);
+    document.setProperty("embed", embedded, PropertyType.EMBEDDED);
+
+    document.setProperty("other", "ignored");
+
+    var res = serializer.toStream(session, document);
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[] {"embed"});
+
+    EntityImpl emb = extr.getProperty("embed");
+    assertNotNull(emb);
+    assertEquals("nested", emb.<Object>getProperty("innerName"));
+    assertEquals(42, (int) emb.<Integer>getProperty("innerValue"));
+    // other fields not requested
+    assertNull(extr.getProperty("title"));
+    assertNull(extr.getProperty("other"));
+    session.rollback();
+  }
+
+  /**
+   * Requesting a subset of fields from an entity with many properties (10+) should
+   * populate only the requested fields.
+   */
+  @Test
+  public void testPartialDeserializationSubsetOfManyProperties() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 15; i++) {
+      document.setProperty("field" + i, "value" + i);
+    }
+
+    var res = serializer.toStream(session, document);
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr,
+        new String[] {"field0", "field7", "field14"});
+
+    assertEquals("value0", extr.<Object>getProperty("field0"));
+    assertEquals("value7", extr.<Object>getProperty("field7"));
+    assertEquals("value14", extr.<Object>getProperty("field14"));
+    // non-requested fields should not be populated
+    assertNull(extr.getProperty("field1"));
+    assertNull(extr.getProperty("field5"));
+    assertNull(extr.getProperty("field13"));
+    session.rollback();
+  }
+
+  // --- deserializeField unit tests ---
+
+  /**
+   * Helper to obtain the EntitySerializer and create a BytesContainer positioned after the
+   * version byte, suitable for calling deserializeField directly.
+   */
+  private EntitySerializer getEntitySerializer(byte[] serializedBytes) {
+    byte version = serializedBytes[0];
+    return ((RecordSerializerBinary) serializer).getSerializer(version);
+  }
+
+  /**
+   * Verify that deserializeField returns a non-null BinaryField with the correct type
+   * for all 13 binary-comparable types: INTEGER, LONG, STRING, DOUBLE, FLOAT, SHORT,
+   * BYTE, BOOLEAN, DATE, DATETIME, BINARY, LINK, DECIMAL.
+   */
+  @Test
+  public void testDeserializeFieldAllBinaryComparableTypes() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+
+    document.setProperty("intProp", 42);
+    document.setProperty("longProp", 123456789L);
+    document.setProperty("stringProp", "hello");
+    document.setProperty("doubleProp", 3.14d);
+    document.setProperty("floatProp", 2.71f);
+    document.setProperty("shortProp", (short) 7);
+    document.setProperty("byteProp", (byte) 0xA);
+    document.setProperty("boolProp", true);
+
+    var cal = Calendar.getInstance();
+    cal.set(Calendar.MILLISECOND, 0);
+    cal.set(Calendar.SECOND, 0);
+    cal.set(Calendar.MINUTE, 0);
+    cal.set(Calendar.HOUR_OF_DAY, 0);
+    document.setProperty("dateProp", cal.getTime(), PropertyType.DATE);
+    document.setProperty("dateTimeProp", new Date());
+    document.setProperty("binaryProp", new byte[] {1, 2, 3});
+    document.setProperty("linkProp", new RecordId(10, 20));
+    document.setProperty("decimalProp", new BigDecimal("99.99"));
+
+    var res = serializer.toStream(session, document);
+    var entitySer = getEntitySerializer(res);
+    var encryption = PropertyEncryptionNone.instance();
+
+    // Map of field name to expected PropertyTypeInternal name
+    var expectedTypes = new String[][] {
+        {"intProp", "INTEGER"},
+        {"longProp", "LONG"},
+        {"stringProp", "STRING"},
+        {"doubleProp", "DOUBLE"},
+        {"floatProp", "FLOAT"},
+        {"shortProp", "SHORT"},
+        {"byteProp", "BYTE"},
+        {"boolProp", "BOOLEAN"},
+        {"dateProp", "DATE"},
+        {"dateTimeProp", "DATETIME"},
+        {"binaryProp", "BINARY"},
+        {"linkProp", "LINK"},
+        {"decimalProp", "DECIMAL"},
+    };
+
+    for (var entry : expectedTypes) {
+      var fieldName = entry[0];
+      var expectedType = entry[1];
+      var bytes = new BytesContainer(res).skip(1);
+      BinaryField bf = entitySer.deserializeField(
+          session, bytes, null, fieldName, false, null, encryption);
+      assertNotNull("deserializeField returned null for binary-comparable field: " + fieldName,
+          bf);
+      assertEquals("Wrong type for field: " + fieldName,
+          expectedType, bf.type.name());
+    }
+    session.rollback();
+  }
+
+  /**
+   * deserializeField for a non-binary-comparable type (EMBEDDED) should return null
+   * because embedded entities cannot be compared in binary form.
+   */
+  @Test
+  public void testDeserializeFieldNonBinaryComparableType() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    var embedded = (EntityImpl) session.newEmbeddedEntity();
+    embedded.setProperty("inner", "value");
+    document.setProperty("embed", embedded, PropertyType.EMBEDDED);
+
+    var res = serializer.toStream(session, document);
+    var entitySer = getEntitySerializer(res);
+    var encryption = PropertyEncryptionNone.instance();
+
+    var bytes = new BytesContainer(res).skip(1);
+    BinaryField bf = entitySer.deserializeField(
+        session, bytes, null, "embed", false, null, encryption);
+    assertNull("deserializeField should return null for non-binary-comparable type EMBEDDED", bf);
+    session.rollback();
+  }
+
+  /**
+   * deserializeField for a null-valued property should return null because a null
+   * value has zero field length in the binary format.
+   */
+  @Test
+  public void testDeserializeFieldNullValuedProperty() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("present", "yes");
+    document.setProperty("missing", null);
+
+    var res = serializer.toStream(session, document);
+    var entitySer = getEntitySerializer(res);
+    var encryption = PropertyEncryptionNone.instance();
+
+    var bytes = new BytesContainer(res).skip(1);
+    BinaryField bf = entitySer.deserializeField(
+        session, bytes, null, "missing", false, null, encryption);
+    assertNull("deserializeField should return null for null-valued property", bf);
+    session.rollback();
+  }
+
+  /**
+   * deserializeField for a non-existent field name should return null.
+   */
+  @Test
+  public void testDeserializeFieldNonExistentField() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("name", "test");
+
+    var res = serializer.toStream(session, document);
+    var entitySer = getEntitySerializer(res);
+    var encryption = PropertyEncryptionNone.instance();
+
+    var bytes = new BytesContainer(res).skip(1);
+    BinaryField bf = entitySer.deserializeField(
+        session, bytes, null, "noSuchField", false, null, encryption);
+    assertNull("deserializeField should return null for non-existent field", bf);
     session.rollback();
   }
 
