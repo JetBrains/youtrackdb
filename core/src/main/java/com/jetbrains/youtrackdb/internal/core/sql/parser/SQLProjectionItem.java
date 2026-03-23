@@ -242,7 +242,7 @@ public class SQLProjectionItem extends SimpleNode {
   }
 
   public boolean isExpand() {
-    return expression.isExpand();
+    return expression != null && expression.isExpand();
   }
 
   public SQLProjectionItem getExpandContent() {
