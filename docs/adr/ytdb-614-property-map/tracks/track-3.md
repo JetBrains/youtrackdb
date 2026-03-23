@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/2 complete)
+- [ ] Step implementation (1/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,13 +12,16 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step: Implement `hash32WithSeed(byte[], int, int, int)` in MurmurHash3
-  Standard MurmurHash3_x86_32 algorithm (reference: SMHasher MurmurHash3.cpp).
-  Single 32-bit state, 4-byte block processing, tail handling (0-3 bytes),
-  fmix32 finalization. Constants: c1=0xcc9e2d51, c2=0x1b873593, rotations 15/13,
-  fmix constants 0x85ebca6b/0xc2b2ae35. Include offset parameter for hashing
-  substrings without allocation (needed by Track 4 for BytesContainer property
-  names). Add JavaDoc referencing the algorithm.
+- [x] Step: Implement `hash32WithSeed(byte[], int, int, int)` in MurmurHash3
+  > **What was done:** Implemented standard MurmurHash3_x86_32 algorithm with
+  > offset parameter in `MurmurHash3.hash32WithSeed()`. Uses `Integer.rotateLeft()`
+  > for cleaner rotation intrinsics. Added 11 known-value tests covering empty
+  > input, all tail lengths (1-3 bytes), single block, multi-block, offset
+  > correctness, seed variation, and determinism. Verified against canonical
+  > reference test vectors (`empty/seed=0→0`, `{0,0,0,0}/seed=0→0x2362f9de`).
+  > Code review fix: split bounds assertion to prevent integer overflow.
+  >
+  > **Key files:** `MurmurHash3.java` (modified), `MurmurHash3Test.java` (modified)
 
 - [ ] Step: Add comprehensive known-value tests for `hash32WithSeed`
   Add test methods to `MurmurHash3Test` covering: empty input (seed=0 and
