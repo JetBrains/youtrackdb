@@ -237,7 +237,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: Strengthen partial deserialization test coverage
+- [x] Track 2: Strengthen partial deserialization test coverage
   > Add tests that form the behavioral contract for partial deserialization.
   > These tests run against V1 today and must pass unchanged against V2
   > once it is registered — they act as a safety net for the serializer
@@ -275,6 +275,17 @@ graph LR
   >
   > **Scope:** ~2-3 steps covering partial deserialization contract tests,
   > deserializeField tests, and edge case tests
+  >
+  > **Track episode:**
+  > Added 12 test methods to `EntitySchemalessBinarySerializationTest` forming
+  > a comprehensive behavioral contract for partial deserialization. Tests cover
+  > partial deserialization edge cases, `deserializeField()` for all 13
+  > binary-comparable types, `getFieldNames()` for schema-aware and mixed-mode
+  > entities, and a persist-reload `getProperty()` integration test. All tests
+  > are serializer-version-parameterized and will serve as the safety net for
+  > V2 implementation. No surprises or cross-track impact.
+  >
+  > **Step file:** `tracks/track-2.md` (2 steps, 0 failed)
 
 - [ ] Track 3: MurmurHash3 32-bit seeded variant
   > Add a 32-bit seeded hash method to the existing `MurmurHash3` class.
