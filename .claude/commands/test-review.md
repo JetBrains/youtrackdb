@@ -121,10 +121,9 @@ After all 5 agents complete, produce a unified review report. Do NOT simply conc
 1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a missing test for a concurrent crash scenario flagged by both concurrency and crash-safety), merge into one finding and note which dimensions it affects.
 
 2. **Prioritize**: Order findings by severity:
-   - **Critical** — tests that give false confidence, missing tests for dangerous code paths
-   - **High** — missing corner cases for critical code, weak assertions that could hide bugs
-   - **Medium** — recommended improvements (test data quality, readability, additional scenarios)
-   - **Low** — minor suggestions (naming, organization, optional edge cases)
+   - **blocker** — tests that give false confidence, missing tests for dangerous code paths
+   - **should-fix** — missing corner cases for critical code, weak assertions that could hide bugs
+   - **suggestion** — recommended improvements (test data quality, readability, additional scenarios, naming, organization, optional edge cases)
 
 3. **Attribute**: For each finding, indicate which review dimension(s) identified it.
 
@@ -138,29 +137,22 @@ After all 5 agents complete, produce a unified review report. Do NOT simply conc
 ### Overall Assessment
 [2-3 sentences: are tests meaningful and thorough? What are the main gaps?]
 
-### Critical Issues
+### Blockers
 [Tests that give false confidence or missing tests for dangerous code paths]
 
 1. **[Dimension]** `path/to/file.ext` (line X-Y)
    - **Issue**: ...
    - **Suggestion**: ...
 
-### High Priority
+### Should-Fix
 [Missing corner cases, weak assertions hiding real bugs]
 
 1. **[Dimension]** `path/to/file.ext` (line X-Y)
    - **Issue**: ...
    - **Suggestion**: ...
 
-### Medium Priority
-[Test data improvements, additional scenarios, readability]
-
-1. **[Dimension]** `path/to/file.ext` (line X-Y)
-   - **Issue**: ...
-   - **Suggestion**: ...
-
-### Low Priority
-[Minor naming, organization, optional edge cases]
+### Suggestions
+[Recommended improvements, test data quality, naming, optional edge cases]
 
 1. **[Dimension]** `path/to/file.ext` (line X-Y)
    - **Issue**: ...
@@ -177,5 +169,6 @@ If a priority level has no findings, omit it entirely.
 - **Always use `gh` CLI** for GitHub API calls, not WebFetch.
 - **All 5 agents must run in parallel** — do not wait for one before launching the next.
 - **Do not add your own review findings** — only synthesize what the agents report.
-- **Do not soften or dismiss agent findings** — if an agent flags something as critical, keep it critical unless another agent's context clearly contradicts it.
+- **Do not soften or dismiss agent findings** — if an agent flags something as a blocker, keep it as a blocker unless another agent's context clearly contradicts it.
 - **If the diff is very large** (>200 files or >5000 lines), warn the user and offer to review in batches.
+- **Standalone command**: This command uses the same dimensional test review agents as the Phase 3 workflow but with a different context structure (PR description and commit log instead of implementation plan and step file). Severity scale uses the same blocker/should-fix/suggestion levels as the workflow (see `conventions.md` §1.3).

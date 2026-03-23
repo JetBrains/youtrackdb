@@ -84,9 +84,9 @@ When the structural review passes, proceed to Phase 3 execution
 
 ---
 
-## Replanning (formerly Phase 4)
+## Replanning
 
-**Removed as a separate phase.** Replanning is now handled within Phase 3
+**Not a separate phase.** Replanning is handled within Phase 3
 by the execution agent's ESCALATE flow (see "Inline Replanning
 (ESCALATE)" in `workflow.md`).
 

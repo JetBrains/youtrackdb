@@ -20,7 +20,7 @@ flowchart TD
     P1["/create-plan\nPhase 1: Planning\nTracks + architecture notes\n+ design document"]
     P2["/review-plan\nPhase 2: Structural Review\nValidate plan structure\nMax 3 iterations"]
     P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
-    P4["/create-final-design\nPhase 4: Final Design Document\nPost-implementation design\nCompare planned vs actual"]
+    P4["Phase 4: Final Design Document\nPost-implementation design\nCompare planned vs actual"]
     DONE((Done))
 
     P1 --> P2
@@ -438,10 +438,7 @@ structural level, which major components are involved, and how they interact.>
 
 ## Checklist decomposition rules
 
-Checklist decomposition rules are defined in `conventions.md`. The key
-principles:
-
-- Each step = one commit
-- Each step = fully tested, self-contained, 85% line / 70% branch coverage
-- If a step touches more than ~3 files or does unrelated things, split it
-- Cross-cutting concerns are separate steps
+Step decomposition is deferred to Phase 3 execution (Phase A: review +
+decomposition). The canonical decomposition rules are in
+`conventions-execution.md` §2.6. During planning, focus on track-level
+descriptions and scope indicators — not step-level detail.

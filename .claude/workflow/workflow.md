@@ -17,7 +17,7 @@ The overall workflow has four stages:
 - **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document
 - **Phase 2 (Structural Review)**: `/review-plan` — validate plan structure
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Design Document)**: `/create-final-design` — produce post-implementation design document
+- **Phase 4 (Final Design Document)**: produce post-implementation design document (prompt: `prompts/create-final-design.md`)
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -570,7 +570,7 @@ phases `[x]` in the step file, track still `[ ]` in the plan file).
 
 After all tracks are complete, a **separate session** produces a final design
 document that reflects what was actually built. This runs in its own session
-via `/create-final-design` — the execution context is deliberately shed so
+using the `prompts/create-final-design.md` prompt — the execution context is deliberately shed so
 the final design is written from a fresh reading of the implemented code,
 not from stale implementation memories.
 
@@ -593,11 +593,11 @@ for:
 
 After the last track is marked `[x]` and its strategy refresh is complete
 (or there is no next track to refresh into), the workflow is done with
-Phase 3. The user starts a new session and runs `/create-final-design`.
+Phase 3. The user starts a new session for Phase 4.
 
 ### Process
 
-See the `/create-final-design` command for the full instructions. The
+See `prompts/create-final-design.md` for the full instructions. The
 session:
 
 1. Reads the implementation plan (with all track episodes), the original
@@ -632,4 +632,4 @@ For other workflow components, see:
 - **`track-code-review.md`** — Phase C: track-level code review
 - **`planning.md`** — Phase 1 (planning)
 - **`structural-review.md`** — Phase 2 (structural review)
-- **`/create-final-design`** — Phase 4 (final design document)
+- **`prompts/create-final-design.md`** — Phase 4 (final design document)

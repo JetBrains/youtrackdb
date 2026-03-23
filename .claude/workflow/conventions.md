@@ -17,7 +17,7 @@ during Phase 3 execution.
 | **Step** | A single atomic change = one commit. Fully tested. |
 | **Episode** | Structured record of what happened during a step or track. |
 | **Scope indicator** | Rough sketch of expected work in a track. |
-| **Session** | One invocation of `/execute-tracks`. Handles one track (or resumes an incomplete one). Sessions are separated by context clearing. Episodes bridge context across sessions. |
+| **Session** | One invocation of `/execute-tracks`. Handles one sub-phase (A, B, or C) of one track. Sessions are separated by context clearing. Episodes bridge context across sessions. The only exception: strategy refresh + Phase A share a single session. |
 | **Sub-agent** | A spawned agent for self-contained review tasks (technical/risk/adversarial reviews, dimensional code review agents, test quality review). Sub-agents provide fresh perspective; the main agent retains full context. |
 
 ---
@@ -94,8 +94,8 @@ See also `planning.md` §Scope indicators for planning-phase guidance.
 Every track must include a **Scope** line in its description block: a rough
 sketch of the expected work — approximate step count and a brief list of
 what they'd cover. Scope indicators are strategic signals, not tactical
-commitments. The review phase always does full step decomposition at
-execution time regardless.
+commitments. Phase A always does full step decomposition at execution
+time regardless.
 
 Format: `> **Scope:** ~N steps covering X, Y, Z`
 
@@ -104,9 +104,8 @@ Scope indicators serve three purposes:
    but describing 8 distinct changes) and ordering problems (scope of
    Track B implies a dependency on Track A's output).
 2. **Human reviewers** can quickly gauge relative effort across tracks.
-3. **Execution planning** — the review phase uses scope indicators as
-   a starting point for just-in-time step decomposition, not as a binding
-   contract.
+3. **Execution planning** — Phase A uses scope indicators as a starting
+   point for just-in-time step decomposition, not as a binding contract.
 
 **Rules:**
 - The planner should focus energy on track descriptions, architecture notes,

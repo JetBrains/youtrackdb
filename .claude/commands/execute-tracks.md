@@ -65,6 +65,6 @@ User interaction happens at specific points:
 - Step failure (2nd attempt): retry, adjust, or escalate
 
 Everything within a phase executes autonomously: Phase A runs reviews (as
-sub-agents) and decomposes steps; Phase B implements steps with code review
-iterations (code-reviewer sub-agent) and episode production; Phase C runs
-track-level code review (sub-agent).
+sub-agents) and decomposes steps; Phase B implements steps with dimensional
+review iterations (ten review sub-agents in parallel) and episode
+production; Phase C runs track-level dimensional review (ten sub-agents).

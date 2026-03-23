@@ -41,3 +41,6 @@ Severity guide:
 - blocker: Will likely cause execution failure or major rework
 - should-fix: Decision survives but rationale needs strengthening
 - suggestion: Interesting challenge but existing decision holds
+- skip: Track is no longer needed (adversarial analysis reveals the track
+  is redundant, the goals can be achieved without it, or prior tracks
+  made it obsolete)

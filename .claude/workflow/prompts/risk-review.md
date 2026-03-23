@@ -44,3 +44,5 @@ Severity guide:
 - blocker: High likelihood of failure with no obvious recovery
 - should-fix: Meaningful risk that should be mitigated
 - suggestion: Low-probability risk worth noting
+- skip: Track is no longer needed (risk assessment reveals the track is
+  redundant, infeasible, or superseded by prior track results)
