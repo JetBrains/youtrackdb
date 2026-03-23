@@ -501,8 +501,16 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   /**
    * Shuts down all running engines. Called from {@link #shutdown()} after all embedded
    * factory instances and storages have been closed by the shutdown handlers.
+   *
+   * <p>Engines are shut down here (centrally) rather than eagerly in
+   * {@link #onEmbeddedFactoryClose} because eager shutdown creates a race condition
+   * during parallel test execution: a thread may call {@code engine.createStorage()}
+   * between the moment another thread removes the last factory (shutting down the engine)
+   * and the moment the first thread registers its own factory. The engine's readCache
+   * becomes null during this window, causing DatabaseException.
    */
   private void shutdownEngines() {
+    assert !active : "shutdownEngines() called while manager is still active";
     for (var engine : engines.values()) {
       if (engine.isRunning()) {
         try {
@@ -1086,6 +1094,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
     factoryLifecycleLock.lock();
     try {
+      assert active : "onEmbeddedFactoryInit called on inactive manager";
       var memory = engines.get("memory");
       if (memory != null && !memory.isRunning()) {
         memory.startup();
@@ -1104,13 +1113,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     factoryLifecycleLock.lock();
     try {
       factories.remove(embeddedFactory);
-      // Engines are NOT shut down here even when factories become empty.
-      // Shutting down engines eagerly creates a race condition during parallel
-      // test execution: a thread may call engine.createStorage() between the
-      // moment another thread removes the last factory (shutting down the engine)
-      // and the moment the first thread registers its own factory. The engine
-      // readCache becomes null during this window, causing DatabaseException.
-      // Engines are shut down in shutdownEngines(), called from shutdown().
+      // Engines are shut down centrally in shutdownEngines(), not here —
+      // see its Javadoc for the race condition rationale.
     } finally {
       factoryLifecycleLock.unlock();
     }
