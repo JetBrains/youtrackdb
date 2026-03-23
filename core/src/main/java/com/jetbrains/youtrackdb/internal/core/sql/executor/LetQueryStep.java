@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -11,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -41,11 +43,49 @@ public class LetQueryStep extends AbstractExecutionStep {
   /** The subquery AST to execute for each record. */
   private final SQLStatement query;
 
+  /**
+   * A preview execution plan built lazily on first {@link #prettyPrint} call,
+   * used only for EXPLAIN display. The actual per-record execution builds a
+   * fresh plan in {@link #calculate} with the correct parent context
+   * ($parent.$current). Lazy initialization avoids the cost of planning the
+   * subquery during normal (non-EXPLAIN) execution.
+   */
+  private InternalExecutionPlan previewPlan;
+
   public LetQueryStep(
       SQLIdentifier varName, SQLStatement query, CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.varName = varName;
     this.query = query;
+  }
+
+  private LetQueryStep(
+      SQLIdentifier varName, SQLStatement query,
+      InternalExecutionPlan previewPlan, CommandContext ctx, boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.varName = varName;
+    this.query = query;
+    this.previewPlan = previewPlan;
+  }
+
+  /**
+   * Returns the preview execution plan, building it lazily on first access.
+   * The plan is never executed — it exists solely so that {@link #prettyPrint}
+   * can display the optimizer's decisions (class filters, index pre-filters,
+   * etc.) for the subquery.
+   */
+  private InternalExecutionPlan getPreviewPlan() {
+    if (previewPlan == null) {
+      var previewCtx = new BasicCommandContext();
+      previewCtx.setDatabaseSession(ctx.getDatabaseSession());
+      previewCtx.setParentWithoutOverridingChild(ctx);
+      if (query.toString().contains("?")) {
+        previewPlan = query.createExecutionPlanNoCache(previewCtx, profilingEnabled);
+      } else {
+        previewPlan = query.createExecutionPlan(previewCtx, profilingEnabled);
+      }
+    }
+    return previewPlan;
   }
 
   private ResultInternal calculate(ResultInternal result, CommandContext ctx) {
@@ -107,7 +147,34 @@ public class LetQueryStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
-    return spaces + "+ LET (for each record)\n" + spaces + "  " + varName + " = (" + query + ")";
+    return spaces
+        + "+ LET (for each record)\n"
+        + spaces
+        + "  "
+        + varName
+        + " = \n"
+        + box(spaces + "    ", getPreviewPlan().prettyPrint(0, indent));
+  }
+
+  @Override
+  public List<ExecutionPlan> getSubExecutionPlans() {
+    return Collections.singletonList(getPreviewPlan());
+  }
+
+  private String box(String spaces, String s) {
+    var rows = s.split("\n", -1);
+    var result = new StringBuilder();
+    result.append(spaces);
+    result.append("+-------------------------\n");
+    for (var row : rows) {
+      result.append(spaces);
+      result.append("| ");
+      result.append(row);
+      result.append("\n");
+    }
+    result.append(spaces);
+    result.append("+-------------------------");
+    return result.toString();
   }
 
   /** Cacheable: subquery AST is deep-copied per execution via {@link #copy}. */
@@ -120,6 +187,7 @@ public class LetQueryStep extends AbstractExecutionStep {
   public ExecutionStep copy(CommandContext ctx) {
     SQLIdentifier varNameCopy = null;
     SQLStatement queryCopy = null;
+    InternalExecutionPlan previewPlanCopy = null;
 
     if (varName != null) {
       varNameCopy = varName.copy();
@@ -127,7 +195,10 @@ public class LetQueryStep extends AbstractExecutionStep {
     if (query != null) {
       queryCopy = query.copy();
     }
+    if (previewPlan != null) {
+      previewPlanCopy = previewPlan.copy(ctx);
+    }
 
-    return new LetQueryStep(varNameCopy, queryCopy, ctx, profilingEnabled);
+    return new LetQueryStep(varNameCopy, queryCopy, previewPlanCopy, ctx, profilingEnabled);
   }
 }
