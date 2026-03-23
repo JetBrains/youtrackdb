@@ -1938,7 +1938,7 @@ Phase 5: Remove component-level read lock from happy path
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 9 fixes are self-contained; Track 10 small-cache tests will naturally validate them.
 
-- [ ] Track 10: Small disk cache eviction tests + CI job
+- [x] Track 10: Small disk cache eviction tests + CI job
   > Create the `test-small-cache` CI action/Maven profile that runs existing integration
   > tests (`BTreeTestIT`, `LocalPaginatedCollectionV2TestIT`, `FreeSpaceMapTestIT`,
   > `CollectionPositionMapV2Test`) with `diskCache.bufferSize=4` (4 MB) to exercise the
@@ -1946,6 +1946,21 @@ Phase 5: Remove component-level read lock from happy path
   > entry on Linux x86/JDK 21.
   > **Scope:** ~2-3 steps covering Maven profile setup, CI workflow entry, verification
   > **Depends on:** Track 8
+  >
+  > **Track episode:**
+  > Created `small-cache-it` Maven profile and CI job to exercise the optimistic read
+  > fallback path under extreme eviction pressure. The profile runs 4 existing integration
+  > test classes (sbtree/edgebtree BTreeTestIT, LocalPaginatedCollectionV2TestIT,
+  > FreeSpaceMapTestIT) with `diskCache.bufferSize=4` (4 MB, ~512 pages). Added
+  > `test-small-cache-linux` CI job on self-hosted Linux x86, JDK 21, 120-min timeout —
+  > runs as informational (not in `ci-status` gate), with Zulip failure notification.
+  > Key adaptation: parameterized BTree dataset sizes via system properties
+  > (`keysCount=10000`, `maxPower=14`) to keep tests under 4 minutes for CI, since
+  > full-size datasets took 90+ minutes with the tiny cache. Track-level code review
+  > (3 iterations) reduced cache from 16 MB to 4 MB and added property guards. All 271
+  > tests pass. No cross-track impact — this is the final track.
+  >
+  > **Step file:** `tracks/track-10.md` (3 steps, 0 failed)
 
 ## Testing Strategy
 
