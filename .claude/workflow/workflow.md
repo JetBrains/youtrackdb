@@ -268,6 +268,7 @@ work when context consumption is at `warning` level or above.
 Everything within a phase is fully autonomous **except design decisions**
 (choices affecting architecture, API shape, or behavioral semantics beyond
 what the plan prescribes — pause and ask with alternatives + trade-offs).
+**Full escalation protocol:** [`design-decision-escalation.md`](design-decision-escalation.md)
 
 User interaction points:
 
@@ -405,3 +406,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`inline-replanning.md`** — full ESCALATE replanning protocol
 - **`episode-format-reference.md`** — detailed episode format, rules, examples
 - **`design-document-rules.md`** — design document rules, examples, structure
+- **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
