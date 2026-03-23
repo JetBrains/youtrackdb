@@ -34,12 +34,17 @@ import org.junit.experimental.categories.Category;
 public class BTreeTestIT {
 
   /**
-   * Number of keys used in large-dataset tests. Override via system property
+   * Number of keys used in dataset-size-sensitive tests. Defaults to 1,000,000
+   * for full integration testing. Override via system property
    * {@code youtrackdb.test.btree.keysCount} to reduce dataset size for
-   * small-cache integration testing (e.g., 10_000 instead of 1_000_000).
+   * small-cache integration testing (e.g., 10,000 instead of 1,000,000).
    */
   private static final int KEYS_COUNT =
       Integer.getInteger("youtrackdb.test.btree.keysCount", 1_000_000);
+
+  static {
+    assert KEYS_COUNT > 0 : "youtrackdb.test.btree.keysCount must be positive, got " + KEYS_COUNT;
+  }
 
   private AtomicOperationsManager atomicOperationsManager;
   private BTree<String> singleValueTree;

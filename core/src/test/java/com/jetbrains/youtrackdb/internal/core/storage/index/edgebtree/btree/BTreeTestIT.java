@@ -46,13 +46,18 @@ public class BTreeTestIT {
   private static String buildDirectory;
 
   /**
-   * Maximum power of 2 for key counts. Override via system property
+   * Maximum power of 2 for key counts. Defaults to 20 (max 1,048,576 keys)
+   * for full integration testing. Override via system property
    * {@code youtrackdb.test.btree.maxPower} to reduce dataset sizes for
-   * small-cache integration testing (e.g., 14 → max 16384 keys instead of
-   * default 20 → max 1048576 keys).
+   * small-cache integration testing (e.g., 14 → max 16,384 keys).
    */
   private static final int MAX_POWER =
       Integer.getInteger("youtrackdb.test.btree.maxPower", 20);
+
+  static {
+    assert MAX_POWER >= 0 && MAX_POWER <= 30
+        : "youtrackdb.test.btree.maxPower must be in [0,30], got " + MAX_POWER;
+  }
 
   @Parameterized.Parameters
   public static Iterable<Integer> keysCount() {

@@ -163,7 +163,7 @@
             <artifactId>maven-failsafe-plugin</artifactId>
             <configuration>
               <systemPropertyVariables>
-                <youtrackdb.storage.diskCache.bufferSize>16
+                <youtrackdb.storage.diskCache.bufferSize>4
                 </youtrackdb.storage.diskCache.bufferSize>
                 <youtrackdb.test.env>ci</youtrackdb.test.env>
                 <!-- Reduce BTree dataset sizes for fast eviction testing -->
@@ -176,6 +176,8 @@
                 <include>**/index/sbtree/singlevalue/v3/BTreeTestIT.java</include>
                 <include>**/index/edgebtree/btree/BTreeTestIT.java</include>
                 <include>**/collection/v2/LocalPaginatedCollectionV2TestIT.java</include>
+                <!-- FreeSpaceMapTestIT: included for completeness; its small page
+                     count does not trigger eviction, so it tests correctness only. -->
                 <include>**/collection/v2/FreeSpaceMapTestIT.java</include>
               </includes>
             </configuration>
