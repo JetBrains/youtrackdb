@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/1 complete)
+- [x] Step implementation (1/1 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -12,14 +12,12 @@
 - [x] Technical
 
 ## Steps
-- [ ] Step: Move getFieldType() to RecordSerializerBinaryV1 and delete EntitySerializerDelta
-  > Move the `getFieldType(EntityEntry)` method from `EntitySerializerDelta` to
-  > `RecordSerializerBinaryV1` as a `private static` method. Update the call site
-  > at line 417 in `serializeValues()`. Delete `EntitySerializerDelta.java` and
-  > `EntitySerializerDeltaTest.java`. Run spotless and verify compilation and tests.
+- [x] Step: Move getFieldType() to RecordSerializerBinaryV1 and delete EntitySerializerDelta
+  > **What was done:** Moved `getFieldType(EntityEntry)` from `EntitySerializerDelta`
+  > to `RecordSerializerBinaryV1` as a `private static` method (narrowed from
+  > `protected static`). Updated the call site in `serializeValues()`. Deleted
+  > `EntitySerializerDelta.java` (1,472 lines) and `EntitySerializerDeltaTest.java`.
+  > All core tests pass.
   >
-  > **Files to modify:**
-  > - `RecordSerializerBinaryV1.java` — add `getFieldType()` as private static,
-  >   update call site to use local method, remove import of `EntitySerializerDelta`
-  > - `EntitySerializerDelta.java` — delete
-  > - `EntitySerializerDeltaTest.java` — delete
+  > **Key files:** `RecordSerializerBinaryV1.java` (modified),
+  > `EntitySerializerDelta.java` (deleted), `EntitySerializerDeltaTest.java` (deleted)
