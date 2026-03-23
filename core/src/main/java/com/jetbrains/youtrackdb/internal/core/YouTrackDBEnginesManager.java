@@ -1094,7 +1094,12 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
     factoryLifecycleLock.lock();
     try {
-      assert active : "onEmbeddedFactoryInit called on inactive manager";
+      // No assert on 'active' here: during first startup, startUp() assigns the
+      // volatile 'instance' field BEFORE calling startup() (which sets active=true).
+      // A concurrent thread calling instance() may return the not-yet-active manager
+      // and invoke this method before startup() completes. This is safe because
+      // the method starts engines that aren't running, which is correct regardless
+      // of the active flag.
       var memory = engines.get("memory");
       if (memory != null && !memory.isRunning()) {
         memory.startup();
