@@ -1268,7 +1268,8 @@ public class AtomicOperationSnapshotProxyTest {
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     // Simulate a write to page 10 — loadPageForWrite creates change tracking
     op.loadPageForWrite(5, 10, 1, false);
@@ -1293,7 +1294,8 @@ public class AtomicOperationSnapshotProxyTest {
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     long fid = op.addFile("test-new.dat");
 
@@ -1328,7 +1330,8 @@ public class AtomicOperationSnapshotProxyTest {
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     // Write a page to establish the file in fileChanges
     op.loadPageForWrite(5, 10, 1, false);
@@ -1354,7 +1357,8 @@ public class AtomicOperationSnapshotProxyTest {
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     long composedFileId = (1L << 32) | 7;
     op.deleteFile(composedFileId);
@@ -1376,7 +1380,8 @@ public class AtomicOperationSnapshotProxyTest {
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong());
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
     long fid = op.addFile("test-multi.dat");
 

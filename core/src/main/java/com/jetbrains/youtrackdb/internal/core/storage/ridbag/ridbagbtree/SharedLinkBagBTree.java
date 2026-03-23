@@ -120,7 +120,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return atomicOperationsManager.executeReadOperation(this,
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> findCurrentEntryOptimistic(
+              atomicOperation, ridBagId, targetCollection, targetPosition),
           () -> findCurrentEntryInternal(atomicOperation, ridBagId, targetCollection,
               targetPosition));
     } catch (final IOException e) {
@@ -183,6 +186,74 @@ public final class SharedLinkBagBTree extends DurableComponent {
         return checkEntryPrefix(
             siblingBucket, 0, ridBagId, targetCollection, targetPosition);
       }
+    }
+  }
+
+  /**
+   * Optimistic path for findCurrentEntry: traverses the B-tree using
+   * loadPageOptimistic() with per-level stamp validation, then performs the
+   * prefix match on the leaf (including right-sibling hop if needed).
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findCurrentEntryOptimistic(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    final var searchKey =
+        new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    var pageIndex = (long) ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var bucket = new Bucket(pageView);
+      final var index = bucket.find(searchKey, serializerFactory);
+
+      if (bucket.isLeaf()) {
+        final int candidateIndex = index >= 0 ? index : -index - 1;
+
+        if (candidateIndex < bucket.size()) {
+          return checkEntryPrefix(
+              bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
+        }
+
+        // Candidate is past the end of this leaf — check right sibling.
+        final long rightSibling = bucket.getRightSibling();
+        // Validate before following the sibling pointer.
+        scope.validateLastOrThrow();
+
+        if (rightSibling < 0) {
+          return null;
+        }
+
+        final var siblingView =
+            loadPageOptimistic(atomicOperation, fileId, rightSibling);
+        final var siblingBucket = new Bucket(siblingView);
+        if (siblingBucket.isEmpty()) {
+          return null;
+        }
+        return checkEntryPrefix(
+            siblingBucket, 0, ridBagId, targetCollection, targetPosition);
+      }
+
+      // Internal node — follow child pointer.
+      if (index >= 0) {
+        pageIndex = bucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= bucket.size()) {
+          pageIndex = bucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = bucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
     }
   }
 
@@ -310,28 +381,62 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var current = findCurrentEntryInternal(
-            atomicOperation, ridBagId, targetCollection, targetPosition);
-        if (current == null) {
-          // No B-tree entry at all — check snapshot index directly.
-          // This can happen if a concurrent transaction replaced an entry
-          // that was moved to the snapshot index and the new entry is also
-          // invisible.
-          final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
-          final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
-          return findVisibleSnapshotEntry(
-              ridBagId, targetCollection, targetPosition,
-              currentOperationTs, snapshot, atomicOperation);
-        }
-        return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> findVisibleEntryOptimistic(
+              atomicOperation, ridBagId, targetCollection, targetPosition),
+          () -> findVisibleEntryInternal(atomicOperation, ridBagId, targetCollection,
+              targetPosition));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during visible entry lookup in rid bag btree [" + getName() + "]"),
           e, storage.getName());
     }
+  }
+
+  /**
+   * Optimistic path for findVisibleEntry: uses the optimistic B-tree traversal
+   * for the prefix lookup, then performs in-memory visibility resolution.
+   * The visibility resolution (resolveVisibleEntry / findVisibleSnapshotEntry)
+   * operates on in-memory data structures, so no additional page I/O is needed.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleEntryOptimistic(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var current = findCurrentEntryOptimistic(
+        atomicOperation, ridBagId, targetCollection, targetPosition);
+    if (current == null) {
+      final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+      final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+      return findVisibleSnapshotEntry(
+          ridBagId, targetCollection, targetPosition,
+          currentOperationTs, snapshot, atomicOperation);
+    }
+    return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
+  }
+
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleEntryInternal(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) throws IOException {
+    final var current = findCurrentEntryInternal(
+        atomicOperation, ridBagId, targetCollection, targetPosition);
+    if (current == null) {
+      // No B-tree entry at all — check snapshot index directly.
+      // This can happen if a concurrent transaction replaced an entry
+      // that was moved to the snapshot index and the new entry is also
+      // invisible.
+      final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+      final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+      return findVisibleSnapshotEntry(
+          ridBagId, targetCollection, targetPosition,
+          currentOperationTs, snapshot, atomicOperation);
+    }
+    return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
   }
 
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
@@ -564,7 +669,6 @@ public final class SharedLinkBagBTree extends DurableComponent {
       updateSize(-1, atomicOperation);
     }
   }
-
 
   @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
