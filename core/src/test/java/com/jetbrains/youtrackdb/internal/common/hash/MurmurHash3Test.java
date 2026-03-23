@@ -284,4 +284,88 @@ public class MurmurHash3Test {
     long second = MurmurHash3.murmurHash3_x64_64(12345L, 42);
     assertThat(first).isEqualTo(second);
   }
+
+  // --- 32-bit seeded variant: hash32WithSeed(byte[], int, int, int) ---
+  // Reference test vectors verified against canonical MurmurHash3_x86_32.
+
+  @Test
+  public void hash32_emptyInputSeedZero_returnsZero() {
+    // Canonical reference: MurmurHash3_x86_32("", 0) = 0
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {}, 0, 0, 0)).isEqualTo(0);
+  }
+
+  @Test
+  public void hash32_fourZeroBytesSeedZero_returnsCanonicalValue() {
+    // Canonical reference: MurmurHash3_x86_32({0,0,0,0}, 0) = 0x2362f9de
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {0, 0, 0, 0}, 0, 4, 0))
+        .isEqualTo(0x2362f9de);
+  }
+
+  @Test
+  public void hash32_tailLength1() {
+    // 1 byte: exercises tail case 1 only
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {1}, 0, 1, 0)).isEqualTo(0xe45ad1ab);
+  }
+
+  @Test
+  public void hash32_tailLength2() {
+    // 2 bytes: exercises tail cases 2 → 1
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {1, 2}, 0, 2, 0)).isEqualTo(0x64c7667e);
+  }
+
+  @Test
+  public void hash32_tailLength3() {
+    // 3 bytes: exercises tail cases 3 → 2 → 1
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {1, 2, 3}, 0, 3, 0))
+        .isEqualTo(0x80d1d204);
+  }
+
+  @Test
+  public void hash32_exactlyOneBlock() {
+    // 4 bytes: exactly one 4-byte block, no tail
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {1, 2, 3, 4}, 0, 4, 0))
+        .isEqualTo(0x3e349da5);
+  }
+
+  @Test
+  public void hash32_oneBlockPlusTail() {
+    // 5 bytes: 1 block + 1 tail byte
+    assertThat(MurmurHash3.hash32WithSeed(new byte[] {1, 2, 3, 4, 5}, 0, 5, 0))
+        .isEqualTo(0xa291b9c8);
+  }
+
+  @Test
+  public void hash32_twoFullBlocks() {
+    // 8 bytes: 2 full blocks, no tail
+    assertThat(MurmurHash3.hash32WithSeed(
+        new byte[] {1, 2, 3, 4, 5, 6, 7, 8}, 0, 8, 0))
+        .isEqualTo(0x0d4b1fbb);
+  }
+
+  @Test
+  public void hash32_offsetHashesSubarray() {
+    // Hashing a subarray via offset must equal hashing the extracted subarray
+    byte[] padded = {99, 99, 1, 2, 3, 99, 99};
+    int hashWithOffset = MurmurHash3.hash32WithSeed(padded, 2, 3, 0);
+    int hashDirect = MurmurHash3.hash32WithSeed(new byte[] {1, 2, 3}, 0, 3, 0);
+    assertThat(hashWithOffset).isEqualTo(hashDirect);
+  }
+
+  @Test
+  public void hash32_differentSeedProducesDifferentResult() {
+    byte[] data = "Hello".getBytes();
+    int hash0 = MurmurHash3.hash32WithSeed(data, 0, data.length, 0);
+    int hash42 = MurmurHash3.hash32WithSeed(data, 0, data.length, 42);
+    assertThat(hash0).isEqualTo(316307400);
+    assertThat(hash42).isEqualTo(1466740371);
+    assertThat(hash0).isNotEqualTo(hash42);
+  }
+
+  @Test
+  public void hash32_deterministicResults() {
+    byte[] data = {1, 2, 3, 4, 5};
+    int first = MurmurHash3.hash32WithSeed(data, 0, data.length, 77);
+    int second = MurmurHash3.hash32WithSeed(data, 0, data.length, 77);
+    assertThat(first).isEqualTo(second);
+  }
 }
