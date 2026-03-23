@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -23,9 +23,12 @@
   >
   > **Key files:** `MurmurHash3.java` (modified), `MurmurHash3Test.java` (modified)
 
-- [ ] Step: Add comprehensive known-value tests for `hash32WithSeed`
-  Add test methods to `MurmurHash3Test` covering: empty input (seed=0 and
-  seed!=0), all tail lengths (1-3 bytes), exact 4-byte block, multi-block
-  inputs (5-8+ bytes), seed variation produces different output, offset
-  parameter correctness (hashing a subarray matches hashing the extracted
-  subarray). Verify test vectors against reference C implementation output.
+- [x] Step: Add comprehensive known-value tests for `hash32WithSeed`
+  > **What was done:** Added 22 test methods (17 initial + 5 from code review)
+  > forming the full regression safety net. Coverage includes: negative and extreme
+  > seeds (MIN_VALUE, MAX_VALUE, -1), all tail lengths with non-zero seed,
+  > multi-block inputs (12/13/14/15/16 bytes), high-byte-value data exercising
+  > `& 0xff` masking in both block and tail paths, offset with tail bytes, and
+  > typical property name strings locking in exact hash values for V2 serializer.
+  >
+  > **Key files:** `MurmurHash3Test.java` (modified)
