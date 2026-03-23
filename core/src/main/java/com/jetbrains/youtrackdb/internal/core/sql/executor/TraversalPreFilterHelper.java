@@ -177,6 +177,12 @@ public final class TraversalPreFilterHelper {
       return null;
     }
 
+    // O(1) up-front guard: skip iteration if the reverse link bag
+    // already exceeds the absolute cap.
+    if (linkBag.size() > maxRidSetSize()) {
+      return null;
+    }
+
     var ridSet = new RidSet();
     var count = 0;
     for (RidPair pair : linkBag) {
