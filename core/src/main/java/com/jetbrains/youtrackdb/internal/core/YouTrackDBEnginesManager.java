@@ -236,6 +236,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     // the other for eviction, auto-close, cron events, etc.
     scheduledPool = ThreadPoolExecutors.newScheduledThreadPool(
         "YouTrackDB Scheduler", threadGroup, 2);
+
+    // Register engines eagerly in the constructor so they are available before
+    // the singleton 'instance' reference is published via the volatile write in
+    // startUp(). Without this, a concurrent thread can observe a non-null
+    // 'instance' (assigned before startup()) but find an empty engines map,
+    // causing onEmbeddedFactoryInit() to skip engine startup — leading to
+    // "readCache is null" failures when createStorage() is called later.
+    registerEngines();
   }
 
   public boolean isInsideWebContainer() {
@@ -272,7 +280,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
           : new YouTrackDBEnginesManager(insideWebContainer);
       // Assign instance before startup() so that re-entrant calls to instance()
       // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
-      // in-progress object instead of returning null.
+      // in-progress object instead of returning null. Engine instances are already
+      // registered (in the constructor) so concurrent onEmbeddedFactoryInit() calls
+      // that observe this early publication will find engines in the map and can
+      // start them.
       instance = youTrack;
       YouTrackDBEnginesManager managerToShutdown = null;
       try {
@@ -346,7 +357,11 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         signalHandler.installDefaultSignals();
       }
 
-      registerEngines();
+      // Engines are registered eagerly in the constructor — not here — so they
+      // are available before the singleton 'instance' is published. Existing
+      // engine instances survive shutdown/restart: onEmbeddedFactoryInit()
+      // re-starts them on demand (EngineLocalPaginated.startup() creates a
+      // fresh readCache each time).
 
       if (GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP.getValueAsBoolean()) {
         dumpConfigurationToLog();
