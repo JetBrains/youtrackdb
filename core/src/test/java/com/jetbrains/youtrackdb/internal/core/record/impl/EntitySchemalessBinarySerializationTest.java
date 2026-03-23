@@ -16,7 +16,9 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
@@ -1058,6 +1060,176 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         session, bytes, null, "noSuchField", false, null, encryption);
     assertNull("deserializeField should return null for non-existent field", bf);
     session.rollback();
+  }
+
+  // --- Schema-aware and mixed-mode tests ---
+
+  /**
+   * getFieldNames for schema-aware properties: create a schema class with typed
+   * properties, serialize an entity with those properties, and verify getFieldNames
+   * returns all property names correctly. Schema-aware properties are encoded with
+   * global property IDs (negative varints) rather than inline field name strings.
+   */
+  @Test
+  public void testGetFieldNamesSchemaAware() {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("testGetFieldNamesSchemaAware", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+      try (var dbSession = (DatabaseSessionEmbedded) ytdb.open(
+          "testGetFieldNamesSchemaAware", "admin", "adminpwd")) {
+        var clazz = dbSession.createClass("SchemaAwareEntity");
+        clazz.createProperty("name", PropertyType.STRING);
+        clazz.createProperty("age", PropertyType.INTEGER);
+        clazz.createProperty("active", PropertyType.BOOLEAN);
+
+        dbSession.begin();
+        var document = (EntityImpl) dbSession.newEntity("SchemaAwareEntity");
+        document.setProperty("name", "Alice");
+        document.setProperty("age", 30);
+        document.setProperty("active", true);
+
+        var res = serializer.toStream(dbSession, document);
+        var fieldNames = serializer.getFieldNames(dbSession, document, res);
+
+        Assertions.assertThat(fieldNames)
+            .containsExactlyInAnyOrder("name", "age", "active");
+        dbSession.rollback();
+      }
+    }
+  }
+
+  /**
+   * getFieldNames for mixed entities: an entity with both schema-aware (global
+   * property ID encoded) and schema-less (inline name encoded) properties. Verifies
+   * that getFieldNames returns all names from both encoding modes.
+   */
+  @Test
+  public void testGetFieldNamesMixedSchemaAndSchemaless() {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("testGetFieldNamesMixed", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+      try (var dbSession = (DatabaseSessionEmbedded) ytdb.open(
+          "testGetFieldNamesMixed", "admin", "adminpwd")) {
+        var clazz = dbSession.createClass("MixedEntity");
+        clazz.createProperty("schemaName", PropertyType.STRING);
+        clazz.createProperty("schemaAge", PropertyType.INTEGER);
+
+        dbSession.begin();
+        var document = (EntityImpl) dbSession.newEntity("MixedEntity");
+        // Schema-aware properties (will use global property IDs)
+        document.setProperty("schemaName", "Bob");
+        document.setProperty("schemaAge", 25);
+        // Schema-less property (will use inline name encoding)
+        document.setProperty("extraField", "dynamic");
+
+        var res = serializer.toStream(dbSession, document);
+        var fieldNames = serializer.getFieldNames(dbSession, document, res);
+
+        Assertions.assertThat(fieldNames)
+            .containsExactlyInAnyOrder("schemaName", "schemaAge", "extraField");
+        dbSession.rollback();
+      }
+    }
+  }
+
+  /**
+   * deserializeField with schema-aware properties: serialize a schema-aware entity,
+   * call deserializeField with the real ImmutableSchema and non-null SchemaClass,
+   * and verify correct BinaryField for a binary-comparable typed property.
+   */
+  @Test
+  public void testDeserializeFieldSchemaAware() {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("testDeserializeFieldSchemaAware", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+      try (var dbSession = (DatabaseSessionEmbedded) ytdb.open(
+          "testDeserializeFieldSchemaAware", "admin", "adminpwd")) {
+        var clazz = dbSession.createClass("SchemaEntity");
+        clazz.createProperty("name", PropertyType.STRING);
+        clazz.createProperty("count", PropertyType.INTEGER);
+        clazz.createProperty("flag", PropertyType.BOOLEAN);
+
+        dbSession.begin();
+        var document = (EntityImpl) dbSession.newEntity("SchemaEntity");
+        document.setProperty("name", "test");
+        document.setProperty("count", 42);
+        document.setProperty("flag", true);
+
+        var res = serializer.toStream(dbSession, document);
+        var entitySer = getEntitySerializer(res);
+        var encryption = PropertyEncryptionNone.instance();
+        ImmutableSchema schema =
+            dbSession.getMetadata().getImmutableSchemaSnapshot();
+        SchemaClass schemaClass = schema.getClass("SchemaEntity");
+
+        // Test each schema-aware property via deserializeField
+        var bytes = new BytesContainer(res).skip(1);
+        BinaryField bf = entitySer.deserializeField(
+            dbSession, bytes, schemaClass, "name", false, schema, encryption);
+        assertNotNull("deserializeField returned null for schema-aware STRING field", bf);
+        assertEquals("name", bf.name);
+        assertEquals("STRING", bf.type.name());
+
+        bytes = new BytesContainer(res).skip(1);
+        bf = entitySer.deserializeField(
+            dbSession, bytes, schemaClass, "count", false, schema, encryption);
+        assertNotNull("deserializeField returned null for schema-aware INTEGER field", bf);
+        assertEquals("count", bf.name);
+        assertEquals("INTEGER", bf.type.name());
+
+        bytes = new BytesContainer(res).skip(1);
+        bf = entitySer.deserializeField(
+            dbSession, bytes, schemaClass, "flag", false, schema, encryption);
+        assertNotNull("deserializeField returned null for schema-aware BOOLEAN field", bf);
+        assertEquals("flag", bf.name);
+        assertEquals("BOOLEAN", bf.type.name());
+        dbSession.rollback();
+      }
+    }
+  }
+
+  /**
+   * Integration test: persist an entity to storage, reload it via session.load(rid),
+   * and call getProperty(name) for a single property. This exercises the full
+   * EntityImpl.checkForProperties(name) -> deserializePartial() path.
+   */
+  @Test
+  public void testGetPropertyTriggersPartialDeserialization() {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp")) {
+      ytdb.create("testGetPropertyPartial", DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+      try (var dbSession = (DatabaseSessionEmbedded) ytdb.open(
+          "testGetPropertyPartial", "admin", "adminpwd")) {
+        // Create a class so the entity can be persisted with a cluster
+        dbSession.createClass("PartialTestEntity");
+
+        // Persist an entity
+        dbSession.begin();
+        var document = (EntityImpl) dbSession.newEntity("PartialTestEntity");
+        document.setProperty("firstName", "Charlie");
+        document.setProperty("lastName", "Brown");
+        document.setProperty("score", 99);
+        var rid = document.getIdentity();
+        dbSession.commit();
+
+        // Reload the entity from storage — its properties are lazy-loaded
+        // from the serialized binary bytes, triggering partial deserialization
+        // when a single property is accessed via getProperty()
+        dbSession.begin();
+        var reloaded = (EntityImpl) dbSession.load(rid);
+        assertNotNull(reloaded);
+
+        // Access a single property — triggers deserializePartial
+        assertEquals("Charlie", reloaded.<Object>getProperty("firstName"));
+        assertEquals("Brown", reloaded.<Object>getProperty("lastName"));
+        assertEquals(99, (int) reloaded.<Integer>getProperty("score"));
+        dbSession.rollback();
+      }
+    }
   }
 
   private static class WrongData {
