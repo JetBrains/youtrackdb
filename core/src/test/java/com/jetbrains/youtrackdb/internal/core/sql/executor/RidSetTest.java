@@ -208,6 +208,75 @@ public class RidSetTest {
   // intersect — bitmap-level (non-overlapping positions in same collection)
   // =========================================================================
 
+  // =========================================================================
+  // cachedSize — consistency across add, remove, clear, duplicate add
+  // =========================================================================
+
+  /** size() tracks additions across multiple collection IDs. */
+  @Test
+  public void size_afterAdds_tracksCorrectly() {
+    var set = new RidSet();
+    assertThat(set.size()).isEqualTo(0);
+    set.add(new RecordId(10, 1));
+    assertThat(set.size()).isEqualTo(1);
+    set.add(new RecordId(20, 1));
+    assertThat(set.size()).isEqualTo(2);
+    set.add(new RecordId(10, 2));
+    assertThat(set.size()).isEqualTo(3);
+  }
+
+  /** Duplicate add does not increment size. */
+  @Test
+  public void size_duplicateAdd_doesNotIncrement() {
+    var set = new RidSet();
+    set.add(new RecordId(10, 1));
+    set.add(new RecordId(10, 1));
+    assertThat(set.size()).isEqualTo(1);
+  }
+
+  /** Remove decrements size. */
+  @Test
+  public void size_afterRemove_decrements() {
+    var set = new RidSet();
+    set.add(new RecordId(10, 1));
+    set.add(new RecordId(10, 2));
+    set.remove(new RecordId(10, 1));
+    assertThat(set.size()).isEqualTo(1);
+  }
+
+  /** Removing a non-existent element does not change size. */
+  @Test
+  public void size_removeNonExistent_unchanged() {
+    var set = new RidSet();
+    set.add(new RecordId(10, 1));
+    set.remove(new RecordId(10, 99));
+    assertThat(set.size()).isEqualTo(1);
+  }
+
+  /** Clear resets size to 0. */
+  @Test
+  public void size_afterClear_isZero() {
+    var set = new RidSet();
+    set.add(new RecordId(10, 1));
+    set.add(new RecordId(20, 2));
+    set.clear();
+    assertThat(set.size()).isEqualTo(0);
+  }
+
+  /** size() tracks negative RIDs correctly. */
+  @Test
+  public void size_negativeRids_trackedCorrectly() {
+    var set = new RidSet();
+    set.add(new RecordId(-1, 1));
+    assertThat(set.size()).isEqualTo(1);
+    set.add(new RecordId(-1, 1));
+    assertThat(set.size()).isEqualTo(1);
+    set.add(new RecordId(-1, 2));
+    assertThat(set.size()).isEqualTo(2);
+    set.remove(new RecordId(-1, 1));
+    assertThat(set.size()).isEqualTo(1);
+  }
+
   @Test
   public void intersect_sameCollectionNoOverlappingPositions_returnsEmpty() {
     var a = new RidSet();

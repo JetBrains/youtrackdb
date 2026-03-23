@@ -319,4 +319,143 @@ public class EdgeTraversalCacheTest {
 
     assertThat(desc.cacheKey(ctx)).isEqualTo(desc.cacheKey(ctx));
   }
+
+  // =========================================================================
+  // addIntersectionDescriptor — accumulation and Composite wrapping
+  // =========================================================================
+
+  /**
+   * Adding a single descriptor sets it directly (no Composite wrapper).
+   */
+  @Test
+  public void addIntersectionDescriptor_single_setsDirectly() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    et.addIntersectionDescriptor(desc);
+
+    assertThat(et.getIntersectionDescriptor()).isSameAs(desc);
+  }
+
+  /**
+   * Adding a second descriptor wraps both in a Composite.
+   */
+  @Test
+  public void addIntersectionDescriptor_two_createsComposite() {
+    var et = createEdgeTraversal();
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    et.addIntersectionDescriptor(desc1);
+    et.addIntersectionDescriptor(desc2);
+
+    assertThat(et.getIntersectionDescriptor())
+        .isInstanceOf(RidFilterDescriptor.Composite.class);
+    var composite = (RidFilterDescriptor.Composite) et.getIntersectionDescriptor();
+    assertThat(composite.descriptors()).containsExactly(desc1, desc2);
+  }
+
+  // =========================================================================
+  // Composite — resolve and cacheKey
+  // =========================================================================
+
+  /**
+   * Composite.resolve() intersects the results of both descriptors.
+   */
+  @Test
+  public void composite_resolve_intersectsResults() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+
+    var set1 = new RidSet();
+    set1.add(new RecordId(10, 1));
+    set1.add(new RecordId(10, 2));
+
+    var set2 = new RidSet();
+    set2.add(new RecordId(10, 2));
+    set2.add(new RecordId(10, 3));
+
+    when(desc1.resolve(any())).thenReturn(set1);
+    when(desc2.resolve(any())).thenReturn(set2);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    var result = composite.resolve(new BasicCommandContext());
+
+    assertThat(result).isNotNull();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.contains(new RecordId(10, 2))).isTrue();
+  }
+
+  /**
+   * Composite.resolve() returns the other set when one descriptor
+   * returns null (cap exceeded).
+   */
+  @Test
+  public void composite_resolve_oneNull_returnsOther() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+
+    var set1 = singletonRidSet(10, 1);
+    when(desc1.resolve(any())).thenReturn(set1);
+    when(desc2.resolve(any())).thenReturn(null);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    var result = composite.resolve(new BasicCommandContext());
+
+    assertThat(result).isSameAs(set1);
+  }
+
+  /**
+   * Composite.cacheKey() returns a list of the inner descriptors' keys.
+   */
+  @Test
+  public void composite_cacheKey_returnsList() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    var key1 = new RecordId(5, 1);
+    var key2 = new RecordId(5, 2);
+    when(desc1.cacheKey(any())).thenReturn(key1);
+    when(desc2.cacheKey(any())).thenReturn(key2);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    var key = composite.cacheKey(new BasicCommandContext());
+
+    assertThat(key).isEqualTo(java.util.List.of(key1, key2));
+  }
+
+  // =========================================================================
+  // Multi-entry cache — multiple distinct keys are retained
+  // =========================================================================
+
+  /**
+   * The multi-entry cache retains results for multiple distinct keys,
+   * avoiding redundant resolve() calls when keys recur.
+   */
+  @Test
+  public void resolveWithCache_multipleKeys_allCached() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key1 = new RecordId(5, 1);
+    var key2 = new RecordId(5, 2);
+    var ridSet1 = singletonRidSet(10, 1);
+    var ridSet2 = singletonRidSet(10, 2);
+
+    when(desc.cacheKey(any()))
+        .thenReturn(key1, key2, key1, key2);
+    when(desc.resolve(any()))
+        .thenReturn(ridSet1, ridSet2);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // First calls — cache misses
+    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet1);
+    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet2);
+    // Second calls — cache hits
+    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet1);
+    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet2);
+
+    // resolve() called only twice (once per unique key)
+    verify(desc, times(2)).resolve(any());
+  }
 }
