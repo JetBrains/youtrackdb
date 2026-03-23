@@ -234,6 +234,8 @@ graph LR
   > Straightforward cleanup with no surprises or cross-track impact.
   >
   > **Step file:** `tracks/track-1.md` (1 step, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: Strengthen partial deserialization test coverage
   > Add tests that form the behavioral contract for partial deserialization.
