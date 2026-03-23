@@ -69,7 +69,7 @@ jobs:
     name: Linux ${{ matrix.arch }} - JDK ${{ matrix.java }} - ${{ matrix.distribution }}
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true'
-    runs-on: [ self-hosted, in-nbg1, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
+    runs-on: [ self-hosted, '${{ matrix.arch == ''x86'' && ''type-cpx42'' || ''type-cax31'' }}',
                'image-${{ matrix.arch == ''x86'' && ''x86-system'' || ''arm-system'' }}-ubuntu-24.04',
                volume-cache ]
     strategy:
