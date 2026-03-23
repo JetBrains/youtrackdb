@@ -473,6 +473,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       weakShutdownListeners.clear();
       weakStartupListeners.clear();
 
+      shutdownEngines();
+
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
 
@@ -494,6 +496,23 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
 
     return this;
+  }
+
+  /**
+   * Shuts down all running engines. Called from {@link #shutdown()} after all embedded
+   * factory instances and storages have been closed by the shutdown handlers.
+   */
+  private void shutdownEngines() {
+    for (var engine : engines.values()) {
+      if (engine.isRunning()) {
+        try {
+          engine.shutdown();
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error shutting down engine '%s'", e,
+              engine.getName());
+        }
+      }
+    }
   }
 
   public boolean isActive() {
@@ -1058,9 +1077,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  // Guards init/close to prevent TOCTOU races where a concurrent close
-  // sees an empty factories set (between remove and add) and shuts down engines
-  // while another thread is still initializing or using them.
+  // Guards engine startup in onEmbeddedFactoryInit to prevent concurrent startups
+  // and ensure the factory is registered atomically with the engine-running check.
+  // Also serializes factory-set mutations between init and close.
   // Uses ReentrantLock instead of synchronized to be virtual-thread friendly.
   private final ReentrantLock factoryLifecycleLock = new ReentrantLock();
 
@@ -1085,16 +1104,13 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     factoryLifecycleLock.lock();
     try {
       factories.remove(embeddedFactory);
-      if (factories.isEmpty()) {
-        var memory = engines.get("memory");
-        if (memory != null && memory.isRunning()) {
-          memory.shutdown();
-        }
-        var disc = engines.get("disk");
-        if (disc != null && disc.isRunning()) {
-          disc.shutdown();
-        }
-      }
+      // Engines are NOT shut down here even when factories become empty.
+      // Shutting down engines eagerly creates a race condition during parallel
+      // test execution: a thread may call engine.createStorage() between the
+      // moment another thread removes the last factory (shutting down the engine)
+      // and the moment the first thread registers its own factory. The engine
+      // readCache becomes null during this window, causing DatabaseException.
+      // Engines are shut down in shutdownEngines(), called from shutdown().
     } finally {
       factoryLifecycleLock.unlock();
     }
