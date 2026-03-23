@@ -197,8 +197,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Override
-  @Nullable
-  public BinaryField deserializeField(
+  @Nullable public BinaryField deserializeField(
       DatabaseSessionEmbedded session, final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
@@ -414,7 +413,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
       final PropertyTypeInternal type;
       if (value != null) {
-        type = EntitySerializerDelta.getFieldType(field.getValue());
+        type = getFieldType(field.getValue());
         if (type == null) {
           throw new SerializationException(session.getDatabaseName(),
               "Impossible serialize value of type "
@@ -524,8 +523,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     serializeEntity(session, entity, bytes, clazz, schema, encryption);
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
@@ -1079,7 +1077,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case LINKMAP ->
           pointer = writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
       case EMBEDDEDMAP ->
-          pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
+          pointer =
+              writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
       case LINKBAG -> pointer = writeLinkBag(session, bytes, (LinkBag) value);
     }
     return pointer;
@@ -1142,8 +1141,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return value;
   }
 
-  @Nullable
-  protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded db,
+  @Nullable protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -1166,8 +1164,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
-  @Nullable
-  protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded db,
+  @Nullable protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -1198,5 +1195,19 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   @Override
   public BinaryComparator getComparator() {
     return comparator;
+  }
+
+  private static PropertyTypeInternal getFieldType(final EntityEntry entry) {
+    var type = entry.type;
+    if (type == null) {
+      final var prop = entry.property;
+      if (prop != null) {
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+      }
+    }
+    if (type == null) {
+      type = PropertyTypeInternal.getTypeByValue(entry.value);
+    }
+    return type;
   }
 }
