@@ -364,6 +364,20 @@ jobs:
             **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
+      - name: Send Zulip notification on failure
+        if: failure()
+        uses: zulip/github-actions-zulip/send-message@v1
+        with:
+          api-key: ${{ secrets.ZULIP_API_KEY }}
+          email: ci-status-bot@youtrackdb.zulipchat.com
+          organization-url: 'https://youtrackdb.zulipchat.com'
+          to: 'ytdb'
+          type: 'stream'
+          topic: 'ci status'
+          content: |
+            **SMALL CACHE IT FAILED** :rotating_light:
+            Small cache integration tests failed on `${{ github.head_ref || github.ref_name }}` for commit ${{ github.sha }}.
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
   # ------------------------------------------------------------------
   # JOB 3: COVERAGE GATE
