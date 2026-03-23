@@ -27,6 +27,7 @@ public class RidSet implements Set<RID> {
 
   protected final Int2ObjectOpenHashMap<Roaring64Bitmap> content;
   protected final Set<RID> negatives;
+  private int cachedSize;
 
   public RidSet() {
     content = new Int2ObjectOpenHashMap<>();
@@ -42,11 +43,7 @@ public class RidSet implements Set<RID> {
 
   @Override
   public int size() {
-    long total = negatives.size();
-    for (var bitmap : content.values()) {
-      total += bitmap.getLongCardinality();
-    }
-    return total <= Integer.MAX_VALUE ? (int) total : Integer.MAX_VALUE;
+    return cachedSize;
   }
 
   @Override
@@ -115,7 +112,11 @@ public class RidSet implements Set<RID> {
     var collection = identifiable.getCollectionId();
     var position = identifiable.getCollectionPosition();
     if (collection < 0 || position < 0) {
-      return negatives.add(identifiable);
+      if (negatives.add(identifiable)) {
+        cachedSize++;
+        return true;
+      }
+      return false;
     }
 
     var bitmap = content.get(collection);
@@ -127,6 +128,7 @@ public class RidSet implements Set<RID> {
     var existed = bitmap.contains(position);
     if (!existed) {
       bitmap.addLong(position);
+      cachedSize++;
     }
     return !existed;
   }
@@ -139,7 +141,11 @@ public class RidSet implements Set<RID> {
     var collection = identifiable.getCollectionId();
     var position = identifiable.getCollectionPosition();
     if (collection < 0 || position < 0) {
-      return negatives.remove(o);
+      if (negatives.remove(o)) {
+        cachedSize--;
+        return true;
+      }
+      return false;
     }
 
     var bitmap = content.get(collection);
@@ -150,6 +156,7 @@ public class RidSet implements Set<RID> {
     var existed = bitmap.contains(position);
     if (existed) {
       bitmap.removeLong(position);
+      cachedSize--;
       if (bitmap.isEmpty()) {
         content.remove(collection);
       }
@@ -198,6 +205,7 @@ public class RidSet implements Set<RID> {
   public void clear() {
     content.clear();
     negatives.clear();
+    cachedSize = 0;
   }
 
   /**
@@ -238,6 +246,13 @@ public class RidSet implements Set<RID> {
         result.negatives.add(rid);
       }
     }
+
+    // Compute cached size from the freshly built bitmaps (done once).
+    long total = result.negatives.size();
+    for (var bitmap : result.content.values()) {
+      total += bitmap.getLongCardinality();
+    }
+    result.cachedSize = total <= Integer.MAX_VALUE ? (int) total : Integer.MAX_VALUE;
 
     return result;
   }
