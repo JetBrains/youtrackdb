@@ -5,7 +5,7 @@ Read these workflow documents in order before starting:
    glossary, plan file structure, scope indicators, review iteration protocol
 2. `.claude/workflow/conventions-execution.md` — execution-specific:
    episode formats, commit format, code review, complexity tiers,
-   checklist decomposition rules, session state detection, step file content
+   checklist decomposition rules, step file content
 3. `.claude/workflow/workflow.md` — session lifecycle,
    startup protocol (auto-resume), strategy refresh, cross-track impact
    monitoring, session boundary rules, failure handling, inline replanning
@@ -19,6 +19,12 @@ After determining which phase to execute, load the phase-specific document:
 Do NOT load phase documents you won't use this session. Prompt files
 (in `.claude/workflow/prompts/`) are read only when spawning the specific
 sub-agent that needs them — do not pre-load them into the main session.
+
+On-demand reference documents (load only when the situation arises):
+- `strategy-refresh.md` — load when entering State A (strategy refresh)
+- `inline-replanning.md` — load when ESCALATE triggers
+- `episode-format-reference.md` — load when writing your first episode
+- `design-document-rules.md` — not needed during Phase 3
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name

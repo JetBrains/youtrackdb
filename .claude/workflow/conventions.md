@@ -89,8 +89,6 @@ extra complexity.
 
 ### Scope indicators (required)
 
-See also `planning.md` §Scope indicators for planning-phase guidance.
-
 Every track must include a **Scope** line in its description block: a rough
 sketch of the expected work — approximate step count and a brief list of
 what they'd cover. Scope indicators are strategic signals, not tactical

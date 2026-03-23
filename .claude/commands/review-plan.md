@@ -25,9 +25,9 @@ Review output directory: docs/adr/<dir-name>/reviews/
 Steps:
 1. Read the plan file, the design document, and the workflow documents
    (conventions.md and structural-review.md). Also consult `planning.md`
-   §Architecture Notes format and §Design Document for the rules the
-   structural review validates against (architecture notes, design document,
-   track descriptions, scope indicators, track sizing).
+   §Architecture Notes format and `design-document-rules.md` for the rules
+   the structural review validates against (architecture notes, design
+   document, track descriptions, scope indicators, track sizing).
 2. Spawn the structural review sub-agent with the prompt from
    `.claude/workflow/prompts/structural-review.md`. Pass the workflow
    directory path (`.claude/workflow/`) and the design document path so

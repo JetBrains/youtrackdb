@@ -93,35 +93,26 @@ perspective on cross-track impact.
    - `[x]` — completed
    - `[~]` — skipped
 
-3. **Determine session state** using the detection rules in conventions.md
-   §Session state detection:
+3. **Determine session state** from the plan file and step files:
 
-   **State A — Track just completed (needs strategy refresh):**
-   The last `[x]` track has a track episode but no `**Strategy refresh:**`
-   line. Perform strategy refresh first (see Strategy Refresh below), then
-   proceed to Phase A of the next track.
+   | Plan file state | Step file state | Session state |
+   |---|---|---|
+   | Last `[x]` track has episode but no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
+   | All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
+   | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
+   | All tracks `[x]` or `[~]` | — | **Done** |
 
-   **State B — Fresh start on next track:**
-   All `[x]` tracks have strategy refresh lines (or no tracks are completed
-   yet). The next `[ ]` track has no step file. Begin Phase A (review +
-   decomposition). **This session handles Phase A only** — end the session
-   after writing the step file.
+   **State C sub-states** (from step file Progress section):
 
-   **State C — Mid-track resume (step file exists):**
-   A `[ ]` track has a step file. Read the **Progress** section in the step
-   file to determine the exact resume point. **Each resume handles exactly
-   one phase:**
-   - `Review + decomposition` is `[ ]` → resume Phase A (check **Reviews
-     completed** section, re-run only missing reviews, then decompose steps).
-     End session after Phase A completes.
-   - `Review + decomposition` is `[x]`, steps incomplete → run Phase B
-     (step implementation). End session after Phase B completes (all steps
-     done, or mid-track checkpoint reached).
-   - All steps `[x]`, `Track-level code review` is `[ ]` → run Phase C
-     (track-level code review). End session after Phase C completes.
-   - All phases `[x]` → enter Track Completion Protocol: compile track
-     episode, present results to user, write to plan file only after
-     user approval.
+   | Progress section | Resume action |
+   |---|---|
+   | `Review + decomposition` is `[ ]` | Re-run only missing reviews, then decompose |
+   | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
+   | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
+   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration |
+   | All phases `[x]` | Track completion — compile episode, present to user for approval |
+
+   Each resume handles exactly **one phase** — end session after that phase.
 
 4. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why
@@ -136,67 +127,10 @@ perspective on cross-track impact.
 
 ## Strategy Refresh
 
-Triggered at the **start of a new session** when the previous session
-completed a track (State A above).
+Triggered at State A (track just completed). Produces a CONTINUE / ADJUST /
+ESCALATE assessment. Strategy refresh + Phase A share a single session.
 
-### Process
-
-1. **Read the full plan** with all track episodes accumulated so far.
-
-2. **Assess remaining tracks** against accumulated discoveries:
-   - Do any track episodes contradict assumptions in upcoming tracks?
-   - Has the Component Map changed in ways affecting remaining tracks?
-   - Are any Decision Records weakened by what was learned?
-   - Are there new dependencies between tracks not in the original plan?
-
-3. **Produce a strategy refresh report** (presented to the user, not
-   persisted):
-
-   ```markdown
-   ### Strategy Refresh — After Track <N>
-
-   **Episodes reviewed**: <count>
-   **Discoveries with downstream impact**: <list or "none">
-
-   **Assessment**: CONTINUE | ADJUST | ESCALATE
-
-   **Adjustments** (if any):
-   - Track M: description needs to account for <discovery>
-   - Track P: constraint X no longer applies because <reason>
-
-   **Rationale**: <brief explanation of why this assessment was chosen>
-   ```
-
-4. **Present the report to the user.** Wait for the user's decision:
-
-   - **CONTINUE** — no issues found. Proceed to the next track.
-
-   - **ADJUST** — minor fixes needed. Apply adjustments to the plan file
-     (update track descriptions, reorder if needed), then proceed to the
-     next track. Adjustments must be small and targeted.
-
-     **ADJUST must NOT modify Decision Records.** Decision Records are
-     immutable during normal execution — they can only be revised via
-     ESCALATE, which triggers inline replanning and structural review
-     of the revised plan (see Inline Replanning below). If a discovery
-     invalidates a Decision Record, that is an automatic ESCALATE.
-
-   - **ESCALATE** — accumulated discoveries have fundamentally changed the
-     picture. Enter inline replanning (see Inline Replanning below).
-
-5. **Write the `**Strategy refresh:**` line** to the plan file under the
-   completed track's block (see conventions-execution.md §After strategy refresh for
-   format). For CONTINUE, a one-liner suffices. For ADJUST, include a brief
-   summary of what was adjusted. ESCALATE does not write a strategy refresh
-   line — it triggers replanning which restructures the plan directly.
-
-6. **Proceed** to Phase A of the next track in the same session.
-
-   **Note:** Strategy refresh + Phase A share a single session — this is
-   the only exception to mandatory phase boundaries. Strategy refresh is
-   lightweight (no code reading, no implementation) and its output directly
-   informs Phase A decomposition. After Phase A completes, end the session
-   as usual.
+**Full protocol:** [`strategy-refresh.md`](strategy-refresh.md)
 
 ---
 
@@ -271,21 +205,6 @@ exactly one phase:
   or above, finish the current unit of work, save progress, and end the
   session.
 
-### Why mandatory phase boundaries
-
-Each phase has a distinct cognitive mode:
-- **Phase A** is exploratory — reading code, validating assumptions,
-  planning steps. The codebase knowledge is useful but the "reviewer
-  mindset" context is not helpful during implementation.
-- **Phase B** is productive — writing code, running tests, iterating on
-  fixes. The accumulated implementation detail would bias the code reviewer.
-- **Phase C** is evaluative — reviewing the full diff with fresh eyes,
-  catching systematic issues. Fresh context is essential for objective review.
-
-Mixing phases in one session dilutes focus and carries stale context
-forward. Episodes bridge what matters across sessions; everything else is
-deliberately shed.
-
 ### Context Consumption Check
 
 At the end of each intermediate action within a phase (i.e., after every
@@ -332,25 +251,6 @@ yet.
 This is **mandatory** — the agent must not continue to the next unit of
 work when context consumption is at `warning` level or above.
 
-### What persists across phase boundaries
-
-The step file bridges context between sessions:
-- **Progress section** — which sub-phases are complete
-- **Reviews completed** — which reviews ran and their outcomes
-- **Step episodes** — what was discovered and implemented
-- **Review files** — full review findings in `reviews/track-N-*.md`
-- **Base commit + git log** — when resuming Phase B, orphan commits
-  (code committed but no episode) are detected by comparing git log
-  against step episodes (see step-implementation.md §Phase B Resume)
-
-Deliberately NOT carried forward (shed with the session):
-- Implementation context (variable names, debugging history, workaround
-  decisions) — Phase C needs fresh eyes for objective review
-- Reviewer context (exploration notes, plan assumption reasoning) —
-  Phase B needs focus on the code, not planning rationale
-- Code review context (step-level review findings, fix iterations) —
-  Phase C does systematic cross-step review, not localized fixes
-
 ### What to do before ending a session
 
 - Ensure all code changes are committed
@@ -365,7 +265,11 @@ Deliberately NOT carried forward (shed with the session):
 
 ## User Interaction Model
 
-User interaction is minimal and happens at specific points:
+Everything within a phase is fully autonomous **except design decisions**
+(choices affecting architecture, API shape, or behavioral semantics beyond
+what the plan prescribes — pause and ask with alternatives + trade-offs).
+
+User interaction points:
 
 | When | What you present | What the user decides |
 |---|---|---|
@@ -375,49 +279,7 @@ User interaction is minimal and happens at specific points:
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
 | **Track complete** | Track episode, step episodes, git log of commits | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
-| **Design decision needed** | What the decision is, alternatives considered, trade-offs, recommendation | Choose an alternative or provide guidance |
-
-### What does NOT involve the user
-
-Everything within a phase session is fully autonomous **except design
-decisions**:
-
-- Phase A: track reviews (as sub-agents), step decomposition
-- Phase B: step implementation, testing, coverage, step-level code review
-  iterations (up to 3 per step), episode production, within-track adaptation
-- Phase C: track-level code review (up to 3 iterations)
-- Cross-track impact checks (unless impact is detected)
-
-### Design decision escalation
-
-During step implementation (Phase B), the agent may encounter situations
-where the code requires a **design decision** — a choice between
-alternatives that affects architecture, public API shape, data structures,
-algorithms, or behavioral semantics beyond what the plan specifies.
-
-**When to pause and ask the user:**
-- The plan does not prescribe the specific approach and multiple valid
-  alternatives exist with different trade-offs
-- The choice affects public API surface or behavioral contracts
-- The decision has implications beyond the current step or track
-- The implementation reveals that the planned approach has multiple
-  viable interpretations
-- A new abstraction, interface, or data structure needs to be introduced
-  that wasn't anticipated in the plan
-
-**How to present the decision:**
-1. Describe the context — what you're implementing and where the decision
-   point arose
-2. List the alternatives (at least 2) with concrete trade-offs for each
-3. State your recommendation with rationale
-4. Wait for user guidance before proceeding
-
-**What is NOT a design decision** (handle autonomously):
-- Mechanical code changes with one obvious approach
-- Naming choices that follow existing codebase conventions
-- Test structure and test case selection
-- Code review fix iterations
-- Implementation details fully prescribed by the plan or Decision Records
+| **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
 
 ---
 
@@ -454,68 +316,12 @@ If a failure undermines the track's overall approach (not just one step):
 
 ## Inline Replanning (ESCALATE)
 
-When strategy refresh produces ESCALATE, you handle replanning directly —
-you have all the context: every track episode, the full plan file, and
-architecture notes.
+Triggers when strategy refresh is ESCALATE, an ADJUST would modify Decision
+Records, cross-track impact detects fundamental assumption failure, or the
+user requests "fundamental rework." Stops all new steps and enters a
+propose → review → iterate cycle.
 
-### When ESCALATE triggers
-
-- Strategy refresh assessment is ESCALATE
-- An ADJUST would require modifying Decision Records (automatic ESCALATE)
-- Cross-track impact monitoring detects a fundamental assumption failure
-- A step failure affects the track's approach at a level additional commits
-  cannot fix
-- User requests escalation during track review ("fundamental rework")
-
-### Process
-
-**1. Stop** — do not start new steps.
-
-**2. Assess** — present the full situation to the user:
-
-- All track episodes so far (completed tracks)
-- Partial progress from any incomplete track (step episodes)
-- What assumptions broke and why
-- Which remaining tracks are affected and how
-- What Decision Records are weakened or invalidated
-
-**3. Propose** — draft a revised plan:
-
-- New or modified tracks for remaining work
-- Updated architecture notes (Component Map, Decision Records with revision
-  notes, Invariants, Integration Points)
-- Reordered dependencies based on what was learned
-- Removed tracks that are no longer needed
-- Clear rationale for each change
-
-Decision Record revisions follow this format:
-```markdown
-#### D3: <Decision title> (revised after Track N)
-- **Original decision**: <what was decided in planning>
-- **What changed**: <discovery that invalidated it>
-- **Revised decision**: <new approach>
-- **Alternatives considered**: <what else was on the table>
-- **Rationale**: <why this revision>
-- **Risks/Caveats**: <known downsides>
-- **Implemented in**: Track M (revised), Track P (new)
-```
-
-**4. Review** — spawn a sub-agent to validate the revised plan using the
-structural review protocol from Phase 2 (see structural-review.md). The sub-agent
-receives the full plan file including both completed track episodes and the
-proposed revisions.
-
-**5. Iterate** — if the review finds blockers, revise and re-review. Maximum
-3 iterations.
-
-**6. Resume or exit:**
-
-- **Review PASS** — update the plan file with the revised plan. End the
-  session. The next session picks up the revised plan and continues.
-
-- **Blockers persist after 3 iterations** — the plan is fundamentally broken
-  at a level that incremental revision cannot fix. Advise the user to restart
-  from Phase 1 (`/create-plan`) with accumulated episodes as input context.
+**Full protocol:** [`inline-replanning.md`](inline-replanning.md)
 
 ---
 
@@ -568,51 +374,11 @@ phases `[x]` in the step file, track still `[ ]` in the plan file).
 
 ## Final Design Document (Phase 4)
 
-After all tracks are complete, a **separate session** produces a final design
-document that reflects what was actually built. This runs in its own session
-using the `prompts/create-final-design.md` prompt — the execution context is deliberately shed so
-the final design is written from a fresh reading of the implemented code,
-not from stale implementation memories.
+After all tracks are complete, a separate session produces `design-final.md`
+reflecting what was actually built. The original `design.md` is never
+modified — both are kept for planned-vs-actual comparison.
 
-### Why a separate document
-
-The original `design.md` (created during Phase 1) captures the **planned**
-design — what the solution was expected to look like before implementation
-began. The final `design-final.md` captures the **actual** design — what
-was really built after all tracks executed, including adaptations, discoveries,
-and deviations that emerged during implementation.
-
-The original `design.md` is **never modified**. Both documents are kept so
-that planned vs actual design can be compared. This comparison is valuable
-for:
-- Understanding how well the planning phase predicted the final shape
-- Documenting design deviations and their reasons (captured in track episodes)
-- Future reference when revisiting or extending the feature
-
-### When to run
-
-After the last track is marked `[x]` and its strategy refresh is complete
-(or there is no next track to refresh into), the workflow is done with
-Phase 3. The user starts a new session for Phase 4.
-
-### Process
-
-See `prompts/create-final-design.md` for the full instructions. The
-session:
-
-1. Reads the implementation plan (with all track episodes), the original
-   design document, and the actual implemented code
-2. Produces `design-final.md` with the same structure as `design.md` but
-   reflecting the actual implementation:
-   - Class diagrams showing the classes/interfaces as they actually exist
-   - Workflow diagrams showing the actual runtime flows
-   - Dedicated sections for complex parts as they were actually implemented
-3. Does NOT modify `design.md` — the original stays as-is for comparison
-
-### Output
-
-The final design document is saved to
-`docs/adr/<dir-name>/design-final.md` and committed.
+**Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 
 ---
 
@@ -633,3 +399,9 @@ For other workflow components, see:
 - **`planning.md`** — Phase 1 (planning)
 - **`structural-review.md`** — Phase 2 (structural review)
 - **`prompts/create-final-design.md`** — Phase 4 (final design document)
+
+On-demand reference documents (loaded only when their specific situation arises):
+- **`strategy-refresh.md`** — full strategy refresh protocol (State A)
+- **`inline-replanning.md`** — full ESCALATE replanning protocol
+- **`episode-format-reference.md`** — detailed episode format, rules, examples
+- **`design-document-rules.md`** — design document rules, examples, structure
