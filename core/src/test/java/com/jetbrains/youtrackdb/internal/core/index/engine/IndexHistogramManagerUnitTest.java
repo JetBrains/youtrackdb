@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -56,6 +57,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Unit tests for {@link IndexHistogramManager} — Section 10.1 of the ADR.
@@ -73,7 +75,13 @@ import org.junit.Test;
  * storage infrastructure. That scenario is covered by the integration tests in
  * {@code BTreeEngineHistogramBuildTest} and {@code CheckpointFlushTest}. This
  * class verifies the CHM cache consistency that underpins persistence.
+ *
+ * <p>Marked as {@link SequentialTest} because several test methods modify
+ * global {@link GlobalConfiguration} values (e.g.,
+ * {@code QUERY_STATS_HISTOGRAM_MIN_SIZE}) via {@code setConfig()}, which
+ * can interfere with other histogram tests running in parallel.
  */
+@Category(SequentialTest.class)
 public class IndexHistogramManagerUnitTest {
 
   private final java.util.Map<GlobalConfiguration, Object> overrides =
