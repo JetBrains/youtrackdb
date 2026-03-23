@@ -626,28 +626,38 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * <p>Sets {@link #currentPreFilterRids} for subclass access.
    */
   protected Object applyPreFilter(Object qR, CommandContext ctx) {
-    if (edge == null || edge.getIntersectionDescriptor() == null) {
+    if (edge == null) {
       return qR;
     }
     if (!(qR instanceof VertexFromLinkBagIterable vfli)) {
       return qR;
     }
-    int linkBagSize = vfli.size();
-    if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
-      return qR;
+
+    // Apply class filter (zero I/O — collection ID is embedded in the RID)
+    if (edge.getAcceptedCollectionIds() != null) {
+      vfli = vfli.withClassFilter(edge.getAcceptedCollectionIds());
     }
-    var ridSet = edge.resolveWithCache(ctx);
-    if (ridSet != null
-        && TraversalPreFilterHelper.passesRatioCheck(ridSet.size(), linkBagSize)) {
-      this.currentPreFilterRids = ridSet;
-      if (logger.isDebugEnabled()) {
-        logger.debug(
-            "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
-            linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
+
+    // Apply RidSet intersection filter
+    if (edge.getIntersectionDescriptor() != null) {
+      int linkBagSize = vfli.size();
+      if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
+        var ridSet = edge.resolveWithCache(ctx);
+        if (ridSet != null
+            && TraversalPreFilterHelper.passesRatioCheck(
+                ridSet.size(), linkBagSize)) {
+          this.currentPreFilterRids = ridSet;
+          if (logger.isDebugEnabled()) {
+            logger.debug(
+                "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
+                linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
+          }
+          vfli = vfli.withRidFilter(ridSet);
+        }
       }
-      return vfli.withRidFilter(ridSet);
     }
-    return qR;
+
+    return vfli;
   }
 
   /**

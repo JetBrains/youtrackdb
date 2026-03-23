@@ -700,6 +700,7 @@ public class MatchExecutionPlanner {
       }
 
       optimizeScheduleWithIntersections(sortedEdges, context);
+      attachCollectionIdFilters(sortedEdges, context);
 
       for (var edge : sortedEdges) {
         addStepsFor(plan, edge, context, first, profilingEnabled);
@@ -1329,6 +1330,36 @@ public class MatchExecutionPlanner {
                 + "(class '{}' for alias '{}')",
             j, targetClass, targetAliasJ);
       }
+    }
+  }
+
+  /**
+   * Resolves each edge's target class constraint to collection IDs at plan
+   * time. The traverser applies this as a zero-I/O class filter on the link
+   * bag, skipping vertices whose collection ID does not match.
+   */
+  private void attachCollectionIdFilters(
+      List<EdgeTraversal> schedule, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    if (session == null) {
+      return;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    for (var et : schedule) {
+      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (targetAlias == null) {
+        continue;
+      }
+      var className = aliasClasses.get(targetAlias);
+      if (className == null) {
+        continue;
+      }
+      var schemaClass = schema.getClassInternal(className);
+      if (schemaClass == null) {
+        continue;
+      }
+      et.setAcceptedCollectionIds(
+          TraversalPreFilterHelper.collectionIdsForClass(schemaClass));
     }
   }
 

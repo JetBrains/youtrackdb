@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -77,6 +78,13 @@ public class EdgeTraversal {
   @Nullable private Object cachedResolveKey;
 
   /**
+   * Collection IDs for the target node's class constraint. When set,
+   * the traverser applies a zero-I/O class filter to the link bag,
+   * skipping vertices whose collection ID does not match.
+   */
+  @Nullable private IntSet acceptedCollectionIds;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -133,6 +141,14 @@ public class EdgeTraversal {
     }
   }
 
+  @Nullable public IntSet getAcceptedCollectionIds() {
+    return acceptedCollectionIds;
+  }
+
+  public void setAcceptedCollectionIds(@Nullable IntSet acceptedCollectionIds) {
+    this.acceptedCollectionIds = acceptedCollectionIds;
+  }
+
   /**
    * Resolves the intersection descriptor with caching. If the descriptor's
    * {@link RidFilterDescriptor#cacheKey cache key} matches the previous
@@ -183,6 +199,7 @@ public class EdgeTraversal {
       copy.leftRid = leftRid.copy();
     }
     copy.intersectionDescriptor = intersectionDescriptor;
+    copy.acceptedCollectionIds = acceptedCollectionIds;
     // Cache is intentionally not copied — stale data from a previous
     // execution must not leak into a new plan instance.
     return copy;
