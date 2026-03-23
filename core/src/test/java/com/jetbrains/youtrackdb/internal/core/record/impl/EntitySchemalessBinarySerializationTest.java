@@ -848,6 +848,9 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
     assertEquals("Bob", extr.<Object>getProperty("name"));
     assertNull(extr.getProperty("nickname"));
+    // Verify the null-valued field is present in the entity (not just absent)
+    assertTrue("nickname should be present after partial deserialization",
+        extr.hasProperty("nickname"));
     // age was not requested
     assertNull(extr.getProperty("age"));
     session.rollback();
@@ -974,6 +977,24 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         {"decimalProp", "DECIMAL"},
     };
 
+    // Build a map of expected values for round-trip verification.
+    // Use HashMap because some getProperty() calls may return null-ish values
+    // and Map.ofEntries does not accept null values.
+    var expectedValues = new java.util.HashMap<String, Object>();
+    expectedValues.put("intProp", 42);
+    expectedValues.put("longProp", 123456789L);
+    expectedValues.put("stringProp", "hello");
+    expectedValues.put("doubleProp", 3.14d);
+    expectedValues.put("floatProp", 2.71f);
+    expectedValues.put("shortProp", (short) 7);
+    expectedValues.put("byteProp", (byte) 0xA);
+    expectedValues.put("boolProp", true);
+    expectedValues.put("dateProp", document.getProperty("dateProp"));
+    expectedValues.put("dateTimeProp", document.getProperty("dateTimeProp"));
+    expectedValues.put("binaryProp", new byte[] {1, 2, 3});
+    expectedValues.put("linkProp", new RecordId(10, 20));
+    expectedValues.put("decimalProp", new BigDecimal("99.99"));
+
     for (var entry : expectedTypes) {
       var fieldName = entry[0];
       var expectedType = entry[1];
@@ -987,6 +1008,21 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
       assertEquals("Wrong type for field: " + fieldName,
           expectedType, bf.type.name());
       assertNotNull("BinaryField.bytes should not be null for: " + fieldName, bf.bytes);
+
+      // Verify the binary bytes decode back to the original value
+      var valueCopy = new BytesContainer(bf.bytes.bytes);
+      valueCopy.offset = bf.bytes.offset;
+      Object deserialized =
+          entitySer.deserializeValue(session, valueCopy, bf.type, null);
+      var expected = expectedValues.get(fieldName);
+      if (expected instanceof byte[]) {
+        Assertions.assertThat((byte[]) deserialized)
+            .as("Value round-trip for field: " + fieldName)
+            .isEqualTo((byte[]) expected);
+      } else {
+        assertEquals("Value round-trip for field: " + fieldName,
+            expected, deserialized);
+      }
     }
     session.rollback();
   }
@@ -1165,13 +1201,18 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
             dbSession.getMetadata().getImmutableSchemaSnapshot();
         SchemaClass schemaClass = schema.getClass("SchemaEntity");
 
-        // Test each schema-aware property via deserializeField
+        // Test each schema-aware property via deserializeField, verifying both
+        // metadata and value round-trip (intentionally use parameterized serializer)
         var bytes = new BytesContainer(res).skip(1);
         BinaryField bf = entitySer.deserializeField(
             dbSession, bytes, schemaClass, "name", false, schema, encryption);
         assertNotNull("deserializeField returned null for schema-aware STRING field", bf);
         assertEquals("name", bf.name);
         assertEquals("STRING", bf.type.name());
+        var valueCopy = new BytesContainer(bf.bytes.bytes);
+        valueCopy.offset = bf.bytes.offset;
+        assertEquals("test",
+            entitySer.deserializeValue(dbSession, valueCopy, bf.type, null));
 
         bytes = new BytesContainer(res).skip(1);
         bf = entitySer.deserializeField(
@@ -1179,6 +1220,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         assertNotNull("deserializeField returned null for schema-aware INTEGER field", bf);
         assertEquals("count", bf.name);
         assertEquals("INTEGER", bf.type.name());
+        valueCopy = new BytesContainer(bf.bytes.bytes);
+        valueCopy.offset = bf.bytes.offset;
+        assertEquals(42,
+            entitySer.deserializeValue(dbSession, valueCopy, bf.type, null));
 
         bytes = new BytesContainer(res).skip(1);
         bf = entitySer.deserializeField(
@@ -1186,6 +1231,10 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         assertNotNull("deserializeField returned null for schema-aware BOOLEAN field", bf);
         assertEquals("flag", bf.name);
         assertEquals("BOOLEAN", bf.type.name());
+        valueCopy = new BytesContainer(bf.bytes.bytes);
+        valueCopy.offset = bf.bytes.offset;
+        assertEquals(true,
+            entitySer.deserializeValue(dbSession, valueCopy, bf.type, null));
         dbSession.rollback();
       }
     }
@@ -1230,6 +1279,30 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         dbSession.rollback();
       }
     }
+  }
+
+  /**
+   * Passing an empty fields array to fromStream should trigger full deserialization
+   * (not partial) — the empty array is treated the same as null. This is important
+   * contract behavior that V2 must replicate.
+   */
+  @Test
+  public void testFromStreamEmptyFieldsArrayTriggersFullDeserialization() {
+    session.begin();
+    var document = (EntityImpl) session.newEntity();
+    document.setProperty("name", "Alice");
+    document.setProperty("age", 30);
+    document.setProperty("active", true);
+
+    var res = serializer.toStream(session, document);
+
+    var extr = (EntityImpl) session.newEntity();
+    serializer.fromStream(session, res, extr, new String[0]);
+
+    assertEquals("Alice", extr.<Object>getProperty("name"));
+    assertEquals(30, (int) extr.<Integer>getProperty("age"));
+    assertEquals(true, extr.<Object>getProperty("active"));
+    session.rollback();
   }
 
   private static class WrongData {
