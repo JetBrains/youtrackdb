@@ -66,23 +66,30 @@ public class IndexesSnapshot {
     }
 
     return stream
-        .flatMap(pair -> {
+        // mapMulti instead of flatMap to avoid allocating a Stream object
+        // (Stream.of / Stream.empty) per entry during full index scans.
+        .<RawPair<CompositeKey, RID>>mapMulti((pair, downstream) -> {
           long version = (Long) pair.first().getKeys().getLast();
           var rid = pair.second();
 
           // Committed before snapshot — visible if alive, hidden if tombstoned
           if (version < visibleVersion) {
-            return (rid instanceof TombstoneRID) ? Stream.empty() : rid instanceof SnapshotMarkerRID
-                ? Stream.of(new RawPair<>(pair.getFirst(), rid.getIdentity())) : Stream.of(pair);
+            if (rid instanceof SnapshotMarkerRID) {
+              downstream.accept(new RawPair<>(pair.getFirst(), rid.getIdentity()));
+            } else if (!(rid instanceof TombstoneRID)) {
+              downstream.accept(pair);
+            }
+            return;
           }
 
-          // version > visibleVersion - phantom, no historical versions
+          // version >= visibleVersion — phantom, no historical versions
           if (rid instanceof RecordId) {
-            return Stream.empty();
+            return;
           }
 
-          // version > visibleVersion - rid is TombstoneRID or SnapshotMarkerRID → check snapshot for historical state
-          return snapshotVisibility(pair, visibleVersion);
+          // version >= visibleVersion — rid is TombstoneRID or SnapshotMarkerRID
+          // → check snapshot for historical state
+          snapshotVisibility(pair, visibleVersion).forEach(downstream);
         })
         .filter(p -> !inProgressVersions.contains((Long) p.first().getKeys().getLast()));
   }

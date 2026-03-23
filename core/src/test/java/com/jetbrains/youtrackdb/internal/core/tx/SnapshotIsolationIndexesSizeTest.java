@@ -624,6 +624,71 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   // ==========================================================================
+  //  Index drop/recreate clears null-keyed entries (exercises doClearTree)
+  // ==========================================================================
+
+  /**
+   * Dropping and recreating a UNIQUE index must clear null-keyed entries.
+   * This exercises doClearTree/delete which must remove CompositeKey(null, version)
+   * entries from the sbTree.
+   */
+  @Test
+  public void dropAndRecreateIndex_clearsNullKeys_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 1);
+
+    // Verify 2 entries before drop
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(2, getIndexSize(session));
+    session.commit();
+    session.close();
+
+    // Drop and recreate the index
+    db.execute("drop index IndexName");
+    db.getMetadata().getSchema().getClass("Userr")
+        .createIndex("IndexName", INDEX_TYPE.UNIQUE, "name");
+
+    // Size must reflect only existing records (re-indexed on create)
+    session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(2, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * Dropping and recreating a NOTUNIQUE index must clear null-keyed entries
+   * from both svTree and nullTree.
+   */
+  @Test
+  public void dropAndRecreateIndex_clearsNullKeys_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 2);
+
+    // Verify 3 entries before drop
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(3, getIndexSize(session));
+    session.commit();
+    session.close();
+
+    // Drop and recreate the index
+    db.execute("drop index IndexName");
+    db.getMetadata().getSchema().getClass("Userr")
+        .createIndex("IndexName", INDEX_TYPE.NOTUNIQUE, "name");
+
+    // Size must reflect only existing records (re-indexed on create)
+    session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(3, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  // ==========================================================================
   //  Helpers
   // ==========================================================================
 

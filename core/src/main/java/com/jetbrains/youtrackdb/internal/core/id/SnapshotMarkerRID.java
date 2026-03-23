@@ -35,7 +35,7 @@ public record SnapshotMarkerRID(RID identity) implements RID {
 
   @Override
   public int compareTo(Identifiable o) {
-    return -1;
+    return identity.compareTo(o);
   }
 
   @Override
@@ -43,11 +43,4 @@ public record SnapshotMarkerRID(RID identity) implements RID {
     return "~" + identity.toString();
   }
 
-  @Override
-  public boolean equals(Object o) {
-    if (o instanceof SnapshotMarkerRID other) {
-      return identity.equals(other.identity);
-    }
-    return false;
-  }
 }

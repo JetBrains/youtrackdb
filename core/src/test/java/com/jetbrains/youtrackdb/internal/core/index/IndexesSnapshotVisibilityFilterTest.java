@@ -340,6 +340,110 @@ public class IndexesSnapshotVisibilityFilterTest {
     assertEquals("Was alive at v=109, should be visible", 1, result.size());
   }
 
+  // ========================================================================
+  //  Cross-key leak: lowerEntry must not return entries for a different key
+  // ========================================================================
+
+  /**
+   * Regression test: snapshot contains entries only for key "Bar". When
+   * snapshotVisibility is called for a primary entry with key "Foo"
+   * (which sorts after "Bar"), lowerEntry must NOT return the "Bar"
+   * snapshot entry and surface it as a result for "Foo".
+   *
+   * Multi-value index keys: CompositeKey(userKey, RID, version).
+   * Snapshot has: [Bar, #10:1, 100] → TombstoneRID  (was alive at v100)
+   *              [Bar, #10:1, 110] → RecordId       (was removed at v110)
+   *
+   * Primary entry for Foo: [Foo, #10:1, 150] → TombstoneRID
+   *   (version=150 >= visibleVersion=105, so snapshotVisibility is called)
+   *
+   * lowerEntry([Foo, #10:1, 105]) could return [Bar, #10:1, 100] → TombstoneRID
+   *   because "Bar" < "Foo". This would incorrectly make "Foo" visible.
+   */
+  @Test
+  public void lowerEntry_doesNotLeakAcrossKeys_multiValue() {
+    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    RID rid = new RecordId(10, 1);
+
+    // Only "Bar" has snapshot entries — "Foo" was never in the snapshot
+    snap.addSnapshotPair(
+        new CompositeKey("Bar", rid, 100L),
+        new CompositeKey("Bar", rid, 110L),
+        rid);
+
+    // Primary entry for "Foo" at v150 (TombstoneRID — deleted after snapshot)
+    var fooPair = new RawPair<>(
+        new CompositeKey("Foo", rid, 150L), (RID) new TombstoneRID(rid));
+
+    // visibleVersion=105: lowerEntry([Foo, #10:1, 105]) must not return
+    // the [Bar, #10:1, 100] entry
+    var result = callSnapshotVisibility(snap, fooPair, 105L);
+    assertTrue(
+        "snapshotVisibility must not leak 'Bar' snapshot entry as a result for 'Foo'",
+        result.isEmpty());
+  }
+
+  /**
+   * Same cross-key leak scenario for single-value index keys.
+   * Single-value keys: CompositeKey(userKey, version).
+   *
+   * Snapshot has entries for "Bar", primary entry is for "Foo".
+   */
+  @Test
+  public void lowerEntry_doesNotLeakAcrossKeys_singleValue() {
+    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    RID rid = new RecordId(10, 1);
+
+    // Only "Bar" has snapshot entries
+    snap.addSnapshotPair(
+        new CompositeKey("Bar", 100L),
+        new CompositeKey("Bar", 110L),
+        rid);
+
+    // Primary entry for "Foo" at v150 (TombstoneRID)
+    var fooPair = new RawPair<>(
+        new CompositeKey("Foo", 150L), (RID) new TombstoneRID(rid));
+
+    var result = callSnapshotVisibility(snap, fooPair, 105L);
+    assertTrue(
+        "snapshotVisibility must not leak 'Bar' snapshot entry as a result for 'Foo'",
+        result.isEmpty());
+  }
+
+  /**
+   * Variant: snapshot has entries for "Foo" AND "Bar". When querying for "Foo",
+   * lowerEntry must return the "Foo" entry (not "Bar").
+   * This validates that when a matching entry exists, the correct one is returned.
+   */
+  @Test
+  public void lowerEntry_returnsCorrectKey_whenBothKeysExist() {
+    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    RID ridBar = new RecordId(10, 1);
+    RID ridFoo = new RecordId(20, 2);
+
+    // "Bar" snapshot: alive at v100, removed at v110
+    snap.addSnapshotPair(
+        new CompositeKey("Bar", ridBar, 100L),
+        new CompositeKey("Bar", ridBar, 110L),
+        ridBar);
+
+    // "Foo" snapshot: alive at v100, removed at v110
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", ridFoo, 100L),
+        new CompositeKey("Foo", ridFoo, 110L),
+        ridFoo);
+
+    // Primary entry for "Foo" at v110 (TombstoneRID)
+    var fooPair = new RawPair<>(
+        new CompositeKey("Foo", ridFoo, 110L), (RID) new TombstoneRID(ridFoo));
+
+    // visibleVersion=105: should find "Foo"@100 (TombstoneRID) → visible
+    var result = callSnapshotVisibility(snap, fooPair, 105L);
+    assertEquals("Foo should be visible via its own snapshot entry", 1, result.size());
+    // Verify the returned RID is Foo's, not Bar's
+    assertEquals(ridFoo, result.getFirst().second());
+  }
+
   /**
    * After re-add@120 (over tombstone): primary has SnapshotMarkerRID at v120.
    *

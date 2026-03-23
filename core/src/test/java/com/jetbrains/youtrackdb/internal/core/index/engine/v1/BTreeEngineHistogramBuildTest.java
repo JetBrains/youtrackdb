@@ -451,6 +451,10 @@ public class BTreeEngineHistogramBuildTest {
     when(snapshot.visibilityFilter(any(), any()))
         .thenAnswer(inv -> inv.getArgument(1));
     when(storage.subIndexSnapshot(anyLong())).thenReturn(snapshot);
+    var nullSnapshot = mock(IndexesSnapshot.class);
+    when(nullSnapshot.visibilityFilter(any(), any()))
+        .thenAnswer(inv -> inv.getArgument(1));
+    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(nullSnapshot);
     return storage;
   }
 

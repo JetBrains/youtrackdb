@@ -22,9 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.Spliterators;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -67,7 +65,7 @@ public final class BTreeMultiValueIndexEngine
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       indexesSnapshot = storage.subIndexSnapshot(id);
-      nullIndexesSnapshot = storage.subIndexSnapshot(-(id + 1));
+      nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -241,7 +239,10 @@ public final class BTreeMultiValueIndexEngine
           var newKey = new CompositeKey(compositeKey, removedVersion);
           nullTree.put(atomicOperation, newKey, new TombstoneRID(value));
 
-          nullIndexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
+          var snapshotAddedIndexKey = pair.first();
+          var snapshotRemovedIndexKey = newKey;
+          nullIndexesSnapshot.addSnapshotPair(snapshotAddedIndexKey, snapshotRemovedIndexKey,
+              value);
           removed = true;
         }
       }
@@ -335,7 +336,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   private static Stream<RawPair<Object, RID>> emptyStream() {
-    return StreamSupport.stream(Spliterators.emptySpliterator(), false);
+    return Stream.empty();
   }
 
   @Override

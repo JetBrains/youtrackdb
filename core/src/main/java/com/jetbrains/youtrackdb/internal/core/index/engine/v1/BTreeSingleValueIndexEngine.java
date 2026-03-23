@@ -163,7 +163,6 @@ public final class BTreeSingleValueIndexEngine
 
         var snapshotAddedIndexKey = pair.first();
         var snapshotRemovedIndexKey = newKey;
-
         indexesSnapshot.addSnapshotPair(snapshotAddedIndexKey, snapshotRemovedIndexKey, value);
         removed = true;
       }
