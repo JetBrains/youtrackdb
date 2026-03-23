@@ -67,8 +67,8 @@ public class EdgeTraversal {
 
   /**
    * Cached RidSet from the most recent {@link #resolveWithCache} call.
-   * Built with {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE} so only the
-   * absolute cap applies; per-vertex ratio checks are done externally.
+   * Only the absolute cap applies; per-vertex ratio checks are done
+   * by the caller.
    */
   @Nullable private RidSet cachedRidSet;
 
@@ -123,8 +123,9 @@ public class EdgeTraversal {
    * {@link RidFilterDescriptor#cacheKey cache key} matches the previous
    * call, the cached RidSet is returned without rebuilding.
    *
-   * <p>The RidSet is built with {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE}
-   * so only the absolute cap applies. The caller must perform a per-vertex
+   * <p>Resolution uses only the absolute cap ({@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#maxRidSetSize()})
+   * to bound materialization. The caller must perform a per-vertex
    * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#passesRatioCheck
    * ratio check} using the actual link bag size.
    *
@@ -140,7 +141,7 @@ public class EdgeTraversal {
     if (key != null && key.equals(cachedResolveKey)) {
       return cachedRidSet;
     }
-    var ridSet = desc.resolve(ctx, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+    var ridSet = desc.resolve(ctx);
     if (key != null) {
       cachedResolveKey = key;
       cachedRidSet = ridSet;

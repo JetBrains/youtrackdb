@@ -79,22 +79,19 @@ public final class TraversalPreFilterHelper {
    * Queries the index described by the given descriptor and collects
    * matching RIDs into a {@link RidSet}. Uses adaptive abort: every
    * 1024 results the method checks whether the accumulated count
-   * exceeds {@link #maxRidSetSize()} or the actual link bag size,
-   * aborting early when the pre-filter would not be effective.
+   * exceeds {@link #maxRidSetSize()}, aborting early to prevent
+   * unbounded materialization.
    *
-   * <p>After collecting all results, a final ratio check against
-   * {@link #maxSelectivityRatio()} discards sets that are too large
-   * relative to the link bag.
+   * <p>Per-vertex ratio checks (comparing RidSet size against the
+   * actual link bag size) are performed by the caller.
    *
-   * @param desc        index search descriptor
-   * @param ctx         command context
-   * @param linkBagSize actual size of the link bag to be filtered, or
-   *                    {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE}
+   * @param desc index search descriptor
+   * @param ctx  command context
    * @return the RidSet, or {@code null} if the query should fall back
    *     to unfiltered iteration
    */
   @Nullable public static RidSet resolveIndexToRidSet(
-      IndexSearchDescriptor desc, CommandContext ctx, int linkBagSize) {
+      IndexSearchDescriptor desc, CommandContext ctx) {
     List<Stream<RawPair<Object, RID>>> streams;
     streams = FetchFromIndexStep.init(desc, true, ctx);
     if (streams.isEmpty()) {
@@ -111,7 +108,7 @@ public final class TraversalPreFilterHelper {
           ridSet.add(iter.next().second());
           count++;
           if ((count & CHECKPOINT_INTERVAL_MASK) == 0
-              && shouldAbort(count, linkBagSize)) {
+              && shouldAbort(count)) {
             aborted = true;
             break;
           }
@@ -128,7 +125,7 @@ public final class TraversalPreFilterHelper {
     if (aborted) {
       return null;
     }
-    return passesRatioCheck(ridSet.size(), linkBagSize) ? ridSet : null;
+    return ridSet;
   }
 
   /**
@@ -142,26 +139,25 @@ public final class TraversalPreFilterHelper {
    *
    * <p>Uses the same adaptive abort strategy as
    * {@link #resolveIndexToRidSet}: checkpoints every 1024 elements
-   * compare the count against {@link #maxRidSetSize()} and
-   * {@code linkBagSize}, and a final ratio check discards sets that
-   * are too large relative to the link bag.
+   * compare the count against {@link #maxRidSetSize()}, aborting
+   * early to prevent unbounded materialization.
+   *
+   * <p>Per-vertex ratio checks (comparing RidSet size against the
+   * actual link bag size) are performed by the caller.
    *
    * @param targetRid          RID of the vertex whose reverse edges to read
    * @param edgeClassName      the edge class name (e.g. {@code "HAS_CREATOR"})
    * @param traversalDirection the direction of the original edge
    *                           ({@code "out"} or {@code "in"})
    * @param ctx                command context for transaction access
-   * @param linkBagSize        actual size of the link bag to be filtered, or
-   *                           {@link RidFilterDescriptor#UNKNOWN_LINKBAG_SIZE}
    * @return the set of opposite-side vertex RIDs, or {@code null} if
-   *     resolution fails or the pre-filter would not be effective
+   *     resolution fails or the absolute cap is exceeded
    */
   @Nullable public static RidSet resolveReverseEdgeLookup(
       RID targetRid,
       String edgeClassName,
       String traversalDirection,
-      CommandContext ctx,
-      int linkBagSize) {
+      CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     EntityImpl targetEntity;
     try {
@@ -187,11 +183,11 @@ public final class TraversalPreFilterHelper {
       ridSet.add(pair.secondaryRid());
       count++;
       if ((count & CHECKPOINT_INTERVAL_MASK) == 0
-          && shouldAbort(count, linkBagSize)) {
+          && shouldAbort(count)) {
         return null;
       }
     }
-    return passesRatioCheck(ridSet.size(), linkBagSize) ? ridSet : null;
+    return ridSet;
   }
 
   /**
@@ -264,14 +260,10 @@ public final class TraversalPreFilterHelper {
 
   /**
    * Checkpoint guard: returns {@code true} if the RidSet build should
-   * be aborted because it has grown too large (absolute cap) or
-   * already exceeds the link bag it will filter.
+   * be aborted because it has grown beyond the absolute cap.
    */
-  static boolean shouldAbort(int count, int linkBagSize) {
-    if (count > maxRidSetSize()) {
-      return true;
-    }
-    return linkBagSize >= 0 && count > linkBagSize;
+  static boolean shouldAbort(int count) {
+    return count > maxRidSetSize();
   }
 
   /**

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -59,7 +58,7 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)))
+    when(desc.resolve(any()))
         .thenReturn(ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -67,7 +66,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx);
     var second = et.resolveWithCache(ctx);
 
-    verify(desc, times(1)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+    verify(desc, times(1)).resolve(any());
     assertThat(second).isSameAs(first);
   }
 
@@ -85,7 +84,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key1, key2);
-    when(desc.resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)))
+    when(desc.resolve(any()))
         .thenReturn(ridSet1, ridSet2);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -93,7 +92,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx);
     var second = et.resolveWithCache(ctx);
 
-    verify(desc, times(2)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+    verify(desc, times(2)).resolve(any());
     assertThat(second).isNotSameAs(first);
   }
 
@@ -109,7 +108,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(null);
-    when(desc.resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)))
+    when(desc.resolve(any()))
         .thenReturn(ridSet1, ridSet2);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -117,7 +116,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx);
     var second = et.resolveWithCache(ctx);
 
-    verify(desc, times(2)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+    verify(desc, times(2)).resolve(any());
     assertThat(second).isNotSameAs(first);
   }
 
@@ -146,7 +145,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)))
+    when(desc.resolve(any()))
         .thenReturn(ridSet1, ridSet2);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -156,7 +155,7 @@ public class EdgeTraversalCacheTest {
     var copy = et.copy();
     var fromCopy = copy.resolveWithCache(ctx);
 
-    verify(desc, times(2)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+    verify(desc, times(2)).resolve(any());
     assertThat(fromCopy).isSameAs(ridSet2);
   }
 
@@ -172,7 +171,7 @@ public class EdgeTraversalCacheTest {
     var key = new RecordId(5, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)))
+    when(desc.resolve(any()))
         .thenReturn(null);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -183,7 +182,7 @@ public class EdgeTraversalCacheTest {
     var second = et.resolveWithCache(ctx);
     assertThat(second).isNull();
 
-    verify(desc, times(1)).resolve(any(), eq(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE));
+    verify(desc, times(1)).resolve(any());
   }
 
   // =========================================================================
@@ -212,8 +211,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn(rid);
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext(),
-        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+    var result = desc.resolve(new BasicCommandContext());
 
     assertThat(result).isNotNull();
     assertThat(result.size()).isEqualTo(1);
@@ -230,8 +228,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn("not-a-rid");
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext(),
-        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+    var result = desc.resolve(new BasicCommandContext());
 
     assertThat(result).isNull();
   }
@@ -246,8 +243,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn(null);
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext(),
-        RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE);
+    var result = desc.resolve(new BasicCommandContext());
 
     assertThat(result).isNull();
   }

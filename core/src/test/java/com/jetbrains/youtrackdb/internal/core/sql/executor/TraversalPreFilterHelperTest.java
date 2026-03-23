@@ -39,57 +39,21 @@ public class TraversalPreFilterHelperTest {
 
   /**
    * When the accumulated count exceeds {@link TraversalPreFilterHelper#maxRidSetSize()},
-   * the build must abort regardless of link bag size.
+   * the build must abort.
    */
   @Test
-  public void shouldAbort_exceedsAbsoluteCap_abortsEvenWithUnknownLinkBag() {
+  public void shouldAbort_exceedsAbsoluteCap_aborts() {
     int count = TraversalPreFilterHelper.maxRidSetSize() + 1;
-    assertThat(TraversalPreFilterHelper.shouldAbort(
-        count, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)).isTrue();
+    assertThat(TraversalPreFilterHelper.shouldAbort(count)).isTrue();
   }
 
   /**
-   * When the accumulated count exceeds {@link TraversalPreFilterHelper#maxRidSetSize()},
-   * the build must abort even if the link bag is larger.
+   * When the accumulated count is below the absolute cap, the build
+   * should continue.
    */
   @Test
-  public void shouldAbort_exceedsAbsoluteCap_abortsEvenWithLargeLinkBag() {
-    int count = TraversalPreFilterHelper.maxRidSetSize() + 1;
-    int largeLinkBag = TraversalPreFilterHelper.maxRidSetSize() * 2;
-    assertThat(TraversalPreFilterHelper.shouldAbort(count, largeLinkBag)).isTrue();
-  }
-
-  // =========================================================================
-  // shouldAbort — linkBagSize comparison
-  // =========================================================================
-
-  /**
-   * When the accumulated count exceeds the actual link bag size, the
-   * pre-filter contains more entries than the link bag itself, making
-   * it useless — abort.
-   */
-  @Test
-  public void shouldAbort_countExceedsLinkBagSize_aborts() {
-    assertThat(TraversalPreFilterHelper.shouldAbort(2000, 1000)).isTrue();
-  }
-
-  /**
-   * When the accumulated count is smaller than the link bag, the build
-   * should continue — the filter is still selective.
-   */
-  @Test
-  public void shouldAbort_countBelowLinkBagSize_continues() {
-    assertThat(TraversalPreFilterHelper.shouldAbort(500, 10_000)).isFalse();
-  }
-
-  /**
-   * When the link bag size is unknown (sentinel value), only the
-   * absolute cap applies. A moderate count should not abort.
-   */
-  @Test
-  public void shouldAbort_unknownLinkBagSize_onlyAbsoluteCapApplies() {
-    assertThat(TraversalPreFilterHelper.shouldAbort(
-        50_000, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)).isFalse();
+  public void shouldAbort_belowAbsoluteCap_continues() {
+    assertThat(TraversalPreFilterHelper.shouldAbort(50_000)).isFalse();
   }
 
   /**
@@ -99,7 +63,7 @@ public class TraversalPreFilterHelperTest {
   @Test
   public void shouldAbort_exactlyAtAbsoluteCap_doesNotAbort() {
     assertThat(TraversalPreFilterHelper.shouldAbort(
-        TraversalPreFilterHelper.maxRidSetSize(), 200_000)).isFalse();
+        TraversalPreFilterHelper.maxRidSetSize())).isFalse();
   }
 
   // =========================================================================
@@ -126,16 +90,6 @@ public class TraversalPreFilterHelperTest {
         (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio()) + 1;
     assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
         .isFalse();
-  }
-
-  /**
-   * When the link bag size is unknown (negative), the ratio check always
-   * passes — no comparison can be made.
-   */
-  @Test
-  public void passesRatioCheck_unknownLinkBagSize_passes() {
-    assertThat(TraversalPreFilterHelper.passesRatioCheck(
-        90_000, RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE)).isTrue();
   }
 
   /**
@@ -181,14 +135,6 @@ public class TraversalPreFilterHelperTest {
     assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
   }
 
-  /**
-   * The unknown link bag size sentinel must be negative.
-   */
-  @Test
-  public void unknownLinkBagSizeSentinel_isNegative() {
-    assertThat(RidFilterDescriptor.UNKNOWN_LINKBAG_SIZE).isNegative();
-  }
-
   // =========================================================================
   // Runtime override via GlobalConfiguration
   // =========================================================================
@@ -201,8 +147,8 @@ public class TraversalPreFilterHelperTest {
   public void runtimeOverride_affectsGuardBehaviour() {
     GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(500);
     assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(500);
-    assertThat(TraversalPreFilterHelper.shouldAbort(501, 10_000)).isTrue();
-    assertThat(TraversalPreFilterHelper.shouldAbort(499, 10_000)).isFalse();
+    assertThat(TraversalPreFilterHelper.shouldAbort(501)).isTrue();
+    assertThat(TraversalPreFilterHelper.shouldAbort(499)).isFalse();
 
     GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
     assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.5);
