@@ -90,13 +90,19 @@ public class IndexesSnapshot {
   Stream<RawPair<CompositeKey, RID>> snapshotVisibility(RawPair<CompositeKey, RID> pair,
       long visibleVersion) {
     var keys = pair.first().getKeys();
-    var snapshotCompositeKey = enhanceIndexId(new CompositeKey(keys.subList(0, keys.size() - 1)));
+    var userKeyPrefix = new CompositeKey(keys.subList(0, keys.size() - 1));
+    var snapshotCompositeKey = enhanceIndexId(userKeyPrefix);
 
     var latestSnapshotEntry = indexesSnapshot
         .lowerEntry(new CompositeKey(snapshotCompositeKey, visibleVersion));
     if (latestSnapshotEntry != null && latestSnapshotEntry.getValue() instanceof TombstoneRID) {
+      // Strip the indexId prefix from the snapshot key to return a BTree-format key.
+      // Snapshot keys are stored as CompositeKey(indexId, userKey..., version), but
+      // the caller expects CompositeKey(userKey..., version).
+      var snapshotKeys = latestSnapshotEntry.getKey().getKeys();
+      var btreeKey = new CompositeKey(snapshotKeys.subList(1, snapshotKeys.size()));
       return Stream.of(new RawPair<>(
-          latestSnapshotEntry.getKey(),
+          btreeKey,
           latestSnapshotEntry.getValue().getIdentity()));
     } else {
       return Stream.empty();

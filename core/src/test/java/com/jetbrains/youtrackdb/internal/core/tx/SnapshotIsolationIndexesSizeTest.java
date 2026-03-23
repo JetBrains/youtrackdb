@@ -405,6 +405,225 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   // ==========================================================================
+  //  NOTUNIQUE  —  size() includes null keys
+  // ==========================================================================
+
+  /**
+   * size() must count both null-keyed and non-null-keyed entries.
+   */
+  @Test
+  public void sizeIncludesNullKeys_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    // Insert 2 non-null and 1 null-keyed vertex
+    insertVertices(db, "Foo", "Bar");
+    insertVerticesWithNullKey(db, 1);
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(3, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * size() must count multiple null-keyed entries in a NOTUNIQUE index.
+   */
+  @Test
+  public void sizeIncludesMultipleNullKeys_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 3);
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(4, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * size() returns correct value when all entries have null keys.
+   */
+  @Test
+  public void sizeAllNullKeys_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVerticesWithNullKey(db, 3);
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(3, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * After deleting a null-keyed record, size decreases.
+   */
+  @Test
+  public void sizeAfterDeleteNullKey_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 2);
+
+    var tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name IS NULL LIMIT 1");
+    tx.commit();
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(2, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * Snapshot sees original size when a null-keyed record is inserted concurrently.
+   */
+  @Test
+  public void sizeSnapshotNoPhantomNullKey_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 1);
+
+    var snap = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snap.begin();
+    assertEquals(2, getIndexSize(snap));
+
+    insertVerticesWithNullKey(db, 1);
+
+    assertEquals(2, getIndexSize(snap));
+    snap.commit();
+    snap.close();
+
+    var fresh = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    fresh.begin();
+    assertEquals(3, getIndexSize(fresh));
+    fresh.commit();
+    fresh.close();
+  }
+
+  /**
+   * Snapshot sees original size when a null-keyed record is deleted concurrently.
+   */
+  @Test
+  public void sizeSnapshotNoVisibilityForDeleteNullKey_NOTUNIQUE() {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    insertVertices(db, "Foo");
+    insertVerticesWithNullKey(db, 2);
+
+    var snap = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snap.begin();
+    assertEquals(3, getIndexSize(snap));
+
+    var tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name IS NULL LIMIT 1");
+    tx.commit();
+
+    assertEquals(3, getIndexSize(snap));
+    snap.commit();
+    snap.close();
+
+    var fresh = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    fresh.begin();
+    assertEquals(2, getIndexSize(fresh));
+    fresh.commit();
+    fresh.close();
+  }
+
+  // ==========================================================================
+  //  UNIQUE  —  size() includes null keys
+  // ==========================================================================
+
+  /**
+   * size() must count both null-keyed and non-null-keyed entries.
+   */
+  @Test
+  public void sizeIncludesNullKeys_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    insertVertices(db, "Foo", "Bar");
+    insertVerticesWithNullKey(db, 1);
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(3, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * After deleting a null-keyed record, size decreases.
+   */
+  @Test
+  public void sizeAfterDeleteNullKey_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    insertVertices(db, "Foo", "Bar");
+    insertVerticesWithNullKey(db, 1);
+
+    var tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name IS NULL");
+    tx.commit();
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    assertEquals(2, getIndexSize(session));
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * Snapshot sees original size when a null-keyed record is inserted concurrently.
+   */
+  @Test
+  public void sizeSnapshotNoPhantomNullKey_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    insertVertices(db, "Foo", "Bar");
+
+    var snap = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snap.begin();
+    assertEquals(2, getIndexSize(snap));
+
+    insertVerticesWithNullKey(db, 1);
+
+    assertEquals(2, getIndexSize(snap));
+    snap.commit();
+    snap.close();
+
+    var fresh = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    fresh.begin();
+    assertEquals(3, getIndexSize(fresh));
+    fresh.commit();
+    fresh.close();
+  }
+
+  /**
+   * Snapshot sees original size when a null-keyed record is deleted concurrently.
+   */
+  @Test
+  public void sizeSnapshotNoVisibilityForDeleteNullKey_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    insertVertices(db, "Foo", "Bar");
+    insertVerticesWithNullKey(db, 1);
+
+    var snap = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snap.begin();
+    assertEquals(3, getIndexSize(snap));
+
+    var tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name IS NULL");
+    tx.commit();
+
+    assertEquals(3, getIndexSize(snap));
+    snap.commit();
+    snap.close();
+
+    var fresh = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    fresh.begin();
+    assertEquals(2, getIndexSize(fresh));
+    fresh.commit();
+    fresh.close();
+  }
+
+  // ==========================================================================
   //  Helpers
   // ==========================================================================
 
@@ -419,6 +638,15 @@ public class SnapshotIsolationIndexesSizeTest {
       var tx = session.begin();
       var v = tx.newVertex("Userr");
       v.setProperty("name", name);
+      tx.commit();
+    }
+  }
+
+  private void insertVerticesWithNullKey(DatabaseSessionEmbedded session, int count) {
+    for (int i = 0; i < count; i++) {
+      var tx = session.begin();
+      tx.newVertex("Userr");
+      // name not set → null key in the index
       tx.commit();
     }
   }

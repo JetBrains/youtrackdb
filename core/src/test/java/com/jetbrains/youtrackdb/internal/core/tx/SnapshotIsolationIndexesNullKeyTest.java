@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -496,6 +498,234 @@ public class SnapshotIsolationIndexesNullKeyTest {
     session3.close();
     session2.close();
     session1.close();
+  }
+
+  // ========================================================================
+  //  Null keys must be excluded from stream()/descStream()/keyStream()
+  // ========================================================================
+
+  /**
+   * For a NOTUNIQUE index containing both null-keyed and non-null-keyed records,
+   * stream() must return only non-null keys. Null-keyed entries should only be
+   * accessible via getRids(session, null).
+   */
+  @Test
+  public void notUnique_streamExcludesNullKeys() {
+    SchemaClass cls = db.createVertexClass("StreamNullNU");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("StreamNullNU_name", INDEX_TYPE.NOTUNIQUE, "name");
+
+    db.begin();
+    var e1 = (EntityImpl) db.newVertex("StreamNullNU");
+    // name not set → null key
+    var e2 = (EntityImpl) db.newVertex("StreamNullNU");
+    e2.setProperty("name", "Alice");
+    var e3 = (EntityImpl) db.newVertex("StreamNullNU");
+    e3.setProperty("name", "Bob");
+    db.commit();
+
+    db.begin();
+    var index = db.getSharedContext().getIndexManager().getIndex("StreamNullNU_name");
+
+    // stream() should contain only non-null keys
+    try (var stream = index.stream(db)) {
+      var keys = stream.map(RawPair::first).toList();
+      assertFalse("stream() must not contain null keys", keys.contains(null));
+      assertEquals("stream() should return 2 non-null entries", 2, keys.size());
+    }
+
+    // descStream() should contain only non-null keys
+    try (var stream = index.descStream(db)) {
+      var keys = stream.map(RawPair::first).toList();
+      assertFalse("descStream() must not contain null keys", keys.contains(null));
+      assertEquals("descStream() should return 2 non-null entries", 2, keys.size());
+    }
+
+    // keyStream() should contain only non-null keys
+    var atomicOp = db.getActiveTransaction().getAtomicOperation();
+    try (var stream = index.keyStream(atomicOp)) {
+      var keys = stream.toList();
+      assertFalse("keyStream() must not contain null keys", keys.contains(null));
+      assertEquals("keyStream() should return 2 non-null keys", 2, keys.size());
+    }
+
+    // getRids(null) should still return the null-keyed entry
+    assertEquals(1, fetchNullKeyCount(db, "StreamNullNU_name"));
+
+    db.rollback();
+  }
+
+  /**
+   * For a UNIQUE index containing both a null-keyed and non-null-keyed records,
+   * stream() must return only non-null keys. Null-keyed entries should only be
+   * accessible via getRids(session, null).
+   */
+  @Test
+  public void unique_streamExcludesNullKeys() {
+    SchemaClass cls = db.createVertexClass("StreamNullU");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("StreamNullU_name", INDEX_TYPE.UNIQUE, "name");
+
+    db.begin();
+    var e1 = (EntityImpl) db.newVertex("StreamNullU");
+    // name not set → null key
+    var e2 = (EntityImpl) db.newVertex("StreamNullU");
+    e2.setProperty("name", "Alice");
+    var e3 = (EntityImpl) db.newVertex("StreamNullU");
+    e3.setProperty("name", "Bob");
+    db.commit();
+
+    db.begin();
+    var index = db.getSharedContext().getIndexManager().getIndex("StreamNullU_name");
+
+    // stream() should contain only non-null keys
+    try (var stream = index.stream(db)) {
+      var keys = stream.map(RawPair::first).toList();
+      assertFalse("stream() must not contain null keys", keys.contains(null));
+      assertEquals("stream() should return 2 non-null entries", 2, keys.size());
+    }
+
+    // descStream() should contain only non-null keys
+    try (var stream = index.descStream(db)) {
+      var keys = stream.map(RawPair::first).toList();
+      assertFalse("descStream() must not contain null keys", keys.contains(null));
+      assertEquals("descStream() should return 2 non-null entries", 2, keys.size());
+    }
+
+    // keyStream() should contain only non-null keys
+    var atomicOp = db.getActiveTransaction().getAtomicOperation();
+    try (var stream = index.keyStream(atomicOp)) {
+      var keys = stream.toList();
+      assertFalse("keyStream() must not contain null keys", keys.contains(null));
+      assertEquals("keyStream() should return 2 non-null keys", 2, keys.size());
+    }
+
+    // getRids(null) should still return the null-keyed entry
+    assertEquals(1, fetchNullKeyCount(db, "StreamNullU_name"));
+
+    db.rollback();
+  }
+
+  // ========================================================================
+  //  Composite keys with null fields must not collide with null key
+  // ========================================================================
+
+  /**
+   * A composite UNIQUE index on (name, surname): CompositeKey(null, null) and
+   * CompositeKey(null, "Smith") are valid composite keys, NOT null keys.
+   * They must all live in the main tree (svTree/sbTree) and be returned by
+   * stream(). getRids(null) must return 0 — there are no null keys in a
+   * composite index.
+   *
+   * <pre>
+   *   Record 1: name=null, surname=null    → key = CompositeKey(null, null)
+   *   Record 2: name=null, surname="Smith" → key = CompositeKey(null, "Smith")
+   *   Record 3: name="Alice", surname="Jones" → key = CompositeKey("Alice", "Jones")
+   *
+   *   getRids(null) must return 0 (no null keys in composite indexes)
+   *   stream() must return all 3 entries
+   *   size() must be 3
+   * </pre>
+   */
+  @Test
+  public void unique_compositeIndex_nullFieldsAreNotNullKey() {
+    SchemaClass cls = db.createVertexClass("CompositeNullU");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createIndex("CompositeNullU_idx", INDEX_TYPE.UNIQUE, "name", "surname");
+
+    // Record 1: both fields null → CompositeKey(null, null), NOT a null key
+    db.begin();
+    db.newVertex("CompositeNullU");
+    db.commit();
+
+    // Record 2: name=null, surname="Smith" → CompositeKey(null, "Smith")
+    db.begin();
+    var e2 = (EntityImpl) db.newVertex("CompositeNullU");
+    e2.setProperty("surname", "Smith");
+    db.commit();
+
+    // Record 3: non-null composite key
+    db.begin();
+    var e3 = (EntityImpl) db.newVertex("CompositeNullU");
+    e3.setProperty("name", "Alice");
+    e3.setProperty("surname", "Jones");
+    db.commit();
+
+    db.begin();
+    var index = db.getSharedContext().getIndexManager().getIndex("CompositeNullU_idx");
+
+    // No null keys in a composite index — all entries are composite keys
+    assertEquals(
+        "getRids(null) must return 0 for composite index",
+        0, fetchNullKeyCount(db, "CompositeNullU_idx"));
+
+    // stream() must return all 3 entries (all are valid composite keys)
+    try (var stream = index.stream(db)) {
+      assertEquals(
+          "stream() should return all 3 composite-keyed entries",
+          3, stream.count());
+    }
+
+    // size() must be exactly 3
+    assertEquals(
+        "size() must count all 3 entries exactly once",
+        3, index.size(db));
+
+    db.rollback();
+  }
+
+  /**
+   * Same test for NOTUNIQUE composite index. CompositeKey(null, null) and
+   * CompositeKey(null, "Smith") are composite keys stored in svTree, not
+   * null keys stored in nullTree.
+   */
+  @Test
+  public void notUnique_compositeIndex_nullFieldsAreNotNullKey() {
+    SchemaClass cls = db.createVertexClass("CompositeNullNU");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createProperty("surname", PropertyType.STRING);
+    cls.createIndex("CompositeNullNU_idx", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+
+    // Record 1: both fields null → CompositeKey(null, null), NOT a null key
+    db.begin();
+    db.newVertex("CompositeNullNU");
+    db.commit();
+
+    // Record 2: name=null, surname="Smith" → CompositeKey(null, "Smith")
+    db.begin();
+    var e2 = (EntityImpl) db.newVertex("CompositeNullNU");
+    e2.setProperty("surname", "Smith");
+    db.commit();
+
+    // Record 3: non-null composite key
+    db.begin();
+    var e3 = (EntityImpl) db.newVertex("CompositeNullNU");
+    e3.setProperty("name", "Alice");
+    e3.setProperty("surname", "Jones");
+    db.commit();
+
+    db.begin();
+    var index = db.getSharedContext().getIndexManager().getIndex("CompositeNullNU_idx");
+
+    // No null keys in a composite index
+    assertEquals(
+        "getRids(null) must return 0 for composite index",
+        0, fetchNullKeyCount(db, "CompositeNullNU_idx"));
+
+    // stream() must return all 3 entries
+    try (var stream = index.stream(db)) {
+      assertEquals(
+          "stream() should return all 3 composite-keyed entries",
+          3, stream.count());
+    }
+
+    // size() must be exactly 3
+    assertEquals(
+        "size() must count all 3 entries exactly once",
+        3, index.size(db));
+
+    db.rollback();
   }
 
   // ========================================================================

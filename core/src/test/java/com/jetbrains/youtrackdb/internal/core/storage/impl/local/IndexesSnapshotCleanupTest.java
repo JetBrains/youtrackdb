@@ -235,6 +235,87 @@ public class IndexesSnapshotCleanupTest {
     assertThat(indexesSnapshot.allEntries()).isEmpty();
   }
 
+  // --- Null-key entries ---
+
+  @Test
+  public void testEvictNullKeyEntries() {
+    // Null-key entry (as stored by BTreeSingleValueIndexEngine for null user keys)
+    var rid = new RecordId(1, 100L);
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey((Object) null, 5L),
+        new CompositeKey((Object) null, 15L),
+        rid);
+
+    // lwm = 10: entry with addedKey version 5 should be evicted
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries()).isEmpty();
+  }
+
+  @Test
+  public void testEvictPreservesNullKeyEntriesAboveLwm() {
+    // Null-key entry with version above lwm should be preserved
+    var rid = new RecordId(1, 100L);
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey((Object) null, 15L),
+        new CompositeKey((Object) null, 25L),
+        rid);
+
+    // lwm = 10: entry with addedKey version 15 should be preserved
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries()).hasSize(2);
+  }
+
+  @Test
+  public void testEvictMixedNullAndNonNullKeys() {
+    // Mix of null-key and non-null-key entries at various versions
+    var rid1 = new RecordId(1, 100L);
+    var rid2 = new RecordId(1, 200L);
+    var rid3 = new RecordId(1, 300L);
+
+    // Null-key at version 5 (below lwm)
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey((Object) null, 5L),
+        new CompositeKey((Object) null, 12L),
+        rid1);
+    // Non-null key at version 8 (below lwm)
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey("keyA", 8L),
+        new CompositeKey("keyA", 18L),
+        rid2);
+    // Null-key at version 20 (above lwm)
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey((Object) null, 20L),
+        new CompositeKey((Object) null, 30L),
+        rid3);
+
+    // lwm = 15: evicts null-key v5 and non-null v8, preserves null-key v20
+    AbstractStorage.evictStaleIndexesSnapshotEntries(15L, indexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries()).hasSize(2);
+    var remainingVersions = indexesSnapshot.allEntries().stream()
+        .map(e -> (Long) e.getKey().getKeys().getLast())
+        .sorted()
+        .toList();
+    assertThat(remainingVersions).containsExactly(20L, 30L);
+  }
+
+  @Test
+  public void testEvictNullKeyMultiValueEntries() {
+    // Null-key entry as stored by BTreeMultiValueIndexEngine (null sentinel + RID + version)
+    var rid = new RecordId(1, 100L);
+    indexesSnapshot.addSnapshotPair(
+        new CompositeKey((Object) null, rid, 5L),
+        new CompositeKey((Object) null, rid, 15L),
+        rid);
+
+    // lwm = 10: should be evicted
+    AbstractStorage.evictStaleIndexesSnapshotEntries(10L, indexesSnapshot);
+
+    assertThat(indexesSnapshot.allEntries()).isEmpty();
+  }
+
   @Test
   public void testProgressiveEvictionWithIncreasingLwm() {
     // Simulate progressive LWM advancement: evict in stages

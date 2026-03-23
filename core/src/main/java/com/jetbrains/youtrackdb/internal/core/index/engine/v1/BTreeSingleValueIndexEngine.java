@@ -215,8 +215,15 @@ public final class BTreeSingleValueIndexEngine
 
     var stream = sbTree
         .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
-    return indexesSnapshot.visibilityFilter(atomicOperation, stream)
-        .map(RawPair::second);
+    var filtered = indexesSnapshot.visibilityFilter(atomicOperation, stream);
+
+    if (key == null) {
+      // Avoid matching composite keys with null first field (e.g., CompositeKey(null, "Smith")).
+      // A true null key is stored as CompositeKey(null, version), which extractKey returns as null.
+      filtered = filtered.filter(pair -> extractKey(pair.first()) == null);
+    }
+
+    return filtered.map(RawPair::second);
   }
 
   @Override
@@ -229,7 +236,8 @@ public final class BTreeSingleValueIndexEngine
 
     return mapSVStream(
         indexesSnapshot.visibilityFilter(atomicOperation,
-            sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)));
+            sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation)))
+        .filter(p -> p.first() != null);
   }
 
   @Override
@@ -242,7 +250,8 @@ public final class BTreeSingleValueIndexEngine
 
     return mapSVStream(
         indexesSnapshot.visibilityFilter(atomicOperation,
-            sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation)));
+            sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation)))
+        .filter(p -> p.first() != null);
   }
 
   @Override
@@ -406,7 +415,7 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
       @Nonnull AtomicOperation atomicOperation) {
-    return stream(transformer, atomicOperation).count();
+    return stream(transformer, atomicOperation).count() + get(null, atomicOperation).count();
   }
 
   @Override
