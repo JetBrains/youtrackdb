@@ -212,7 +212,9 @@ public class MurmurHash3 {
     assert data != null : "data must not be null";
     assert offset >= 0 : "offset must be non-negative: " + offset;
     assert len >= 0 : "len must be non-negative: " + len;
-    assert offset + len <= data.length
+    assert offset <= data.length
+        : "offset exceeds array length: " + offset + " > " + data.length;
+    assert len <= data.length - offset
         : "offset + len exceeds array length: " + offset + " + " + len + " > " + data.length;
 
     final int c1_32 = 0xcc9e2d51;
