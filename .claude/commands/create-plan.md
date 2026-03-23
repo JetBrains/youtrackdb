@@ -41,7 +41,7 @@ Once the user provides the aim, help them develop the plan:
    - Include track-level Mermaid component diagrams when the track has 3+
      internal components with non-trivial interactions.
    - Track sizing rule: if a track would need more than ~5-7 steps, split
-     it into separate dependent tracks. The execution orchestrator handles
+     it into separate dependent tracks. The execution agent handles
      sequencing and episode propagation between dependent tracks.
 5. For each track, include a **Scope indicator**:
    - Format: `> **Scope:** ~N steps covering X, Y, Z`

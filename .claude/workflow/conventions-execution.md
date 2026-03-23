@@ -143,7 +143,7 @@ The **Reviews completed** section records which pre-execution reviews
 finished. If a session is interrupted during Phase A, the next session
 can skip completed reviews and only re-run missing ones.
 
-Step files are created by the review phase during Phase 3 when steps
+Step files are created during Phase A (review + decomposition) when steps
 are decomposed. They do not exist during Phase 1 (planning) or Phase 2
 (structural review) — only scope indicators in the plan file exist at
 that point.
@@ -152,9 +152,9 @@ that point.
 descriptions, architecture notes, and inter-track dependencies are the
 load-bearing parts. Step-level detail is tactical and should emerge
 just-in-time during execution when the agent has maximum codebase
-context. The review phase always has freedom to adapt step-level
-decomposition without formal replanning — only track-level or
-decision-level changes require escalation.
+context. Phase A always has freedom to adapt step-level decomposition
+without formal replanning — only track-level or decision-level changes
+require escalation.
 
 ---
 
@@ -359,9 +359,10 @@ let each agent understand **why** the code was written this way, not just
 
 After implementing and committing, the execution agent runs a review loop:
 
-1. Launches all five review agents in parallel (fresh sub-agents each
+1. Launches all ten review agents in parallel (five code review + five
+   test quality — same agents as track-level; fresh sub-agents each
    iteration).
-2. Synthesizes findings from all five into a unified, deduplicated list.
+2. Synthesizes findings from all ten into a unified, deduplicated list.
 3. If findings need fixes, applies them and re-runs only the dimension(s)
    with open findings.
 4. Repeats until approved OR **max 3 iterations** reached.
@@ -372,7 +373,7 @@ After implementing and committing, the execution agent runs a review loop:
 **What step-level review catches:** localized issues within a single step's
 diff — naming, error handling, edge cases, null safety, resource leaks,
 obvious concurrency bugs, security gaps in input handling, performance
-anti-patterns.
+anti-patterns, weak test assertions, missing corner-case tests.
 
 The code review loop runs **within the execution agent's context** — no
 context clearing between review iterations. The execution agent retains
@@ -436,7 +437,7 @@ complexity.
 
 ## 2.6 Checklist Decomposition Rules
 
-These rules apply to step decomposition by the review phase.
+These rules apply to step decomposition during Phase A (review + decomposition).
 
 - Each step = one commit
 - Each step = fully tested, self-contained change with 85% line / 70%
