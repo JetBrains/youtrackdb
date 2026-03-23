@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.HashMap;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -68,14 +69,12 @@ public class EdgeTraversal {
   @Nullable private RidFilterDescriptor intersectionDescriptor;
 
   /**
-   * Cached RidSet from the most recent {@link #resolveWithCache} call.
-   * Only the absolute cap applies; per-vertex ratio checks are done
-   * by the caller.
+   * Fixed-capacity cache of resolved RidSets, keyed by
+   * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
+   * at capacity — no eviction, no LRU bookkeeping.
    */
-  @Nullable private RidSet cachedRidSet;
-
-  /** Cache key corresponding to {@link #cachedRidSet}. */
-  @Nullable private Object cachedResolveKey;
+  private static final int CACHE_CAPACITY = 64;
+  private final HashMap<Object, RidSet> cache = new HashMap<>();
 
   /**
    * Collection IDs for the target node's class constraint. When set,
@@ -150,9 +149,9 @@ public class EdgeTraversal {
   }
 
   /**
-   * Resolves the intersection descriptor with caching. If the descriptor's
-   * {@link RidFilterDescriptor#cacheKey cache key} matches the previous
-   * call, the cached RidSet is returned without rebuilding.
+   * Resolves the intersection descriptor with a fixed-capacity cache.
+   * The first {@value #CACHE_CAPACITY} distinct cache keys are retained
+   * for the duration of the query — no eviction, no LRU bookkeeping.
    *
    * <p>Resolution uses only the absolute cap ({@link
    * com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#maxRidSetSize()})
@@ -169,13 +168,15 @@ public class EdgeTraversal {
       return null;
     }
     var key = desc.cacheKey(ctx);
-    if (key != null && key.equals(cachedResolveKey)) {
-      return cachedRidSet;
+    if (key != null) {
+      var cached = cache.get(key);
+      if (cached != null || cache.containsKey(key)) {
+        return cached;
+      }
     }
     var ridSet = desc.resolve(ctx);
-    if (key != null) {
-      cachedResolveKey = key;
-      cachedRidSet = ridSet;
+    if (key != null && cache.size() < CACHE_CAPACITY) {
+      cache.put(key, ridSet);
     }
     return ridSet;
   }
