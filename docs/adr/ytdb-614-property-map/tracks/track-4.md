@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -44,42 +44,24 @@
   > **Key files:** `RecordSerializerBinaryV2.java` (new),
   > `RecordSerializerBinaryV2HashTableTest.java` (new)
 
-- [ ] Step 2: V2 serialization and full deserialization (round-trip)
-  Implement the core serialize/deserialize methods in `RecordSerializerBinaryV2`
-  implementing `EntitySerializer`:
-
-  **Serialization** (`serialize`, `serializeWithClassName`):
-  - Write class name (varint len + UTF-8, or 0 for no class)
-  - Write property count (varint)
-  - If count ≤ 2: linear mode — for each property write name-encoding + type +
-    value-size + value-bytes (same layout as V1)
-  - If count > 2: hash table mode —
-    1. Collect property names (resolve from GlobalProperty for schema-aware)
-    2. Call `findPerfectHashSeed()` to get seed and log2Capacity
-    3. Write seed (4 bytes LE) + log2Capacity (1 byte)
-    4. Reserve slot array space (capacity × 3 bytes, filled with 0xFF/0xFFFF)
-    5. Write KV entries sequentially in entity iteration order:
-       entry = name-encoding + type byte + value-size varint + value-bytes
-    6. Backpatch slot array: for each entry, compute `fibonacciIndex(hash, log2Cap)`
-       → write hash8 + offset (relative to KV region base)
-  - Throw if KV region exceeds 64 KB (2-byte offset limit)
-  - `serializeValue`/`deserializeValue`: delegate to HelperClasses (same type
-    encoding as V1). Embedded entities serialized recursively using V2 format.
-
-  **Full deserialization** (`deserialize`, `deserializeWithClassName`):
-  - Read class name
-  - Read property count
-  - If count ≤ 2: linear mode — read entries sequentially
-  - If count > 2: hash table mode — skip seed + log2Capacity + slot array, then
-    read KV entries linearly (full deserialization doesn't need the hash table)
-  - For each entry: read name-encoding (schema-aware: negative varint → resolve
-    from GlobalProperty; schema-less: varint len + UTF-8), read type, read value
-
-  **Tests**: Round-trip tests for all property types (integers, strings, dates,
-  decimals, binary, links, embedded entities, collections, maps, null values).
-  Both linear mode (0-2 properties) and hash table mode (5+ properties).
-  Schema-aware and schema-less properties. Mixed mode (some schema, some not).
-  Empty entity. Entity with embedded sub-entities.
+- [x] Step 2: V2 serialization and full deserialization (round-trip)
+  > **What was done:** Implemented serialize/deserialize/serializeWithClassName/
+  > deserializeWithClassName in RecordSerializerBinaryV2. Linear mode (<=2 props)
+  > writes entries sequentially. Hash table mode (>2) builds perfect hash table
+  > with slot backpatching. Full deserialization skips hash table and reads KV
+  > entries linearly. serializeValue/deserializeValue handle EMBEDDED, EMBEDDEDSET,
+  > EMBEDDEDLIST, EMBEDDEDMAP directly (recursive V2 format); all other types
+  > delegate to V1. 29 round-trip tests.
+  >
+  > **What was discovered:** V1's value serialization methods for EMBEDDED and
+  > collection types recursively call `this.serializeValue()`, meaning delegation
+  > to a V1 instance would serialize nested entities in V1 format instead of V2.
+  > Had to override serializeValue/deserializeValue for all recursive types
+  > (EMBEDDED, EMBEDDEDSET, EMBEDDEDLIST, EMBEDDEDMAP) in V2, with collection
+  > read/write methods that call `this.serializeValue()` for correct recursion.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryV2RoundTripTest.java` (new)
 
 - [ ] Step 3: V2 partial deserialization, field lookup, and field names
   Implement the O(1) field access methods that make V2 valuable:
