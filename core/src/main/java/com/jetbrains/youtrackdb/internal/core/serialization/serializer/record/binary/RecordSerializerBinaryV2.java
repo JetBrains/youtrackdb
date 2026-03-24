@@ -450,6 +450,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     PropertyTypeInternal type = nameAndType.type;
 
     int valueLength = VarIntSerializer.readAsInteger(bytes);
+
+    // Skip properties already present in the entity — they may have been loaded by a prior
+    // partial deserialization call and subsequently modified in memory. Overwriting them with
+    // the stale serialized data would silently discard in-memory changes. V1 has the same
+    // guard in its deserialize loop.
+    if (entity.rawContainsProperty(fieldName)) {
+      bytes.skip(valueLength);
+      return;
+    }
+
     if (valueLength != 0) {
       int before = bytes.offset;
       var value = deserializeValue(db, bytes, type, entity);
