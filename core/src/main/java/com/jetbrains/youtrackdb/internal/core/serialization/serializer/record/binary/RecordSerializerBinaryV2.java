@@ -84,6 +84,20 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   // Threshold above which we use 4x capacity instead of 2x
   static final int HIGH_CAPACITY_THRESHOLD = 40;
 
+  // -- Bucketized cuckoo hashing constants (Track 7) --
+
+  // Number of slots per bucket in the cuckoo hash table
+  static final int BUCKET_SIZE = 4;
+
+  // XOR constant for deriving h2 seed from h1 seed (MurmurHash3 finalization constant)
+  static final int CUCKOO_XOR_CONSTANT = 0x85ebca6b;
+
+  // Maximum evictions in a single cuckoo displacement chain before declaring failure
+  static final int MAX_EVICTIONS = 500;
+
+  // Maximum seed retries before capacity doubling
+  static final int MAX_SEED_RETRIES = 10;
+
   // V1 serializer for delegating serializeValue/deserializeValue
   private final RecordSerializerBinaryV1 v1Delegate = new RecordSerializerBinaryV1();
 
@@ -166,6 +180,211 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   static byte computeHash8(int hash) {
     return (byte) (hash >>> 24);
+  }
+
+  // ========================================================================================
+  // Bucketized cuckoo hashing — construction utilities (Track 7, Step 1)
+  // ========================================================================================
+
+  /**
+   * Derives the h2 seed from the h1 seed by XOR with a MurmurHash3 finalization constant. This
+   * ensures h1 and h2 produce independent hash values for cuckoo's two-bucket scheme.
+   */
+  static int computeH2Seed(int seed) {
+    return seed ^ CUCKOO_XOR_CONSTANT;
+  }
+
+  /**
+   * Computes log2 of the number of buckets for a given property count at ~85% target load factor.
+   * Formula: nextPowerOfTwo(ceil(N / (BUCKET_SIZE * 0.85))), minimum 1 bucket (log2 = 0).
+   *
+   * <p>The total slot count is {@code (1 << log2NumBuckets) * BUCKET_SIZE}.
+   */
+  static int computeLog2NumBuckets(int propertyCount) {
+    assert propertyCount > 0 : "propertyCount must be positive: " + propertyCount;
+
+    // ceil(N / (4 * 0.85)) = ceil(N / 3.4) = ceil(N * 10 / 34) = (N * 10 + 33) / 34
+    int minBuckets = (propertyCount * 10 + 33) / 34;
+    if (minBuckets <= 1) {
+      return 0;
+    }
+    int log2 = 32 - Integer.numberOfLeadingZeros(minBuckets - 1);
+    return Math.min(log2, MAX_LOG2_CAPACITY);
+  }
+
+  /**
+   * Builds a cuckoo hash table for the given property name bytes. Returns a result containing the
+   * seed used, log2 of the bucket count, and the bucket array bytes.
+   *
+   * <p>Algorithm: greedy placement with displacement chains. For each property, try bucket1
+   * (from h1), then bucket2 (from h2). If both are full, evict a random item from bucket1 and
+   * re-place it in its alternate bucket. Repeat for up to {@link #MAX_EVICTIONS} evictions. If the
+   * chain exceeds the limit, increment the seed and retry (up to {@link #MAX_SEED_RETRIES}). If
+   * all seeds fail, double the bucket count and retry.
+   *
+   * @param propertyNameBytes array of UTF-8 encoded property names
+   * @param log2NumBuckets initial log2 of bucket count
+   * @return CuckooTableResult containing seed, final log2NumBuckets, and bucket array
+   * @throws IllegalStateException if construction fails even at maximum capacity
+   */
+  static CuckooTableResult buildCuckooTable(byte[][] propertyNameBytes, int log2NumBuckets) {
+    assert propertyNameBytes != null : "propertyNameBytes must not be null";
+    assert propertyNameBytes.length > 0 : "must have at least one property";
+
+    int n = propertyNameBytes.length;
+    int currentLog2 = log2NumBuckets;
+
+    while (currentLog2 <= MAX_LOG2_CAPACITY) {
+      int numBuckets = 1 << currentLog2;
+      int totalSlots = numBuckets * BUCKET_SIZE;
+
+      for (int seed = 0; seed < MAX_SEED_RETRIES; seed++) {
+        int h2Seed = computeH2Seed(seed);
+
+        // Each slot stores: hash8 (1 byte) + offset placeholder (2 bytes).
+        // During construction we only need hash8 and the property index to track placement.
+        // We use parallel arrays for efficiency:
+        //   slotHash8[i] — the hash8 prefix stored at slot i (EMPTY_HASH8 if empty)
+        //   slotPropertyIndex[i] — the index into propertyNameBytes for the item at slot i
+        byte[] slotHash8 = new byte[totalSlots];
+        int[] slotPropertyIndex = new int[totalSlots];
+        Arrays.fill(slotHash8, EMPTY_HASH8);
+        Arrays.fill(slotPropertyIndex, -1);
+
+        // For each property, precompute bucket1 and bucket2 for displacement chain lookups
+        int[] propBucket1 = new int[n];
+        int[] propBucket2 = new int[n];
+        int[] propH1 = new int[n];
+        for (int i = 0; i < n; i++) {
+          byte[] nameBytes = propertyNameBytes[i];
+          int h1 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+          int h2 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, h2Seed);
+          propH1[i] = h1;
+          propBucket1[i] = fibonacciBucketIndex(h1, currentLog2);
+          propBucket2[i] = fibonacciBucketIndex(h2, currentLog2);
+        }
+
+        boolean success = true;
+        for (int i = 0; i < n; i++) {
+          if (!cuckooInsert(i, propBucket1, propBucket2, propH1, slotHash8,
+              slotPropertyIndex)) {
+            success = false;
+            break;
+          }
+        }
+
+        if (success) {
+          // Build the byte array: numBuckets * BUCKET_SIZE * SLOT_SIZE bytes
+          byte[] bucketArray = new byte[totalSlots * SLOT_SIZE];
+          // Initialize all slots to empty sentinel
+          for (int s = 0; s < totalSlots; s++) {
+            int offset = s * SLOT_SIZE;
+            bucketArray[offset] = EMPTY_HASH8;
+            bucketArray[offset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
+            bucketArray[offset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
+          }
+          // Fill in occupied slots with hash8 (offset will be backpatched during serialization)
+          for (int s = 0; s < totalSlots; s++) {
+            if (slotHash8[s] != EMPTY_HASH8 || slotPropertyIndex[s] != -1) {
+              bucketArray[s * SLOT_SIZE] = slotHash8[s];
+              // Offset left as 0xFFFF — will be backpatched during serializeHashTableMode
+            }
+          }
+          return new CuckooTableResult(seed, currentLog2, bucketArray, slotPropertyIndex);
+        }
+      }
+      // All seeds exhausted at this bucket count — double capacity
+      currentLog2++;
+    }
+
+    throw new IllegalStateException(
+        "Failed to build cuckoo table for " + n + " properties at max capacity "
+            + ((1 << MAX_LOG2_CAPACITY) * BUCKET_SIZE) + " slots");
+  }
+
+  /**
+   * Computes a bucket index via Fibonacci hashing. Same formula as {@link #fibonacciIndex} but
+   * operates at bucket granularity instead of slot granularity.
+   */
+  static int fibonacciBucketIndex(int hash, int log2NumBuckets) {
+    if (log2NumBuckets == 0) {
+      return 0; // Single bucket — all items go to bucket 0
+    }
+    return (hash * FIBONACCI_CONSTANT) >>> (32 - log2NumBuckets);
+  }
+
+  /**
+   * Attempts to insert property at {@code propIdx} into the cuckoo table. Uses greedy placement
+   * with displacement chains: try bucket1, then bucket2, then evict from bucket1 and re-place the
+   * evicted item.
+   *
+   * @return true if insertion succeeded, false if displacement chain exceeded MAX_EVICTIONS
+   */
+  private static boolean cuckooInsert(int propIdx, int[] propBucket1, int[] propBucket2,
+      int[] propH1, byte[] slotHash8, int[] slotPropertyIndex) {
+
+    int currentPropIdx = propIdx;
+    for (int evictions = 0; evictions <= MAX_EVICTIONS; evictions++) {
+      int bucket1 = propBucket1[currentPropIdx];
+      int bucket1Start = bucket1 * BUCKET_SIZE;
+
+      // Try bucket1
+      for (int s = 0; s < BUCKET_SIZE; s++) {
+        int slotIdx = bucket1Start + s;
+        if (slotHash8[slotIdx] == EMPTY_HASH8 && slotPropertyIndex[slotIdx] == -1) {
+          slotHash8[slotIdx] = computeHash8(propH1[currentPropIdx]);
+          slotPropertyIndex[slotIdx] = currentPropIdx;
+          return true;
+        }
+      }
+
+      int bucket2 = propBucket2[currentPropIdx];
+      int bucket2Start = bucket2 * BUCKET_SIZE;
+
+      // Try bucket2
+      for (int s = 0; s < BUCKET_SIZE; s++) {
+        int slotIdx = bucket2Start + s;
+        if (slotHash8[slotIdx] == EMPTY_HASH8 && slotPropertyIndex[slotIdx] == -1) {
+          // Item in bucket2 uses h1's hash8 (the primary hash prefix, always stored regardless
+          // of which bucket the item lands in)
+          slotHash8[slotIdx] = computeHash8(propH1[currentPropIdx]);
+          slotPropertyIndex[slotIdx] = currentPropIdx;
+          return true;
+        }
+      }
+
+      // Both buckets full — evict the first occupied slot in bucket1
+      int evictSlotIdx = bucket1Start; // Deterministic: always evict first slot
+      int evictedPropIdx = slotPropertyIndex[evictSlotIdx];
+
+      // Place current item in the evicted slot
+      slotHash8[evictSlotIdx] = computeHash8(propH1[currentPropIdx]);
+      slotPropertyIndex[evictSlotIdx] = currentPropIdx;
+
+      // The evicted item needs to be re-placed in its alternate bucket
+      currentPropIdx = evictedPropIdx;
+    }
+
+    // Displacement chain exceeded limit
+    return false;
+  }
+
+  /**
+   * Result of cuckoo table construction, containing the seed, bucket layout, and slot-to-property
+   * mapping for backpatching offsets during serialization.
+   */
+  static final class CuckooTableResult {
+    final int seed;
+    final int log2NumBuckets;
+    final byte[] bucketArray; // numBuckets * BUCKET_SIZE * SLOT_SIZE bytes
+    final int[] slotPropertyIndex; // maps each slot to property index (-1 if empty)
+
+    CuckooTableResult(int seed, int log2NumBuckets, byte[] bucketArray, int[] slotPropertyIndex) {
+      this.seed = seed;
+      this.log2NumBuckets = log2NumBuckets;
+      this.bucketArray = bucketArray;
+      this.slotPropertyIndex = slotPropertyIndex;
+    }
   }
 
   // ========================================================================================
