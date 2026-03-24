@@ -520,8 +520,7 @@ public class MatchExecutionPlannerMutationTest {
 
   private PatternEdge mockEdgeWithMethod(String methodName) {
     var method = mock(SQLMethodCall.class);
-    var id = new SQLIdentifier(methodName);
-    when(method.getMethodName()).thenReturn(id);
+    stubMethodName(method, methodName);
     when(method.getParams()).thenReturn(List.of());
     return mockEdge(method);
   }
@@ -529,8 +528,7 @@ public class MatchExecutionPlannerMutationTest {
   private PatternEdge mockEdgeWithMethodAndParam(
       String methodName, String paramString) {
     var method = mockMethodWithBaseExpression(paramString);
-    var id = new SQLIdentifier(methodName);
-    when(method.getMethodName()).thenReturn(id);
+    stubMethodName(method, methodName);
     return mockEdge(method);
   }
 
@@ -696,7 +694,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void getEdgeDirection_forwardOut_returnsOut() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    stubMethodName(method, "out");
     var et = makeEdgeTraversal(method, true);
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("out");
   }
@@ -707,7 +705,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void getEdgeDirection_forwardIn_returnsIn() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("in"));
+    stubMethodName(method, "in");
     var et = makeEdgeTraversal(method, true);
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("in");
   }
@@ -719,7 +717,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void getEdgeDirection_reversedOut_returnsIn() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    stubMethodName(method, "out");
     var et = makeEdgeTraversal(method, false);
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("in");
   }
@@ -731,7 +729,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void getEdgeDirection_reversedIn_returnsOut() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("in"));
+    stubMethodName(method, "in");
     var et = makeEdgeTraversal(method, false);
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("out");
   }
@@ -743,7 +741,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void getEdgeDirection_reversedBoth_returnsBoth() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("both"));
+    stubMethodName(method, "both");
     var et = makeEdgeTraversal(method, false);
     assertThat(MatchExecutionPlanner.getEdgeDirection(et)).isEqualTo("both");
   }
@@ -806,7 +804,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void inferClassFromEdgeSchema_noParams_returnsNull() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    stubMethodName(method, "out");
     when(method.getParams()).thenReturn(List.of());
     var ctx = mockContext();
 
@@ -883,7 +881,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void inferClassFromEdgeSchema_executeThrows_returnsNull() {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier("out"));
+    stubMethodName(method, "out");
     var param = mock(SQLExpression.class);
     when(param.execute(nullable(Result.class), any(CommandContext.class)))
         .thenThrow(new RuntimeException("eval failure"));
@@ -901,7 +899,7 @@ public class MatchExecutionPlannerMutationTest {
    */
   private SQLMethodCall mockMethodCallWithDirection(String direction, String edgeClass) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(new SQLIdentifier(direction));
+    stubMethodName(method, direction);
 
     var param = mock(SQLExpression.class);
     when(param.execute(nullable(Result.class), any(CommandContext.class)))
@@ -909,6 +907,16 @@ public class MatchExecutionPlannerMutationTest {
     when(method.getParams()).thenReturn(List.of(param));
 
     return method;
+  }
+
+  /**
+   * Stubs both {@code getMethodName()} and {@code getMethodNameString()}
+   * on a mocked {@link SQLMethodCall}. Needed because Mockito mocks
+   * override the concrete {@code getMethodNameString()} method.
+   */
+  private void stubMethodName(SQLMethodCall method, String name) {
+    when(method.getMethodName()).thenReturn(new SQLIdentifier(name));
+    when(method.getMethodNameString()).thenReturn(name);
   }
 
   private CommandContext mockContext() {

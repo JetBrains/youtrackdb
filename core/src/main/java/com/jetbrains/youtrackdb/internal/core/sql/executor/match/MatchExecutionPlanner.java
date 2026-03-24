@@ -1133,9 +1133,7 @@ public class MatchExecutionPlanner {
     }
 
     // Extract direction from the method name (out/in/both).
-    var methodId = method.getMethodName();
-    Direction direction = parseDirection(
-        methodId != null ? methodId.getStringValue() : null);
+    Direction direction = parseDirection(method.getMethodNameString());
     if (direction == null) {
       return Double.MAX_VALUE;
     }
@@ -1396,10 +1394,10 @@ public class MatchExecutionPlanner {
    */
   @Nullable static String getEdgeDirection(EdgeTraversal et) {
     var method = et.edge.item.getMethod();
-    if (method == null || method.getMethodName() == null) {
+    if (method == null) {
       return null;
     }
-    var nameStr = method.getMethodName().getStringValue();
+    var nameStr = method.getMethodNameString();
     if (nameStr == null) {
       return null;
     }
@@ -1733,10 +1731,10 @@ public class MatchExecutionPlanner {
    */
   @Nullable static String inferClassFromEdgeSchema(
       @Nullable SQLMethodCall method, CommandContext context) {
-    if (method == null || method.getMethodName() == null) {
+    if (method == null) {
       return null;
     }
-    var dirName = method.getMethodName().getStringValue();
+    var dirName = method.getMethodNameString();
     if (dirName == null) {
       return null;
     }

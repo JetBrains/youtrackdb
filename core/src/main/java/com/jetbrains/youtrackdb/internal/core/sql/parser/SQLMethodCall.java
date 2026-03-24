@@ -276,6 +276,17 @@ public class SQLMethodCall extends SimpleNode {
     return methodName;
   }
 
+  /**
+   * Convenience method that returns the method name as a plain string,
+   * or {@code null} if the identifier or its string value is absent.
+   * Avoids the verbose {@code getMethodName().getStringValue()} pattern
+   * and the associated NPE risk.
+   */
+  @Nullable public String getMethodNameString() {
+    var id = getMethodName();
+    return id != null ? id.getStringValue() : null;
+  }
+
   public List<SQLExpression> getParams() {
     return params;
   }

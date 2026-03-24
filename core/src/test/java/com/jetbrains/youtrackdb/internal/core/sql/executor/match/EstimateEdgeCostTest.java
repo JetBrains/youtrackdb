@@ -558,16 +558,14 @@ public class EstimateEdgeCostTest {
 
   private SQLMethodCall mockMethodCallNoParams(String methodName) {
     var method = mock(SQLMethodCall.class);
-    var id = new SQLIdentifier(methodName);
-    when(method.getMethodName()).thenReturn(id);
+    stubMethodName(method, methodName);
     when(method.getParams()).thenReturn(List.of());
     return method;
   }
 
   private SQLMethodCall mockMethodCall(String methodName, String paramString) {
     var method = mock(SQLMethodCall.class);
-    var id = new SQLIdentifier(methodName);
-    when(method.getMethodName()).thenReturn(id);
+    stubMethodName(method, methodName);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(paramString);
@@ -577,5 +575,10 @@ public class EstimateEdgeCostTest {
 
     when(method.getParams()).thenReturn(List.of(param));
     return method;
+  }
+
+  private void stubMethodName(SQLMethodCall method, String name) {
+    when(method.getMethodName()).thenReturn(new SQLIdentifier(name));
+    when(method.getMethodNameString()).thenReturn(name);
   }
 }
