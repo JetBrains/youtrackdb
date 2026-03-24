@@ -384,7 +384,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 5: BinaryComparatorV1 — hash-based field lookup for binary comparison
+- [~] Track 5: BinaryComparatorV1 — hash-based field lookup for binary comparison
   > Implement a new binary comparator that uses the V2 hash table format
   > to locate fields for byte-level comparison, replacing the linear scan
   > in `BinaryComparatorV0`.
@@ -409,6 +409,19 @@ graph LR
   > **Scope:** ~2-3 steps covering comparator implementation, integration
   > with V2 serializer, and equivalence tests against V0
   > **Depends on:** Track 4
+  >
+  > **Track episode:**
+  > SKIPPED — Technical review (T1) found that `BinaryComparator` interface
+  > only operates on pre-located `BinaryField` values. Field location is done
+  > by `EntitySerializer.deserializeField()`, which V2 already implements with
+  > O(1) hash table lookup in Track 4. A new `BinaryComparatorV1` would
+  > duplicate `BinaryComparatorV0` with zero behavioral difference.
+  >
+  > **Step file:** `tracks/track-5.md` (0 steps, 0 failed — skipped)
+  >
+  > **Strategy refresh:** CONTINUE — skip has no downstream impact. Track 6
+  > integration tests can verify binary comparison correctness using
+  > V2's `deserializeField()` + existing `BinaryComparatorV0`.
 
 - [ ] Track 6: Integration testing and backward compatibility verification
   > End-to-end tests verifying that V2 works correctly in the full database
