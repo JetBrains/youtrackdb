@@ -229,40 +229,24 @@ flowchart LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: Tests for edge tombstone GC during split
+- [~] Track 2: Tests for edge tombstone GC during split
   > Comprehensive tests verifying tombstone GC correctness during page
   > splits. Tests must cover: basic tombstone removal, snapshot entry
   > preservation, ghost resurrection prevention, tree size consistency,
   > and mixed tombstone/live entry scenarios.
   >
-  > **What**:
-  > - Test that tombstones below LWM with no snapshot entries are removed
-  >   during split.
-  > - Test that tombstones below LWM WITH snapshot entries are preserved
-  >   (no ghost resurrection).
-  > - Test that tombstones above LWM are preserved (active transaction
-  >   might need them).
-  > - Test tree size consistency after splits with tombstone removal.
-  > - Test that `findVisibleEntry()` returns correct results after
-  >   tombstone GC (no ghost resurrection for any snapshot state).
-  > - Test mixed scenarios: bucket with both live entries and tombstones,
-  >   some removable and some not.
-  > - Test edge case: bucket where all entries are removable tombstones.
-  >
-  > **Constraints**:
-  > - Tests should use the existing test infrastructure pattern from
-  >   `SharedLinkBagBTreePutSITest` / `SharedLinkBagBTreeRemoveSITest`.
-  > - Must force page splits by inserting enough entries to overflow
-  >   bucket capacity.
-  > - Must control LWM by manipulating `TsMinHolder` state. The existing
-  >   SI test classes (`SharedLinkBagBTreePutSITest`, etc.) already
-  >   demonstrate `TsMinHolder` manipulation for snapshot isolation
-  >   testing — follow the same pattern.
-  > - Must verify both B-tree state and snapshot index state after GC.
-  >
   > **Scope:** ~4-5 steps covering unit tests for helpers, split GC
   > integration tests, visibility correctness tests, and edge cases
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Skipped — all 7 planned test scenarios were already delivered by
+  > Track 1's `SharedLinkBagBTreeTombstoneGCTest.java` (13 tests total).
+  > Technical review confirmed full coverage including boundary conditions,
+  > ghost resurrection prevention, tree size consistency, and mixed
+  > scenarios. No cross-track impact.
+  >
+  > **Step file:** `tracks/track-2.md` (0 steps, 0 failed — skipped)
 
 - [ ] Track 3: Concurrent and crash-recovery tests for tombstone GC
   > Robustness tests verifying tombstone GC correctness under concurrent
