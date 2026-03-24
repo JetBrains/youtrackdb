@@ -689,6 +689,9 @@ public class SQLWhereClause extends SimpleNode {
   /**
    * Builds a new WHERE clause from the AND block with the term at
    * {@code skipIdx} removed.
+   *
+   * <p>N.B. the returned clause shares sub-block instances with the
+   * source {@code andBlock} — callers must not mutate the result.
    */
   private static SQLWhereClause buildWhereWithout(
       SQLAndBlock andBlock, int skipIdx) {
@@ -894,6 +897,9 @@ public class SQLWhereClause extends SimpleNode {
   /**
    * Builds a new WHERE clause from the AND block containing only the terms
    * at the specified indices.
+   *
+   * <p>N.B. the returned clause shares sub-block instances with the
+   * source {@code andBlock} — callers must not mutate the result.
    */
   private static SQLWhereClause buildWhereWith(
       SQLAndBlock andBlock, List<Integer> indices) {
