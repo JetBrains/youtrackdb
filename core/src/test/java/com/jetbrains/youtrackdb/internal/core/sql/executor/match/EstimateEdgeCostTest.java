@@ -2499,6 +2499,508 @@ public class EstimateEdgeCostTest {
     assertEquals(0.1, sel, 0.01);
   }
 
+  // -- Range operator selectivity via histogram path ---------------------------
+
+  /**
+   * Range operator (>) with index stats but no histogram: falls back to
+   * SelectivityEstimator's UNIFORM_RANGE_SELECTIVITY (1/3). Verifies that
+   * range operators are routed through estimateViaHistogram instead of
+   * returning -1.0.
+   */
+  @Test
+  public void rangeGt_withStats_noHistogram_usesUniformRange() {
+    var cls = mockSchemaClass("Event", 3000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            3000, 500, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var where = makeWhereWithLiteralAndOperator("date", 100,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 3000, cls, db);
+    // UNIFORM_RANGE_SELECTIVITY = 1/3 ≈ 0.333
+    assertEquals("Gt with stats should use uniform range",
+        1.0 / 3.0, sel, 0.01);
+  }
+
+  /**
+   * Range operator (<) with index stats but no histogram: same uniform
+   * fallback as >.
+   */
+  @Test
+  public void rangeLt_withStats_noHistogram_usesUniformRange() {
+    var cls = mockSchemaClass("Event", 3000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            3000, 500, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var where = makeWhereWithLiteralAndOperator("date", 100,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 3000, cls, db);
+    assertEquals("Lt with stats should use uniform range",
+        1.0 / 3.0, sel, 0.01);
+  }
+
+  /**
+   * Range operator (>=) with index stats but no histogram.
+   */
+  @Test
+  public void rangeGe_withStats_noHistogram_usesUniformRange() {
+    var cls = mockSchemaClass("Event", 3000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            3000, 500, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var where = makeWhereWithLiteralAndOperator("date", 100,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 3000, cls, db);
+    assertEquals("Ge with stats should use uniform range",
+        1.0 / 3.0, sel, 0.01);
+  }
+
+  /**
+   * Range operator (<=) with index stats but no histogram.
+   */
+  @Test
+  public void rangeLe_withStats_noHistogram_usesUniformRange() {
+    var cls = mockSchemaClass("Event", 3000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            3000, 500, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var where = makeWhereWithLiteralAndOperator("date", 100,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 3000, cls, db);
+    assertEquals("Le with stats should use uniform range",
+        1.0 / 3.0, sel, 0.01);
+  }
+
+  /**
+   * Range operator without schema/session: cannot resolve index → returns -1.
+   * This is the regression case — before the histogram path, range operators
+   * always returned -1 from estimateFilterSelectivity.
+   */
+  @Test
+  public void rangeGt_withoutSchema_returnsNegative() {
+    var where = makeWhereWithPropertyAndOperator("date",
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 1000, null, null);
+    assertEquals("Range without schema should return -1", -1.0, sel, 0.0);
+  }
+
+  /**
+   * Compound AND with range operators (IC4-style: date >= X AND date < Y).
+   * With index stats and resolvable values, both conditions go through
+   * estimateViaHistogram → UNIFORM_RANGE_SELECTIVITY (1/3 each).
+   * Combined: (1/3) * (1/3) = 1/9 ≈ 0.111.
+   */
+  @Test
+  public void compoundAnd_rangeOperators_ic4Style() {
+    var cls = mockSchemaClass("Message", 5000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            5000, 1000, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var cond1 = makeBinaryWithLiteral("creationDate", 1000,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator(-1));
+    var cond2 = makeBinaryWithLiteral("creationDate", 2000,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator(-1));
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(cond1);
+    andBlock.getSubBlocks().add(cond2);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(andBlock);
+
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 5000, cls, db);
+    // Both conditions: UNIFORM_RANGE_SELECTIVITY = 1/3 each → 1/9 ≈ 0.111
+    assertEquals("IC4-style compound range", 1.0 / 9.0, sel, 0.02);
+  }
+
+  /**
+   * Compound AND with mixed equality and range: date >= X AND name = 'Alice'.
+   * Equality uses distinctCount (1/100), range uses uniform (1/3).
+   * Combined: (1/100) * (1/3) ≈ 0.0033.
+   */
+  @Test
+  public void compoundAnd_mixedEqualityAndRange() {
+    var cls = mockSchemaClass("Person", 10000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 100, 0));
+    when(index.getHistogram(any())).thenReturn(null);
+
+    var rangeCond = makeBinaryWithLiteral("date", 500,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator(-1));
+    var eqCond = makeBinaryWithLiteral("name", "Alice",
+        new SQLEqualsOperator(-1));
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(rangeCond);
+    andBlock.getSubBlocks().add(eqCond);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(andBlock);
+
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 10000, cls, db);
+    // range: 1/3, equality via histogram: 1/100 → combined: 1/300 ≈ 0.0033
+    assertTrue("Mixed AND should produce small selectivity",
+        sel > 0.001 && sel < 0.02);
+  }
+
+  // -- Narrowest index selection tests ----------------------------------------
+
+  /**
+   * When multiple indexes cover the same property, estimateViaHistogram
+   * picks the one with the lowest selectivity estimate. This tests the
+   * "use most narrowed index" behavior.
+   */
+  @Test
+  public void histogramPath_multipleIndexes_picksNarrowest() {
+    var cls = mockSchemaClass("Post", 10000);
+
+    // Broad index: 10000 total, 10 distinct → equality = 1/10 = 0.1
+    var broadIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(broadIndex.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 10, 0));
+    when(broadIndex.getHistogram(any())).thenReturn(null);
+
+    // Narrow index: 10000 total, 5000 distinct → equality = 1/5000 = 0.0002
+    var narrowIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(narrowIndex.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 5000, 0));
+    when(narrowIndex.getHistogram(any())).thenReturn(null);
+
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(broadIndex, narrowIndex));
+
+    var where = makeWhereWithLiteralAndOperator("userId",
+        "user123", new SQLEqualsOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 10000, cls, db);
+    // Should pick narrow index: 1/5000 = 0.0002
+    assertEquals("Should use narrowest index",
+        1.0 / 5000, sel, 0.001);
+  }
+
+  /**
+   * Multiple indexes with range operator — picks the one producing the
+   * lowest selectivity. Both use UNIFORM_RANGE_SELECTIVITY (1/3) when
+   * no histogram, so result is 1/3 regardless, but the code path still
+   * iterates all indexes.
+   */
+  @Test
+  public void histogramPath_multipleIndexes_rangeOperator() {
+    var cls = mockSchemaClass("Event", 5000);
+
+    var idx1 = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(idx1.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            5000, 100, 0));
+    when(idx1.getHistogram(any())).thenReturn(null);
+
+    var idx2 = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(idx2.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            5000, 2000, 0));
+    when(idx2.getHistogram(any())).thenReturn(null);
+
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(idx1, idx2));
+
+    var where = makeWhereWithLiteralAndOperator("ts", 42,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 5000, cls, db);
+    // Both indexes return UNIFORM_RANGE_SELECTIVITY = 1/3
+    assertEquals("Range across multiple indexes", 1.0 / 3.0, sel, 0.01);
+  }
+
+  /**
+   * Multiple indexes where one has null stats → skipped. The other with
+   * valid stats is used.
+   */
+  @Test
+  public void histogramPath_multipleIndexes_oneNullStats_usesOther() {
+    var cls = mockSchemaClass("Tag", 1000);
+
+    var nullStatsIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(nullStatsIndex.getStatistics(any())).thenReturn(null);
+
+    var validIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(validIndex.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            1000, 200, 0));
+    when(validIndex.getHistogram(any())).thenReturn(null);
+
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(nullStatsIndex, validIndex));
+
+    var where = makeWhereWithLiteralAndOperator("name", "target",
+        new SQLEqualsOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 1000, cls, db);
+    // Valid index: distinctCount=200 → 1/200 = 0.005
+    assertEquals("Should use index with valid stats",
+        1.0 / 200, sel, 0.001);
+  }
+
+  /**
+   * Multiple indexes where one has zero totalCount → skipped. Verifies
+   * the totalCount > 0 guard in estimateViaHistogram's loop.
+   */
+  @Test
+  public void histogramPath_multipleIndexes_oneZeroTotal_usesOther() {
+    var cls = mockSchemaClass("Widget", 500);
+
+    var emptyIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(emptyIndex.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            0, 0, 0));
+
+    var populatedIndex = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(populatedIndex.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            500, 50, 0));
+    when(populatedIndex.getHistogram(any())).thenReturn(null);
+
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(emptyIndex, populatedIndex));
+
+    var where = makeWhereWithLiteralAndOperator("sku", "ABC",
+        new SQLEqualsOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 500, cls, db);
+    // Populated index: distinctCount=50 → 1/50 = 0.02
+    assertEquals("Should skip empty index",
+        1.0 / 50, sel, 0.001);
+  }
+
+  /**
+   * resolveDistinctCount with multiple indexes also picks the narrowest.
+   * Two indexes with different distinctCounts: the one producing the
+   * most selective result (lowest sel) should be used.
+   */
+  @Test
+  public void resolveDistinctCount_multipleIndexes_picksNarrowest() {
+    var cls = mockSchemaClass("Account", 10000);
+
+    // Index A: distinctCount=10 → equality = 1/10
+    var idxA = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(idxA.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 10, 0));
+    when(idxA.getHistogram(any())).thenReturn(null);
+
+    // Index B: distinctCount=8000 → equality = 1/8000
+    var idxB = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(idxB.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 8000, 0));
+    when(idxB.getHistogram(any())).thenReturn(null);
+
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(idxA, idxB));
+
+    // NE operator: should use narrowest → (8000-1)/8000 ≈ 0.99987
+    var where = makeWhereWithLiteralAndOperator("email", "test@example.com",
+        new SQLNeOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 10000, cls, db);
+    // The narrowest index for NE: histogramPath estimates NE as
+    // 1 - estimateEquality. With distinctCount=8000: 1 - 1/8000 ≈ 0.99987.
+    // With distinctCount=10: 1 - 1/10 = 0.9. Narrowest picks lowest sel.
+    assertTrue("NE with multiple indexes should pick narrowest",
+        sel < 0.95);
+  }
+
+  // -- Histogram-backed range estimation with actual histogram ----------------
+
+  /**
+   * Range operator (>) with actual histogram: boundary at 50 with uniform
+   * distribution. Value=50 should produce ~50% selectivity for > (values
+   * above the midpoint of a uniform distribution).
+   */
+  @Test
+  public void rangeGt_withHistogram_producesAccurateEstimate() {
+    var cls = mockSchemaClass("Measurement", 1000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            1000, 100, 0));
+
+    // 2-bucket histogram: [0, 50), [50, 100], 500 each
+    var histogram = new com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram(
+        2,
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {50, 50},
+        1000,
+        null,
+        0);
+    when(index.getHistogram(any())).thenReturn(histogram);
+
+    var where = makeWhereWithLiteralAndOperator("value", 50,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 1000, cls, db);
+    // value > 50: second bucket [50,100] with ~half remaining → ~0.5
+    assertTrue("Gt with histogram should produce ~50% selectivity",
+        sel > 0.2 && sel < 0.8);
+  }
+
+  /**
+   * Range operator (<) with actual histogram: value near the end should
+   * produce high selectivity (most values below).
+   */
+  @Test
+  public void rangeLt_withHistogram_producesAccurateEstimate() {
+    var cls = mockSchemaClass("Sensor", 1000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            1000, 100, 0));
+
+    // 2-bucket histogram: [0, 50), [50, 100], 500 each
+    var histogram = new com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram(
+        2,
+        new Comparable<?>[] {0, 50, 100},
+        new long[] {500, 500},
+        new long[] {50, 50},
+        1000,
+        null,
+        0);
+    when(index.getHistogram(any())).thenReturn(histogram);
+
+    var where = makeWhereWithLiteralAndOperator("value", 90,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator(-1));
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 1000, cls, db);
+    // value < 90: most of the data → high selectivity
+    assertTrue("Lt with histogram near end should be high selectivity",
+        sel > 0.5);
+  }
+
+  /**
+   * IC4-style compound range with histogram: creationDate >= 1000 AND
+   * creationDate < 3000 on a [0, 10000] distribution. The range covers
+   * ~20% of the data.
+   */
+  @Test
+  public void compoundAnd_rangeWithHistogram_ic4Style() {
+    var cls = mockSchemaClass("Comment", 10000);
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(cls.getInvolvedIndexesInternal(any(DatabaseSessionEmbedded.class),
+        any(String[].class))).thenReturn(Set.of(index));
+    when(index.getStatistics(any())).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics(
+            10000, 5000, 0));
+
+    // 4-bucket histogram: [0,2500), [2500,5000), [5000,7500), [7500,10000]
+    // 2500 entries each
+    var histogram = new com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram(
+        4,
+        new Comparable<?>[] {0, 2500, 5000, 7500, 10000},
+        new long[] {2500, 2500, 2500, 2500},
+        new long[] {2500, 2500, 2500, 2500},
+        10000,
+        null,
+        0);
+    when(index.getHistogram(any())).thenReturn(histogram);
+
+    var cond1 = makeBinaryWithLiteral("creationDate", 1000,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator(-1));
+    var cond2 = makeBinaryWithLiteral("creationDate", 3000,
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator(-1));
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(cond1);
+    andBlock.getSubBlocks().add(cond2);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(andBlock);
+
+    double sel = MatchExecutionPlanner.estimateFilterSelectivity(
+        where, 10000, cls, db);
+    // Range [1000, 3000) on [0, 10000]: ~20% of data.
+    // With histogram: sel(>=1000) * sel(<3000) should be roughly 0.05-0.30
+    assertTrue("IC4 compound range should produce reasonable selectivity",
+        sel > 0.01 && sel < 0.5);
+  }
+
+  // -- Helper: create WHERE with literal value on right side ------------------
+
+  /**
+   * Creates a WHERE clause with a property on the left and a literal value
+   * on the right that can be resolved at plan time. This is essential for
+   * testing the histogram path which requires value resolution.
+   */
+  private SQLWhereClause makeWhereWithLiteralAndOperator(
+      String propertyName, Object literalValue,
+      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator op) {
+    var condition = makeBinaryWithLiteral(propertyName, literalValue, op);
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(condition);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(andBlock);
+    return where;
+  }
+
+  /**
+   * Creates a binary condition with a property on the left and a mock
+   * expression on the right that returns the given literal value when
+   * executed.
+   */
+  private SQLBinaryCondition makeBinaryWithLiteral(
+      String propertyName, Object literalValue,
+      com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator op) {
+    var left = new SQLExpression(-1);
+    var baseExpr = new SQLBaseExpression(-1);
+    baseExpr.setIdentifier(new SQLBaseIdentifier(new SQLIdentifier(propertyName)));
+    left.setMathExpression(baseExpr);
+
+    var right = mock(SQLExpression.class);
+    when(right.execute(
+        (com.jetbrains.youtrackdb.internal.core.query.Result) isNull(),
+        isNull())).thenReturn(literalValue);
+
+    var condition = new SQLBinaryCondition(-1);
+    condition.setLeft(left);
+    condition.setOperator(op);
+    condition.setRight(right);
+    return condition;
+  }
+
   private PatternEdge mockEdgeWithWhileAndDepth(@Nullable Integer maxDepth) {
     var edge = mockEdgeWithMethod("out");
     var matchFilter = mock(
