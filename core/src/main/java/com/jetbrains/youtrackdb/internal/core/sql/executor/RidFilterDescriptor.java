@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -166,9 +167,15 @@ public sealed interface RidFilterDescriptor {
 
     @Override
     @Nullable public Object cacheKey(CommandContext ctx) {
-      return descriptors.stream()
-          .map(d -> d.cacheKey(ctx))
-          .toList();
+      var keys = new ArrayList<>(descriptors.size());
+      for (var d : descriptors) {
+        var k = d.cacheKey(ctx);
+        if (k == null) {
+          return null;
+        }
+        keys.add(k);
+      }
+      return keys;
     }
   }
 }

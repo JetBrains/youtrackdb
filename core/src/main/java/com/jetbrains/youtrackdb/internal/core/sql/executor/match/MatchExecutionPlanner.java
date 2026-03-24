@@ -1399,8 +1399,11 @@ public class MatchExecutionPlanner {
     if (method == null || method.getMethodName() == null) {
       return null;
     }
-    var syntacticDirection = method.getMethodName().getStringValue()
-        .toLowerCase(Locale.ROOT);
+    var nameStr = method.getMethodName().getStringValue();
+    if (nameStr == null) {
+      return null;
+    }
+    var syntacticDirection = nameStr.toLowerCase(Locale.ROOT);
     if (et.out) {
       return syntacticDirection;
     }
