@@ -49,7 +49,7 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
   // --- Version byte ---
 
   @Test
-  public void v2SerializationWritsVersionByteOne() {
+  public void v2SerializationWritesVersionByteOne() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "test");
@@ -120,6 +120,9 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
         session, v1Bytes, deserialized, new String[] {"name"});
 
     assertThat((String) deserialized.getProperty("name")).isEqualTo("Bob");
+    // Unrequested fields must not be loaded
+    assertThat(deserialized.hasProperty("age")).isFalse();
+    assertThat(deserialized.hasProperty("city")).isFalse();
   }
 
   @Test
@@ -212,29 +215,21 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     var fromV2 = (EntityImpl) session.newEntity();
     RecordSerializerBinary.INSTANCE.fromStream(session, v2Bytes, fromV2, null);
 
-    // Verify identical content
-    assertThat((String) fromV1.getProperty("str"))
-        .isEqualTo((String) fromV2.getProperty("str"));
-    assertThat((int) fromV1.getProperty("int"))
-        .isEqualTo((int) fromV2.getProperty("int"));
-    assertThat((long) fromV1.getProperty("long"))
-        .isEqualTo((long) fromV2.getProperty("long"));
-    assertThat((short) fromV1.getProperty("short"))
-        .isEqualTo((short) fromV2.getProperty("short"));
-    assertThat((float) fromV1.getProperty("float"))
-        .isEqualTo((float) fromV2.getProperty("float"));
-    assertThat((double) fromV1.getProperty("double"))
-        .isEqualTo((double) fromV2.getProperty("double"));
-    assertThat((BigDecimal) fromV1.getProperty("decimal"))
-        .isEqualTo((BigDecimal) fromV2.getProperty("decimal"));
-    assertThat((Date) fromV1.getProperty("date"))
-        .isEqualTo((Date) fromV2.getProperty("date"));
-    assertThat((boolean) fromV1.getProperty("bool"))
-        .isEqualTo((boolean) fromV2.getProperty("bool"));
-    assertThat((byte) fromV1.getProperty("byte"))
-        .isEqualTo((byte) fromV2.getProperty("byte"));
-    assertThat((byte[]) fromV1.getProperty("binary"))
-        .isEqualTo((byte[]) fromV2.getProperty("binary"));
+    // Verify both produce correct values (assert against known inputs, not just V1==V2)
+    for (var from : new EntityImpl[] {fromV1, fromV2}) {
+      assertThat((String) from.getProperty("str")).isEqualTo("hello");
+      assertThat((int) from.getProperty("int")).isEqualTo(Integer.MAX_VALUE);
+      assertThat((long) from.getProperty("long")).isEqualTo(Long.MIN_VALUE);
+      assertThat((short) from.getProperty("short")).isEqualTo(Short.MAX_VALUE);
+      assertThat((float) from.getProperty("float")).isEqualTo(3.14f);
+      assertThat((double) from.getProperty("double")).isEqualTo(2.718281828);
+      assertThat((BigDecimal) from.getProperty("decimal"))
+          .isEqualTo(new BigDecimal("123456789.987654321"));
+      assertThat((Date) from.getProperty("date")).isEqualTo(new Date(1700000000000L));
+      assertThat((boolean) from.getProperty("bool")).isFalse();
+      assertThat((byte) from.getProperty("byte")).isEqualTo((byte) 0x7F);
+      assertThat((byte[]) from.getProperty("binary")).isEqualTo(new byte[] {1, 2, 3, 4, 5});
+    }
   }
 
   @Test
@@ -267,6 +262,13 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     assertThat((String) fromV2.getProperty("beta")).isEqualTo("b");
     assertThat((int) fromV1.getProperty("delta")).isEqualTo(4);
     assertThat((int) fromV2.getProperty("delta")).isEqualTo(4);
+
+    // Unrequested fields must not be loaded
+    for (var from : new EntityImpl[] {fromV1, fromV2}) {
+      assertThat(from.hasProperty("alpha")).isFalse();
+      assertThat(from.hasProperty("gamma")).isFalse();
+      assertThat(from.hasProperty("epsilon")).isFalse();
+    }
   }
 
   @Test
@@ -314,5 +316,42 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     assertThat((String) deserialized.getProperty("key")).isEqualTo("value");
     assertThat((int) deserialized.getProperty("num")).isEqualTo(42);
     assertThat((double) deserialized.getProperty("pi")).isEqualTo(3.14);
+  }
+
+  // --- rawContainsProperty guard regression test ---
+
+  /**
+   * Verifies that full deserialization does not overwrite properties that were already loaded
+   * via partial deserialization and then modified in memory. This is the regression test for
+   * the rawContainsProperty() guard added in V2's deserializeEntry().
+   */
+  @Test
+  public void v2FullDeserializePreservesInMemoryModifiedProperty() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("name", "original");
+    entity.setInt("age", 30);
+    entity.setString("city", "Berlin");
+
+    var rsb = new RecordSerializerBinary((byte) 1);
+    byte[] v2Bytes = rsb.toStream(session, entity);
+
+    // Partial deserialize: load only "name"
+    var target = (EntityImpl) session.newEntity();
+    RecordSerializerBinary.INSTANCE.fromStream(
+        session, v2Bytes, target, new String[] {"name"});
+    assertThat((String) target.getProperty("name")).isEqualTo("original");
+
+    // Modify "name" in memory
+    target.setString("name", "modified");
+
+    // Full deserialize on the same entity (simulates lazy loading of remaining fields)
+    RecordSerializerBinary.INSTANCE.fromStream(session, v2Bytes, target, null);
+
+    // "name" must retain the in-memory modification, not revert to "original"
+    assertThat((String) target.getProperty("name")).isEqualTo("modified");
+    // Other fields loaded normally
+    assertThat((int) target.getProperty("age")).isEqualTo(30);
+    assertThat((String) target.getProperty("city")).isEqualTo("Berlin");
   }
 }

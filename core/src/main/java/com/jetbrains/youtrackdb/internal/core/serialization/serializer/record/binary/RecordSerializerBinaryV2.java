@@ -450,6 +450,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     PropertyTypeInternal type = nameAndType.type;
 
     int valueLength = VarIntSerializer.readAsInteger(bytes);
+    assert valueLength >= 0
+        : "Negative value length " + valueLength + " for field '" + fieldName + "'";
 
     // Skip properties already present in the entity — they may have been loaded by a prior
     // partial deserialization call and subsequently modified in memory. Overwriting them with
