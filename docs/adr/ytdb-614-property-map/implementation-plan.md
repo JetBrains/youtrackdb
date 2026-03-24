@@ -543,58 +543,28 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 7: Redesign V2 hash table — bucketized cuckoo with 3-tier routing
+- [x] Track 7: Redesign V2 hash table — bucketized cuckoo with 3-tier routing
   > Replace the perfect hash seed search in `RecordSerializerBinaryV2` with
   > bucketized cuckoo hashing (b=4 slots/bucket, d=2 hash functions, ~85%
   > load factor). Raise linear mode threshold from 2 to 12 for the 3-tier
   > hybrid. Update all hash table utility, serialization, and deserialization
   > methods. Update V2 unit tests.
   >
-  > **What**: Modify `RecordSerializerBinaryV2` to:
-  > - Replace `findPerfectHashSeed()` with cuckoo construction (greedy
-  >   placement + displacement chains, seed retry on failure).
-  > - Group slots into buckets of 4. Bucket index via Fibonacci hashing.
-  > - Dual hash functions: `h1(name, seed)` and `h2(name, seed ^ 0x85ebca6b)`.
-  > - Lookup: check bucket1 (4 slots with hash8 fast-reject) → if miss,
-  >   check bucket2.
-  > - Change `LINEAR_MODE_THRESHOLD` from 2 to 12.
-  > - Rename `computeLog2Capacity()` → `computeLog2NumBuckets()`. The
-  >   `log2Capacity` field in the binary format is reinterpreted as
-  >   `log2NumBuckets` — total slot count is now `(1 << log2NumBuckets) * 4`.
+  > **Track episode:**
+  > Replaced perfect hash seed search with bucketized cuckoo hashing (b=4,
+  > d=2, ~85% load factor). Raised linear mode threshold from 2 to 12,
+  > creating 3-tier hybrid: linear (0-2), linear (3-12), cuckoo (13+).
+  > Construction uses greedy placement with displacement chains and seed
+  > retry — O(n) vs the previous brute-force seed search (up to 10,000
+  > attempts). Read path checks at most 2 buckets (8 slots) with hash8
+  > fast-reject. Net code reduction of ~255 lines. Key discoveries:
+  > deterministic slot-0 eviction caused ping-pong displacement cycles —
+  > fixed with round-robin eviction; integer overflow risk in bucket count
+  > computation — fixed with long arithmetic. Coverage: 91.9% line / 85.4%
+  > branch. No cross-track impact.
   >
-  > **Binary format (hash table mode, >12 properties)**:
-  > ```
-  > [class name: varint len + UTF-8 bytes]
-  > [property count: varint]
-  > [seed: 4 bytes LE]
-  > [log2NumBuckets: 1 byte]
-  > [bucket array: numBuckets × 4 slots × 3 bytes]
-  >   bucket = [slot0][slot1][slot2][slot3]
-  >   slot = [hash8: 1 byte][offset: 2 bytes LE]
-  >   empty slot = [0xFF][0xFFFF]
-  > [key-value entries packed sequentially]
-  > ```
+  > **Step file:** `tracks/track-7.md` (4 steps, 0 failed)
   >
-  > **Constraints**:
-  > - Existing V1 backward compatibility must be preserved (version dispatch
-  >   is unchanged).
-  > - All existing parameterized tests (`EntitySchemalessBinarySerializationTest`)
-  >   must continue to pass — they test the `EntitySerializer` contract.
-  > - The V2 format version byte remains 1. The cuckoo binary format is
-  >   **wire-incompatible** with the perfect hash V2 format from Tracks 4-6
-  >   (same version byte, different layout). No migration is provided; any
-  >   test databases created during Tracks 4-6 must be deleted before running
-  >   Track 7 tests. This is safe since no V2 records exist in production
-  >   (feature branch not merged to develop).
-  > - Embedded entities continue to use V2 format recursively.
-  >
-  > **Interactions**: Modifies code from Track 4. No changes to
-  > `RecordSerializerBinary`, `MurmurHash3`, or `BinaryComparatorV0`.
-  >
-  > **Scope:** ~5-6 steps covering cuckoo construction algorithm, serialization
-  > rework, deserialization rework (partial + field are the main cuckoo-path
-  > work; full deserialization is trivial — it reads KV entries linearly and
-  > ignores the hash table), threshold change, and test updates
   > **Depends on:** Track 3, Track 4
 
 - [ ] Track 8: Integration testing and write performance verification
