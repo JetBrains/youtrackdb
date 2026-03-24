@@ -266,29 +266,23 @@ public class RecordSerializerBinaryV2HashTableTest {
   @Test
   public void computeHash8_extractsHighByte() {
     // 0xAB______ → hash8 = 0xAB
-    assertThat(RecordSerializerBinaryV2.computeHash8(0xAB000000, 100)).isEqualTo((byte) 0xAB);
+    assertThat(RecordSerializerBinaryV2.computeHash8(0xAB000000)).isEqualTo((byte) 0xAB);
   }
 
   @Test
   public void computeHash8_lowBitsIgnored() {
-    assertThat(RecordSerializerBinaryV2.computeHash8(0xAB123456, 100)).isEqualTo((byte) 0xAB);
+    assertThat(RecordSerializerBinaryV2.computeHash8(0xAB123456)).isEqualTo((byte) 0xAB);
   }
 
   @Test
-  public void computeHash8_avoidsSentinelCollisionAtZeroOffset() {
-    // hash = 0xFF______, offset = 0 → would collide with empty sentinel → adjusted to 0xFE
-    assertThat(RecordSerializerBinaryV2.computeHash8(0xFF000000, 0)).isEqualTo((byte) 0xFE);
-  }
-
-  @Test
-  public void computeHash8_allowsFFHashWithNonZeroOffset() {
-    // hash = 0xFF______, offset != 0 → no collision, keep 0xFF
-    assertThat(RecordSerializerBinaryV2.computeHash8(0xFF000000, 1)).isEqualTo((byte) 0xFF);
+  public void computeHash8_ffHashIsNotAdjusted() {
+    // hash8 = 0xFF is safe because empty sentinel uses offset 0xFFFF (reserved, never assigned)
+    assertThat(RecordSerializerBinaryV2.computeHash8(0xFF000000)).isEqualTo((byte) 0xFF);
   }
 
   @Test
   public void computeHash8_zeroHash() {
-    assertThat(RecordSerializerBinaryV2.computeHash8(0x00000000, 0)).isEqualTo((byte) 0x00);
+    assertThat(RecordSerializerBinaryV2.computeHash8(0x00000000)).isEqualTo((byte) 0x00);
   }
 
   // --- Stress: seed search for various property counts ---
