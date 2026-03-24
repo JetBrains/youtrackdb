@@ -6,6 +6,7 @@
 - [ ] Track-level code review
 
 ## Base commit
+`6838a708f9`
 
 ## Reviews completed
 - [x] Technical (track-1-technical.md — 2 blockers resolved, 4 should-fix, 2 suggestions)
