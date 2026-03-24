@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/4 complete)
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -26,25 +26,23 @@
 
 ## Steps
 
-- [ ] Step 1: Hash table core utilities — Fibonacci hash, capacity computation, seed search
-  Create the foundation for V2's hash table format as static utility methods in
-  `RecordSerializerBinaryV2` (or a package-private helper class):
-
-  - `fibonacciIndex(int hash, int log2Capacity)` — computes slot index via
-    `(hash * 0x9E3779B9) >>> (32 - log2Capacity)`. This is the ONLY index
-    computation formula used everywhere (serialization, deserialization, comparator).
-  - `computeLog2Capacity(int propertyCount)` — returns log2 of next power of two
-    ≥ 2×N (4×N for N>40). Min log2 = 2 (capacity 4), max log2 = 10 (capacity 1024).
-  - `findPerfectHashSeed(byte[][] propertyNameBytes, int log2Capacity)` — iterative
-    seed search using `MurmurHash3.hash32WithSeed()` + `fibonacciIndex()`. Checks
-    that all properties map to distinct slots. Max 10,000 attempts per capacity level.
-    If exhausted, doubles capacity and retries. Max capacity 1024; throws if exceeded.
-  - Empty sentinel constant: `EMPTY_HASH8 = (byte) 0xFF`, `EMPTY_OFFSET = (short) 0xFFFF`.
-
-  **Tests**: Seed search for property counts 1-100, capacity computation for all
-  ranges, Fibonacci hash produces valid indices for all capacity sizes, seed search
-  failure at artificial max capacity, edge cases (single property, duplicate names
-  rejected).
+- [x] Step 1: Hash table core utilities — Fibonacci hash, capacity computation, seed search
+  > **What was done:** Created `RecordSerializerBinaryV2` class implementing
+  > `EntitySerializer` with static utility methods: `fibonacciIndex()`,
+  > `computeLog2Capacity()`, `findPerfectHashSeed()`, `computeHash8()`, and
+  > sentinel constants. All interface methods are stubs (UnsupportedOperationException)
+  > except `getComparator()` which returns `BinaryComparatorV0` per review decision.
+  > 31 tests in `RecordSerializerBinaryV2HashTableTest`.
+  >
+  > **What was discovered:** The initial `computeHash8` implementation had an
+  > incorrect sentinel collision guard checking offset==0 instead of offset==0xFFFF.
+  > Code review caught this — simplified to a single-arg method since the 0xFFFF
+  > sentinel offset is reserved and never assigned to real entries, making collision
+  > impossible. Also simplified seed search cleanup from per-element re-hashing to
+  > `Arrays.fill()`.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (new),
+  > `RecordSerializerBinaryV2HashTableTest.java` (new)
 
 - [ ] Step 2: V2 serialization and full deserialization (round-trip)
   Implement the core serialize/deserialize methods in `RecordSerializerBinaryV2`
