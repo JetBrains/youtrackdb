@@ -236,6 +236,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     // the other for eviction, auto-close, cron events, etc.
     scheduledPool = ThreadPoolExecutors.newScheduledThreadPool(
         "YouTrackDB Scheduler", threadGroup, 2);
+
+    // Register engines eagerly in the constructor so they are available before
+    // the singleton 'instance' reference is published via the volatile write in
+    // startUp(). Without this, a concurrent thread can observe a non-null
+    // 'instance' (assigned before startup()) but find an empty engines map,
+    // causing onEmbeddedFactoryInit() to skip engine startup — leading to
+    // "readCache is null" failures when createStorage() is called later.
+    registerEngines();
   }
 
   public boolean isInsideWebContainer() {
@@ -272,7 +280,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
           : new YouTrackDBEnginesManager(insideWebContainer);
       // Assign instance before startup() so that re-entrant calls to instance()
       // during startup (e.g. Profiler.onStartup() -> YouTrackDBScheduler) see the
-      // in-progress object instead of returning null.
+      // in-progress object instead of returning null. Engine instances are already
+      // registered (in the constructor) so concurrent onEmbeddedFactoryInit() calls
+      // that observe this early publication will find engines in the map and can
+      // start them.
       instance = youTrack;
       YouTrackDBEnginesManager managerToShutdown = null;
       try {
@@ -346,7 +357,11 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         signalHandler.installDefaultSignals();
       }
 
-      registerEngines();
+      // Engines are registered eagerly in the constructor — not here — so they
+      // are available before the singleton 'instance' is published. Existing
+      // engine instances survive shutdown/restart: onEmbeddedFactoryInit()
+      // re-starts them on demand (EngineLocalPaginated.startup() creates a
+      // fresh readCache each time).
 
       if (GlobalConfiguration.ENVIRONMENT_DUMP_CFG_AT_STARTUP.getValueAsBoolean()) {
         dumpConfigurationToLog();
@@ -473,6 +488,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       weakShutdownListeners.clear();
       weakStartupListeners.clear();
 
+      shutdownEngines();
+
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
 
@@ -494,6 +511,31 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
 
     return this;
+  }
+
+  /**
+   * Shuts down all running engines. Called from {@link #shutdown()} after all embedded
+   * factory instances and storages have been closed by the shutdown handlers.
+   *
+   * <p>Engines are shut down here (centrally) rather than eagerly in
+   * {@link #onEmbeddedFactoryClose} because eager shutdown creates a race condition
+   * during parallel test execution: a thread may call {@code engine.createStorage()}
+   * between the moment another thread removes the last factory (shutting down the engine)
+   * and the moment the first thread registers its own factory. The engine's readCache
+   * becomes null during this window, causing DatabaseException.
+   */
+  private void shutdownEngines() {
+    assert !active : "shutdownEngines() called while manager is still active";
+    for (var engine : engines.values()) {
+      if (engine.isRunning()) {
+        try {
+          engine.shutdown();
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error shutting down engine '%s'", e,
+              engine.getName());
+        }
+      }
+    }
   }
 
   public boolean isActive() {
@@ -1058,15 +1100,21 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  // Guards init/close to prevent TOCTOU races where a concurrent close
-  // sees an empty factories set (between remove and add) and shuts down engines
-  // while another thread is still initializing or using them.
+  // Guards engine startup in onEmbeddedFactoryInit to prevent concurrent startups
+  // and ensure the factory is registered atomically with the engine-running check.
+  // Also serializes factory-set mutations between init and close.
   // Uses ReentrantLock instead of synchronized to be virtual-thread friendly.
   private final ReentrantLock factoryLifecycleLock = new ReentrantLock();
 
   public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
     factoryLifecycleLock.lock();
     try {
+      // No assert on 'active' here: during first startup, startUp() assigns the
+      // volatile 'instance' field BEFORE calling startup() (which sets active=true).
+      // A concurrent thread calling instance() may return the not-yet-active manager
+      // and invoke this method before startup() completes. This is safe because
+      // the method starts engines that aren't running, which is correct regardless
+      // of the active flag.
       var memory = engines.get("memory");
       if (memory != null && !memory.isRunning()) {
         memory.startup();
@@ -1085,16 +1133,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     factoryLifecycleLock.lock();
     try {
       factories.remove(embeddedFactory);
-      if (factories.isEmpty()) {
-        var memory = engines.get("memory");
-        if (memory != null && memory.isRunning()) {
-          memory.shutdown();
-        }
-        var disc = engines.get("disk");
-        if (disc != null && disc.isRunning()) {
-          disc.shutdown();
-        }
-      }
+      // Engines are shut down centrally in shutdownEngines(), not here —
+      // see its Javadoc for the race condition rationale.
     } finally {
       factoryLifecycleLock.unlock();
     }

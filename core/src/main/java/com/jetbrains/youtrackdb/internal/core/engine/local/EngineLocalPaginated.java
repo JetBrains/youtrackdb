@@ -119,6 +119,7 @@ public class EngineLocalPaginated extends EngineAbstract {
     // isRunning()==true and skip startup, then call createStorage() while
     // readCache is still null.
     readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    assert readCache != null : "readCache must be initialized before marking engine as running";
     super.startup();
   }
 

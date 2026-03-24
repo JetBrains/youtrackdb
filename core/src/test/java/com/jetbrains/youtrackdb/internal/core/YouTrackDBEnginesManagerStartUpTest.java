@@ -2,8 +2,10 @@ package com.jetbrains.youtrackdb.internal.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.reflect.Field;
@@ -263,6 +265,60 @@ public class YouTrackDBEnginesManagerStartUpTest {
     var manager = YouTrackDBEnginesManager.instance();
     profilerField.set(manager, null);
     assertThat(manager.getTicker()).isNull();
+  }
+
+  /**
+   * Engines must be registered during construction (before startup() is called)
+   * so that concurrent threads observing an early-published instance via the
+   * volatile 'instance' field find engines in the map. Without this, a concurrent
+   * onEmbeddedFactoryInit() call sees an empty engines map and skips engine
+   * startup, leading to "readCache is null" failures in createStorage().
+   */
+  @Test
+  public void enginesAreRegisteredInConstructorBeforeStartup() {
+    var manager = new YouTrackDBEnginesManager(false);
+    try {
+      // startup() has NOT been called — engines should already be registered.
+      assertThat(manager.getEngine("memory")).isNotNull();
+      assertThat(manager.getEngine("disk")).isNotNull();
+
+      // Engines should not be running yet — they are started lazily by
+      // onEmbeddedFactoryInit(), not during registration.
+      assertThat(manager.getEngine("memory").isRunning()).isFalse();
+      assertThat(manager.getEngine("disk").isRunning()).isFalse();
+    } finally {
+      manager.shutdownPools();
+    }
+  }
+
+  /**
+   * onEmbeddedFactoryInit() must succeed on a manager that has been constructed
+   * but not yet had startup() called (active == false). This simulates the race
+   * where a concurrent thread sees the early-published instance and calls
+   * onEmbeddedFactoryInit() before startup() completes.
+   */
+  @Test
+  public void onEmbeddedFactoryInitWorksBeforeStartup() {
+    var manager = new YouTrackDBEnginesManager(false);
+    try {
+      assertThat(manager.getEngine("memory").isRunning()).isFalse();
+      assertThat(manager.getEngine("disk").isRunning()).isFalse();
+
+      // Calling onEmbeddedFactoryInit on a not-yet-active manager must not
+      // throw (no assert on active flag) and must start the engines.
+      manager.onEmbeddedFactoryInit(mock(YouTrackDBInternalEmbedded.class));
+
+      assertThat(manager.getEngine("memory").isRunning()).isTrue();
+      assertThat(manager.getEngine("disk").isRunning()).isTrue();
+    } finally {
+      // Clean up: shutdown engines, then pools.
+      try {
+        manager.shutdown();
+      } catch (Exception ignored) {
+        // shutdown() may fail if manager was never fully started — that's OK.
+      }
+      manager.shutdownPools();
+    }
   }
 
   /**

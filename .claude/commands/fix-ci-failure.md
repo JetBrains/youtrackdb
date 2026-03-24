@@ -5,6 +5,23 @@ Use `$ARGUMENTS` as the URL if provided.
 
 ## Workflow
 
+### Step 0: Create progress tracker (MANDATORY — do this FIRST)
+
+Before any investigation, create tasks for every workflow step using TaskCreate.
+These tasks are your checklist — mark each `in_progress` when starting and
+`completed` when done. **Do NOT skip tasks. Complete them in order.**
+
+Create these tasks:
+1. Identify the failure
+2. Classify the failure type
+3. Locate and understand the failing test
+4. Trace the root cause
+5. Apply the fix
+6. Verify locally
+7. Dimensional code review + test quality review
+8. Summarize and wait for approval
+9. Commit and PR (only after approval)
+
 ### Step 1: Identify the failure
 
 1. Use `gh` CLI to fetch PR and check run details. Prefer `gh api` and `gh pr` over WebFetch for GitHub URLs.
@@ -103,7 +120,11 @@ CI gates enforce policies on PRs. When a gate fails:
 3. If the test requires a suite runner (e.g., GremlinProcessRunner, graph provider), note that it cannot be run standalone — verify the code change is correct by inspection and rely on CI.
 4. Run `./mvnw -pl {module} spotless:check` to ensure formatting compliance.
 
-### Step 7: Dimensional code review + test quality review
+### Step 7: Dimensional code review + test quality review (MANDATORY GATE)
+
+**BLOCKING: Do NOT proceed to Step 8 (summarize) until this step is fully
+complete. Skipping this step is never acceptable — it exists to catch bugs
+in the fix itself before presenting to the user.**
 
 **If you changed any code or added/fixed/changed any tests**, run a
 dimensional code review and test quality review. This step is mandatory
@@ -161,7 +182,7 @@ whenever code or tests were modified.
      critical issues, present the remaining findings to the user and ask
      for guidance.
 
-### Step 9: Summarize and wait for approval
+### Step 8: Summarize and wait for approval
 
 Present to the user:
 - **Problem**: The exact failure (test name, error message, CI link)
@@ -171,7 +192,7 @@ Present to the user:
 
 **Do NOT commit or push until the user approves.**
 
-### Step 10: Commit and PR (only after approval)
+### Step 9: Commit and PR (only after approval)
 
 1. Commit following the project's git conventions (YTDB-NNN prefix, imperative summary).
 2. Push and create a PR targeting `develop` with:

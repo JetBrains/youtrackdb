@@ -301,10 +301,18 @@ public class ThreeTierTransitionTest {
       assertTrue("Initial build should complete",
           executor.awaitTermination(10, TimeUnit.SECONDS));
 
-      // Then the snapshot transitions to Histogram tier
+      // awaitTermination provides happens-before with all task actions,
+      // and CHM.compute() inside the task is volatile — the cache read
+      // below MUST see the updated value. If histogram is null, the
+      // rebalance task was never submitted (check scheduleRebalance
+      // preconditions: CAS guard, cooldown, keyStreamSupplier, fileId).
       var updated = fixture.cache.get(fixture.engineId);
-      assertNotNull(updated);
-      assertNotNull("Histogram should be built", updated.histogram());
+
+      // Then the snapshot transitions to Histogram tier
+      assertNotNull("Snapshot should exist after rebalance", updated);
+      assertNotNull("Histogram should be built — if null, the rebalance "
+          + "task was likely never submitted (CAS guard, cooldown, or "
+          + "missing keyStreamSupplier/fileId)", updated.histogram());
       assertTrue("Histogram should have buckets",
           updated.histogram().bucketCount() > 0);
       assertEquals("Non-null count should match",

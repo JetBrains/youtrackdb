@@ -166,20 +166,26 @@ public class DbTestBase {
     try {
       dropDatabase();
     } finally {
-      youTrackDB.close();
+      // youTrackDB may be null if createContext() failed (e.g., engine
+      // lifecycle race during parallel test execution on JDK 25)
+      if (youTrackDB != null) {
+        youTrackDB.close();
+      }
     }
   }
 
   public void dropDatabase() {
-    if (!session.isClosed()) {
+    // session/pool may be null if createDatabase() failed (e.g., engine
+    // lifecycle race during parallel test execution on JDK 25)
+    if (session != null && !session.isClosed()) {
       session.activateOnCurrentThread();
       session.close();
     }
-    if (!pool.isClosed()) {
+    if (pool != null && !pool.isClosed()) {
       pool.close();
     }
 
-    if (youTrackDB.exists(this.databaseName)) {
+    if (youTrackDB != null && youTrackDB.exists(this.databaseName)) {
       youTrackDB.drop(databaseName);
     }
   }

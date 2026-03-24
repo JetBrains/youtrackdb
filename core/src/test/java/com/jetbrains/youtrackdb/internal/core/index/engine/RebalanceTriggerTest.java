@@ -359,10 +359,20 @@ public class RebalanceTriggerTest {
       assertTrue("Drift-biased rebalance should complete",
           executor.awaitTermination(10, TimeUnit.SECONDS));
 
-      // Then rebalance ran — mutationsSinceRebalance reset
+      // awaitTermination provides happens-before with all task actions,
+      // and CHM.compute() inside the task is volatile — the cache read
+      // below MUST see the updated value. If mutationsSinceRebalance != 0,
+      // the rebalance task was never submitted (check scheduleRebalance
+      // preconditions: CAS guard, cooldown, keyStreamSupplier, fileId).
       var updatedSnapshot = fixture.cache.get(fixture.engineId);
-      assertNotNull(updatedSnapshot);
-      assertEquals(0, updatedSnapshot.mutationsSinceRebalance());
+
+      // Then rebalance ran — mutationsSinceRebalance reset
+      assertNotNull("Snapshot should exist after rebalance",
+          updatedSnapshot);
+      assertEquals("Rebalance should reset mutation counter — if not, "
+          + "the task was likely never submitted (CAS guard, cooldown, "
+          + "or missing keyStreamSupplier/fileId)",
+          0, updatedSnapshot.mutationsSinceRebalance());
     } finally {
       executor.shutdownNow();
     }
