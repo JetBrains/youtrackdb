@@ -28,12 +28,15 @@ indirection.
    correct deserializer. New records are written in V2; old records are read
    with V1.
 2. **Space budget**: Records live on 8 KB pages. The hash table overhead must
-   be small — a few percent of record size at most. Perfect hashing with
-   brute-force seed search at 2x capacity (4x for N>40) adds ~6 bytes
-   metadata + empty slots (each slot is a 3-byte fixed-size entry).
-3. **Serialization latency**: The perfect hash seed search runs at
-   serialization time. With 2x capacity (4x for N>40), seed search
-   completes in <1 ms — acceptable for a write path.
+   be small — a few percent of record size at most. Bucketized cuckoo at
+   ~85% load factor adds 5 bytes metadata (4-byte seed + 1-byte log2) +
+   bucket slots (each slot is a 3-byte fixed-size entry). At 85% load,
+   the table is more compact than the original 50%-load perfect hash design.
+3. **Serialization latency**: Hash table construction must be O(n) — no
+   brute-force seed search. The original perfect hashing approach caused a
+   5× write path slowdown in JMH benchmarks due to seed search (up to
+   10,000 attempts). Bucketized cuckoo uses greedy placement with short
+   displacement chains, completing in a single O(n) pass.
 4. **Deterministic hashing**: Must use a portable, well-defined hash function
    (not `String.hashCode()`). The existing `MurmurHash3` (128-bit) class
    at `internal.common.hash.MurmurHash3` can be adapted.
@@ -50,8 +53,9 @@ indirection.
    serialized. The V2 format applies recursively — each embedded entity gets
    its own hash table directory.
 8. **BinaryComparator**: The `BinaryComparatorV0` performs byte-level
-   comparisons on serialized fields. A V2 comparator must locate field bytes
-   via the hash table instead of linear scan.
+   comparisons on serialized fields. V2's `deserializeField()` locates
+   field bytes via the hash table; `BinaryComparatorV0` is reused as-is
+   (confirmed in Track 5 review).
 
 ### Architecture Notes
 
@@ -61,137 +65,212 @@ indirection.
 graph LR
     RSB[RecordSerializerBinary] -->|version dispatch| V1[RecordSerializerBinaryV1]
     RSB -->|version dispatch| V2[RecordSerializerBinaryV2]
-    V2 -->|hash function| MH[MurmurHash3]
+    V2 -->|dual hash functions, Track 7| MH[MurmurHash3]
     V2 -->|varint encoding| VI[VarIntSerializer]
     V2 -->|type serialization| HC[HelperClasses]
-    V2 -->|comparator| BC1[BinaryComparatorV1]
-    V1 -->|comparator| BC0[BinaryComparatorV0]
+    V2 -->|field location| DF[deserializeField]
+    DF -->|binary compare| BC0[BinaryComparatorV0]
+    V1 -->|comparator| BC0
     EI[EntityImpl] -->|deserialize| RSB
     EI -->|serialize| RSB
-    IDX[Index Engine] -->|binary field compare| BC1
+    IDX[Index Engine] -->|binary field compare| BC0
 ```
 
-- **RecordSerializerBinary** — modified: extend `serializerByVersion` array
-  to include V2, update `CURRENT_RECORD_VERSION` to 1
-- **RecordSerializerBinaryV2** — new: implements `EntitySerializer` with
-  open-addressing hash map format
-- **MurmurHash3** — modified: add a 32-bit seeded variant for hash table
-  index computation (current impl is 128-bit unseeded)
-- **BinaryComparatorV1** — new: field lookup via hash table for binary
-  comparison
+- **RecordSerializerBinary** — modified (Track 4): `serializerByVersion`
+  array includes V2 at index 1, `CURRENT_RECORD_VERSION = 1`
+- **RecordSerializerBinaryV2** — modified (Track 7): replace perfect hash
+  seed search with bucketized cuckoo construction; raise linear mode
+  threshold from 2 to 12; bucket-based lookup in deserialization
+- **MurmurHash3** — modified (Track 3): `hash32WithSeed()` 32-bit seeded
+  variant. Used with two different seeds for cuckoo's dual hash functions.
+- **BinaryComparatorV0** — unchanged, reused for all versions (Track 5
+  confirmed no V1 comparator needed)
 - **VarIntSerializer** — unchanged, reused for encoding integers
 - **HelperClasses** — unchanged, reused for type-specific serialization
 - **EntityImpl** — unchanged, interacts only through `EntitySerializer`
   interface
 - **Index Engine** — unchanged, uses `BinaryComparator` interface
 
-#### D1: Perfect hashing with brute-force seed search
+#### D1: ~~Perfect hashing~~ → Bucketized cuckoo hashing (revised)
 
+- **Original approach (Tracks 4-6)**: Perfect hashing with brute-force seed
+  search. JMH benchmarks showed **5× write path slowdown** due to the seed
+  search loop (up to 10,000 attempts per serialization). Replaced in Track 7.
 - **Alternatives considered**:
-  - *Robin Hood hashing* — O(1) amortized but ~1.5 avg probes, requires
-    probing logic on read path, bounded but non-zero worst case
-  - *Swiss Table* — SIMD-dependent, high implementation complexity,
-    negligible benefit at N ≤ 50
-  - *Cuckoo hashing* — guaranteed O(1) but poor space efficiency (50% load
-    with 2 hash functions) or 3 non-contiguous accesses (3 hash functions)
-  - *Linear probing* — simple but unbounded worst-case probe chains
-  - *Plain linear scan (status quo)* — O(n) per field lookup
-- **Rationale**: For the "build once, read many" pattern with small key sets
-  (5-50 properties), perfect hashing is optimal:
-  - Exactly 1 hash + 1 array access per lookup (true O(1), no probing)
-  - Tiny metadata (4-byte seed + capacity)
-  - At 2x capacity (4x for N>40), seed search for N ≤ 50 completes in <100 μs
-  - Simple serialized format (seed + flat slot array + key-value data)
-  - No probing logic on the hot read path
-  - Existing MurmurHash3 provides high-quality, portable hash function
+  - *Perfect hashing (original D1)* — true O(1) reads but 5× write
+    regression from brute-force seed search. **Rejected after benchmarking.**
+  - *Robin Hood hashing* — O(1) amortized, ~1.5 avg probes, cache-friendly
+    sequential probing. Good but unbounded worst-case probe chains.
+  - *Linear probing* — simplest, cache-friendly, but unbounded worst case.
+  - *Swiss Table* — SIMD-dependent, high implementation complexity.
+  - *Classic cuckoo (b=1)* — only 50% load factor, wastes space.
+- **Chosen: Bucketized cuckoo hashing (b=4, d=2)**
+  - 2 hash functions, 4 slots per bucket, ~85% target load factor
+  - Following RocksDB's Cuckoo Table (build-once/read-many SST format)
+    and DPDK's `librte_hash` (industry-standard network cuckoo table)
+- **Rationale**:
+  - **O(n) construction** — greedy placement with short displacement chains.
+    No brute-force seed search. Seed retry is extremely rare at 85% load.
+  - **Bounded worst-case reads** — at most 2 bucket checks (8 slots).
+    Hash8 prefix on each slot enables fast rejection without following offset.
+  - **95% achievable load factor** — nearly 2× more space-efficient than
+    the original 50%-load perfect hash design.
+  - **Proven in production** — RocksDB (87% load, build-once), DPDK (b=8,
+    95% load), MemC3 (concurrent cuckoo with tags).
+  - **Minimal code delta** — same 3-byte slot format (hash8 + offset),
+    same Fibonacci hashing for bucket index, same MurmurHash3 function.
+    Main changes: bucket grouping, dual hash functions, cuckoo construction.
 - **Risks/Caveats**:
-  - Seed search is probabilistic — for pathological key sets at tight
-    capacity, it may need many attempts. Mitigation: if seed not found
-    within a reasonable limit (e.g. 10,000 attempts), increase capacity
-    by one step and retry.
-  - MurmurHash3 is 128-bit; we need a 32-bit variant for table indexing.
-    Adding a lightweight 32-bit seeded MurmurHash3 is straightforward.
-  - Each serialized record carries 4 bytes of seed overhead. For records
-    with very few properties (1-2), this is proportionally larger. But
-    for the common case (5-50 properties), it is negligible.
-- **Implemented in**: Track 4 (seed search and hash table construction), with Track 3 (hash function) and Track 5 (comparator) as supporting tracks
+  - Read path is 2 bucket checks (up to 8 slots) instead of 1 slot.
+    At our table sizes (≤192 bytes for 50 properties), the entire table
+    fits in L1 cache, so the extra probing cost is negligible.
+  - Displacement chains can theoretically cycle, requiring seed retry.
+    At 85% load with b=4, this is vanishingly rare for N ≤ 50.
+  - Two hash computations per lookup in worst case (second bucket). In
+    common case, key is found in first bucket (single hash computation).
+- **Implemented in**: Track 4 (original perfect hash, superseded), Track 7
+  (cuckoo redesign)
 
-#### D2: Power-of-two capacity with Fibonacci hashing for index computation
+#### D2: Power-of-two bucket count with Fibonacci hashing for index computation
 
 - **Alternatives considered**:
   - *Prime-number capacity with modulo* — better distribution but requires
     integer division (slower than bitwise AND)
   - *Arbitrary capacity with modulo* — same division cost, no distribution
     benefit
-- **Rationale**: Power-of-two capacity enables `hash & (capacity - 1)` for
-  index computation, avoiding division. Fibonacci hashing
-  (`(hash * 2654435769) >>> (32 - log2(capacity))`) breaks up clustering
-  patterns that plain modulo introduces with power-of-two sizes.
-  For N ≤ 50, the next power of two after 2×N (or 4×N for N>40)
-  gives compact capacity (≤ 256 slots).
-- **Risks/Caveats**: Power-of-two sizing wastes some slots compared to
-  exact-fit sizing. For small N this is at most a few extra slots.
-- **Implemented in**: Track 4
+- **Rationale**: Power-of-two bucket count enables Fibonacci hashing
+  (`(hash * 2654435769) >>> (32 - log2(numBuckets))`) for bucket index
+  computation. This breaks up clustering patterns and avoids division.
+  For N properties at 85% load with b=4 slots/bucket:
+  `numBuckets = nextPowerOfTwo(ceil(N / (4 * 0.85)))`.
+  Example: N=50 → minBuckets=15 → numBuckets=16 → 64 slots → 192 bytes.
+- **Risks/Caveats**: Power-of-two rounding can cause significant load factor
+  drops at certain property counts (e.g., 30 properties → 47% load instead
+  of 85% due to rounding 9 → 16 buckets). The space cost is still small
+  (192 bytes for the bucket array at 16 buckets) and accepted as a trade-off
+  for avoiding integer division on the hot read path.
+- **Implemented in**: Track 4 (original, slot-based), Track 7 (revised,
+  bucket-based)
 
 #### D3: Slot format — fixed-size entries with offset + key hash prefix
 
 - **Alternatives considered**:
   - *Offset only (no hash prefix)* — saves 1-2 bytes per slot but requires
     jumping to the key-value area and comparing the full key on every probe
-    (in fallback/verification scenarios)
-  - *Full hash storage* — 4 bytes per slot, overkill since perfect hashing
-    has no collisions
-- **Rationale**: Each slot stores a 1-byte hash prefix (high 8 bits of hash)
-  plus a 2-byte offset to the key-value entry. The hash prefix enables fast
-  rejection of mismatches when verifying the key (defense against hash
-  collisions in corrupted data). 3 bytes per slot keeps the table compact.
-  For capacity 64, the hash table is 192 bytes — well within page budget.
-  If a record's key-value data exceeds 64 KB (extremely unlikely for
-  entity properties), we can use 3-byte offsets at a 4-byte slot size.
+  - *Full hash storage* — 4 bytes per slot, wastes space for small tables
+- **Rationale**: Each slot stores a 1-byte hash prefix (high 8 bits of the
+  primary hash, h1) plus a 2-byte offset to the key-value entry. In the
+  cuckoo design, hash8 is **critical for performance**: when scanning a
+  4-slot bucket, the hash8 prefix rejects 255/256 non-matching slots
+  without following the offset — this makes bucket scanning nearly free.
+  3 bytes per slot keeps the table compact. For 16 buckets × 4 slots =
+  192 bytes — well within page budget.
 - **Risks/Caveats**: 2-byte offset limits key-value region to 64 KB.
   Records rarely approach this size, but if they do, a 3-byte offset
   variant is a straightforward extension.
-- **Implemented in**: Track 4
+- **Implemented in**: Track 4 (original), Track 7 (preserved unchanged)
 
-#### D4: Fallback to linear layout for 0-2 properties
+#### D4: 3-tier hybrid routing (revised from 2-tier)
+
+- **Original (Track 4)**: 2-tier — linear for ≤2 properties, hash table
+  for >2.
+- **Revised (Track 7)**: 3-tier hybrid:
+
+  | Tier | Property count | Mode | Lookup cost |
+  |---|---|---|---|
+  | 1 | 0–2 | Linear (compact, no hash overhead) | O(n), n≤2 |
+  | 2 | 3–12 | Linear (raised threshold) | O(n), n≤12 |
+  | 3 | 13+ | Bucketized cuckoo hash table | O(1), ≤8 slot checks |
+
+- **Rationale**: For 3-12 properties, hash table overhead (seed + buckets)
+  exceeds the cost of linear scan. At 12 entries with ~30 bytes average
+  per entry, the KV region is ~360 bytes (~6 cache lines). Linear scan
+  avoids hash computation entirely. The hash table only pays off for 13+
+  properties where O(n) scanning becomes measurable.
+- **Risks/Caveats**: Three code paths add complexity. Mitigation: tiers 1
+  and 2 share the same linear serialization code — the only difference is
+  the routing threshold. The cuckoo tier is a clean separate path. In
+  implementation terms, there are 2 code paths (linear and cuckoo); the
+  "3-tier" naming reflects three distinct performance profiles, not three
+  code paths.
+- **Implemented in**: Track 4 (original 2-tier), Track 7 (revised 3-tier)
+
+#### D5: Dual hash functions for cuckoo — seeded MurmurHash3
 
 - **Alternatives considered**:
-  - *Always use hash table* — simpler code but wastes space for trivial
-    records
-- **Rationale**: For 0-2 properties, a hash table adds overhead with no
-  lookup benefit. Records with 0 properties need only a class name. Records
-  with 1-2 properties are faster to scan linearly than to hash. A simple
-  flag in the header (e.g., property count 0-2 signals linear mode)
-  switches to a compact inline layout identical to V1's approach.
-- **Risks/Caveats**: Two code paths (hash table vs linear) add complexity.
-  Mitigation: the linear path is a trivial subset of the hash path.
-- **Implemented in**: Track 4
+  - *Two independent seeds (8 bytes stored)* — wastes 4 bytes of record
+    overhead for no measurable independence benefit at our table sizes.
+  - *Tabulation hashing* — theoretically stronger independence guarantees
+    but requires lookup tables, adding implementation complexity.
+  - *Single hash split (low 16 / high 16 bits)* — saves a hash computation
+    but reduces independence, increasing collision probability.
+- **Design**: Two hash functions derived from a single stored seed:
+  - `h1 = MurmurHash3.hash32WithSeed(nameBytes, 0, len, seed)`
+  - `h2 = MurmurHash3.hash32WithSeed(nameBytes, 0, len, seed ^ 0x85ebca6b)`
+  - The XOR constant (`0x85ebca6b`) is a MurmurHash3 finalization constant,
+    ensuring seed independence while remaining deterministic.
+- **Rationale**: Single stored seed (4 bytes) derives two independent hash
+  functions via XOR with a well-tested constant. This provides sufficient
+  independence for our table sizes (N ≤ 100) while minimizing record overhead.
+- **Read path optimization**: h2 is computed only if the key is not found
+  in bucket1. In the common case (key in first bucket), only h1 is computed.
+- **Risks/Caveats**: The XOR constant must be non-zero to ensure h1 ≠ h2
+  for the same key. The chosen constant (MurmurHash3 finalization constant)
+  is well-tested, but any non-zero constant would work.
+- **Implemented in**: Track 7
+
+#### D6: Cuckoo construction algorithm
+
+- **Design**: Greedy placement with random-walk displacement chains:
+  1. For each property, compute bucket1 (from h1) and bucket2 (from h2).
+  2. If bucket1 has an empty slot → place there.
+  3. Else if bucket2 has an empty slot → place there.
+  4. Else evict a random item from bucket1, place current item there,
+     re-place evicted item in its alternate bucket. Repeat for up to
+     500 evictions.
+  5. If chain exceeds 500 → increment seed and retry from scratch.
+- **Capacity computation**: `numBuckets = nextPowerOfTwo(ceil(N / (b * 0.85)))`
+  where b=4. This targets ~85% load factor.
+- **Rationale**: Random-walk eviction is simpler than BFS and performs
+  well at 85% load with b=4. For N ≤ 50, displacement chains are typically
+  0-2 steps. Seed retry is a safe fallback but virtually never triggered.
+  RocksDB uses the same approach (greedy + seed retry at 87% load).
+- **Risks/Caveats**: Pathological key sets could require multiple seed
+  retries. At 85% load with b=4, probability is vanishingly small for
+  N ≤ 100. If seed retry occurs, it adds one O(n) pass — still far cheaper
+  than the original 10,000-attempt perfect hash seed search.
+- **Implemented in**: Track 7
 
 #### Invariants
 
-- **Hash table correctness**: For every serialized record in V2 format, the
-  hash table must satisfy: `murmurhash3_32(propertyName, seed) & (capacity-1)`
-  maps to a slot containing the correct offset to that property's key-value
-  data. No two properties map to the same slot.
+- **Cuckoo hash table correctness**: For every serialized record in V2 hash
+  table mode (>12 properties), each property must be locatable by checking
+  at most 2 buckets: `bucket1 = fibonacciIndex(h1(name, seed), log2NumBuckets)`
+  and `bucket2 = fibonacciIndex(h2(name, seed), log2NumBuckets)`. Exactly
+  one slot in one of these two buckets contains the property's hash8 prefix
+  and offset. No two properties occupy the same slot.
 - **Round-trip fidelity**: `deserialize(serialize(entity))` must produce an
-  entity with identical property names, types, and values.
+  entity with identical property names, types, and values — for all three
+  tiers (linear ≤2, linear 3-12, cuckoo >12).
 - **Backward compatibility**: Records with version byte 0 must continue to
   deserialize correctly via V1. Records with version byte 1 use V2.
 - **Partial deserialization correctness**: `deserializePartial(fields)` must
   return exactly the same values as full `deserialize()` for those fields.
-- **Binary comparator equivalence**: `BinaryComparatorV1` must produce the
-  same comparison results as `BinaryComparatorV0` for identical field values.
+- **Binary comparator equivalence**: `BinaryComparatorV0` produces correct
+  comparison results for V2-serialized fields located via `deserializeField()`.
 
 #### Integration Points
 
 - **RecordSerializerBinary.init()**: Register V2 serializer at index 1 in the
-  `serializerByVersion` array. Set `CURRENT_RECORD_VERSION = 1`.
+  `serializerByVersion` array. Set `CURRENT_RECORD_VERSION = 1`. (Done in
+  Track 4, unchanged by Track 7.)
 - **EntityImpl**: No changes needed — it interacts through the
   `EntitySerializer` interface via `RecordSerializerBinary`.
 - **BinaryComparator**: Index engine uses `getComparator()` from the
-  serializer. V2 returns `BinaryComparatorV1`.
-- **MurmurHash3**: New static method `hash32WithSeed(byte[], int offset,
-  int len, int seed)` added to existing class.
+  serializer. V2 returns `BinaryComparatorV0` (Track 5 confirmed no
+  separate V1 comparator needed).
+- **MurmurHash3**: `hash32WithSeed(byte[], int offset, int len, int seed)`
+  — called with two different seeds for cuckoo's dual hash functions.
 
 **Detailed design**: See [design.md](design.md) for binary format layouts, workflow diagrams, capacity analysis, and performance characteristics.
 
@@ -342,7 +421,7 @@ graph LR
   > [capacity: 1 byte (log2 of actual capacity, max 8 → 256 slots)]
   > [slot array: capacity × 3 bytes each]
   >   slot = [hash8: 1 byte] [offset: 2 bytes LE]
-  >   empty slot = [0x00] [0x0000]
+  >   empty slot = [0xFF] [0xFFFF]
   > [key-value entries, packed sequentially]
   >   entry = [name-encoding] [type byte] [value-size varint] [value-bytes]
   >   name-encoding:
@@ -352,10 +431,10 @@ graph LR
   >
   > **Constraints**:
   > - Slot offset is relative to the start of the key-value region.
-  > - Offset 0x0000 with hash8 0x00 is the empty sentinel. If a property
-  >   genuinely hashes to hash8=0x00 and offset=0, store hash8 as 0x01
-  >   (collision in the verification byte is harmless for correctness since
-  >   key comparison is always performed).
+  > - Empty sentinel is hash8=0xFF with offset=0xFFFF. Since 0xFFFF is a
+  >   reserved offset value (never assigned to real entries), no collision
+  >   with valid data is possible. Track 7 replaces the seed search
+  >   algorithm with bucketized cuckoo construction.
   > - Seed search must succeed for all valid property sets. If no seed found
   >   within 10,000 attempts at current capacity, double capacity and retry.
   > - Embedded entities are serialized recursively with their own hash tables.
@@ -461,3 +540,92 @@ graph LR
   > deviations or cross-track impact — this is the final track.
   >
   > **Step file:** `tracks/track-6.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
+
+- [ ] Track 7: Redesign V2 hash table — bucketized cuckoo with 3-tier routing
+  > Replace the perfect hash seed search in `RecordSerializerBinaryV2` with
+  > bucketized cuckoo hashing (b=4 slots/bucket, d=2 hash functions, ~85%
+  > load factor). Raise linear mode threshold from 2 to 12 for the 3-tier
+  > hybrid. Update all hash table utility, serialization, and deserialization
+  > methods. Update V2 unit tests.
+  >
+  > **What**: Modify `RecordSerializerBinaryV2` to:
+  > - Replace `findPerfectHashSeed()` with cuckoo construction (greedy
+  >   placement + displacement chains, seed retry on failure).
+  > - Group slots into buckets of 4. Bucket index via Fibonacci hashing.
+  > - Dual hash functions: `h1(name, seed)` and `h2(name, seed ^ 0x85ebca6b)`.
+  > - Lookup: check bucket1 (4 slots with hash8 fast-reject) → if miss,
+  >   check bucket2.
+  > - Change `LINEAR_MODE_THRESHOLD` from 2 to 12.
+  > - Rename `computeLog2Capacity()` → `computeLog2NumBuckets()`. The
+  >   `log2Capacity` field in the binary format is reinterpreted as
+  >   `log2NumBuckets` — total slot count is now `(1 << log2NumBuckets) * 4`.
+  >
+  > **Binary format (hash table mode, >12 properties)**:
+  > ```
+  > [class name: varint len + UTF-8 bytes]
+  > [property count: varint]
+  > [seed: 4 bytes LE]
+  > [log2NumBuckets: 1 byte]
+  > [bucket array: numBuckets × 4 slots × 3 bytes]
+  >   bucket = [slot0][slot1][slot2][slot3]
+  >   slot = [hash8: 1 byte][offset: 2 bytes LE]
+  >   empty slot = [0xFF][0xFFFF]
+  > [key-value entries packed sequentially]
+  > ```
+  >
+  > **Constraints**:
+  > - Existing V1 backward compatibility must be preserved (version dispatch
+  >   is unchanged).
+  > - All existing parameterized tests (`EntitySchemalessBinarySerializationTest`)
+  >   must continue to pass — they test the `EntitySerializer` contract.
+  > - The V2 format version byte remains 1. The cuckoo binary format is
+  >   **wire-incompatible** with the perfect hash V2 format from Tracks 4-6
+  >   (same version byte, different layout). No migration is provided; any
+  >   test databases created during Tracks 4-6 must be deleted before running
+  >   Track 7 tests. This is safe since no V2 records exist in production
+  >   (feature branch not merged to develop).
+  > - Embedded entities continue to use V2 format recursively.
+  >
+  > **Interactions**: Modifies code from Track 4. No changes to
+  > `RecordSerializerBinary`, `MurmurHash3`, or `BinaryComparatorV0`.
+  >
+  > **Scope:** ~5-6 steps covering cuckoo construction algorithm, serialization
+  > rework, deserialization rework (partial + field are the main cuckoo-path
+  > work; full deserialization is trivial — it reads KV entries linearly and
+  > ignores the hash table), threshold change, and test updates
+  > **Depends on:** Track 3, Track 4
+
+- [ ] Track 8: Integration testing and write performance verification
+  > Verify the cuckoo-based V2 format in real database scenarios. Update
+  > existing Track 6 integration tests for the new format. Add cuckoo-specific
+  > edge case tests. Run JMH benchmarks to confirm write path improvement.
+  >
+  > **What**: Integration tests covering:
+  > - All 3 tiers: linear (≤2), linear (3-12), cuckoo (>12 properties)
+  > - Displacement chain scenarios: entities with property names that hash
+  >   to the same buckets, forcing eviction chains during construction
+  > - Bucket boundary: entities with exactly 13 properties (threshold)
+  > - Large entities: 50+ and 100+ properties at 85% load
+  > - Backward compatibility: V1 records still readable alongside V2 cuckoo
+  > - Database lifecycle: persist → close → reopen → verify
+  > - Binary comparator: `BinaryComparatorV0` with cuckoo-serialized fields
+  > - JMH benchmark: run write-path benchmarks to confirm write path
+  >   improvement over the perfect hash baseline. The `jmh-ldbc` module
+  >   contains existing LDBC benchmarks; a serialization-focused micro-
+  >   benchmark may need to be created if none exists.
+  >
+  > **How**: Update existing integration test methods from Track 6. Add new
+  > test methods for cuckoo-specific scenarios. Reuse existing test
+  > infrastructure.
+  >
+  > **Constraints**: Must pass with `-Dyoutrackdb.test.env=ci` (disk storage).
+  >
+  > **Interactions**: Depends on Track 7 (serializer code) and Track 6
+  > (existing integration tests to update).
+  >
+  > **Scope:** ~4-5 steps covering tier-boundary tests, displacement chain
+  > tests, database lifecycle tests, and benchmark setup + verification
+  > (benchmark step may require creating a new JMH class)
+  > **Depends on:** Track 6, Track 7
