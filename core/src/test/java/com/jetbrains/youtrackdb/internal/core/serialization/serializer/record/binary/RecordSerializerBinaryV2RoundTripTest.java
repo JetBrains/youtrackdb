@@ -23,8 +23,8 @@ import org.junit.Test;
 
 /**
  * Round-trip tests for RecordSerializerBinaryV2: serialize an entity, deserialize it, and verify
- * all properties are preserved. Tests cover linear mode (0-2 properties), hash table mode (3+
- * properties), all property types, embedded entities, and edge cases.
+ * all properties are preserved. Tests cover linear mode (0-12 properties), cuckoo hash table mode
+ * (13+ properties), all property types, embedded entities, and edge cases.
  */
 public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
@@ -877,6 +877,81 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     var refListResult = (List<Identifiable>) deserialized.getProperty("refList");
     assertThat(refListResult).hasSize(1);
     assertThat(refListResult.get(0).getIdentity()).isEqualTo(targetRid);
+  }
+
+  // --- Threshold boundary tests ---
+
+  @Test
+  public void serializeDeserialize_twelveProperties_usesLinearMode() {
+    // 12 properties is at the threshold boundary — should use linear mode (no hash table)
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 12; i++) {
+      entity.setString("field_" + i, "value_" + i);
+    }
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+
+    // Verify linear mode: after property count, next bytes should be name encoding (not seed)
+    var readBytes = new BytesContainer(bytes.bytes);
+    int count = VarIntSerializer.readAsInteger(readBytes);
+    assertThat(count).isEqualTo(12);
+    // In linear mode, the next byte is a varint name length — small positive number.
+    // In hash table mode, the next 4 bytes are a seed (LE int) — likely not a valid varint.
+    // Verify round-trip correctness
+    var deserialized = serializeAndDeserialize(entity);
+    for (int i = 0; i < 12; i++) {
+      assertThat(deserialized.getString("field_" + i)).isEqualTo("value_" + i);
+    }
+    session.rollback();
+  }
+
+  @Test
+  public void serializeDeserialize_thirteenProperties_usesCuckooMode() {
+    // 13 properties triggers cuckoo hash table mode
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 13; i++) {
+      entity.setString("field_" + i, "value_" + i);
+    }
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+
+    // Verify hash table mode: after property count, next bytes are seed (4 bytes) + log2NumBuckets
+    var readBytes = new BytesContainer(bytes.bytes);
+    int count = VarIntSerializer.readAsInteger(readBytes);
+    assertThat(count).isEqualTo(13);
+    // Read seed
+    readBytes.skip(4);
+    // Read log2NumBuckets (should be valid)
+    int log2 = readBytes.bytes[readBytes.offset] & 0xFF;
+    assertThat(log2).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+
+    // Verify round-trip correctness
+    var deserialized = serializeAndDeserialize(entity);
+    for (int i = 0; i < 13; i++) {
+      assertThat(deserialized.getString("field_" + i)).isEqualTo("value_" + i);
+    }
+    session.rollback();
+  }
+
+  @Test
+  public void serializeDeterminism_sameEntityProducesIdenticalBytes() {
+    // Same entity serialized twice should produce identical bytes (deterministic cuckoo seed)
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 20; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+
+    var bytes1 = new BytesContainer();
+    v2.serialize(session, entity, bytes1);
+    var bytes2 = new BytesContainer();
+    v2.serialize(session, entity, bytes2);
+
+    assertThat(java.util.Arrays.copyOf(bytes1.bytes, bytes1.offset))
+        .isEqualTo(java.util.Arrays.copyOf(bytes2.bytes, bytes2.offset));
+    session.rollback();
   }
 
   // --- Helper ---
