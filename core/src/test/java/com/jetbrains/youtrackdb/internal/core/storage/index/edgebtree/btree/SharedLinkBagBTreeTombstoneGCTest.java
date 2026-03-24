@@ -154,11 +154,10 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new LinkBagValue(pos, 0, 0, true)));
     }
 
-    // Note: some tombstones may already be GC'd during initial insertion
-    // (later inserts overflow buckets containing earlier tombstones, triggering
-    // GC since all have ts=1 which is below the advancing LWM). Record the
-    // count before adding live entries to verify GC continues.
-    int tombstonesAfterInsert = countTombstones(1L, 0, FILL_COUNT, 2);
+    // Some tombstones may already be GC'd during initial insertion (later
+    // inserts overflow buckets containing earlier tombstones). Record count
+    // before adding live entries to verify GC continues during that phase.
+    int tombstonesBeforeLiveInserts = countTombstones(1L, 0, FILL_COUNT, 2);
 
     // Insert FILL_COUNT live entries at odd positions: 1, 3, 5, ...
     // These interleave with tombstones, causing bucket overflows and GC.
@@ -170,17 +169,16 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new LinkBagValue(pos, 0, 0, false)));
     }
 
-    // More tombstones should have been GC'd during the live entry inserts
+    // Tombstones should have been GC'd during bucket overflows
     int remainingTombstones = countTombstones(1L, 0, FILL_COUNT, 2);
     assertThat(remainingTombstones)
         .as("Tombstones should be GC'd during bucket overflow")
         .isLessThan(FILL_COUNT);
 
-    // GC should have removed at least some tombstones overall
-    // (either during initial insertion or during live entry insertion)
+    // GC should have continued removing tombstones during live entry inserts
     assertThat(remainingTombstones)
-        .as("GC should have removed tombstones")
-        .isLessThan(FILL_COUNT);
+        .as("GC should remove additional tombstones during live entry inserts")
+        .isLessThanOrEqualTo(tombstonesBeforeLiveInserts);
 
     // All live entries must be present
     assertThat(countLiveEntries(1L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
@@ -295,6 +293,12 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new LinkBagValue(pos, 0, 0, false)));
     }
 
+    // Verify GC actually ran by checking some tombstones were removed
+    int remainingTombstones = countTombstones(7L, 0, FILL_COUNT, 2);
+    assertThat(remainingTombstones)
+        .as("GC should have removed some tombstones during bucket overflow")
+        .isLessThan(FILL_COUNT);
+
     // Verify all live entries are retrievable with correct values
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (int i = 0; i < FILL_COUNT; i++) {
@@ -357,9 +361,11 @@ public class SharedLinkBagBTreeTombstoneGCTest {
     });
 
     // Some old tombstones (at even positions) should have been GC'd
+    // during bucket overflows triggered by the live entry inserts.
     int oldTombstones = countTombstones(8L, 0, FILL_COUNT, 2);
-    // We can't assert exact count, but the operation must complete without error
-    assertThat(oldTombstones).isGreaterThanOrEqualTo(0);
+    assertThat(oldTombstones)
+        .as("GC in the remove() path should have removed some old tombstones")
+        .isLessThan(FILL_COUNT);
   }
 
   @Test
@@ -397,6 +403,13 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new EdgeKey(9L, 0, pos, 100L),
               new LinkBagValue(pos, 0, 0, false)));
     }
+
+    // Verify GC actually removed some tombstones — this is the precondition
+    // for the ghost resurrection check to be meaningful.
+    int remainingTombstones = countTombstones(9L, 0, FILL_COUNT, 2);
+    assertThat(remainingTombstones)
+        .as("GC should have removed some tombstones after snapshot cleanup")
+        .isLessThan(FILL_COUNT);
 
     // Verify: for each deleted edge, findVisibleEntry must return null.
     // Even if the tombstone was GC'd, the edge must not resurrect because
@@ -462,5 +475,107 @@ public class SharedLinkBagBTreeTombstoneGCTest {
 
     // All live entries must exist
     assertThat(countLiveEntries(10L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
+  }
+
+  // ---- Edge cases ----
+
+  @Test
+  public void testLiveEntriesAreNeverRemovedByGC() throws Exception {
+    // Interleave live entries (odd positions) and removable tombstones
+    // (even positions) in the same range, then trigger GC. Every live
+    // entry must survive with its original value.
+
+    for (int i = 0; i < FILL_COUNT * 2; i++) {
+      final int pos = i;
+      final boolean isTombstone = (i % 2 == 0);
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(11L, 0, pos, 1L),
+              new LinkBagValue(pos, 0, 0, isTombstone)));
+    }
+
+    // Insert beyond the existing range to trigger overflow+GC
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = FILL_COUNT * 2 + i;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(11L, 0, pos, 100L),
+              new LinkBagValue(pos, 0, 0, false)));
+    }
+
+    // Every original live entry (odd positions) must survive with correct value
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (int i = 0; i < FILL_COUNT; i++) {
+        int pos = i * 2 + 1;
+        var entry = bTree.findCurrentEntry(atomicOperation, 11L, 0, pos);
+        assertThat(entry)
+            .as("Live entry at position %d must survive GC", pos)
+            .isNotNull();
+        assertThat(entry.second().tombstone()).isFalse();
+        assertThat(entry.second().counter()).isEqualTo(pos);
+      }
+    });
+  }
+
+  @Test
+  public void testAllTombstoneBucketIsFullyClearedByGC() throws Exception {
+    // Fill tree entirely with removable tombstones (low ts, no snapshots),
+    // then insert one entry to trigger GC. The bucket should be cleared and
+    // the insert should succeed.
+
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = i;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(12L, 0, pos, 1L),
+              new LinkBagValue(pos, 0, 0, true)));
+    }
+
+    // Insert one live entry to trigger overflow+GC in a tombstone-only bucket
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> bTree.put(atomicOperation,
+            new EdgeKey(12L, 0, FILL_COUNT, 100L),
+            new LinkBagValue(FILL_COUNT, 0, 0, false)));
+
+    // The new live entry must be present
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var entry = bTree.findCurrentEntry(atomicOperation, 12L, 0, FILL_COUNT);
+      assertThat(entry).isNotNull();
+      assertThat(entry.second().tombstone()).isFalse();
+    });
+
+    // Some tombstones should have been GC'd
+    int remaining = countTombstones(12L, 0, FILL_COUNT, 1);
+    assertThat(remaining)
+        .as("All-tombstone bucket should have entries GC'd")
+        .isLessThan(FILL_COUNT);
+  }
+
+  @Test
+  public void testGCWithNoTombstonesDoesNotCorruptBucket() throws Exception {
+    // Fill the tree with only live entries (no tombstones). When overflow
+    // triggers GC, filterAndRebuildBucket finds 0 removable entries and
+    // falls through to the normal split path. All entries must survive.
+
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = i;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(13L, 0, pos, 1L),
+              new LinkBagValue(pos, 0, 0, false)));
+    }
+
+    // Insert more entries — GC finds nothing, proceeds to split
+    for (int i = FILL_COUNT; i < FILL_COUNT * 2; i++) {
+      final int pos = i;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(13L, 0, pos, 100L),
+              new LinkBagValue(pos, 0, 0, false)));
+    }
+
+    // All entries must be present and correct
+    assertThat(countLiveEntries(13L, 0, FILL_COUNT * 2, 1))
+        .isEqualTo(FILL_COUNT * 2);
   }
 }

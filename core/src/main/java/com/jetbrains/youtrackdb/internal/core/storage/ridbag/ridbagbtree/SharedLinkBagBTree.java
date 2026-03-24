@@ -452,6 +452,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
               if (!gcAttempted) {
                 gcAttempted = true;
                 final long lwm = storage.computeGlobalLowWaterMark();
+                assert lwm > 0 : "Global LWM must be positive, got " + lwm;
                 final int componentId = AbstractWriteCache.extractFileId(getFileId());
                 final int removedCount =
                     filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
@@ -469,9 +470,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
                   // Re-derive insertion index — bucket contents changed.
                   insertionIndex = keyBucket.find(key, serializerFactory);
-                  assert insertionIndex < 0
-                      : "Key must not exist in bucket after GC rebuild; index="
-                          + insertionIndex;
+                  if (insertionIndex >= 0) {
+                    throw new StorageException(storage.getName(),
+                        "Key exists in bucket after GC rebuild in ["
+                            + getName() + "]; index=" + insertionIndex);
+                  }
                   insertionIndex = -insertionIndex - 1;
 
                   // Retry the insert on the filtered bucket.
@@ -1106,6 +1109,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final AtomicOperation atomicOp) {
     assert AbstractWriteCache.extractFileId(fileId) != 0
         : "fileId must be assigned before GC (fileId=" + fileId + ")";
+    assert keyBucket.isLeaf()
+        : "filterAndRebuildBucket must only be called on leaf buckets";
 
     final int bucketSize = keyBucket.size();
     final List<byte[]> survivors = new ArrayList<>(bucketSize);
@@ -1126,10 +1131,18 @@ public final class SharedLinkBagBTree extends DurableComponent {
       return 0;
     }
 
+    assert removedCount + survivors.size() == bucketSize
+        : "Partition invariant violated: removed (" + removedCount
+            + ") + survivors (" + survivors.size()
+            + ") != original size (" + bucketSize + ")";
+
     keyBucket.shrink(0, serializerFactory);
     assert keyBucket.size() == 0
         : "Bucket must be empty after shrink(0), got " + keyBucket.size();
     keyBucket.addAll(survivors);
+    assert keyBucket.size() == survivors.size()
+        : "Bucket size after rebuild (" + keyBucket.size()
+            + ") must equal survivor count (" + survivors.size() + ")";
 
     return removedCount;
   }
@@ -1293,6 +1306,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
                 if (!gcAttempted) {
                   gcAttempted = true;
                   final long lwm = storage.computeGlobalLowWaterMark();
+                  assert lwm > 0 : "Global LWM must be positive, got " + lwm;
                   final int componentId = AbstractWriteCache.extractFileId(getFileId());
                   final int removedCount =
                       filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
@@ -1300,9 +1314,11 @@ public final class SharedLinkBagBTree extends DurableComponent {
                     updateSize(-removedCount, atomicOperation);
 
                     insertionIndex = keyBucket.find(key, serializerFactory);
-                    assert insertionIndex < 0
-                        : "Tombstone key must not exist in bucket after GC rebuild; index="
-                            + insertionIndex;
+                    if (insertionIndex >= 0) {
+                      throw new StorageException(storage.getName(),
+                          "Key exists in bucket after GC rebuild in ["
+                              + getName() + "]; index=" + insertionIndex);
+                    }
                     insertionIndex = -insertionIndex - 1;
 
                     continue;
