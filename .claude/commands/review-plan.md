@@ -42,6 +42,9 @@ Review output directory: docs/adr/<dir-name>/reviews/
    - The updated plan and design document
    - Instructions to verify fixes and flag regressions
 8. If the gate finds new blockers, present them and loop (max 3 iterations).
+   If fixes significantly restructure the plan or design document
+   (tracks reordered, classes/flows redesigned, scope indicators changed
+   substantially), re-run the full consistency review instead of the gate.
 9. When the gate is clean, save the review document to
    docs/adr/<dir-name>/reviews/consistency.md.
 

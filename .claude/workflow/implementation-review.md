@@ -85,6 +85,11 @@ Iteration 3: Gate check → if still blockers, escalate to user
 
 Max 3 iterations. Finding IDs: `CR1, CR2, ...` (cumulative).
 
+If consistency fixes significantly restructure the plan or design document
+(tracks reordered, classes/flows redesigned, scope indicators changed
+substantially), re-run the full consistency review instead of the gate
+check to catch cascading inconsistencies.
+
 If blockers persist after 3 iterations, escalate to the user and return to
 Phase 1 (Planning) to rework the plan/design before re-entering.
 
