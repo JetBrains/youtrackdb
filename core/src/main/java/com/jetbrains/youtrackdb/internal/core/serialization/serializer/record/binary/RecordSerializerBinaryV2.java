@@ -8,9 +8,13 @@ import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.re
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.writeOType;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.writeString;
 
+import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
@@ -18,8 +22,11 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
+import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
@@ -354,7 +361,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       bytes.bytes[typeOffset] = (byte) -1;
     }
 
-    // Write value-size varint + value-bytes
+    // Write value-size varint + value-bytes.
+    // Uses a temporary buffer to measure the serialized value length before writing the
+    // varint size prefix. A reserve-and-backpatch approach could avoid this allocation
+    // but would require adding writeAt/signedSize methods to VarIntSerializer.
     if (value != null) {
       var valuesBuffer = new BytesContainer();
       serializeValue(session, valuesBuffer, value, type,
@@ -383,6 +393,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   @Override
   public void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes) {
     int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    validatePropertyCount(propertyCount);
 
     if (propertyCount == 0) {
       return;
@@ -426,8 +437,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       BytesContainer bytes, int propertyCount) {
     // Skip seed (4 bytes)
     bytes.skip(IntegerSerializer.INT_SIZE);
-    // Read log2Capacity
-    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    // Read and validate log2Capacity
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
     int capacity = 1 << log2Capacity;
     // Skip slot array
     bytes.skip(capacity * SLOT_SIZE);
@@ -450,8 +461,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     PropertyTypeInternal type = nameAndType.type;
 
     int valueLength = VarIntSerializer.readAsInteger(bytes);
-    assert valueLength >= 0
-        : "Negative value length " + valueLength + " for field '" + fieldName + "'";
+    validateValueLength(valueLength, fieldName);
 
     // Skip properties already present in the entity — they may have been loaded by a prior
     // partial deserialization call and subsequently modified in memory. Overwriting them with
@@ -482,6 +492,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   public void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields) {
     int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    validatePropertyCount(propertyCount);
     if (propertyCount == 0) {
       return;
     }
@@ -537,7 +548,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // Read hash table header
     int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
     bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
     int capacity = 1 << log2Capacity;
     int slotArrayStart = bytes.offset;
     int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
@@ -565,8 +576,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       }
 
       // Bounds check (corruption detection)
-      assert kvRegionBase + slotOffset < bytes.bytes.length
-          : "Slot offset exceeds buffer: " + slotOffset;
+      validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
 
       // Navigate to KV entry
       bytes.offset = kvRegionBase + slotOffset;
@@ -598,6 +608,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    validatePropertyCount(propertyCount);
     if (propertyCount == 0) {
       return null;
     }
@@ -643,7 +654,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // Read hash table header
     int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
     bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
     int capacity = 1 << log2Capacity;
     int slotArrayStart = bytes.offset;
     int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
@@ -670,8 +681,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     // Bounds check (corruption detection)
-    assert kvRegionBase + slotOffset < bytes.bytes.length
-        : "Slot offset exceeds buffer: " + slotOffset;
+    validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
 
     // Navigate to KV entry
     bytes.offset = kvRegionBase + slotOffset;
@@ -705,6 +715,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    validatePropertyCount(propertyCount);
     if (propertyCount == 0) {
       return new String[0];
     }
@@ -739,8 +750,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       BytesContainer bytes, int propertyCount) {
     // Skip seed (4 bytes)
     bytes.skip(IntegerSerializer.INT_SIZE);
-    // Skip log2Capacity (1 byte) + slot array
-    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    // Read and validate log2Capacity, skip slot array
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
     int capacity = 1 << log2Capacity;
     bytes.skip(capacity * SLOT_SIZE);
 
@@ -770,10 +781,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     switch (type) {
       case EMBEDDED -> {
         var pointer = bytes.offset;
-        if (value instanceof com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable entitySerializable) {
+        if (value instanceof EntitySerializable entitySerializable) {
           var cur = entitySerializable.toEntity(db);
           cur.setProperty(
-              com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable.CLASS_NAME,
+              EntitySerializable.CLASS_NAME,
               value.getClass().getName());
           serializeWithClassName(db, cur, bytes);
         } else {
@@ -785,7 +796,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
         if (value.getClass().isArray()) {
           return writeEmbeddedCollection(db, bytes,
               java.util.Arrays.asList(
-                  com.jetbrains.youtrackdb.internal.common.collection.MultiValue.array(value)),
+                  MultiValue.array(value)),
               linkedType, schema, encryption);
         } else {
           return writeEmbeddedCollection(db, bytes, (java.util.Collection<?>) value,
@@ -829,19 +840,19 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
   private Object deserializeEmbeddedAsDocument(DatabaseSessionEmbedded db, BytesContainer bytes,
       RecordElement owner) {
-    Object value = new com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl(db);
+    Object value = new EmbeddedEntityImpl(db);
     deserializeWithClassName(db, (EntityImpl) value, bytes);
     if (((EntityImpl) value).hasProperty(
-        com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable.CLASS_NAME)) {
+        EntitySerializable.CLASS_NAME)) {
       String className = ((EntityImpl) value).getProperty(
-          com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable.CLASS_NAME);
+          EntitySerializable.CLASS_NAME);
       try {
         // Inherited from V1: Class.forName + newInstance is a known security debt.
         // The cast to EntitySerializable provides minimal type safety.
         var clazz = Class.forName(className);
         @SuppressWarnings("deprecation")
         var newValue =
-            (com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable) clazz
+            (EntitySerializable) clazz
                 .newInstance();
         newValue.fromDocument((EntityImpl) value);
         value = newValue;
@@ -851,7 +862,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     } else {
       var entity = (EntityImpl) value;
       entity.setOwner(owner);
-      var rec = (com.jetbrains.youtrackdb.internal.core.record.RecordAbstract) entity;
+      var rec = (RecordAbstract) entity;
       rec.unsetDirty();
     }
     return value;
@@ -921,13 +932,13 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     return fullPos;
   }
 
-  @Nullable private com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl<?>
+  @Nullable private EntityEmbeddedSetImpl<?>
       readEmbeddedSet(DatabaseSessionEmbedded db, BytesContainer bytes, RecordElement owner) {
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = HelperClasses.readOType(bytes, false);
     if (type != null) {
       var found =
-          new com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl<>(owner);
+          new EntityEmbeddedSetImpl<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = HelperClasses.readOType(bytes, false);
         if (itemType == null) {
@@ -941,13 +952,13 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     return null;
   }
 
-  @Nullable private com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl<?>
+  @Nullable private EntityEmbeddedListImpl<?>
       readEmbeddedList(DatabaseSessionEmbedded db, BytesContainer bytes, RecordElement owner) {
     final var items = VarIntSerializer.readAsInteger(bytes);
     var type = HelperClasses.readOType(bytes, false);
     if (type != null) {
       var found =
-          new com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl<>(owner);
+          new EntityEmbeddedListImpl<>(owner);
       for (var i = 0; i < items; i++) {
         var itemType = HelperClasses.readOType(bytes, false);
         if (itemType == null) {
@@ -965,7 +976,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     final var result =
-        new com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl<Object>(owner);
+        new EntityEmbeddedMapImpl<Object>(owner);
     for (var i = 0; i < size; i++) {
       var keyType = HelperClasses.readOType(bytes, false);
       var key = deserializeValue(db, bytes, keyType, result);
@@ -1051,6 +1062,63 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       type = PropertyTypeInternal.getTypeByValue(entry.value);
     }
     return type;
+  }
+
+  /**
+   * Validates that propertyCount from a serialized record is non-negative and within a reasonable
+   * bound. A corrupted varint could produce negative or extremely large values, causing OOM or
+   * silent data loss during deserialization.
+   */
+  private static void validatePropertyCount(int propertyCount) {
+    if (propertyCount < 0) {
+      throw new SerializationException(
+          "Corrupted record: negative property count " + propertyCount);
+    }
+    // Upper bound: 1 << MAX_LOG2_CAPACITY = 1024 slots; property count cannot exceed capacity
+    if (propertyCount > (1 << MAX_LOG2_CAPACITY)) {
+      throw new SerializationException(
+          "Corrupted record: property count " + propertyCount + " exceeds maximum "
+              + (1 << MAX_LOG2_CAPACITY));
+    }
+  }
+
+  /**
+   * Validates that log2Capacity read from a serialized record is within the supported range.
+   * A corrupted byte could produce a value like 30 or 255, causing massive memory allocation or
+   * integer overflow in capacity computation.
+   */
+  private static int readAndValidateLog2Capacity(BytesContainer bytes) {
+    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    if (log2Capacity < MIN_LOG2_CAPACITY || log2Capacity > MAX_LOG2_CAPACITY) {
+      throw new SerializationException(
+          "Corrupted record: invalid log2Capacity " + log2Capacity
+              + " (expected " + MIN_LOG2_CAPACITY + "-" + MAX_LOG2_CAPACITY + ")");
+    }
+    return log2Capacity;
+  }
+
+  /**
+   * Validates that a slot offset is within the bounds of the byte buffer. A corrupted offset
+   * would cause an out-of-bounds read during deserialization.
+   */
+  private static void validateSlotOffset(int kvRegionBase, int slotOffset, int bufferLength) {
+    if (kvRegionBase + slotOffset >= bufferLength) {
+      throw new SerializationException(
+          "Corrupted record: slot offset " + slotOffset + " exceeds buffer bounds (kvBase="
+              + kvRegionBase + ", bufLen=" + bufferLength + ")");
+    }
+  }
+
+  /**
+   * Validates that a value length is non-negative. A corrupted varint could produce a negative
+   * value, causing the buffer offset to move backwards.
+   */
+  private static void validateValueLength(int valueLength, String fieldName) {
+    if (valueLength < 0) {
+      throw new SerializationException(
+          "Corrupted record: negative value length " + valueLength + " for field '"
+              + fieldName + "'");
+    }
   }
 
   /**

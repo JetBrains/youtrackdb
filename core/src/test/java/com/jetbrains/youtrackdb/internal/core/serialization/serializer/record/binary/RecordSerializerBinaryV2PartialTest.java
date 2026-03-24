@@ -130,6 +130,11 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(field).isNotNull();
     assertThat(field.name).isEqualTo("name");
     assertThat(field.type).isEqualTo(PropertyTypeInternal.STRING);
+
+    // Verify value bytes are positioned correctly by deserializing the value
+    var value = new RecordSerializerBinaryV1()
+        .deserializeValue(session, field.bytes, field.type, null);
+    assertThat(value).isEqualTo("Alice");
   }
 
   @Test
@@ -144,6 +149,11 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(field).isNotNull();
     assertThat(field.name).isEqualTo("age");
     assertThat(field.type).isEqualTo(PropertyTypeInternal.INTEGER);
+
+    // Verify value bytes are positioned correctly by deserializing the value
+    var value = new RecordSerializerBinaryV1()
+        .deserializeValue(session, field.bytes, field.type, null);
+    assertThat(value).isEqualTo(42);
   }
 
   @Test
