@@ -305,6 +305,9 @@ public class ConcurrentLongIntHashMapTest {
     assertThatThrownBy(() -> map.put(1L, 1, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Null");
+    // Map must remain consistent after the error
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.get(1L, 1)).isNull();
   }
 
   @Test
@@ -371,6 +374,8 @@ public class ConcurrentLongIntHashMapTest {
     assertThatThrownBy(() -> map.putIfAbsent(1L, 1, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Null");
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.get(1L, 1)).isNull();
   }
 
   // ---- computeIfAbsent() ----
@@ -388,10 +393,19 @@ public class ConcurrentLongIntHashMapTest {
   public void computeIfAbsentReturnsExistingWhenPresent() {
     var map = new ConcurrentLongIntHashMap<String>();
     map.put(1L, 10, "existing");
-    String result = map.computeIfAbsent(1L, 10, (fid, pid) -> "should-not-compute");
+    int[] callCount = {0};
+    String result =
+        map.computeIfAbsent(
+            1L,
+            10,
+            (fid, pid) -> {
+              callCount[0]++;
+              return "should-not-compute";
+            });
     assertThat(result).isEqualTo("existing");
     assertThat(map.get(1L, 10)).isEqualTo("existing");
     assertThat(map.size()).isEqualTo(1);
+    assertThat(callCount[0]).as("Mapping function must not be called when key is present").isZero();
   }
 
   @Test
@@ -400,6 +414,9 @@ public class ConcurrentLongIntHashMapTest {
     assertThatThrownBy(() -> map.computeIfAbsent(1L, 10, (fid, pid) -> null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("must not return null");
+    // Map must remain consistent after the error
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.get(1L, 10)).isNull();
   }
 
   @Test
@@ -409,6 +426,142 @@ public class ConcurrentLongIntHashMapTest {
     String result = map.computeIfAbsent(0L, 0, (fid, pid) -> "fid=" + fid + ",pid=" + pid);
     assertThat(result).isEqualTo("fid=0,pid=0");
     assertThat(map.get(0L, 0)).isEqualTo("fid=0,pid=0");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  // ---- Probe chain: same fileId/different pageIndex and vice versa ----
+
+  @Test
+  public void putDistinguishesSameFileIdDifferentPageIndex() {
+    // Single section forces all keys into the same probe chain
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(42L, 0, "page-0");
+    map.put(42L, 1, "page-1");
+    map.put(42L, 2, "page-2");
+
+    assertThat(map.get(42L, 0)).isEqualTo("page-0");
+    assertThat(map.get(42L, 1)).isEqualTo("page-1");
+    assertThat(map.get(42L, 2)).isEqualTo("page-2");
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  @Test
+  public void putDistinguishesSamePageIndexDifferentFileId() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 99, "file-1");
+    map.put(2L, 99, "file-2");
+    map.put(3L, 99, "file-3");
+
+    assertThat(map.get(1L, 99)).isEqualTo("file-1");
+    assertThat(map.get(2L, 99)).isEqualTo("file-2");
+    assertThat(map.get(3L, 99)).isEqualTo("file-3");
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  @Test
+  public void putAndGetWithNegativeKeys() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(-1L, -1, "neg-neg");
+    map.put(Long.MIN_VALUE, Integer.MIN_VALUE, "min-min");
+    map.put(Long.MAX_VALUE, Integer.MAX_VALUE, "max-max");
+
+    assertThat(map.get(-1L, -1)).isEqualTo("neg-neg");
+    assertThat(map.get(Long.MIN_VALUE, Integer.MIN_VALUE)).isEqualTo("min-min");
+    assertThat(map.get(Long.MAX_VALUE, Integer.MAX_VALUE)).isEqualTo("max-max");
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  @Test
+  public void putReplaceDoesNotAffectSizeOrTriggerSpuriousResize() {
+    // Single section, capacity 4, threshold = floor(4 * 0.66) = 2
+    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    long initialCapacity = map.capacity();
+
+    map.put(1L, 1, "v1");
+    assertThat(map.size()).isEqualTo(1);
+
+    // Replace the same entry many times — size must stay 1, no resize
+    for (int i = 0; i < 50; i++) {
+      map.put(1L, 1, "v1-replaced-" + i);
+    }
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.capacity()).isEqualTo(initialCapacity);
+    assertThat(map.get(1L, 1)).isEqualTo("v1-replaced-49");
+  }
+
+  @Test
+  public void resizeTriggersAtExactThreshold() {
+    // Single section with capacity=4, threshold = (int)(4 * 0.66) = 2
+    // Inserts: usedBuckets 0→1→2, third insert sees usedBuckets=2 >= 2, triggers resize
+    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    assertThat(map.capacity()).isEqualTo(4);
+
+    map.put(1L, 1, "a");
+    map.put(2L, 2, "b");
+    assertThat(map.capacity()).isEqualTo(4);
+
+    // Third insert triggers resize
+    map.put(3L, 3, "c");
+    assertThat(map.capacity()).isGreaterThan(4);
+
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+    assertThat(map.get(2L, 2)).isEqualTo("b");
+    assertThat(map.get(3L, 3)).isEqualTo("c");
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  @Test
+  public void computeIfAbsentTriggersResizeCorrectly() {
+    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 20; i++) {
+      final int idx = i;
+      map.computeIfAbsent((long) i, i, (fid, pid) -> "computed-" + idx);
+    }
+
+    for (int i = 0; i < 20; i++) {
+      assertThat(map.get((long) i, i))
+          .as("Entry (%d, %d) should survive resize via computeIfAbsent", (long) i, i)
+          .isEqualTo("computed-" + i);
+    }
+    assertThat(map.size()).isEqualTo(20);
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+  }
+
+  @Test
+  public void putManyPagesForSameFile() {
+    // Realistic access pattern: one file with many pages
+    var map = new ConcurrentLongIntHashMap<String>();
+    long fileId = 42L;
+    for (int page = 0; page < 500; page++) {
+      map.put(fileId, page, "page-" + page);
+    }
+    assertThat(map.size()).isEqualTo(500);
+    for (int page = 0; page < 500; page++) {
+      assertThat(map.get(fileId, page)).isEqualTo("page-" + page);
+    }
+    assertThat(map.get(43L, 0)).isNull();
+  }
+
+  @Test
+  public void computeIfAbsentLeavesMapConsistentWhenFunctionThrows() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 1, "existing");
+
+    assertThatThrownBy(
+        () -> map.computeIfAbsent(
+            2L,
+            2,
+            (fid, pid) -> {
+              throw new RuntimeException("computation failed");
+            }))
+        .isInstanceOf(RuntimeException.class);
+
+    // Map should still be usable and the failed key should not be present
+    assertThat(map.get(1L, 1)).isEqualTo("existing");
+    assertThat(map.get(2L, 2)).isNull();
+    assertThat(map.size()).isEqualTo(1);
   }
 
   // ---- get() with populated map (deferred from Step 1) ----

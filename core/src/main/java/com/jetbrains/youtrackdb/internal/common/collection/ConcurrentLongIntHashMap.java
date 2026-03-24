@@ -220,6 +220,10 @@ public class ConcurrentLongIntHashMap<V> {
   /**
    * A single segment of the hash map. Holds parallel arrays for keys and values, guarded by a
    * {@link StampedLock}. Uses open addressing with linear probing.
+   *
+   * <p><b>Write ordering convention:</b> when inserting a new entry, the value is written before the
+   * key fields (fileId, pageIndex). A concurrent optimistic reader that sees a non-null value at a
+   * slot will find valid key fields because the write lock ensures ordering via stamp validation.
    */
   private static final class Section<V> {
     private static final float FILL_FACTOR = 0.66f;
@@ -235,7 +239,7 @@ public class ConcurrentLongIntHashMap<V> {
     /** Number of logically present entries. */
     private volatile int size;
 
-    /** Number of occupied buckets (entries + tombstones). Drives resize threshold. */
+    /** Number of occupied buckets. Drives resize threshold. */
     private int usedBuckets;
 
     /** Current array length (always a power of two). */
@@ -276,7 +280,6 @@ public class ConcurrentLongIntHashMap<V> {
         int idx = (bucket + i) & bucketMask;
         V val = vals[idx];
         if (val == null) {
-          // Empty slot — key is not present
           break;
         }
         if (fIds[idx] == fileId && pIdxs[idx] == pageIndex) {
@@ -316,35 +319,46 @@ public class ConcurrentLongIntHashMap<V> {
       return null;
     }
 
+    /**
+     * Probe for a key under write lock. Returns the index where the key was found (non-negative),
+     * or a negative value encoding the first empty slot: {@code ~firstEmptySlot}. Callers decode
+     * the empty slot index with {@code ~returnValue}.
+     */
+    private int probeForKey(long fileId, int pageIndex, int hashMix) {
+      int bucketMask = capacity - 1;
+      int bucket = hashMix & bucketMask;
+      int firstEmpty = -1;
+
+      for (int i = 0; i < capacity; i++) {
+        int idx = (bucket + i) & bucketMask;
+        V val = values[idx];
+        if (val == null) {
+          if (firstEmpty == -1) {
+            firstEmpty = idx;
+          }
+          break;
+        }
+        if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+          return idx;
+        }
+      }
+
+      assert firstEmpty >= 0 : "No empty slot found; resize threshold should prevent full table";
+      return ~firstEmpty;
+    }
+
     V put(long fileId, int pageIndex, V value, int hashMix) {
       long stamp = lock.writeLock();
       try {
-        int bucketMask = capacity - 1;
-        int bucket = hashMix & bucketMask;
-
-        // Probe for existing key or first empty slot
-        int firstEmpty = -1;
-        for (int i = 0; i < capacity; i++) {
-          int idx = (bucket + i) & bucketMask;
-          V val = values[idx];
-          if (val == null) {
-            if (firstEmpty == -1) {
-              firstEmpty = idx;
-            }
-            break;
-          }
-          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
-            // Key found — replace value
-            V prev = values[idx];
-            // Write ordering: value before keys (A2 review decision).
-            // On the read path, a reader that sees the new value also sees valid keys.
-            // If the reader sees the old value, it's still consistent with the old keys.
-            values[idx] = value;
-            return prev;
-          }
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+        if (probeResult >= 0) {
+          // Key found — replace value (write ordering: value before keys, see Section Javadoc)
+          V prev = values[probeResult];
+          values[probeResult] = value;
+          return prev;
         }
 
-        insertAt(firstEmpty, fileId, pageIndex, value);
+        insertAt(~probeResult, fileId, pageIndex, value, hashMix);
         return null;
       } finally {
         lock.unlockWrite(stamp);
@@ -354,26 +368,12 @@ public class ConcurrentLongIntHashMap<V> {
     V putIfAbsent(long fileId, int pageIndex, V value, int hashMix) {
       long stamp = lock.writeLock();
       try {
-        int bucketMask = capacity - 1;
-        int bucket = hashMix & bucketMask;
-
-        int firstEmpty = -1;
-        for (int i = 0; i < capacity; i++) {
-          int idx = (bucket + i) & bucketMask;
-          V val = values[idx];
-          if (val == null) {
-            if (firstEmpty == -1) {
-              firstEmpty = idx;
-            }
-            break;
-          }
-          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
-            // Key exists — return current value, don't replace
-            return val;
-          }
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+        if (probeResult >= 0) {
+          return values[probeResult];
         }
 
-        insertAt(firstEmpty, fileId, pageIndex, value);
+        insertAt(~probeResult, fileId, pageIndex, value, hashMix);
         return null;
       } finally {
         lock.unlockWrite(stamp);
@@ -384,32 +384,18 @@ public class ConcurrentLongIntHashMap<V> {
         long fileId, int pageIndex, LongIntFunction<V> mappingFunction, int hashMix) {
       long stamp = lock.writeLock();
       try {
-        int bucketMask = capacity - 1;
-        int bucket = hashMix & bucketMask;
-
-        int firstEmpty = -1;
-        for (int i = 0; i < capacity; i++) {
-          int idx = (bucket + i) & bucketMask;
-          V val = values[idx];
-          if (val == null) {
-            if (firstEmpty == -1) {
-              firstEmpty = idx;
-            }
-            break;
-          }
-          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
-            return val;
-          }
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+        if (probeResult >= 0) {
+          return values[probeResult];
         }
 
-        // Key absent — compute the value
         V newValue = mappingFunction.apply(fileId, pageIndex);
         if (newValue == null) {
           throw new IllegalArgumentException(
               "computeIfAbsent mapping function must not return null");
         }
 
-        insertAt(firstEmpty, fileId, pageIndex, newValue);
+        insertAt(~probeResult, fileId, pageIndex, newValue, hashMix);
         return newValue;
       } finally {
         lock.unlockWrite(stamp);
@@ -420,17 +406,14 @@ public class ConcurrentLongIntHashMap<V> {
      * Insert a new entry at the given slot index. Handles resize if needed. Must be called under
      * write lock.
      */
-    private void insertAt(int slotIdx, long fileId, int pageIndex, V value) {
-      // Check if resize is needed before inserting
+    private void insertAt(int slotIdx, long fileId, int pageIndex, V value, int hashMix) {
       if (usedBuckets >= resizeThreshold) {
-        rehash(capacity * 2);
+        rehash();
         // Recalculate slot after resize — arrays have changed
-        slotIdx = findEmptySlot(fileId, pageIndex);
+        slotIdx = findEmptySlot(hashMix);
       }
 
-      // Write ordering: value first, then key fields (A2 review decision).
-      // A concurrent optimistic reader that sees the value will also see valid keys
-      // because the write lock ensures ordering via the stamp validation.
+      // Value first, then key fields (see Section Javadoc for write ordering rationale)
       values[slotIdx] = value;
       fileIds[slotIdx] = fileId;
       pageIndices[slotIdx] = pageIndex;
@@ -439,10 +422,10 @@ public class ConcurrentLongIntHashMap<V> {
       size++;
     }
 
-    /** Find an empty slot for the given key. Must be called under write lock after resize. */
-    private int findEmptySlot(long fileId, int pageIndex) {
+    /** Find an empty slot starting from the hash bucket. Must be called under write lock. */
+    private int findEmptySlot(int hashMix) {
       int bucketMask = capacity - 1;
-      int bucket = (int) hash(fileId, pageIndex) & bucketMask;
+      int bucket = hashMix & bucketMask;
 
       for (int i = 0; i < capacity; i++) {
         int idx = (bucket + i) & bucketMask;
@@ -451,14 +434,16 @@ public class ConcurrentLongIntHashMap<V> {
         }
       }
 
-      // Should never happen — resize ensures there's always room
       throw new IllegalStateException("No empty slot found after resize");
     }
 
     /** Double the capacity and re-insert all entries. Must be called under write lock. */
     @SuppressWarnings("unchecked")
-    private void rehash(int newCapacity) {
-      newCapacity = alignToPowerOfTwo(newCapacity);
+    private void rehash() {
+      if (capacity >= (1 << 30)) {
+        throw new IllegalStateException("Maximum section capacity reached (2^30)");
+      }
+      int newCapacity = capacity * 2;
 
       long[] oldFileIds = fileIds;
       int[] oldPageIndices = pageIndices;
@@ -470,7 +455,7 @@ public class ConcurrentLongIntHashMap<V> {
       pageIndices = new int[newCapacity];
       values = (V[]) new Object[newCapacity];
       resizeThreshold = (int) (newCapacity * FILL_FACTOR);
-      usedBuckets = size; // Rehash eliminates tombstones
+      usedBuckets = size;
 
       int bucketMask = newCapacity - 1;
       for (int i = 0; i < oldCapacity; i++) {
@@ -480,12 +465,10 @@ public class ConcurrentLongIntHashMap<V> {
           int pIdx = oldPageIndices[i];
           int bucket = (int) hash(fId, pIdx) & bucketMask;
 
-          // Find empty slot in new arrays
           while (values[bucket] != null) {
             bucket = (bucket + 1) & bucketMask;
           }
 
-          // Write ordering: value first, then keys
           values[bucket] = val;
           fileIds[bucket] = fId;
           pageIndices[bucket] = pIdx;
