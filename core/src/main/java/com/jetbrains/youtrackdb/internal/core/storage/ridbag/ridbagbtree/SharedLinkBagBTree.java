@@ -439,7 +439,46 @@ public final class SharedLinkBagBTree extends DurableComponent {
               sizeDiff = 1;
             }
 
+            // GC flag: attempt tombstone filtering at most once per insert.
+            // If GC frees enough space, the retry succeeds without splitting.
+            // If not, the normal split proceeds on the already-filtered bucket.
+            boolean gcAttempted = false;
+
             while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+              // Attempt tombstone GC before splitting — removes tombstones
+              // below the global LWM that have no lingering snapshot entries.
+              // The LWM is computed once per GC attempt; this is safe because
+              // we hold the exclusive lock — no concurrent modifications.
+              if (!gcAttempted) {
+                gcAttempted = true;
+                final long lwm = storage.computeGlobalLowWaterMark();
+                final int componentId = AbstractWriteCache.extractFileId(getFileId());
+                final int removedCount =
+                    filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
+                if (removedCount > 0) {
+                  // Tree size accounting: 4 cases depending on sizeDiff and GC.
+                  // (a) sizeDiff=1 (new insert) + GC removed N → net = 1-N
+                  // (b) sizeDiff=0 (re-insert after size-change remove) + GC removed N → net = -N
+                  // (c) GC removed 0 → no adjustment (fall through to split)
+                  // (d) cross-tx replacement: sizeDiff=1 but removeEntryByKey
+                  //     already decremented → net for replacement is 0, GC is -N
+                  // In all cases, updateSize(-removedCount) is correct for GC,
+                  // and the existing sizeDiff adjustment after the loop handles
+                  // the insert itself.
+                  updateSize(-removedCount, atomicOperation);
+
+                  // Re-derive insertion index — bucket contents changed.
+                  insertionIndex = keyBucket.find(key, serializerFactory);
+                  assert insertionIndex < 0
+                      : "Key must not exist in bucket after GC rebuild; index="
+                          + insertionIndex;
+                  insertionIndex = -insertionIndex - 1;
+
+                  // Retry the insert on the filtered bucket.
+                  continue;
+                }
+              }
+
               bucketSearchResult =
                   splitBucket(
                       keyBucket,
@@ -993,6 +1032,108 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  // ---- Tombstone GC helpers (used during leaf page split) ----
+
+  /**
+   * Checks whether any snapshot entries exist for the given logical edge.
+   * Uses lazy iteration — only calls {@code hasNext()} so at most one entry
+   * is materialized. This is safe because we only need to know whether any
+   * snapshot entry exists, not how many.
+   *
+   * <p>The edge snapshot index merges both the local (per-atomic-operation)
+   * buffer and the shared (global) snapshot index. This means a single check
+   * covers both — no separate local/shared queries are needed.
+   */
+  private boolean hasEdgeSnapshotEntries(
+      final int componentId,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition,
+      final AtomicOperation atomicOp) {
+    final var lowerKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    final var upperKey = new EdgeSnapshotKey(
+        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+    return atomicOp.edgeSnapshotSubMapDescending(lowerKey, upperKey)
+        .iterator().hasNext();
+  }
+
+  /**
+   * Determines whether a B-tree entry is a tombstone that can be safely
+   * removed during GC. A tombstone is removable when all three conditions
+   * hold:
+   * <ol>
+   *   <li>The entry is a tombstone ({@code value.tombstone()}).</li>
+   *   <li>Its timestamp is strictly below the low-water mark
+   *       ({@code key.ts < lwm}). Strict inequality is required because
+   *       a transaction with {@code commitTs == lwm} is still active and
+   *       may need to see the tombstone.</li>
+   *   <li>No snapshot entries exist for the same logical edge — if a
+   *       snapshot entry lingers (cleanup is lazy/threshold-based),
+   *       removing the tombstone would let a stale reader fall through
+   *       to the snapshot index and resurrect a deleted edge.</li>
+   * </ol>
+   */
+  private boolean isRemovableTombstone(
+      final EdgeKey key,
+      final LinkBagValue value,
+      final long lwm,
+      final int componentId,
+      final AtomicOperation atomicOp) {
+    if (!value.tombstone()) {
+      return false;
+    }
+    if (key.ts >= lwm) {
+      return false;
+    }
+    return !hasEdgeSnapshotEntries(
+        componentId, key.ridBagId, key.targetCollection, key.targetPosition, atomicOp);
+  }
+
+  /**
+   * Filters removable tombstones from a leaf bucket and rebuilds it in place
+   * with only the surviving entries. Returns the number of removed tombstones
+   * (0 if none were found, in which case the bucket is not modified).
+   *
+   * <p>The in-place rebuild uses the same {@code shrink(0)} + {@code addAll()}
+   * pattern as {@code splitRootBucket()} — both operate under an atomic
+   * operation that guarantees the page write is crash-safe.
+   */
+  private int filterAndRebuildBucket(
+      final Bucket keyBucket,
+      final long lwm,
+      final int componentId,
+      final AtomicOperation atomicOp) {
+    assert AbstractWriteCache.extractFileId(fileId) != 0
+        : "fileId must be assigned before GC (fileId=" + fileId + ")";
+
+    final int bucketSize = keyBucket.size();
+    final List<byte[]> survivors = new ArrayList<>(bucketSize);
+    int removedCount = 0;
+
+    for (int i = 0; i < bucketSize; i++) {
+      final var key = keyBucket.getKey(i, serializerFactory);
+      final var value = keyBucket.getValue(i, serializerFactory);
+
+      if (isRemovableTombstone(key, value, lwm, componentId, atomicOp)) {
+        removedCount++;
+      } else {
+        survivors.add(keyBucket.getRawEntry(i, serializerFactory));
+      }
+    }
+
+    if (removedCount == 0) {
+      return 0;
+    }
+
+    keyBucket.shrink(0, serializerFactory);
+    assert keyBucket.size() == 0
+        : "Bucket must be empty after shrink(0), got " + keyBucket.size();
+    keyBucket.addAll(survivors);
+
+    return removedCount;
+  }
+
   private UpdateBucketSearchResult findBucketForUpdate(
       final EdgeKey key, final AtomicOperation atomicOperation) throws IOException {
     var pageIndex = ROOT_INDEX;
@@ -1145,7 +1286,29 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
               int insertionIndex = -bucketSearchResult.getItemIndex() - 1;
 
+              // Same GC-before-split pattern as put() — see comments there.
+              boolean gcAttempted = false;
+
               while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+                if (!gcAttempted) {
+                  gcAttempted = true;
+                  final long lwm = storage.computeGlobalLowWaterMark();
+                  final int componentId = AbstractWriteCache.extractFileId(getFileId());
+                  final int removedCount =
+                      filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
+                  if (removedCount > 0) {
+                    updateSize(-removedCount, atomicOperation);
+
+                    insertionIndex = keyBucket.find(key, serializerFactory);
+                    assert insertionIndex < 0
+                        : "Tombstone key must not exist in bucket after GC rebuild; index="
+                            + insertionIndex;
+                    insertionIndex = -insertionIndex - 1;
+
+                    continue;
+                  }
+                }
+
                 bucketSearchResult =
                     splitBucket(
                         keyBucket,
