@@ -479,31 +479,33 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
       ytdb.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+      try {
+        RID rid;
+        // Create entity with 2 properties (tier 1 linear mode)
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.createClass("LinearTierEntity");
+          db.begin();
+          var entity = (EntityImpl) db.newEntity("LinearTierEntity");
+          entity.setProperty("name", "disk_linear");
+          entity.setProperty("count", 7);
+          db.commit();
+          rid = entity.getIdentity();
+        }
 
-      RID rid;
-      // Create entity with 2 properties (tier 1 linear mode)
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.createClass("LinearTierEntity");
-        db.begin();
-        var entity = (EntityImpl) db.newEntity("LinearTierEntity");
-        entity.setProperty("name", "disk_linear");
-        entity.setProperty("count", 7);
-        db.commit();
-        rid = entity.getIdentity();
+        // Reopen and verify properties survive full disk flush
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.begin();
+          var reloaded = (EntityImpl) db.load(rid);
+          assertThat(reloaded).isNotNull();
+          assertThat((String) reloaded.getProperty("name")).isEqualTo("disk_linear");
+          assertThat((int) reloaded.getProperty("count")).isEqualTo(7);
+          assertThat((Iterable<String>) reloaded.getPropertyNames())
+              .containsExactlyInAnyOrder("name", "count");
+          db.rollback();
+        }
+      } finally {
+        ytdb.drop(dbName);
       }
-
-      // Reopen and verify properties survive full disk flush
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.begin();
-        var reloaded = (EntityImpl) db.load(rid);
-        assertThat(reloaded).isNotNull();
-        assertThat((String) reloaded.getProperty("name")).isEqualTo("disk_linear");
-        assertThat((int) reloaded.getProperty("count")).isEqualTo(7);
-        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(2);
-        db.rollback();
-      }
-
-      ytdb.drop(dbName);
     }
   }
 
@@ -519,35 +521,60 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
       ytdb.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-
-      RID rid;
-      // Create entity with 15 properties (tier 3 cuckoo mode)
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.createClass("CuckooTierEntity");
-        db.begin();
-        var entity = (EntityImpl) db.newEntity("CuckooTierEntity");
-        for (int i = 0; i < 15; i++) {
-          entity.setProperty("prop_" + i, "value_" + i);
+      try {
+        RID rid;
+        // Create entity with 15 properties using mixed types (tier 3 cuckoo mode).
+        // Mixed types exercise variable-width value encoding (varint for strings,
+        // fixed 4/8 bytes for int/double) in the cuckoo offset table.
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.createClass("CuckooTierEntity");
+          db.begin();
+          var entity = (EntityImpl) db.newEntity("CuckooTierEntity");
+          for (int i = 0; i < 10; i++) {
+            entity.setProperty("str_" + i, "value_" + i);
+          }
+          entity.setProperty("intProp", 42);
+          entity.setProperty("doubleProp", 3.14);
+          entity.setProperty("boolProp", true);
+          entity.setProperty("dateProp", new Date(1700000000000L));
+          entity.setProperty("decimalProp", new BigDecimal("999.99"));
+          db.commit();
+          rid = entity.getIdentity();
         }
-        db.commit();
-        rid = entity.getIdentity();
-      }
 
-      // Reopen and verify all 15 properties survive full disk flush
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.begin();
-        var reloaded = (EntityImpl) db.load(rid);
-        assertThat(reloaded).isNotNull();
-        for (int i = 0; i < 15; i++) {
-          assertThat((String) reloaded.getProperty("prop_" + i))
-              .as("prop_%d", i)
-              .isEqualTo("value_" + i);
+        // Reopen and verify all 15 properties survive full disk flush
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.begin();
+          var reloaded = (EntityImpl) db.load(rid);
+          assertThat(reloaded).isNotNull();
+          for (int i = 0; i < 10; i++) {
+            assertThat((String) reloaded.getProperty("str_" + i))
+                .as("str_%d", i)
+                .isEqualTo("value_" + i);
+          }
+          assertThat((int) reloaded.getProperty("intProp")).isEqualTo(42);
+          assertThat((double) reloaded.getProperty("doubleProp")).isEqualTo(3.14);
+          assertThat((boolean) reloaded.getProperty("boolProp")).isTrue();
+          assertThat((Date) reloaded.getProperty("dateProp"))
+              .isEqualTo(new Date(1700000000000L));
+          assertThat((BigDecimal) reloaded.getProperty("decimalProp"))
+              .isEqualByComparingTo(new BigDecimal("999.99"));
+          var expectedNames = new String[15];
+          for (int i = 0; i < 10; i++) {
+            expectedNames[i] = "str_" + i;
+          }
+          expectedNames[10] = "intProp";
+          expectedNames[11] = "doubleProp";
+          expectedNames[12] = "boolProp";
+          expectedNames[13] = "dateProp";
+          expectedNames[14] = "decimalProp";
+          assertThat((Iterable<String>) reloaded.getPropertyNames())
+              .containsExactlyInAnyOrder(expectedNames);
+          db.rollback();
         }
-        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(15);
-        db.rollback();
+      } finally {
+        ytdb.drop(dbName);
       }
-
-      ytdb.drop(dbName);
     }
   }
 
@@ -563,36 +590,39 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
       ytdb.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
-
-      RID rid;
-      // Create entity with 15 properties (cuckoo mode)
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.createClass("CuckooPartialEntity");
-        db.begin();
-        var entity = (EntityImpl) db.newEntity("CuckooPartialEntity");
-        for (int i = 0; i < 15; i++) {
-          entity.setProperty("field_" + i, "data_" + i);
+      try {
+        RID rid;
+        // Create entity with 15 properties (cuckoo mode)
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.createClass("CuckooPartialEntity");
+          db.begin();
+          var entity = (EntityImpl) db.newEntity("CuckooPartialEntity");
+          for (int i = 0; i < 15; i++) {
+            entity.setProperty("field_" + i, "data_" + i);
+          }
+          db.commit();
+          rid = entity.getIdentity();
         }
-        db.commit();
-        rid = entity.getIdentity();
-      }
 
-      // Reopen and access a single property — triggers partial deserialization via
-      // EntityImpl.checkForProperties(name) → deserializePartial() through the cuckoo
-      // 2-bucket scan path on disk-loaded pages.
-      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-        db.begin();
-        var reloaded = (EntityImpl) db.load(rid);
-        assertThat(reloaded).isNotNull();
-        // Access a mid-range property to exercise the cuckoo hash lookup path
-        assertThat((String) reloaded.getProperty("field_7")).isEqualTo("data_7");
-        // Access first and last properties as well
-        assertThat((String) reloaded.getProperty("field_0")).isEqualTo("data_0");
-        assertThat((String) reloaded.getProperty("field_14")).isEqualTo("data_14");
-        db.rollback();
+        // Reopen and access a single property — triggers partial deserialization via
+        // EntityImpl.checkForProperties(name) → deserializePartial() through the cuckoo
+        // 2-bucket scan path on disk-loaded pages.
+        try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+          db.begin();
+          var reloaded = (EntityImpl) db.load(rid);
+          assertThat(reloaded).isNotNull();
+          // Access a mid-range property to exercise the cuckoo hash lookup path
+          assertThat((String) reloaded.getProperty("field_7")).isEqualTo("data_7");
+          // Access first and last properties as well
+          assertThat((String) reloaded.getProperty("field_0")).isEqualTo("data_0");
+          assertThat((String) reloaded.getProperty("field_14")).isEqualTo("data_14");
+          // Verify non-existent property returns null (not a phantom cuckoo collision)
+          assertThat((String) reloaded.getProperty("nonexistent_field")).isNull();
+          db.rollback();
+        }
+      } finally {
+        ytdb.drop(dbName);
       }
-
-      ytdb.drop(dbName);
     }
   }
 
