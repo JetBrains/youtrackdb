@@ -150,8 +150,7 @@ public class SchemaTest extends BaseDBJUnit5Test {
     var thread =
         new Thread(
             () -> {
-              var db = acquireSession();
-              try {
+              try (var db = acquireSession()) {
                 db.begin();
                 var doc = ((EntityImpl) db.newEntity("NewClass"));
                 db.commit();
@@ -163,8 +162,6 @@ public class SchemaTest extends BaseDBJUnit5Test {
                 db.commit();
               } catch (Throwable t) {
                 error.set(t);
-              } finally {
-                db.close();
               }
             });
 
