@@ -84,22 +84,14 @@ public class RecordSerializerBenchmark {
         new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
     session = youTrackDB.open(DB_NAME, "admin", "adminpwd");
 
-    // Build the source entity with mixed property types
-    session.begin();
-    sourceEntity = (EntityImpl) session.newEntity();
-    for (int i = 0; i < propertyCount; i++) {
-      switch (i % 4) {
-        case 0 -> sourceEntity.setString("prop_" + i, "value_" + i);
-        case 1 -> sourceEntity.setInt("prop_" + i, i * 100);
-        case 2 -> sourceEntity.setDouble("prop_" + i, i * 1.5);
-        case 3 -> sourceEntity.setBoolean("prop_" + i, i % 2 == 0);
-      }
-    }
-
     // Target the last property for partial deserialization — worst case for V1 linear scan
     partialFieldNames = new String[] {"prop_" + (propertyCount - 1)};
 
-    // Pre-serialize for deserialization benchmarks
+    // Build source entity and pre-serialize bytes for deserialization benchmarks.
+    // The entity is built in a transaction because session.newEntity() requires one.
+    session.begin();
+    buildSourceEntity();
+
     var v1Container = new BytesContainer();
     v1.serialize(session, sourceEntity, v1Container);
     v1Bytes = v1Container.fitBytes();
@@ -108,10 +100,9 @@ public class RecordSerializerBenchmark {
     v2.serialize(session, sourceEntity, v2Container);
     v2Bytes = v2Container.fitBytes();
 
-    // Commit the setup transaction to avoid unbounded transaction growth during iterations.
-    // Each benchmark method that calls session.newEntity() will operate in a new transaction.
+    // Roll back the setup transaction — pre-serialized bytes are captured in instance fields.
+    // sourceEntity will be rebuilt in resetTransaction() before the first iteration.
     session.rollback();
-    session.begin();
   }
 
   /**
@@ -119,12 +110,28 @@ public class RecordSerializerBenchmark {
    * Each iteration creates entities via session.newEntity() which registers operations
    * in the current transaction — without periodic reset, the operation list grows
    * unboundedly, causing GC noise and potential OOM.
+   *
+   * <p>Also rebuilds {@code sourceEntity} because rollback calls {@code EntityImpl.unload()},
+   * which clears all properties from entities registered in the rolled-back transaction.
    */
   @Setup(Level.Iteration)
   public void resetTransaction() {
     if (session != null && !session.isClosed()) {
       session.rollback();
       session.begin();
+      buildSourceEntity();
+    }
+  }
+
+  private void buildSourceEntity() {
+    sourceEntity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < propertyCount; i++) {
+      switch (i % 4) {
+        case 0 -> sourceEntity.setString("prop_" + i, "value_" + i);
+        case 1 -> sourceEntity.setInt("prop_" + i, i * 100);
+        case 2 -> sourceEntity.setDouble("prop_" + i, i * 1.5);
+        case 3 -> sourceEntity.setBoolean("prop_" + i, i % 2 == 0);
+      }
     }
   }
 
