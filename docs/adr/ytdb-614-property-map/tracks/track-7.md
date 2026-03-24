@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -72,7 +72,7 @@
   > **Key files:** `RecordSerializerBinaryV2.java` (modified),
   > `RecordSerializerBinaryV2HashTableTest.java` (modified)
 
-- [ ] Step 2: Atomic format swap — serialization + all deserialization paths
+- [x] Step 2: Atomic format swap — serialization + all deserialization paths
   > Wire cuckoo construction into serialization. Update ALL deserialization
   > paths for bucket-based format. Change threshold. Remove old perfect hash
   > code. This must be atomic — serialize + deserialize change together so
@@ -104,6 +104,30 @@
   > test databases from Tracks 4-6 must be deleted before running Track 7 tests.
   >
   > **Target files:** `RecordSerializerBinaryV2.java`
+  >
+  > **What was done:** Atomic format swap replacing perfect hash with bucketized cuckoo in all
+  > serialize/deserialize paths. Serialization now uses buildCuckooTable() with offset backpatching
+  > via slotPropertyIndex. Four deserialization paths updated: full (skip bucket array), partial
+  > (2-bucket scan with hash8 fast-reject), field (2-bucket scan), getFieldNames (skip bucket
+  > array). LINEAR_MODE_THRESHOLD raised from 2 to 12 (3-tier routing). Removed dead code:
+  > fibonacciIndex(), computeLog2Capacity(), findPerfectHashSeed(), and associated constants.
+  > Updated readAndValidateLog2NumBuckets to accept log2=0. Updated tests for new threshold.
+  > Net reduction of 255 lines.
+  >
+  > **What was discovered:** Old perfect hash tests and round-trip tests that used 3 properties
+  > needed updating to 13+ properties to trigger hash table mode with the new threshold. The
+  > test updates were necessarily bundled with the production code changes since they reference
+  > removed methods (computeLog2Capacity, fibonacciIndex, findPerfectHashSeed). This absorbed
+  > most of Step 3's test deletion work.
+  >
+  > **What changed from the plan:** Step 3 (hash table test suite updates) was partially absorbed
+  > into this step because removing production methods requires removing their test references
+  > in the same commit for compilation. Step 3 still has remaining work: threshold boundary tests,
+  > cuckoo-specific edge cases.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryV2HashTableTest.java` (modified),
+  > `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
 - [ ] Step 3: Hash table test suite updates
   > Replace perfect hash test methods with cuckoo equivalents. Update capacity
