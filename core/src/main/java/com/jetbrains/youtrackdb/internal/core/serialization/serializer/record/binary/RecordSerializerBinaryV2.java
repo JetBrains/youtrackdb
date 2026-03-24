@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
+import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.bytesFromString;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getGlobalProperty;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getLinkedType;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getTypeFromValueEmbedded;
@@ -463,26 +464,299 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Partial deserialization, field lookup, field names (Step 3 stubs)
+  // Partial deserialization, field lookup, field names (Step 3)
   // ========================================================================================
 
   @Override
   public void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields) {
-    throw new UnsupportedOperationException("V2 deserializePartial not yet implemented");
+    int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    if (propertyCount == 0) {
+      return;
+    }
+
+    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
+      deserializePartialLinear(db, entity, bytes, iFields, propertyCount);
+    } else {
+      deserializePartialHashTable(db, entity, bytes, iFields);
+    }
+  }
+
+  /**
+   * Partial deserialization in linear mode: scan entries sequentially, only deserialize matching
+   * fields.
+   */
+  private void deserializePartialLinear(DatabaseSessionEmbedded db, EntityImpl entity,
+      BytesContainer bytes, String[] iFields, int propertyCount) {
+    byte[][] fieldBytes = new byte[iFields.length][];
+    for (int i = 0; i < iFields.length; i++) {
+      fieldBytes[i] = bytesFromString(iFields[i]);
+    }
+
+    int found = 0;
+    for (int i = 0; i < propertyCount && found < iFields.length; i++) {
+      var nameAndType = readNameAndType(db, entity, bytes);
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+
+      // Check if this entry matches any requested field
+      int matchIndex = -1;
+      for (int j = 0; j < iFields.length; j++) {
+        if (iFields[j] != null && iFields[j].equals(nameAndType.name)) {
+          matchIndex = j;
+          break;
+        }
+      }
+
+      if (matchIndex >= 0) {
+        if (valueLength != 0) {
+          var value = deserializeValue(db, bytes, nameAndType.type, entity);
+          entity.setDeserializedPropertyInternal(
+              nameAndType.name, value, nameAndType.type);
+        } else {
+          entity.setDeserializedPropertyInternal(nameAndType.name, null, null);
+        }
+        found++;
+      } else {
+        // Skip value bytes
+        bytes.skip(valueLength);
+      }
+    }
+  }
+
+  /**
+   * Partial deserialization in hash table mode: O(1) lookup per field via the hash table.
+   */
+  private void deserializePartialHashTable(DatabaseSessionEmbedded db, EntityImpl entity,
+      BytesContainer bytes, String[] iFields) {
+    // Read hash table header
+    int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
+    bytes.skip(IntegerSerializer.INT_SIZE);
+    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    int capacity = 1 << log2Capacity;
+    int slotArrayStart = bytes.offset;
+    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
+
+    for (String fieldName : iFields) {
+      byte[] nameBytes = fieldName.getBytes(StandardCharsets.UTF_8);
+      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+      int slot = fibonacciIndex(hash, log2Capacity);
+      int slotPos = slotArrayStart + slot * SLOT_SIZE;
+
+      // Read slot
+      byte slotHash8 = bytes.bytes[slotPos];
+      int slotOffset =
+          (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
+
+      // Check if empty
+      if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
+        continue; // Field not present
+      }
+
+      // Bounds check (corruption detection)
+      assert slotOffset >= 0 : "Negative slot offset: " + slotOffset;
+
+      // Navigate to KV entry
+      bytes.offset = kvRegionBase + slotOffset;
+      var nameAndType = readNameAndType(db, entity, bytes);
+
+      // Verify key matches (defense against hash collision in corrupted data)
+      if (!fieldName.equals(nameAndType.name)) {
+        continue; // Key mismatch — field not present or data corrupted
+      }
+
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+      if (valueLength != 0) {
+        var value = deserializeValue(db, bytes, nameAndType.type, entity);
+        entity.setDeserializedPropertyInternal(fieldName, value, nameAndType.type);
+      } else {
+        entity.setDeserializedPropertyInternal(fieldName, null, null);
+      }
+    }
   }
 
   @Override
   @Nullable public BinaryField deserializeField(DatabaseSessionEmbedded db, BytesContainer bytes,
       SchemaClass iClass, String iFieldName, boolean embedded, ImmutableSchema schema,
       PropertyEncryption encryption) {
-    throw new UnsupportedOperationException("V2 deserializeField not yet implemented");
+    if (embedded) {
+      // Skip class name bytes
+      int classNameLen = VarIntSerializer.readAsInteger(bytes);
+      bytes.skip(classNameLen);
+    }
+
+    int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    if (propertyCount == 0) {
+      return null;
+    }
+
+    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
+      return deserializeFieldLinear(bytes, iClass, iFieldName, schema, propertyCount);
+    } else {
+      return deserializeFieldHashTable(bytes, iClass, iFieldName, schema);
+    }
+  }
+
+  /**
+   * Field lookup in linear mode: scan entries sequentially.
+   */
+  @Nullable private BinaryField deserializeFieldLinear(BytesContainer bytes, SchemaClass iClass,
+      String iFieldName, ImmutableSchema schema, int propertyCount) {
+    for (int i = 0; i < propertyCount; i++) {
+      // Read name
+      int len = VarIntSerializer.readAsInteger(bytes);
+      String name;
+      if (len > 0) {
+        name = new String(bytes.bytes, bytes.offset, len, StandardCharsets.UTF_8);
+        bytes.skip(len);
+      } else {
+        var id = (len * -1) - 1;
+        var prop = schema.getGlobalPropertyById(id);
+        name = prop.getName();
+      }
+
+      // Read type byte
+      PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
+
+      // Read value length
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+
+      if (iFieldName.equals(name)) {
+        if (valueLength == 0 || !getComparator().isBinaryComparable(type)) {
+          return null;
+        }
+        // bytes is now positioned at the start of the value data
+        var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
+        return new BinaryField(
+            iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
+      }
+
+      // Skip value bytes
+      bytes.skip(valueLength);
+    }
+    return null;
+  }
+
+  /**
+   * Field lookup in hash table mode: O(1) via hash table slot.
+   */
+  @Nullable private BinaryField deserializeFieldHashTable(BytesContainer bytes,
+      SchemaClass iClass, String iFieldName, ImmutableSchema schema) {
+    // Read hash table header
+    int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
+    bytes.skip(IntegerSerializer.INT_SIZE);
+    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    int capacity = 1 << log2Capacity;
+    int slotArrayStart = bytes.offset;
+    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
+
+    byte[] fieldNameBytes = iFieldName.getBytes(StandardCharsets.UTF_8);
+    int hash = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, seed);
+    int slot = fibonacciIndex(hash, log2Capacity);
+    int slotPos = slotArrayStart + slot * SLOT_SIZE;
+
+    // Read slot
+    byte slotHash8 = bytes.bytes[slotPos];
+    int slotOffset =
+        (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
+
+    // Check if empty
+    if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
+      return null;
+    }
+
+    // Navigate to KV entry
+    bytes.offset = kvRegionBase + slotOffset;
+
+    // Read name
+    int len = VarIntSerializer.readAsInteger(bytes);
+    String name;
+    if (len > 0) {
+      name = new String(bytes.bytes, bytes.offset, len, StandardCharsets.UTF_8);
+      bytes.skip(len);
+    } else {
+      var id = (len * -1) - 1;
+      var prop = schema.getGlobalPropertyById(id);
+      name = prop.getName();
+    }
+
+    // Verify key matches
+    if (!iFieldName.equals(name)) {
+      return null;
+    }
+
+    // Read type byte
+    PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
+
+    // Read value length
+    int valueLength = VarIntSerializer.readAsInteger(bytes);
+    if (valueLength == 0 || !getComparator().isBinaryComparable(type)) {
+      return null;
+    }
+
+    // bytes is now positioned at the start of the value data
+    var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
+    return new BinaryField(
+        iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
   }
 
   @Override
   public String[] getFieldNames(DatabaseSessionEmbedded session, EntityImpl reference,
-      BytesContainer iBytes, boolean embedded) {
-    throw new UnsupportedOperationException("V2 getFieldNames not yet implemented");
+      BytesContainer bytes, boolean embedded) {
+    if (embedded) {
+      int classNameLen = VarIntSerializer.readAsInteger(bytes);
+      bytes.skip(classNameLen);
+    }
+
+    int propertyCount = VarIntSerializer.readAsInteger(bytes);
+    if (propertyCount == 0) {
+      return new String[0];
+    }
+
+    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
+      return getFieldNamesLinear(session, reference, bytes, propertyCount);
+    } else {
+      return getFieldNamesHashTable(session, reference, bytes, propertyCount);
+    }
+  }
+
+  /**
+   * Field names in linear mode: read names sequentially, skip values.
+   */
+  private String[] getFieldNamesLinear(DatabaseSessionEmbedded session, EntityImpl reference,
+      BytesContainer bytes, int propertyCount) {
+    String[] names = new String[propertyCount];
+    for (int i = 0; i < propertyCount; i++) {
+      var nameAndType = readNameAndType(session, reference, bytes);
+      names[i] = nameAndType.name;
+      // Skip value
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+      bytes.skip(valueLength);
+    }
+    return names;
+  }
+
+  /**
+   * Field names in hash table mode: skip to KV entries, read names, skip values.
+   */
+  private String[] getFieldNamesHashTable(DatabaseSessionEmbedded session, EntityImpl reference,
+      BytesContainer bytes, int propertyCount) {
+    // Skip seed (4 bytes)
+    bytes.skip(IntegerSerializer.INT_SIZE);
+    // Skip log2Capacity (1 byte) + slot array
+    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    int capacity = 1 << log2Capacity;
+    bytes.skip(capacity * SLOT_SIZE);
+
+    // Read names from KV entries sequentially
+    String[] names = new String[propertyCount];
+    for (int i = 0; i < propertyCount; i++) {
+      var nameAndType = readNameAndType(session, reference, bytes);
+      names[i] = nameAndType.name;
+      // Skip value
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+      bytes.skip(valueLength);
+    }
+    return names;
   }
 
   // ========================================================================================
