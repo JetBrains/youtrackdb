@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -70,7 +70,7 @@
   > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified),
   > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
-- [ ] Step 3: Database lifecycle and binary comparator correctness
+- [x] Step 3: Database lifecycle and binary comparator correctness
   > Database lifecycle tests: persist entities to disk, close database, reopen,
   > verify all properties read back correctly. Tests the full V2 path through
   > storage layer. Add to `RecordSerializerBinaryVersionDispatchTest`:
@@ -83,3 +83,8 @@
   >   and `BinaryComparatorV0.compare()` to verify correct comparison results.
   >
   > **Target files:** `RecordSerializerBinaryVersionDispatchTest.java`
+  >
+  > **What was done:** Added 4 tests: DB lifecycle persist→close→reopen with 7
+  > property types, update→re-persist→verify, binary comparator for DOUBLE
+  > (isEqual + compare with equal/unequal/ordering), binary comparator for STRING.
+  > **Key files:** `RecordSerializerBinaryVersionDispatchTest.java` (modified)
