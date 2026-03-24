@@ -261,4 +261,179 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.isEmpty()).isTrue();
     assertThat(map.capacity()).isEqualTo(16);
   }
+
+  // ---- put() ----
+
+  @Test
+  public void putAndGetRoundtrip() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThat(map.put(1L, 10, "hello")).isNull();
+    assertThat(map.get(1L, 10)).isEqualTo("hello");
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.isEmpty()).isFalse();
+  }
+
+  @Test
+  public void putReplacesExistingValue() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "first");
+    String prev = map.put(1L, 10, "second");
+    assertThat(prev).isEqualTo("first");
+    assertThat(map.get(1L, 10)).isEqualTo("second");
+    // Size should not change on replace
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void putWithFileIdZeroAndPageIndexZero() {
+    // fileId=0 and pageIndex=0 are valid keys, not sentinels.
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(0L, 0, "zero-zero");
+    assertThat(map.get(0L, 0)).isEqualTo("zero-zero");
+    assertThat(map.size()).isEqualTo(1);
+
+    // Also put with fileId=0, different pageIndex
+    map.put(0L, 1, "zero-one");
+    assertThat(map.get(0L, 1)).isEqualTo("zero-one");
+    assertThat(map.get(0L, 0)).isEqualTo("zero-zero");
+    assertThat(map.size()).isEqualTo(2);
+  }
+
+  @Test
+  public void putRejectsNullValue() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThatThrownBy(() -> map.put(1L, 1, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Null");
+  }
+
+  @Test
+  public void putMultipleDistinctKeys() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 100; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(100);
+    for (int i = 0; i < 100; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
+    }
+  }
+
+  @Test
+  public void putTriggersResizeWhenCapacityExceeded() {
+    // Create a small map to easily trigger resize.
+    // 4 sections, 8 items expected => 2 per section capacity, but min 2, so each section cap=2.
+    // Fill factor 0.66, threshold = 2*0.66 = 1. So inserting 2 items in one section triggers resize.
+    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    long initialCapacity = map.capacity();
+
+    // Insert enough entries to force at least one section to resize
+    for (int i = 0; i < 20; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+
+    // All entries should survive resize
+    for (int i = 0; i < 20; i++) {
+      assertThat(map.get((long) i, i))
+          .as("Entry (%d, %d) should survive resize", (long) i, i)
+          .isEqualTo("val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(20);
+    // Capacity should have grown
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+  }
+
+  // ---- putIfAbsent() ----
+
+  @Test
+  public void putIfAbsentInsertsWhenAbsent() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    String result = map.putIfAbsent(1L, 10, "hello");
+    assertThat(result).isNull();
+    assertThat(map.get(1L, 10)).isEqualTo("hello");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void putIfAbsentReturnsExistingWhenPresent() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "first");
+    String result = map.putIfAbsent(1L, 10, "second");
+    assertThat(result).isEqualTo("first");
+    // Value should not have changed
+    assertThat(map.get(1L, 10)).isEqualTo("first");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void putIfAbsentRejectsNullValue() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThatThrownBy(() -> map.putIfAbsent(1L, 1, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Null");
+  }
+
+  // ---- computeIfAbsent() ----
+
+  @Test
+  public void computeIfAbsentComputesWhenAbsent() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    String result = map.computeIfAbsent(1L, 10, (fid, pid) -> "computed-" + fid + "-" + pid);
+    assertThat(result).isEqualTo("computed-1-10");
+    assertThat(map.get(1L, 10)).isEqualTo("computed-1-10");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void computeIfAbsentReturnsExistingWhenPresent() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "existing");
+    String result = map.computeIfAbsent(1L, 10, (fid, pid) -> "should-not-compute");
+    assertThat(result).isEqualTo("existing");
+    assertThat(map.get(1L, 10)).isEqualTo("existing");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void computeIfAbsentRejectsNullReturnFromFunction() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThatThrownBy(() -> map.computeIfAbsent(1L, 10, (fid, pid) -> null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("must not return null");
+  }
+
+  @Test
+  public void computeIfAbsentWithFileIdZero() {
+    // fileId=0 passed to the mapping function must be correct, not confused with a sentinel
+    var map = new ConcurrentLongIntHashMap<String>();
+    String result = map.computeIfAbsent(0L, 0, (fid, pid) -> "fid=" + fid + ",pid=" + pid);
+    assertThat(result).isEqualTo("fid=0,pid=0");
+    assertThat(map.get(0L, 0)).isEqualTo("fid=0,pid=0");
+  }
+
+  // ---- get() with populated map (deferred from Step 1) ----
+
+  @Test
+  public void getReturnsNullForAbsentKeyInPopulatedMap() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "hello");
+    assertThat(map.get(1L, 11)).isNull();
+    assertThat(map.get(2L, 10)).isNull();
+  }
+
+  @Test
+  public void getWithFileIdZeroRetrievesCorrectly() {
+    // Now that put exists, verify fileId=0 is not confused with empty sentinel
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(0L, 0, "zero-zero");
+    map.put(0L, 1, "zero-one");
+    map.put(1L, 0, "one-zero");
+
+    assertThat(map.get(0L, 0)).isEqualTo("zero-zero");
+    assertThat(map.get(0L, 1)).isEqualTo("zero-one");
+    assertThat(map.get(1L, 0)).isEqualTo("one-zero");
+    assertThat(map.get(0L, 2)).isNull();
+    assertThat(map.size()).isEqualTo(3);
+  }
+
 }
