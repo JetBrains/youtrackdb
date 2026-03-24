@@ -72,10 +72,12 @@ public class EdgeTraversal {
   /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
-   * at capacity — no eviction, no LRU bookkeeping.
+   * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
+   * on first cache miss to avoid wasting memory on edges that have
+   * no intersection descriptor.
    */
   private static final int CACHE_CAPACITY = 64;
-  private final HashMap<Object, RidSet> cache = new HashMap<>();
+  @Nullable private HashMap<Object, RidSet> cache;
 
   /**
    * Collection IDs for the target node's class constraint. When set,
@@ -184,7 +186,7 @@ public class EdgeTraversal {
 
     // 1. Cache hit — return immediately.
     //    Caller does per-vertex ratio check in applyPreFilter().
-    if (key != null && cache.containsKey(key)) {
+    if (key != null && cache != null && cache.containsKey(key)) {
       return cache.get(key);
     }
 
@@ -197,8 +199,8 @@ public class EdgeTraversal {
     //    No vertex of any link bag size would benefit from a RidSet
     //    this large (exceeds maxRidSetSize).
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
-      if (key != null && cache.size() < CACHE_CAPACITY) {
-        cache.put(key, null);
+      if (key != null) {
+        cacheput(key, null);
       }
       return null;
     }
@@ -215,10 +217,20 @@ public class EdgeTraversal {
     // 5. First big-enough hit — resolve (materialize) and cache.
     //    Pass the cache key so EdgeRidLookup reuses the target RID.
     var ridSet = desc.resolve(ctx, key);
-    if (key != null && cache.size() < CACHE_CAPACITY) {
-      cache.put(key, ridSet);
+    if (key != null) {
+      cacheput(key, ridSet);
     }
     return ridSet;
+  }
+
+  /** Lazily allocates the cache and inserts the entry if under capacity. */
+  private void cacheput(Object key, @Nullable RidSet value) {
+    if (cache == null) {
+      cache = new HashMap<>();
+    }
+    if (cache.size() < CACHE_CAPACITY) {
+      cache.put(key, value);
+    }
   }
 
   @Override
