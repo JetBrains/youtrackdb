@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -269,6 +270,28 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
       assertThat(bf).as("Field '%s' should be non-null", field).isNotNull();
       assertThat(bf.name).isEqualTo(field);
     }
+  }
+
+  // ========================================================================================
+  // deserializeField — LINK type
+  // ========================================================================================
+
+  @Test
+  public void field_linkProperty_hashMode() {
+    // Verify deserializeField returns a non-null BinaryField for a LINK property
+    // so that BinaryComparatorV0 can compare RID bytes directly.
+    session.begin();
+    var rid = new RecordId(10, 42);
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("name", "source");
+    entity.setString("extra", "pad");
+    entity.setProperty("ref", rid, PropertyType.LINK);
+
+    var field = deserializeFieldFromEntity(entity, "ref", false);
+    assertThat(field).isNotNull();
+    assertThat(field.name).isEqualTo("ref");
+    assertThat(field.type).isEqualTo(PropertyTypeInternal.LINK);
   }
 
   // ========================================================================================
