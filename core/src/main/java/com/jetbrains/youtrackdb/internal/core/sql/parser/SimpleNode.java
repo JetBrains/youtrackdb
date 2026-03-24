@@ -140,6 +140,27 @@ public abstract class SimpleNode implements Node {
   public SimpleNode copy() {
     throw new UnsupportedOperationException();
   }
+
+  /**
+   * Returns {@code true} if this node or any descendant is a
+   * {@link SQLPositionalParameter} ({@code ?} placeholder). Uses a
+   * recursive AST walk instead of the fragile
+   * {@code toString().contains("?")} heuristic, which false-triggers
+   * on {@code ?} inside string literals (e.g. {@code 'What?'}).
+   */
+  public boolean containsPositionalParameters() {
+    if (this instanceof SQLPositionalParameter) {
+      return true;
+    }
+    if (children != null) {
+      for (var child : children) {
+        if (child instanceof SimpleNode sn && sn.containsPositionalParameters()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 }
 
 /* JavaCC - OriginalChecksum=d5ed710e8a3f29d574adbb1d37e08f3b (do not edit this line) */

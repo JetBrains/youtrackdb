@@ -79,7 +79,9 @@ public class LetQueryStep extends AbstractExecutionStep {
       var previewCtx = new BasicCommandContext();
       previewCtx.setDatabaseSession(ctx.getDatabaseSession());
       previewCtx.setParentWithoutOverridingChild(ctx);
-      if (query.toString().contains("?")) {
+      // Positional parameters (?) prevent plan caching: the cached plan may
+      // bind a different ordinal than the one needed in this preview context.
+      if (query.containsPositionalParameters()) {
         previewPlan = query.createExecutionPlanNoCache(previewCtx, profilingEnabled);
       } else {
         previewPlan = query.createExecutionPlan(previewCtx, profilingEnabled);
@@ -110,9 +112,9 @@ public class LetQueryStep extends AbstractExecutionStep {
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
 
     InternalExecutionPlan subExecutionPlan;
-    if (query.toString().contains("?")) {
-      // with positional parameters, you cannot know if a parameter has the same ordinal as the
-      // one cached
+    if (query.containsPositionalParameters()) {
+      // Positional parameters prevent plan caching: the cached plan may
+      // bind a different ordinal than the one needed in this context.
       subExecutionPlan = query.createExecutionPlanNoCache(subCtx, profilingEnabled);
     } else {
       subExecutionPlan = query.createExecutionPlan(subCtx, profilingEnabled);

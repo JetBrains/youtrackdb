@@ -798,6 +798,59 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should unwrap deeply nested single-element wrappers", result);
   }
 
+  // =========================================================================
+  // containsPositionalParameters — AST-based positional parameter detection
+  // =========================================================================
+
+  /**
+   * A SELECT with a positional parameter (?) should be detected by the
+   * AST walk, not by string matching.
+   */
+  @Test
+  public void containsPositionalParameters_withParam_returnsTrue()
+      throws ParseException {
+    var parser = getParserFor("SELECT FROM V WHERE name = ?");
+    var stm = parser.parse();
+    assertTrue(stm.containsPositionalParameters());
+  }
+
+  /**
+   * A SELECT without any positional parameters returns false.
+   */
+  @Test
+  public void containsPositionalParameters_withoutParam_returnsFalse()
+      throws ParseException {
+    var parser = getParserFor("SELECT FROM V WHERE name = 'Alice'");
+    var stm = parser.parse();
+    assertFalse(stm.containsPositionalParameters());
+  }
+
+  /**
+   * A '?' inside a string literal must NOT be detected as a positional
+   * parameter. This is the false positive that the old
+   * toString().contains("?") heuristic would trigger.
+   */
+  @Test
+  public void containsPositionalParameters_questionMarkInStringLiteral_returnsFalse()
+      throws ParseException {
+    var parser = getParserFor("SELECT FROM V WHERE title = 'What?'");
+    var stm = parser.parse();
+    assertFalse(stm.containsPositionalParameters());
+  }
+
+  /**
+   * Mixed: positional parameter AND a '?' in a string literal. The AST
+   * correctly detects the real parameter.
+   */
+  @Test
+  public void containsPositionalParameters_mixedLiteralAndParam_returnsTrue()
+      throws ParseException {
+    var parser = getParserFor(
+        "SELECT FROM V WHERE title = 'What?' AND age > ?");
+    var stm = parser.parse();
+    assertTrue(stm.containsPositionalParameters());
+  }
+
   private CommandContext getContext() {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);

@@ -68,9 +68,9 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
     }
     subCtx.setDatabaseSession(ctx.getDatabaseSession());
     subCtx.setParent(ctx);
-    if (query.toString().contains("?")) {
-      // with positional parameters, you cannot know if a parameter has the same ordinal as the one
-      // cached
+    if (query.containsPositionalParameters()) {
+      // Positional parameters prevent plan caching: the cached plan may
+      // bind a different ordinal than the one needed in this context.
       subExecutionPlan = query.createExecutionPlanNoCache(subCtx, profilingEnabled);
     } else {
       subExecutionPlan = query.createExecutionPlan(subCtx, profilingEnabled);
