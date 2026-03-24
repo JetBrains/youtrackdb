@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongInteger;
@@ -104,14 +105,17 @@ public final class LockFreeReadCache implements ReadCache {
       evictionLock.unlock();
     }
 
-    // MetricsRegistry may be null during early engine startup: startUp() assigns
-    // the singleton 'instance' before calling startup() (which creates the Profiler),
-    // so a concurrent onEmbeddedFactoryInit() → EngineLocalPaginated.startup() path
-    // can reach this constructor before the profiler is initialized. Fall back to a
-    // no-op ratio in that case — cache hits are still counted correctly once the
-    // profiler comes up in subsequent LockFreeReadCache instances.
-    var registry = YouTrackDBEnginesManager.instance().getMetricsRegistry();
-    this.cacheHitRatio = registry != null
+    this.cacheHitRatio = resolveCacheHitRatio(
+        YouTrackDBEnginesManager.instance().getMetricsRegistry());
+  }
+
+  /**
+   * Resolves the cache-hit ratio metric from the given registry. Returns {@link Ratio#NOOP} when
+   * the registry is {@code null}, which happens during early engine startup when the profiler has
+   * not yet been initialized. Package-private for testability.
+   */
+  static Ratio resolveCacheHitRatio(@Nullable final MetricsRegistry registry) {
+    return registry != null
         ? registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO)
         : Ratio.NOOP;
   }
