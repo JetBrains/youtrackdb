@@ -663,12 +663,21 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     var field2 = deserializeFieldFromEntity(entity2, "key", false);
     var field3 = deserializeFieldFromEntity(entity3, "key", false);
 
+    assertThat(field1).isNotNull();
+    assertThat(field2).isNotNull();
+    assertThat(field3).isNotNull();
+
     var comparator = new BinaryComparatorV0();
 
+    // "apple" != "banana"
     assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+    // "apple" == "apple"
     assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+    // "apple" < "banana" → negative
     assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+    // "banana" > "apple" → positive
     assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
+    // "apple" == "apple" → zero
     assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
     session.rollback();
   }
