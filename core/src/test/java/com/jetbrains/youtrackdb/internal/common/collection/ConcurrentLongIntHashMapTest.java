@@ -1039,4 +1039,106 @@ public class ConcurrentLongIntHashMapTest {
       }
     }
   }
+
+  @Test
+  public void removeByFileIdWithFileIdZero() {
+    // fileId=0 must not confuse empty slots (where fileIds[i] defaults to 0)
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(0L, 0, "f0-p0");
+    map.put(0L, 1, "f0-p1");
+    map.put(1L, 0, "f1-p0");
+
+    var removed = map.removeByFileId(0L);
+    assertThat(removed).containsExactlyInAnyOrder("f0-p0", "f0-p1");
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(0L, 0)).isNull();
+    assertThat(map.get(0L, 1)).isNull();
+    assertThat(map.get(1L, 0)).isEqualTo("f1-p0");
+  }
+
+  @Test
+  public void removeByFileIdRemoveAllThenFillToResizeThreshold() {
+    // Single section, capacity=16, resizeThreshold = (int)(16 * 0.66) = 10
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+
+    for (int i = 0; i < 10; i++) {
+      map.put(1L, i, "v" + i);
+    }
+    assertThat(map.size()).isEqualTo(10);
+
+    var removed = map.removeByFileId(1L);
+    assertThat(removed).hasSize(10);
+    assertThat(map.size()).isEqualTo(0);
+
+    // Re-fill to the same level — proves usedBuckets was correctly reset
+    for (int i = 0; i < 10; i++) {
+      map.put(2L, i, "new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(10);
+    assertThat(map.capacity()).isEqualTo(16);
+    for (int i = 0; i < 10; i++) {
+      assertThat(map.get(2L, i)).isEqualTo("new-" + i);
+    }
+  }
+
+  @Test
+  public void removeByFileIdConsecutiveCallsOnDifferentFiles() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "f1-" + i);
+      map.put(2L, i, "f2-" + i);
+      map.put(3L, i, "f3-" + i);
+    }
+    assertThat(map.size()).isEqualTo(15);
+
+    map.removeByFileId(1L);
+    assertThat(map.size()).isEqualTo(10);
+
+    map.removeByFileId(3L);
+    assertThat(map.size()).isEqualTo(5);
+
+    for (int i = 0; i < 5; i++) {
+      assertThat(map.get(2L, i)).isEqualTo("f2-" + i);
+      assertThat(map.get(1L, i)).isNull();
+      assertThat(map.get(3L, i)).isNull();
+    }
+  }
+
+  @Test
+  public void removeByFileIdRepeatedPutRemoveCycles() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+
+    for (int cycle = 0; cycle < 10; cycle++) {
+      long fid = cycle;
+      for (int p = 0; p < 8; p++) {
+        map.put(fid, p, "c" + cycle + "-p" + p);
+      }
+      assertThat(map.size()).isEqualTo(8);
+
+      var removed = map.removeByFileId(fid);
+      assertThat(removed).hasSize(8);
+      assertThat(map.size()).isEqualTo(0);
+    }
+
+    // Capacity should not have grown (8 entries in cap-16 section)
+    assertThat(map.capacity()).isEqualTo(16);
+    map.put(100L, 0, "final");
+    assertThat(map.get(100L, 0)).isEqualTo("final");
+  }
+
+  @Test
+  public void removeByFileIdCalledTwiceForSameFile() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(5L, 0, "a");
+    map.put(5L, 1, "b");
+    map.put(9L, 0, "other");
+
+    var first = map.removeByFileId(5L);
+    assertThat(first).hasSize(2);
+
+    var second = map.removeByFileId(5L);
+    assertThat(second).isEmpty();
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(9L, 0)).isEqualTo("other");
+  }
 }
