@@ -36,7 +36,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * V2 entity serializer using a bucketized cuckoo hash map layout for O(1) property lookup.
+ * V2 entity serializer using a linear probing hash map layout for O(1) property lookup.
  *
  * <p>Binary format:
  * <pre>
@@ -44,11 +44,10 @@ import javax.annotation.Nullable;
  * [property count: varint]
  * --- if count &lt;= 12: linear mode ---
  * [for each property: name-encoding + type byte + value-size varint + value-bytes]
- * --- if count &gt; 12: cuckoo hash table mode ---
+ * --- if count &gt; 12: linear probing hash table mode ---
  * [seed: 4 bytes LE]
- * [log2NumBuckets: 1 byte]
- * [bucket array: numBuckets × 4 slots × 3 bytes]
- *   bucket = [slot0][slot1][slot2][slot3]
+ * [log2Capacity: 1 byte]
+ * [slot array: capacity × 3 bytes]
  *   slot = [hash8: 1 byte][offset: 2 bytes LE]
  *   empty slot = [0xFF][0xFFFF]
  * [key-value entries packed sequentially]
@@ -67,30 +66,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   // Slot size in bytes: 1 byte hash8 + 2 bytes offset
   static final int SLOT_SIZE = 3;
 
-  // Maximum log2 of bucket count (1024 buckets × 4 slots = 4096 total slots)
-  static final int MAX_LOG2_NUM_BUCKETS = 10;
+  // Maximum log2 of slot capacity (2048 slots = ~1280 properties at 0.625 load factor)
+  static final int MAX_LOG2_CAPACITY = 11;
 
   // Maximum offset value for 2-byte offsets (64 KB minus 1, since 0xFFFF is sentinel)
   static final int MAX_KV_REGION_SIZE = 0xFFFE;
 
   // Threshold for count <= LINEAR_MODE_THRESHOLD: use linear layout instead of hash table.
-  // For 3-12 properties, linear scan is cheaper than hash table overhead (seed + buckets).
+  // For 3-12 properties, linear scan is cheaper than hash table overhead (seed + slots).
   // Hash table only pays off for 13+ properties where O(n) scanning becomes measurable.
   static final int LINEAR_MODE_THRESHOLD = 12;
-
-  // -- Bucketized cuckoo hashing constants --
-
-  // Number of slots per bucket in the cuckoo hash table
-  static final int BUCKET_SIZE = 4;
-
-  // XOR constant for deriving h2 seed from h1 seed (MurmurHash3 finalization constant)
-  static final int CUCKOO_XOR_CONSTANT = 0x85ebca6b;
-
-  // Maximum evictions in a single cuckoo displacement chain before declaring failure
-  static final int MAX_EVICTIONS = 500;
-
-  // Maximum seed retries before capacity doubling
-  static final int MAX_SEED_RETRIES = 10;
 
   // V1 serializer for delegating serializeValue/deserializeValue
   private final RecordSerializerBinaryV1 v1Delegate = new RecordSerializerBinaryV1();
@@ -109,213 +94,118 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Bucketized cuckoo hashing — construction utilities
+  // Linear probing hash table — construction utilities
   // ========================================================================================
 
   /**
-   * Derives the h2 seed from the h1 seed by XOR with a MurmurHash3 finalization constant. This
-   * ensures h1 and h2 produce independent hash values for cuckoo's two-bucket scheme.
-   */
-  static int computeH2Seed(int seed) {
-    return seed ^ CUCKOO_XOR_CONSTANT;
-  }
-
-  /**
-   * Computes log2 of the number of buckets for a given property count at ~85% target load factor.
-   * Formula: nextPowerOfTwo(ceil(N / (BUCKET_SIZE * 0.85))), minimum 1 bucket (log2 = 0).
+   * Computes log2 of the slot capacity for a given property count at ~0.625 (5/8) load factor.
+   * Formula: nextPowerOfTwo(ceil(N * 8 / 5)), minimum 2 slots (log2 = 1).
    *
-   * <p>The total slot count is {@code (1 << log2NumBuckets) * BUCKET_SIZE}.
+   * <p>The total slot count is {@code 1 << log2Capacity}.
    */
-  static int computeLog2NumBuckets(int propertyCount) {
+  static int computeLog2Capacity(int propertyCount) {
     assert propertyCount > 0 : "propertyCount must be positive: " + propertyCount;
 
-    // ceil(N / (4 * 0.85)) = ceil(N / 3.4) = ceil(N * 10 / 34) = (N * 10 + 33) / 34
-    // Use long arithmetic to avoid overflow for very large property counts
-    int minBuckets = (int) (((long) propertyCount * 10 + 33) / 34);
-    if (minBuckets <= 1) {
-      return 0;
+    // ceil(N * 8 / 5) = (N * 8 + 4) / 5
+    // Use long arithmetic to avoid overflow for large property counts
+    int minSlots = (int) (((long) propertyCount * 8 + 4) / 5);
+    if (minSlots <= 2) {
+      return 1; // Minimum 2 slots (log2 = 1)
     }
-    int log2 = 32 - Integer.numberOfLeadingZeros(minBuckets - 1);
-    return Math.min(log2, MAX_LOG2_NUM_BUCKETS);
+    int log2 = 32 - Integer.numberOfLeadingZeros(minSlots - 1);
+    return Math.min(log2, MAX_LOG2_CAPACITY);
   }
 
   /**
-   * Builds a cuckoo hash table for the given property name bytes. Returns a result containing the
-   * seed used, log2 of the bucket count, and the bucket array bytes.
+   * Builds a linear probing hash table for the given property name bytes. Returns a result
+   * containing the seed used, log2 of the capacity, and the slot array bytes.
    *
-   * <p>Algorithm: greedy placement with displacement chains. For each property, try bucket1
-   * (from h1), then bucket2 (from h2). If both are full, evict a slot from bucket1 (round-robin
-   * by eviction count) and re-place it. Repeat for up to {@link #MAX_EVICTIONS} evictions. If the
-   * chain exceeds the limit, increment the seed and retry (up to {@link #MAX_SEED_RETRIES}). If
-   * all seeds fail, double the bucket count and retry.
+   * <p>Algorithm: for each property, compute hash via MurmurHash3 with a fixed seed (0), compute
+   * the slot index via Fibonacci hashing, and scan forward (wrapping) until an empty slot is
+   * found. No eviction chains, no seed retries, no dual hash computation.
    *
    * @param propertyNameBytes array of UTF-8 encoded property names
-   * @param log2NumBuckets initial log2 of bucket count
-   * @return CuckooTableResult containing seed, final log2NumBuckets, and bucket array
-   * @throws IllegalStateException if construction fails even at maximum capacity
+   * @param log2Capacity log2 of the slot capacity (power-of-two)
+   * @return HashTableResult containing seed, log2Capacity, slot array, and slot-to-property map
    */
-  static CuckooTableResult buildCuckooTable(byte[][] propertyNameBytes, int log2NumBuckets) {
+  static HashTableResult buildHashTable(byte[][] propertyNameBytes, int log2Capacity) {
     assert propertyNameBytes != null : "propertyNameBytes must not be null";
     assert propertyNameBytes.length > 0 : "must have at least one property";
-    assert log2NumBuckets >= 0 && log2NumBuckets <= MAX_LOG2_NUM_BUCKETS
-        : "log2NumBuckets out of range: " + log2NumBuckets;
+    assert log2Capacity >= 1 && log2Capacity <= MAX_LOG2_CAPACITY
+        : "log2Capacity out of range: " + log2Capacity;
 
     int n = propertyNameBytes.length;
-    int currentLog2 = log2NumBuckets;
+    int capacity = 1 << log2Capacity;
+    int seed = 0;
 
-    while (currentLog2 <= MAX_LOG2_NUM_BUCKETS) {
-      int numBuckets = 1 << currentLog2;
-      int totalSlots = numBuckets * BUCKET_SIZE;
+    // Allocate slot tracking arrays
+    byte[] slotHash8 = new byte[capacity];
+    int[] slotPropertyIndex = new int[capacity];
+    Arrays.fill(slotHash8, EMPTY_HASH8);
+    Arrays.fill(slotPropertyIndex, -1);
 
-      // Allocate working arrays once per capacity level, reuse across seed retries
-      byte[] slotHash8 = new byte[totalSlots];
-      int[] slotPropertyIndex = new int[totalSlots];
-      int[] propBucket1 = new int[n];
-      int[] propBucket2 = new int[n];
-      int[] propH1 = new int[n];
+    // Insert each property via linear probing
+    for (int i = 0; i < n; i++) {
+      byte[] nameBytes = propertyNameBytes[i];
+      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+      byte hash8 = computeHash8(hash);
+      int startSlot = fibonacciSlotIndex(hash, log2Capacity);
 
-      for (int seed = 0; seed < MAX_SEED_RETRIES; seed++) {
-        int h2Seed = computeH2Seed(seed);
-
-        // Reset slot tracking arrays for this seed attempt
-        Arrays.fill(slotHash8, EMPTY_HASH8);
-        Arrays.fill(slotPropertyIndex, -1);
-
-        // Precompute bucket1 and bucket2 for displacement chain lookups
-        for (int i = 0; i < n; i++) {
-          byte[] nameBytes = propertyNameBytes[i];
-          int h1 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
-          int h2 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, h2Seed);
-          propH1[i] = h1;
-          propBucket1[i] = fibonacciBucketIndex(h1, currentLog2);
-          propBucket2[i] = fibonacciBucketIndex(h2, currentLog2);
-        }
-
-        boolean success = true;
-        for (int i = 0; i < n; i++) {
-          if (!cuckooInsert(i, propBucket1, propBucket2, propH1, slotHash8,
-              slotPropertyIndex)) {
-            success = false;
-            break;
-          }
-        }
-
-        if (success) {
-          // Build the byte array in a single pass: for each slot, write hash8 + offset sentinel.
-          // Occupied slots get actual hash8; empty slots get EMPTY_HASH8. All offsets are
-          // initialized to EMPTY_OFFSET and will be backpatched during serializeHashTableMode.
-          byte[] bucketArray = new byte[totalSlots * SLOT_SIZE];
-          for (int s = 0; s < totalSlots; s++) {
-            int byteOffset = s * SLOT_SIZE;
-            if (slotPropertyIndex[s] != -1) {
-              bucketArray[byteOffset] = slotHash8[s];
-            } else {
-              bucketArray[byteOffset] = EMPTY_HASH8;
-            }
-            bucketArray[byteOffset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
-            bucketArray[byteOffset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
-          }
-          assert bucketArray.length == totalSlots * SLOT_SIZE
-              : "bucketArray size mismatch: " + bucketArray.length
-                  + " vs " + (totalSlots * SLOT_SIZE);
-          return new CuckooTableResult(seed, currentLog2, bucketArray, slotPropertyIndex);
+      // Linear probe forward until an empty slot is found
+      boolean placed = false;
+      for (int probe = 0; probe < capacity; probe++) {
+        int slot = (startSlot + probe) & (capacity - 1);
+        if (slotPropertyIndex[slot] == -1) {
+          slotHash8[slot] = hash8;
+          slotPropertyIndex[slot] = i;
+          placed = true;
+          break;
         }
       }
-      // All seeds exhausted at this bucket count — double capacity
-      currentLog2++;
+      assert placed : "Failed to place property " + i + " — table should have empty slots"
+          + " at load factor 0.625";
     }
 
-    throw new IllegalStateException(
-        "Failed to build cuckoo table for " + n + " properties at max capacity "
-            + ((1 << MAX_LOG2_NUM_BUCKETS) * BUCKET_SIZE) + " slots");
+    // Build the byte array: for each slot, write hash8 + offset sentinel.
+    // Offsets are backpatched during serializeHashTableMode with actual KV region offsets.
+    byte[] slotArray = new byte[capacity * SLOT_SIZE];
+    for (int s = 0; s < capacity; s++) {
+      int byteOffset = s * SLOT_SIZE;
+      slotArray[byteOffset] = slotHash8[s];
+      slotArray[byteOffset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
+      slotArray[byteOffset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
+    }
+
+    return new HashTableResult(seed, log2Capacity, slotArray, slotPropertyIndex);
   }
 
   /**
-   * Computes a bucket index via Fibonacci hashing. Multiplies the hash by the golden ratio
-   * constant and right-shifts to produce an index in [0, numBuckets).
+   * Computes a slot index via Fibonacci hashing. Multiplies the hash by the golden ratio
+   * constant and right-shifts to produce an index in [0, capacity).
    */
-  static int fibonacciBucketIndex(int hash, int log2NumBuckets) {
-    if (log2NumBuckets == 0) {
-      return 0; // Single bucket — all items go to bucket 0
-    }
-    return (hash * FIBONACCI_CONSTANT) >>> (32 - log2NumBuckets);
+  static int fibonacciSlotIndex(int hash, int log2Capacity) {
+    assert log2Capacity >= 1 : "log2Capacity must be >= 1: " + log2Capacity;
+    return (hash * FIBONACCI_CONSTANT) >>> (32 - log2Capacity);
   }
 
   /**
-   * Attempts to insert property at {@code propIdx} into the cuckoo table. Uses greedy placement
-   * with displacement chains: try bucket1, then bucket2, then evict a slot from bucket1
-   * (round-robin by eviction count to avoid ping-pong cycles) and re-place the evicted item.
-   *
-   * @return true if insertion succeeded, false if displacement chain exceeded MAX_EVICTIONS
-   */
-  private static boolean cuckooInsert(int propIdx, int[] propBucket1, int[] propBucket2,
-      int[] propH1, byte[] slotHash8, int[] slotPropertyIndex) {
-
-    int currentPropIdx = propIdx;
-    for (int evictions = 0; evictions <= MAX_EVICTIONS; evictions++) {
-      int bucket1 = propBucket1[currentPropIdx];
-      int bucket1Start = bucket1 * BUCKET_SIZE;
-
-      // Try bucket1
-      for (int s = 0; s < BUCKET_SIZE; s++) {
-        int slotIdx = bucket1Start + s;
-        if (slotHash8[slotIdx] == EMPTY_HASH8 && slotPropertyIndex[slotIdx] == -1) {
-          slotHash8[slotIdx] = computeHash8(propH1[currentPropIdx]);
-          slotPropertyIndex[slotIdx] = currentPropIdx;
-          return true;
-        }
-      }
-
-      int bucket2 = propBucket2[currentPropIdx];
-      int bucket2Start = bucket2 * BUCKET_SIZE;
-
-      // Try bucket2
-      for (int s = 0; s < BUCKET_SIZE; s++) {
-        int slotIdx = bucket2Start + s;
-        if (slotHash8[slotIdx] == EMPTY_HASH8 && slotPropertyIndex[slotIdx] == -1) {
-          // Item in bucket2 uses h1's hash8 (the primary hash prefix, always stored regardless
-          // of which bucket the item lands in)
-          slotHash8[slotIdx] = computeHash8(propH1[currentPropIdx]);
-          slotPropertyIndex[slotIdx] = currentPropIdx;
-          return true;
-        }
-      }
-
-      // Both buckets full — evict from bucket1 using round-robin slot selection to avoid
-      // ping-pong cycles that would occur with always-evict-first-slot strategy
-      int evictSlotIdx = bucket1Start + (evictions % BUCKET_SIZE);
-      int evictedPropIdx = slotPropertyIndex[evictSlotIdx];
-
-      // Place current item in the evicted slot
-      slotHash8[evictSlotIdx] = computeHash8(propH1[currentPropIdx]);
-      slotPropertyIndex[evictSlotIdx] = currentPropIdx;
-
-      // The evicted item needs to be re-placed in its alternate bucket
-      currentPropIdx = evictedPropIdx;
-    }
-
-    // Displacement chain exceeded limit
-    return false;
-  }
-
-  /**
-   * Result of cuckoo table construction, containing the seed, bucket layout, and slot-to-property
+   * Result of hash table construction, containing the seed, slot layout, and slot-to-property
    * mapping for backpatching offsets during serialization.
    *
-   * <p>Note: offset fields in {@code bucketArray} are initialized to the empty sentinel (0xFFFF)
+   * <p>Note: offset fields in {@code slotArray} are initialized to the empty sentinel (0xFFFF)
    * during construction. Use {@code slotPropertyIndex} to determine slot occupancy. Offsets must
    * be backpatched during serialization with actual KV region offsets.
    */
-  static final class CuckooTableResult {
+  static final class HashTableResult {
     final int seed;
-    final int log2NumBuckets;
-    final byte[] bucketArray; // numBuckets * BUCKET_SIZE * SLOT_SIZE bytes
+    final int log2Capacity;
+    final byte[] slotArray; // capacity * SLOT_SIZE bytes
     final int[] slotPropertyIndex; // maps each slot to property index (-1 if empty)
 
-    CuckooTableResult(int seed, int log2NumBuckets, byte[] bucketArray, int[] slotPropertyIndex) {
+    HashTableResult(int seed, int log2Capacity, byte[] slotArray, int[] slotPropertyIndex) {
       this.seed = seed;
-      this.log2NumBuckets = log2NumBuckets;
-      this.bucketArray = bucketArray;
+      this.log2Capacity = log2Capacity;
+      this.slotArray = slotArray;
       this.slotPropertyIndex = slotPropertyIndex;
     }
   }
@@ -394,8 +284,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   /**
-   * Cuckoo hash table mode: build cuckoo table, write seed + bucket array + KV entries.
-   * Uses slotPropertyIndex from CuckooTableResult to backpatch slot offsets after writing
+   * Linear probing hash table mode: build hash table, write seed + slot array + KV entries.
+   * Uses slotPropertyIndex from HashTableResult to backpatch slot offsets after writing
    * KV entries.
    */
   private void serializeHashTableMode(DatabaseSessionEmbedded session, BytesContainer bytes,
@@ -403,7 +293,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
       int propertyCount) {
 
-    // Collect property names as UTF-8 bytes for cuckoo table construction
+    // Collect property names as UTF-8 bytes for hash table construction
     byte[][] nameBytes = new byte[propertyCount][];
     @SuppressWarnings("unchecked")
     Entry<String, EntityEntry>[] orderedFields = new Entry[propertyCount];
@@ -418,25 +308,23 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       idx++;
     }
 
-    // Build cuckoo hash table
-    int log2NumBuckets = computeLog2NumBuckets(propertyCount);
-    CuckooTableResult cuckoo = buildCuckooTable(nameBytes, log2NumBuckets);
-    int finalLog2 = cuckoo.log2NumBuckets;
-    int numBuckets = 1 << finalLog2;
-    int totalSlots = numBuckets * BUCKET_SIZE;
+    // Build linear probing hash table
+    int log2Capacity = computeLog2Capacity(propertyCount);
+    HashTableResult table = buildHashTable(nameBytes, log2Capacity);
+    int capacity = 1 << table.log2Capacity;
 
     // Write seed (4 bytes LE)
     int seedPos = bytes.alloc(IntegerSerializer.INT_SIZE);
-    IntegerSerializer.serializeLiteral(cuckoo.seed, bytes.bytes, seedPos);
+    IntegerSerializer.serializeLiteral(table.seed, bytes.bytes, seedPos);
 
-    // Write log2NumBuckets (1 byte)
+    // Write log2Capacity (1 byte)
     int log2Pos = bytes.alloc(1);
-    bytes.bytes[log2Pos] = (byte) finalLog2;
+    bytes.bytes[log2Pos] = (byte) table.log2Capacity;
 
-    // Write bucket array (numBuckets * BUCKET_SIZE * SLOT_SIZE bytes), initially from
-    // CuckooTableResult (hash8 set, offsets = 0xFFFF sentinel to be backpatched)
-    int slotArrayPos = bytes.alloc(totalSlots * SLOT_SIZE);
-    System.arraycopy(cuckoo.bucketArray, 0, bytes.bytes, slotArrayPos, cuckoo.bucketArray.length);
+    // Write slot array (capacity * SLOT_SIZE bytes), initially from HashTableResult
+    // (hash8 set, offsets = 0xFFFF sentinel to be backpatched)
+    int slotArrayPos = bytes.alloc(capacity * SLOT_SIZE);
+    System.arraycopy(table.slotArray, 0, bytes.bytes, slotArrayPos, table.slotArray.length);
 
     // KV region starts here
     int kvRegionBase = bytes.offset;
@@ -459,12 +347,12 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     // Backpatch slot offsets using slotPropertyIndex mapping
-    for (int s = 0; s < totalSlots; s++) {
-      int propIdx = cuckoo.slotPropertyIndex[s];
+    for (int s = 0; s < capacity; s++) {
+      int propIdx = table.slotPropertyIndex[s];
       if (propIdx != -1) {
         int slotBytePos = slotArrayPos + s * SLOT_SIZE;
         int entryOffset = propertyKvOffsets[propIdx];
-        // hash8 is already written by CuckooTableResult; write offset (2 bytes LE)
+        // hash8 is already written by HashTableResult; write offset (2 bytes LE)
         bytes.bytes[slotBytePos + 1] = (byte) (entryOffset & 0xFF);
         bytes.bytes[slotBytePos + 2] = (byte) ((entryOffset >>> 8) & 0xFF);
       }
@@ -593,11 +481,11 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       BytesContainer bytes, int propertyCount) {
     // Skip seed (4 bytes)
     bytes.skip(IntegerSerializer.INT_SIZE);
-    // Read and validate log2NumBuckets
-    int log2NumBuckets = readAndValidateLog2NumBuckets(bytes);
-    int numBuckets = 1 << log2NumBuckets;
-    // Skip bucket array: numBuckets * BUCKET_SIZE slots, each SLOT_SIZE bytes
-    bytes.skip(numBuckets * BUCKET_SIZE * SLOT_SIZE);
+    // Read and validate log2Capacity
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
+    int capacity = 1 << log2Capacity;
+    // Skip slot array: capacity slots, each SLOT_SIZE bytes
+    bytes.skip(capacity * SLOT_SIZE);
 
     // Read KV entries linearly (full deserialization doesn't need the hash table)
     for (int i = 0; i < propertyCount; i++) {
@@ -697,88 +585,64 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   /**
-   * Partial deserialization in cuckoo hash table mode: O(1) lookup per field via 2-bucket scan.
-   * For each field, compute h1 and scan bucket1 (4 slots with hash8 fast-reject). If not found,
-   * compute h2 and scan bucket2.
+   * Partial deserialization in linear probing hash table mode: O(1) lookup per field via
+   * Fibonacci-indexed linear probe with hash8 fast-reject. Empty slot terminates search.
    */
   private void deserializePartialHashTable(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields) {
     // Read hash table header
     int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
     bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2NumBuckets = readAndValidateLog2NumBuckets(bytes);
-    int numBuckets = 1 << log2NumBuckets;
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
+    int capacity = 1 << log2Capacity;
     int slotArrayStart = bytes.offset;
-    int kvRegionBase = slotArrayStart + numBuckets * BUCKET_SIZE * SLOT_SIZE;
-
-    int h2Seed = computeH2Seed(seed);
+    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
 
     for (String fieldName : iFields) {
       byte[] nameBytes = fieldName.getBytes(StandardCharsets.UTF_8);
-      int h1 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
-      byte expectedHash8 = computeHash8(h1);
+      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+      byte expectedHash8 = computeHash8(hash);
+      int startSlot = fibonacciSlotIndex(hash, log2Capacity);
 
-      // Scan bucket1 (from h1)
-      int bucket1 = fibonacciBucketIndex(h1, log2NumBuckets);
-      if (scanBucketForPartialDeserialize(db, entity, bytes, fieldName, expectedHash8,
-          slotArrayStart, kvRegionBase, bucket1)) {
-        continue; // Found in bucket1
+      // Linear probe forward until found or empty slot (defensive bound: probes < capacity)
+      for (int probe = 0; probe < capacity; probe++) {
+        int slot = (startSlot + probe) & (capacity - 1);
+        int slotPos = slotArrayStart + slot * SLOT_SIZE;
+        byte slotHash8 = bytes.bytes[slotPos];
+        int slotOffset =
+            (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
+
+        // Empty slot: field not present — terminate search
+        if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
+          break;
+        }
+
+        // Hash8 fast-reject
+        if (slotHash8 != expectedHash8) {
+          continue;
+        }
+
+        // Bounds check
+        validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
+
+        // Navigate to KV entry and verify name match
+        bytes.offset = kvRegionBase + slotOffset;
+        var nameAndType = readNameAndType(db, entity, bytes);
+        if (!fieldName.equals(nameAndType.name)) {
+          continue;
+        }
+
+        // Found — deserialize value
+        int valueLength = VarIntSerializer.readAsInteger(bytes);
+        if (valueLength != 0) {
+          var value = deserializeValue(db, bytes, nameAndType.type, entity);
+          entity.setDeserializedPropertyInternal(fieldName, value, nameAndType.type);
+        } else {
+          entity.setDeserializedPropertyInternal(fieldName, null, null);
+        }
+        break;
       }
-
-      // Scan bucket2 (from h2) — only computed on bucket1 miss
-      int h2 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, h2Seed);
-      int bucket2 = fibonacciBucketIndex(h2, log2NumBuckets);
-      scanBucketForPartialDeserialize(db, entity, bytes, fieldName, expectedHash8,
-          slotArrayStart, kvRegionBase, bucket2);
     }
-  }
-
-  /**
-   * Scans a single bucket (4 slots) looking for the given field. Returns true if found and
-   * deserialized, false if not found in this bucket.
-   */
-  private boolean scanBucketForPartialDeserialize(DatabaseSessionEmbedded db, EntityImpl entity,
-      BytesContainer bytes, String fieldName, byte expectedHash8,
-      int slotArrayStart, int kvRegionBase, int bucketIndex) {
-    int bucketStart = slotArrayStart + bucketIndex * BUCKET_SIZE * SLOT_SIZE;
-
-    for (int s = 0; s < BUCKET_SIZE; s++) {
-      int slotPos = bucketStart + s * SLOT_SIZE;
-      byte slotHash8 = bytes.bytes[slotPos];
-      int slotOffset =
-          (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
-
-      // Skip empty slots
-      if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
-        continue;
-      }
-
-      // Hash8 fast-reject
-      if (slotHash8 != expectedHash8) {
-        continue;
-      }
-
-      // Bounds check
-      validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
-
-      // Navigate to KV entry and verify name match
-      bytes.offset = kvRegionBase + slotOffset;
-      var nameAndType = readNameAndType(db, entity, bytes);
-      if (!fieldName.equals(nameAndType.name)) {
-        continue;
-      }
-
-      // Found — deserialize value
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-      if (valueLength != 0) {
-        var value = deserializeValue(db, bytes, nameAndType.type, entity);
-        entity.setDeserializedPropertyInternal(fieldName, value, nameAndType.type);
-      } else {
-        entity.setDeserializedPropertyInternal(fieldName, null, null);
-      }
-      return true;
-    }
-    return false;
   }
 
   @Override
@@ -831,57 +695,38 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   /**
-   * Field lookup in cuckoo hash table mode: scan up to 2 buckets via h1/h2.
+   * Field lookup in linear probing hash table mode: Fibonacci-indexed linear probe with hash8
+   * fast-reject. Empty slot terminates search (field absent).
    */
   @Nullable private BinaryField deserializeFieldHashTable(BytesContainer bytes,
       SchemaClass iClass, String iFieldName, ImmutableSchema schema) {
     // Read hash table header
     int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
     bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2NumBuckets = readAndValidateLog2NumBuckets(bytes);
-    int numBuckets = 1 << log2NumBuckets;
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
+    int capacity = 1 << log2Capacity;
     int slotArrayStart = bytes.offset;
-    int kvRegionBase = slotArrayStart + numBuckets * BUCKET_SIZE * SLOT_SIZE;
+    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
 
     byte[] fieldNameBytes = iFieldName.getBytes(StandardCharsets.UTF_8);
-    int h1 = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, seed);
-    byte expectedHash8 = computeHash8(h1);
+    int hash = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, seed);
+    byte expectedHash8 = computeHash8(hash);
+    int startSlot = fibonacciSlotIndex(hash, log2Capacity);
 
-    // Scan bucket1 (from h1)
-    int bucket1 = fibonacciBucketIndex(h1, log2NumBuckets);
-    BinaryField result = scanBucketForFieldDeserialize(bytes, iClass, iFieldName, schema,
-        expectedHash8, slotArrayStart, kvRegionBase, bucket1);
-    if (result != null) {
-      return result;
-    }
-
-    // Scan bucket2 (from h2)
-    int h2Seed = computeH2Seed(seed);
-    int h2 = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, h2Seed);
-    int bucket2 = fibonacciBucketIndex(h2, log2NumBuckets);
-    return scanBucketForFieldDeserialize(bytes, iClass, iFieldName, schema,
-        expectedHash8, slotArrayStart, kvRegionBase, bucket2);
-  }
-
-  /**
-   * Scans a single bucket (4 slots) looking for the given field for binary field extraction.
-   * Returns a BinaryField if found, null otherwise.
-   */
-  @Nullable private BinaryField scanBucketForFieldDeserialize(BytesContainer bytes,
-      SchemaClass iClass, String iFieldName, ImmutableSchema schema, byte expectedHash8,
-      int slotArrayStart, int kvRegionBase, int bucketIndex) {
-    int bucketStart = slotArrayStart + bucketIndex * BUCKET_SIZE * SLOT_SIZE;
-
-    for (int s = 0; s < BUCKET_SIZE; s++) {
-      int slotPos = bucketStart + s * SLOT_SIZE;
+    // Linear probe forward until found or empty slot (defensive bound: probes < capacity)
+    for (int probe = 0; probe < capacity; probe++) {
+      int slot = (startSlot + probe) & (capacity - 1);
+      int slotPos = slotArrayStart + slot * SLOT_SIZE;
       byte slotHash8 = bytes.bytes[slotPos];
       int slotOffset =
           (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
 
+      // Empty slot: field not present — terminate search
       if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
-        continue;
+        return null;
       }
 
+      // Hash8 fast-reject
       if (slotHash8 != expectedHash8) {
         continue;
       }
@@ -945,16 +790,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   /**
-   * Field names in cuckoo hash table mode: skip to KV entries, read names, skip values.
+   * Field names in linear probing hash table mode: skip to KV entries, read names, skip values.
    */
   private String[] getFieldNamesHashTable(DatabaseSessionEmbedded session, EntityImpl reference,
       BytesContainer bytes, int propertyCount) {
     // Skip seed (4 bytes)
     bytes.skip(IntegerSerializer.INT_SIZE);
-    // Read and validate log2NumBuckets, skip bucket array
-    int log2NumBuckets = readAndValidateLog2NumBuckets(bytes);
-    int numBuckets = 1 << log2NumBuckets;
-    bytes.skip(numBuckets * BUCKET_SIZE * SLOT_SIZE);
+    // Read and validate log2Capacity, skip slot array
+    int log2Capacity = readAndValidateLog2Capacity(bytes);
+    int capacity = 1 << log2Capacity;
+    bytes.skip(capacity * SLOT_SIZE);
 
     // Read names from KV entries sequentially
     String[] names = new String[propertyCount];
@@ -1275,28 +1120,29 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       throw new SerializationException(
           "Corrupted record: negative property count " + propertyCount);
     }
-    // Upper bound: 64 KB KV region practically limits property count well below 1024.
+    // Upper bound: 64 KB KV region practically limits property count well below 2048.
+    // At 0.625 load factor, 2048 slots support ~1280 properties.
     // This is a generous corruption-detection sanity limit.
-    if (propertyCount > (1 << MAX_LOG2_NUM_BUCKETS)) {
+    if (propertyCount > (1 << MAX_LOG2_CAPACITY)) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "
-              + (1 << MAX_LOG2_NUM_BUCKETS));
+              + (1 << MAX_LOG2_CAPACITY));
     }
   }
 
   /**
-   * Validates that log2NumBuckets read from a serialized record is within the supported range.
+   * Validates that log2Capacity read from a serialized record is within the supported range.
    * A corrupted byte could produce a value like 30 or 255, causing massive memory allocation or
-   * integer overflow in bucket count computation.
+   * integer overflow in capacity computation.
    */
-  private static int readAndValidateLog2NumBuckets(BytesContainer bytes) {
-    int log2NumBuckets = bytes.bytes[bytes.offset++] & 0xFF;
-    if (log2NumBuckets > MAX_LOG2_NUM_BUCKETS) {
+  private static int readAndValidateLog2Capacity(BytesContainer bytes) {
+    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
+    if (log2Capacity > MAX_LOG2_CAPACITY) {
       throw new SerializationException(
-          "Corrupted record: invalid log2NumBuckets " + log2NumBuckets
-              + " (expected 0-" + MAX_LOG2_NUM_BUCKETS + ")");
+          "Corrupted record: invalid log2Capacity " + log2Capacity
+              + " (expected 0-" + MAX_LOG2_CAPACITY + ")");
     }
-    return log2NumBuckets;
+    return log2Capacity;
   }
 
   /**

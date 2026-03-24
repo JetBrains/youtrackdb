@@ -34,9 +34,9 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  *
  * <ul>
  *   <li>5 — V2 linear mode, baseline comparison against V1
- *   <li>13 — V2 cuckoo mode, smallest cuckoo entity (LINEAR_MODE_THRESHOLD=12)
- *   <li>20 — V2 cuckoo mode, moderate entity
- *   <li>50 — V2 cuckoo mode, large entity
+ *   <li>13 — V2 hash table mode, smallest hash table entity (LINEAR_MODE_THRESHOLD=12)
+ *   <li>20 — V2 hash table mode, moderate entity
+ *   <li>50 — V2 hash table mode, large entity
  * </ul>
  *
  * <p>Run: {@code java -jar core/target/benchmarks.jar RecordSerializerBenchmark}
