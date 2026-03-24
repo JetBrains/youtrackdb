@@ -34,6 +34,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  *
  * <ul>
  *   <li>5 — V2 linear mode, baseline comparison against V1
+ *   <li>13 — V2 cuckoo mode, smallest cuckoo entity (LINEAR_MODE_THRESHOLD=12)
  *   <li>20 — V2 cuckoo mode, moderate entity
  *   <li>50 — V2 cuckoo mode, large entity
  * </ul>
@@ -50,7 +51,7 @@ public class RecordSerializerBenchmark {
 
   private static final String DB_NAME = "serializerBench";
 
-  @Param({"5", "20", "50"})
+  @Param({"5", "13", "20", "50"})
   private int propertyCount;
 
   private YouTrackDBImpl youTrackDB;
@@ -66,8 +67,8 @@ public class RecordSerializerBenchmark {
   private byte[] v1Bytes;
   private byte[] v2Bytes;
 
-  // Field name for partial deserialization (target the last field to exercise worst-case V1 scan)
-  private String partialFieldName;
+  // Pre-allocated array for partial deserialization — avoids per-iteration allocation noise
+  private String[] partialFieldNames;
 
   @Setup(Level.Trial)
   public void setUp() {
@@ -96,7 +97,7 @@ public class RecordSerializerBenchmark {
     }
 
     // Target the last property for partial deserialization — worst case for V1 linear scan
-    partialFieldName = "prop_" + (propertyCount - 1);
+    partialFieldNames = new String[] {"prop_" + (propertyCount - 1)};
 
     // Pre-serialize for deserialization benchmarks
     var v1Container = new BytesContainer();
@@ -106,6 +107,25 @@ public class RecordSerializerBenchmark {
     var v2Container = new BytesContainer();
     v2.serialize(session, sourceEntity, v2Container);
     v2Bytes = v2Container.fitBytes();
+
+    // Commit the setup transaction to avoid unbounded transaction growth during iterations.
+    // Each benchmark method that calls session.newEntity() will operate in a new transaction.
+    session.rollback();
+    session.begin();
+  }
+
+  /**
+   * Reset the transaction between iterations to prevent unbounded entity accumulation.
+   * Each iteration creates entities via session.newEntity() which registers operations
+   * in the current transaction — without periodic reset, the operation list grows
+   * unboundedly, causing GC noise and potential OOM.
+   */
+  @Setup(Level.Iteration)
+  public void resetTransaction() {
+    if (session != null && !session.isClosed()) {
+      session.rollback();
+      session.begin();
+    }
   }
 
   @TearDown(Level.Trial)
@@ -157,16 +177,14 @@ public class RecordSerializerBenchmark {
   @Benchmark
   public void deserializePartialV1(Blackhole bh) {
     var entity = (EntityImpl) session.newEntity();
-    v1.deserializePartial(
-        session, entity, new BytesContainer(v1Bytes), new String[] {partialFieldName});
+    v1.deserializePartial(session, entity, new BytesContainer(v1Bytes), partialFieldNames);
     bh.consume(entity);
   }
 
   @Benchmark
   public void deserializePartialV2(Blackhole bh) {
     var entity = (EntityImpl) session.newEntity();
-    v2.deserializePartial(
-        session, entity, new BytesContainer(v2Bytes), new String[] {partialFieldName});
+    v2.deserializePartial(session, entity, new BytesContainer(v2Bytes), partialFieldNames);
     bh.consume(entity);
   }
 
