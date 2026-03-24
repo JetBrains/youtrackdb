@@ -8407,4 +8407,181 @@ public class SelectStatementExecutionTest extends DbTestBase {
     result.close();
     session.commit();
   }
+
+  /**
+   * Tests that expand() with a @class filter on the target vertex
+   * triggers the class filter push-down path in ExpandStep.
+   */
+  @Test
+  public void testExpandWithClassFilter() {
+    session.execute("CREATE CLASS EcAnimal EXTENDS V").close();
+    session.execute("CREATE CLASS EcDog EXTENDS EcAnimal").close();
+    session.execute("CREATE CLASS EcCat EXTENDS EcAnimal").close();
+    session.execute("CREATE CLASS EcOwner EXTENDS V").close();
+    session.execute("CREATE CLASS EcOwns EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EcOwner SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX EcDog SET name = 'Rex'").close();
+    session.execute("CREATE VERTEX EcCat SET name = 'Whiskers'").close();
+    session.execute(
+        "CREATE EDGE EcOwns FROM (SELECT FROM EcOwner WHERE name='Alice')"
+            + " TO (SELECT FROM EcDog WHERE name='Rex')")
+        .close();
+    session.execute(
+        "CREATE EDGE EcOwns FROM (SELECT FROM EcOwner WHERE name='Alice')"
+            + " TO (SELECT FROM EcCat WHERE name='Whiskers')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var classQuery = "SELECT FROM ("
+        + "  SELECT expand(out('EcOwns')) FROM EcOwner WHERE name = 'Alice'"
+        + ") WHERE @class = 'EcDog'";
+    var cfList = session.query(classQuery).toList();
+    Assert.assertEquals("Should only get dogs", 1, cfList.size());
+    Assert.assertEquals("Rex", cfList.getFirst().getProperty("name"));
+
+    // Verify the class filter optimization is active via EXPLAIN
+    var explain = session.query("EXPLAIN " + classQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    Assert.assertTrue(
+        "EXPLAIN should show class filter push-down, plan was:\n" + plan,
+        plan.contains("class filter"));
+    session.commit();
+  }
+
+  /**
+   * Tests expand() with an indexed property filter on the target,
+   * triggering the index pre-filter path in ExpandStep
+   */
+  @Test
+  public void testExpandWithIndexFilter() {
+    session.execute("CREATE CLASS EiAuthor EXTENDS V").close();
+    session.execute("CREATE CLASS EiArticle EXTENDS V").close();
+    session.execute("CREATE CLASS EiWrote EXTENDS E").close();
+    session.execute("CREATE PROPERTY EiArticle.rating INTEGER").close();
+    session.execute(
+        "CREATE INDEX EiArticle.rating ON EiArticle (rating) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EiAuthor SET name = 'Bob'").close();
+    for (int i = 0; i < 50; i++) {
+      session.execute(
+          "CREATE VERTEX EiArticle SET title = 'art" + i + "', rating = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE EiWrote FROM (SELECT FROM EiAuthor WHERE name='Bob')"
+              + " TO (SELECT FROM EiArticle WHERE title='art" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var indexQuery = "SELECT FROM ("
+        + "  SELECT expand(out('EiWrote')) FROM EiAuthor WHERE name = 'Bob'"
+        + ") WHERE rating = 42";
+    var list = session.query(indexQuery).toList();
+    Assert.assertEquals("Should find exactly one article with rating=42",
+        1, list.size());
+    Assert.assertEquals(42, (int) list.getFirst().getProperty("rating"));
+
+    // Verify the optimization is active via EXPLAIN: the optimizer may choose
+    // either "index pre-filter" or "push-down filter" depending on cost estimates.
+    // Both are valid optimizations — the key is that the filter was pushed down.
+    var explain = session.query("EXPLAIN " + indexQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    Assert.assertTrue(
+        "EXPLAIN should show a pushed-down optimization, plan was:\n" + plan,
+        plan.contains("index pre-filter") || plan.contains("push-down filter"));
+    session.commit();
+  }
+
+  /**
+   * Tests that expand() with a @rid = :param filter triggers the
+   * DirectRid pre-filter path in ExpandStep
+   */
+  @Test
+  public void testExpandWithRidFilter() {
+    session.execute("CREATE CLASS ErNode EXTENDS V").close();
+    session.execute("CREATE CLASS ErLink EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX ErNode SET name = 'root'").close();
+    session.execute("CREATE VERTEX ErNode SET name = 'child1'").close();
+    session.execute("CREATE VERTEX ErNode SET name = 'child2'").close();
+    session.execute(
+        "CREATE EDGE ErLink FROM (SELECT FROM ErNode WHERE name='root')"
+            + " TO (SELECT FROM ErNode WHERE name='child1')")
+        .close();
+    session.execute(
+        "CREATE EDGE ErLink FROM (SELECT FROM ErNode WHERE name='root')"
+            + " TO (SELECT FROM ErNode WHERE name='child2')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // Get the RID of child1
+    var child1 = session.query("SELECT @rid FROM ErNode WHERE name='child1'")
+        .toList();
+    Assert.assertFalse(child1.isEmpty());
+    var child1Rid = child1.getFirst().getProperty("@rid");
+
+    // expand with @rid filter
+    var result = session.query(
+        "SELECT FROM ("
+            + "  SELECT expand(out('ErLink')) FROM ErNode WHERE name = 'root'"
+            + ") WHERE @rid = ?",
+        child1Rid);
+    var list = result.toList();
+    Assert.assertEquals("Should find exactly child1", 1, list.size());
+    Assert.assertEquals("child1", list.getFirst().getProperty("name"));
+
+    // Verify the rid filter optimization is active via EXPLAIN
+    var explain = session.query(
+        "EXPLAIN SELECT FROM ("
+            + "  SELECT expand(out('ErLink')) FROM ErNode WHERE name = 'root'"
+            + ") WHERE @rid = " + child1Rid)
+        .toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    Assert.assertTrue(
+        "EXPLAIN should show rid filter, plan was:\n" + plan,
+        plan.contains("rid filter"));
+    session.commit();
+  }
+
+  /**
+   * Tests a LET subquery with expand(), verifying that LetQueryStep
+   * paths are exercised. Also validates EXPLAIN output shows the LET step.
+   */
+  @Test
+  public void testLetSubqueryWithExpand() {
+    session.execute("CREATE CLASS LePerson EXTENDS V").close();
+    session.execute("CREATE CLASS LeKnows EXTENDS E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LePerson SET name='Alice'").close();
+    session.execute("CREATE VERTEX LePerson SET name='Bob'").close();
+    session.execute(
+        "CREATE EDGE LeKnows FROM (SELECT FROM LePerson WHERE name='Alice')"
+            + " TO (SELECT FROM LePerson WHERE name='Bob')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var query = "SELECT *, $friends FROM LePerson"
+        + " LET $friends = (SELECT expand(out('LeKnows')) FROM LePerson"
+        + "   WHERE name = $parent.$current.name)"
+        + " WHERE name = 'Alice'";
+    var list = session.query(query).toList();
+    Assert.assertEquals(1, list.size());
+
+    // Verify EXPLAIN shows the LET step
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    Assert.assertTrue("EXPLAIN should show LET step, plan was:\n" + plan,
+        plan.contains("LET"));
+    session.commit();
+  }
 }

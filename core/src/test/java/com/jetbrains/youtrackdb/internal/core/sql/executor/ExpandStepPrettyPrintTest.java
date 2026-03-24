@@ -142,4 +142,60 @@ public class ExpandStepPrettyPrintTest {
 
     assertThat(output).startsWith("      + EXPAND");
   }
+
+  // =========================================================================
+  // copy() — preserves all filter descriptors
+  // =========================================================================
+
+  @Test
+  public void copy_preservesClassFilter() {
+    IntSet classFilter = IntOpenHashSet.of(10, 20);
+    var step = new ExpandStep(ctx, false, "alias",
+        null, classFilter, null, null);
+    var copy = (ExpandStep) step.copy(ctx);
+    var output = copy.prettyPrint(0, 2);
+    assertThat(output).contains("class filter: 2 collection(s)");
+  }
+
+  @Test
+  public void copy_preservesRidFilter() {
+    var ridFilter = new RidFilterDescriptor.DirectRid(
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression(-1));
+    var step = new ExpandStep(ctx, false, "alias",
+        null, null, ridFilter, null);
+    var copy = (ExpandStep) step.copy(ctx);
+    var output = copy.prettyPrint(0, 2);
+    assertThat(output).contains("rid filter: direct");
+  }
+
+  @Test
+  public void copy_preservesIndexDescriptor() {
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn("Person.name");
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
+    var step = new ExpandStep(ctx, false, "alias",
+        null, null, null, indexDesc);
+    var copy = (ExpandStep) step.copy(ctx);
+    var output = copy.prettyPrint(0, 2);
+    assertThat(output).contains("index pre-filter: Person.name");
+  }
+
+  @Test
+  public void copy_preservesPushDownFilter() {
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock(-1));
+    var step = new ExpandStep(ctx, false, "alias",
+        where, null, null, null);
+    var copy = (ExpandStep) step.copy(ctx);
+    var output = copy.prettyPrint(0, 2);
+    assertThat(output).contains("push-down filter:");
+  }
+
+  @Test
+  public void canBeCached_returnsTrue() {
+    var step = new ExpandStep(ctx, false, null);
+    assertThat(step.canBeCached()).isTrue();
+  }
 }
