@@ -15,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
@@ -168,10 +167,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   @Override
   public void serialize(DatabaseSessionEmbedded session, EntityImpl entity,
       BytesContainer bytes) {
-    ImmutableSchema schema = null;
-    if (entity != null) {
-      schema = entity.getImmutableSchema();
-    }
+    var schema = entity.getImmutableSchema();
     var encryption = entity.propertyEncryption;
     var clazz = entity.getImmutableSchemaClass(session);
     serializeEntity(session, entity, bytes, clazz, schema, encryption);
@@ -182,15 +178,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   public void serializeWithClassName(DatabaseSessionEmbedded session, EntityImpl entity,
       BytesContainer bytes) {
-    ImmutableSchema schema = null;
-    if (entity != null) {
-      schema = entity.getImmutableSchema();
-    }
-    SchemaImmutableClass result = null;
-    if (entity != null) {
-      result = entity.getImmutableSchemaClass(session);
-    }
-    final SchemaClass clazz = result;
+    var schema = entity.getImmutableSchema();
+    var clazz = entity.getImmutableSchemaClass(session);
     if (clazz != null && entity.isEmbedded()) {
       writeString(bytes, clazz.getName());
     } else {
@@ -221,15 +210,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
-    SchemaImmutableClass oClass = null;
-    if (entity != null) {
-      oClass = entity.getImmutableSchemaClass(session);
-    }
-
     if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      serializeLinearMode(session, bytes, fields, props, oClass, schema, encryption);
+      serializeLinearMode(session, bytes, fields, props, clazz, schema, encryption);
     } else {
-      serializeHashTableMode(session, bytes, fields, props, oClass, schema, encryption,
+      serializeHashTableMode(session, bytes, fields, props, clazz, schema, encryption,
           propertyCount);
     }
   }
@@ -431,17 +415,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   private void deserializeLinearMode(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, int propertyCount) {
     for (int i = 0; i < propertyCount; i++) {
-      var nameAndType = readNameAndType(db, entity, bytes);
-      String fieldName = nameAndType.name;
-      PropertyTypeInternal type = nameAndType.type;
-
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-      if (valueLength != 0) {
-        var value = deserializeValue(db, bytes, type, entity);
-        entity.setDeserializedPropertyInternal(fieldName, value, type);
-      } else {
-        entity.setDeserializedPropertyInternal(fieldName, null, null);
-      }
+      deserializeEntry(db, entity, bytes);
     }
   }
 
@@ -460,17 +434,31 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
     // Read KV entries linearly (full deserialization doesn't need the hash table)
     for (int i = 0; i < propertyCount; i++) {
-      var nameAndType = readNameAndType(db, entity, bytes);
-      String fieldName = nameAndType.name;
-      PropertyTypeInternal type = nameAndType.type;
+      deserializeEntry(db, entity, bytes);
+    }
+  }
 
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-      if (valueLength != 0) {
-        var value = deserializeValue(db, bytes, type, entity);
-        entity.setDeserializedPropertyInternal(fieldName, value, type);
-      } else {
-        entity.setDeserializedPropertyInternal(fieldName, null, null);
-      }
+  /**
+   * Reads a single KV entry: [name-encoding][type byte][value-size varint][value-bytes].
+   * The value-size field is used by partial deserialization (Step 3) to skip entries; during
+   * full deserialization it serves as a consistency check.
+   */
+  private void deserializeEntry(DatabaseSessionEmbedded db, EntityImpl entity,
+      BytesContainer bytes) {
+    var nameAndType = readNameAndType(db, entity, bytes);
+    String fieldName = nameAndType.name;
+    PropertyTypeInternal type = nameAndType.type;
+
+    int valueLength = VarIntSerializer.readAsInteger(bytes);
+    if (valueLength != 0) {
+      int before = bytes.offset;
+      var value = deserializeValue(db, bytes, type, entity);
+      assert bytes.offset - before == valueLength
+          : "Value length mismatch for '" + fieldName + "': expected " + valueLength
+              + " but consumed " + (bytes.offset - before);
+      entity.setDeserializedPropertyInternal(fieldName, value, type);
+    } else {
+      entity.setDeserializedPropertyInternal(fieldName, null, null);
     }
   }
 
@@ -577,7 +565,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       String className = ((EntityImpl) value).getProperty(
           com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable.CLASS_NAME);
       try {
+        // Inherited from V1: Class.forName + newInstance is a known security debt.
+        // The cast to EntitySerializable provides minimal type safety.
         var clazz = Class.forName(className);
+        @SuppressWarnings("deprecation")
         var newValue =
             (com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable) clazz
                 .newInstance();
