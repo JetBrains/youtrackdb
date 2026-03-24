@@ -461,10 +461,9 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
         .deserializeLiteral(result.bytes, result.offset);
     result.skip(4);
 
-    // Read log2Capacity (1 byte)
+    // Read log2Capacity (1 byte) — 13 properties → ceil(13*8/5)=21 → nextPow2=32 → log2=5
     int log2Capacity = result.bytes[result.offset++] & 0xFF;
-    assertThat(log2Capacity).isGreaterThanOrEqualTo(1);
-    assertThat(log2Capacity).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+    assertThat(log2Capacity).isEqualTo(5);
 
     // Verify slot array has correct size
     int capacity = 1 << log2Capacity;
@@ -996,9 +995,9 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat(count).isEqualTo(13);
     // Read seed
     readBytes.skip(4);
-    // Read log2Capacity (should be valid)
+    // Read log2Capacity — 13 properties → log2 = 5
     int log2 = readBytes.bytes[readBytes.offset] & 0xFF;
-    assertThat(log2).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+    assertThat(log2).isEqualTo(5);
 
     // Verify round-trip correctness
     var deserialized = serializeAndDeserialize(entity);

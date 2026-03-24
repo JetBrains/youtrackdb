@@ -136,8 +136,12 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
     int n = propertyNameBytes.length;
     int capacity = 1 << log2Capacity;
-    assert n < capacity : "property count " + n + " must be < capacity " + capacity
-        + " (load factor violation)";
+    if (n >= capacity) {
+      throw new IllegalStateException(
+          "property count " + n + " must be < capacity " + capacity
+              + " (load factor violation)");
+    }
+    // Seed is fixed at 0; field preserved in wire format for future extensibility.
     int seed = 0;
 
     // Allocate slot tracking arrays
@@ -164,8 +168,11 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
           break;
         }
       }
-      assert placed : "Failed to place property " + i + " — table should have empty slots"
-          + " at load factor 0.625";
+      if (!placed) {
+        throw new IllegalStateException(
+            "Failed to place property " + i + " in " + capacity
+                + " slots — table should have empty slots at load factor 0.625");
+      }
     }
 
     // Build the byte array: for each slot, write hash8 + offset sentinel.
@@ -1125,10 +1132,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
           "Corrupted record: negative property count " + propertyCount);
     }
     // Upper bound: at 0.625 load factor with MAX_LOG2_CAPACITY=11 (2048 slots),
-    // the maximum property count is (2048 * 5 / 8) = 1280. We use (capacity - 1) as
-    // the corruption guard to guarantee at least one empty slot exists for linear
-    // probing termination.
-    int maxProperties = (1 << MAX_LOG2_CAPACITY) - 1;
+    // the maximum property count is (2048 * 5 / 8) = 1280. Beyond this, the
+    // capacity formula clamps at MAX_LOG2_CAPACITY causing severe load factor
+    // degradation (e.g., 2047 properties in 2048 slots = 99.95% load).
+    int maxProperties = (1 << MAX_LOG2_CAPACITY) * 5 / 8;
     if (propertyCount > maxProperties) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "
