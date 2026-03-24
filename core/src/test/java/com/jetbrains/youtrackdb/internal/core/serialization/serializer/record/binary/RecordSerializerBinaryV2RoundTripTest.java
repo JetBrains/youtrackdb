@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -199,8 +200,18 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     entity.setDate("b", today);
     entity.setDate("value", today);
     var deserialized = serializeAndDeserialize(entity);
-    // DATE precision is day-level
-    assertThat((Date) deserialized.getProperty("value")).isNotNull();
+    // DATE precision is day-level; midnight UTC should round-trip as the same day
+    var result = (Date) deserialized.getProperty("value");
+    assertThat(result).isNotNull();
+    // Compare day-level: both dates should represent the same calendar day
+    var expectedCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+    expectedCal.setTime(today);
+    var actualCal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+    actualCal.setTime(result);
+    assertThat(actualCal.get(java.util.Calendar.YEAR))
+        .isEqualTo(expectedCal.get(java.util.Calendar.YEAR));
+    assertThat(actualCal.get(java.util.Calendar.DAY_OF_YEAR))
+        .isEqualTo(expectedCal.get(java.util.Calendar.DAY_OF_YEAR));
   }
 
   @Test
@@ -468,6 +479,92 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     // Next byte should be the name length (for schema-less), not seed bytes
     int nameLen = VarIntSerializer.readAsInteger(result);
     assertThat(nameLen).isEqualTo(1); // "x" is 1 byte
+  }
+
+  // --- Error paths ---
+
+  @Test(expected = SerializationException.class)
+  public void serialize_kvRegionExceeding64KB_throwsSerializationException() {
+    // KV region >64 KB triggers overflow guard (2-byte offsets cannot address beyond 64 KB).
+    // The guard checks entryOffset > MAX_KV_REGION_SIZE (65534) at the START of each entry,
+    // so we need enough entries that a later entry's offset exceeds 64 KB.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    // 4 entries of ~17 KB each = ~68 KB; the 4th entry starts at ~51 KB (under limit),
+    // but we need the 5th entry to start beyond 64 KB
+    String largeValue = "x".repeat(14_000);
+    for (int i = 0; i < 6; i++) {
+      entity.setString("field_" + i, largeValue);
+    }
+    // Total KV ~84 KB; the check triggers when an entry starts at offset >65534
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+  }
+
+  @Test(expected = SerializationException.class)
+  public void deserialize_corruptedLog2Capacity_throwsSerializationException() {
+    // Corrupt the log2Capacity byte to an invalid value (>MAX_LOG2_CAPACITY)
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("a", "x");
+    entity.setString("b", "y");
+    entity.setString("c", "z");
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+
+    // Find and corrupt the log2Capacity byte: after propertyCount varint + 4-byte seed
+    var readBytes = new BytesContainer(bytes.bytes);
+    VarIntSerializer.readAsInteger(readBytes); // skip propertyCount
+    readBytes.skip(4); // skip seed
+    int log2CapPos = readBytes.offset;
+    bytes.bytes[log2CapPos] = (byte) 30; // invalid: would mean 1B+ slots
+
+    var target = (EntityImpl) session.newEntity();
+    v2.deserialize(session, target, new BytesContainer(bytes.bytes));
+  }
+
+  @Test(expected = SerializationException.class)
+  public void deserialize_negativePropertyCount_throwsSerializationException() {
+    session.begin();
+    // Craft a byte array with a negative property count varint
+    var bytes = new BytesContainer();
+    VarIntSerializer.write(bytes, -5); // negative count
+    var target = (EntityImpl) session.newEntity();
+    v2.deserialize(session, target, new BytesContainer(bytes.bytes));
+  }
+
+  // --- Capacity boundary: 40 vs 41 properties (2x vs 4x capacity switch) ---
+
+  @Test
+  public void roundTrip_fortyProperties_2xCapacityBoundary() {
+    // 40 properties use 2x capacity (HIGH_CAPACITY_THRESHOLD boundary)
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 40; i++) {
+      entity.setString("field_" + i, "value_" + i);
+    }
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(40);
+    for (int i = 0; i < 40; i++) {
+      assertThat((String) deserialized.getProperty("field_" + i))
+          .as("field_%d", i).isEqualTo("value_" + i);
+    }
+  }
+
+  @Test
+  public void roundTrip_fortyOneProperties_4xCapacityBoundary() {
+    // 41 properties switch to 4x capacity
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 41; i++) {
+      entity.setString("field_" + i, "value_" + i);
+    }
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(41);
+    for (int i = 0; i < 41; i++) {
+      assertThat((String) deserialized.getProperty("field_" + i))
+          .as("field_%d", i).isEqualTo("value_" + i);
+    }
   }
 
   // --- Helper ---
