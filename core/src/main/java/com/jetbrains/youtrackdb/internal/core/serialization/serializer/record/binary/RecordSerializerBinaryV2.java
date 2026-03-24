@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.Arrays;
 import javax.annotation.Nullable;
 
 /**
@@ -107,6 +108,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   static int[] findPerfectHashSeed(byte[][] propertyNameBytes, int log2Capacity) {
     assert propertyNameBytes != null : "propertyNameBytes must not be null";
     assert propertyNameBytes.length > 0 : "must have at least one property";
+    assert log2Capacity >= MIN_LOG2_CAPACITY && log2Capacity <= MAX_LOG2_CAPACITY
+        : "log2Capacity out of range: " + log2Capacity;
 
     int n = propertyNameBytes.length;
     int currentLog2 = log2Capacity;
@@ -116,6 +119,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       boolean[] occupied = new boolean[capacity];
 
       for (int seed = 0; seed < MAX_SEED_ATTEMPTS; seed++) {
+        Arrays.fill(occupied, false);
         boolean collision = false;
 
         for (int i = 0; i < n; i++) {
@@ -125,12 +129,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
           if (occupied[slot]) {
             collision = true;
-            // Clear occupied slots for this seed attempt
-            for (int j = 0; j < i; j++) {
-              byte[] prevBytes = propertyNameBytes[j];
-              int prevHash = MurmurHash3.hash32WithSeed(prevBytes, 0, prevBytes.length, seed);
-              occupied[fibonacciIndex(prevHash, currentLog2)] = false;
-            }
             break;
           }
           occupied[slot] = true;
@@ -153,21 +151,14 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   /**
    * Extracts the high 8 bits of a hash value for the slot hash8 prefix.
    *
-   * <p>If the computed hash8 equals EMPTY_HASH8 (0xFF) and the offset is 0, we adjust to 0xFE to
-   * avoid collision with the empty sentinel. For non-zero offsets, 0xFF hash8 is fine because the
-   * offset alone distinguishes from the sentinel.
+   * <p>No sentinel collision is possible because the empty sentinel uses offset 0xFFFF, which is
+   * a reserved value never assigned to real entries (valid offsets are 0 through 0xFFFE).
    *
-   * @param hash   the 32-bit hash value
-   * @param offset the KV entry offset
+   * @param hash the 32-bit hash value
    * @return hash8 byte
    */
-  static byte computeHash8(int hash, int offset) {
-    byte hash8 = (byte) (hash >>> 24);
-    // Avoid empty sentinel collision: 0xFF hash8 + 0x0000 offset = empty marker
-    if (hash8 == EMPTY_HASH8 && offset == 0) {
-      hash8 = (byte) 0xFE;
-    }
-    return hash8;
+  static byte computeHash8(int hash) {
+    return (byte) (hash >>> 24);
   }
 
   @Override
