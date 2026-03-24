@@ -240,6 +240,149 @@ public class VertexFromLinkBagIteratorTest {
         0, pair1.compareTo(pair1));
   }
 
+  // =========================================================================
+  // Class filter (acceptedCollectionIds)
+  // =========================================================================
+
+  /**
+   * When acceptedCollectionIds is set, vertices whose collection ID is NOT
+   * in the set are skipped without loading from storage.
+   */
+  @Test
+  public void classFilter_skipsNonMatchingCollectionId() {
+    var matchingRid = new RecordId(10, 1); // collection 10 — accepted
+    var nonMatchingRid = new RecordId(20, 1); // collection 20 — rejected
+    var matchingPair = RidPair.ofPair(new RecordId(30, 1), matchingRid);
+    var nonMatchingPair = RidPair.ofPair(new RecordId(30, 2), nonMatchingRid);
+    mockLoadReturnsVertex(matchingRid);
+    // nonMatchingRid should never be loaded — no mock needed
+
+    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(nonMatchingPair, matchingPair).iterator(), session, 2, accepted);
+
+    assertTrue(iterator.hasNext());
+    assertEquals(matchingRid, iterator.next().getIdentity());
+    assertFalse(iterator.hasNext());
+  }
+
+  /**
+   * When all vertices match the class filter, all are yielded.
+   */
+  @Test
+  public void classFilter_allMatch_yieldsAll() {
+    var rid1 = new RecordId(10, 1);
+    var rid2 = new RecordId(10, 2);
+    mockLoadReturnsVertex(rid1);
+    mockLoadReturnsVertex(rid2);
+
+    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(30, 1), rid1),
+            RidPair.ofPair(new RecordId(30, 2), rid2)).iterator(),
+        session, 2, accepted);
+
+    assertTrue(iterator.hasNext());
+    assertEquals(rid1, iterator.next().getIdentity());
+    assertTrue(iterator.hasNext());
+    assertEquals(rid2, iterator.next().getIdentity());
+    assertFalse(iterator.hasNext());
+  }
+
+  /**
+   * When no vertices match the class filter, the iterator is empty.
+   */
+  @Test
+  public void classFilter_noneMatch_yieldsEmpty() {
+    var rid = new RecordId(20, 1); // collection 20 — not accepted
+
+    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator(),
+        session, 1, accepted);
+
+    assertFalse(iterator.hasNext());
+  }
+
+  // =========================================================================
+  // RID filter (acceptedRids)
+  // =========================================================================
+
+  /**
+   * When acceptedRids is set, only vertices whose RID is in the set are
+   * loaded from storage.
+   */
+  @Test
+  public void ridFilter_skipsNonMatchingRid() {
+    var matchingRid = new RecordId(10, 1);
+    var nonMatchingRid = new RecordId(10, 2);
+    mockLoadReturnsVertex(matchingRid);
+    // nonMatchingRid should never be loaded
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(matchingRid);
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(30, 1), nonMatchingRid),
+            RidPair.ofPair(new RecordId(30, 2), matchingRid)).iterator(),
+        session, 2, null, acceptedRids);
+
+    assertTrue(iterator.hasNext());
+    assertEquals(matchingRid, iterator.next().getIdentity());
+    assertFalse(iterator.hasNext());
+  }
+
+  /**
+   * When acceptedRids is empty, no vertices are yielded.
+   */
+  @Test
+  public void ridFilter_emptySet_yieldsEmpty() {
+    var rid = new RecordId(10, 1);
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator(),
+        session, 1, null, new java.util.HashSet<>());
+
+    assertFalse(iterator.hasNext());
+  }
+
+  // =========================================================================
+  // Combined class + RID filter
+  // =========================================================================
+
+  /**
+   * When both filters are set, a vertex must pass both to be yielded.
+   * Class filter is checked first (cheaper — no set lookup).
+   */
+  @Test
+  public void combinedFilter_requiresBothToPass() {
+    // rid1: collection 10 (accepted) AND in ridSet → yielded
+    var rid1 = new RecordId(10, 1);
+    // rid2: collection 10 (accepted) but NOT in ridSet → skipped
+    var rid2 = new RecordId(10, 2);
+    // rid3: collection 20 (rejected by class filter) → skipped
+    var rid3 = new RecordId(20, 1);
+
+    mockLoadReturnsVertex(rid1);
+
+    var acceptedCollections = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10);
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(rid1);
+
+    var iterator = new VertexFromLinkBagIterator(
+        List.of(
+            RidPair.ofPair(new RecordId(30, 1), rid3),
+            RidPair.ofPair(new RecordId(30, 2), rid2),
+            RidPair.ofPair(new RecordId(30, 3), rid1)).iterator(),
+        session, 3, acceptedCollections, acceptedRids);
+
+    assertTrue(iterator.hasNext());
+    assertEquals(rid1, iterator.next().getIdentity());
+    assertFalse(iterator.hasNext());
+  }
+
   /**
    * Configures the mock transaction to return a vertex entity when loadEntity
    * is called with the given RID.

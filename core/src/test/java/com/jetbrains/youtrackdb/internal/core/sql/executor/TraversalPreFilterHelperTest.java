@@ -276,6 +276,47 @@ public class TraversalPreFilterHelperTest {
         where, "NoSuchClass", ctx)).isNull();
   }
 
+  // =========================================================================
+  // collectionIdsForClass — polymorphic collection ID extraction
+  // =========================================================================
+
+  /** Converts a class with multiple collection IDs into an IntSet. */
+  @Test
+  public void collectionIdsForClass_multipleIds() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[] {10, 20, 30});
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).hasSize(3);
+    assertThat(result.contains(10)).isTrue();
+    assertThat(result.contains(20)).isTrue();
+    assertThat(result.contains(30)).isTrue();
+  }
+
+  /** An empty array produces an empty IntSet. */
+  @Test
+  public void collectionIdsForClass_emptyArray() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[0]);
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).isEmpty();
+  }
+
+  /** A single collection ID produces a singleton IntSet. */
+  @Test
+  public void collectionIdsForClass_singleId() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[] {42});
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).hasSize(1);
+    assertThat(result.contains(42)).isTrue();
+  }
+
   /** findIndexForFilter returns null when the class has no indexes. */
   @Test
   public void findIndexForFilter_noIndexes_returnsNull() {
