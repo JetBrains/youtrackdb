@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/5 complete)
+- [ ] Step implementation (2/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -53,19 +53,20 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMap.java` (new), `ConcurrentLongIntHashMapTest.java` (new)
 
-- [ ] Step 2: put(), putIfAbsent(), computeIfAbsent()
-  > Implement write operations:
-  > - `put(long fileId, int pageIndex, V value)` — insert or update, returns previous value
-  > - `putIfAbsent(long fileId, int pageIndex, V value)` — returns existing or inserts new
-  > - `computeIfAbsent(long fileId, int pageIndex, LongIntFunction<V> mappingFunction)`
-  > - Write ordering: value written before key fields in array slots (A2)
-  > - Null value disallowed (IllegalArgumentException)
-  > - Auto-resize when `usedBuckets > capacity * fillFactor` (default 0.66)
-  > - Unit tests: basic put/get roundtrip, putIfAbsent when present/absent, computeIfAbsent
-  >   when present/absent, null value rejection, fileId=0 and pageIndex=0 as valid keys,
-  >   resize trigger verification
+- [x] Step 2: put(), putIfAbsent(), computeIfAbsent()
+  > **What was done:** Implemented put/putIfAbsent/computeIfAbsent with auto-resize
+  > (66% fill factor, capacity doubling). Write ordering: value before keys. Null value
+  > rejection. 23 new tests (45 total) covering roundtrips, replacement, probe chains
+  > (same fileId/different pageIndex), negative keys, exact resize threshold, resize
+  > via computeIfAbsent, many-pages-same-file pattern, function-throws consistency.
   >
-  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+  > **What was discovered:** Code review identified 3x probe loop duplication —
+  > extracted into `probeForKey()` returning bitwise-encoded result. Also found that
+  > `findEmptySlot` redundantly recomputed the hash — now passes hashMix through
+  > insertAt. Added rehash overflow guard for capacity >= 2^30 and defensive assertion
+  > for probe loop invariant (firstEmpty must be non-negative).
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
 - [ ] Step 3: compute(), remove(), conditional remove()
   > Implement mutation operations:
