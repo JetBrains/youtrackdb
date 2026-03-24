@@ -52,6 +52,7 @@ flowchart TD
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete"| PC["Phase C: Track-Level\nCode Review"]
     READ -->|"All phases done,\nplan not updated"| TC["Track Completion\nProtocol"]
+    READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nDesign Document"]
 
     SR -->|CONTINUE / ADJUST| PA
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
@@ -68,10 +69,13 @@ flowchart TD
     PRESENT -->|"Fixes needed"| FIX["Apply fixes"] --> PRESENT
     PRESENT -->|"Fundamental rework"| REPLAN
 
+    P4 --> END_P4["Session ends\n(Phase 4 complete)"]
+
     END_A -->|"Next session"| START
     END_B -->|"Next session"| START
     END_C -->|"Next session"| START
     END_TRACK -->|"Next session"| START
+    END_P4 -->|"All done"| DONE["Workflow complete"]
 ```
 
 Each session handles **one phase of one track**. Phase boundaries are
@@ -102,7 +106,8 @@ perspective on cross-track impact.
    | Last `[x]` track has episode but no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
    | All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
    | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
-   | All tracks `[x]` or `[~]` | — | **Done** |
+   | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final design document) |
+   | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
 
    **State C sub-states** (from step file Progress section):
 
@@ -116,11 +121,19 @@ perspective on cross-track impact.
 
    Each resume handles exactly **one phase** — end session after that phase.
 
+   **State D** (Phase 4 — final design document):
+
+   | Phase 4 marker | Resume action |
+   |---|---|
+   | `[ ]` | Start Phase 4: mark `[>]`, follow `prompts/create-final-design.md` |
+   | `[>]` | Resume Phase 4: check if `design-final.md` exists. If yes, review and complete. If no, restart from Step 3 of `create-final-design.md` |
+
 4. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why
    - If resuming mid-track: which steps are done, which is next
    - If strategy refresh is needed: do it and present results before
      proceeding
+   - If Phase 4: whether starting fresh or resuming an interrupted session
 
    The user can override: reorder tracks, skip a track, or choose a different
    resume point. But by default, you proceed without waiting for confirmation.
@@ -380,6 +393,20 @@ phases `[x]` in the step file, track still `[ ]` in the plan file).
 After all tracks are complete, a separate session produces `design-final.md`
 reflecting what was actually built. The original `design.md` is never
 modified — both are kept for planned-vs-actual comparison.
+
+**Tracking in the plan file:** The `## Final Design Document` section in
+`implementation-plan.md` tracks Phase 4 progress:
+
+```markdown
+## Final Design Document
+- [ ] Phase 4: Final design document (`design-final.md`)   ← not started
+- [>] Phase 4: Final design document (`design-final.md`)   ← in progress
+- [x] Phase 4: Final design document (`design-final.md`)   ← complete
+```
+
+The marker transitions are:
+1. `[ ]` → `[>]` when the session begins Phase 4 (before reading code)
+2. `[>]` → `[x]` when `design-final.md` is committed
 
 **Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 

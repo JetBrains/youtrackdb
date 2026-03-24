@@ -52,6 +52,9 @@ docs/adr/<dir-name>/
 ```markdown
 # <Feature Name>
 
+## Design Document
+[design.md](design.md)
+
 ## High-level plan
 
 ### Goals
@@ -71,6 +74,9 @@ docs/adr/<dir-name>/
   > <description>
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
+
+## Final Design Document
+- [ ] Phase 4: Final design document (`design-final.md`)
 ```
 
 **Planning rule:** If a track would need more than ~5-7 steps or internal
@@ -79,13 +85,14 @@ episode propagation between dependent tracks is handled by the session
 workflow — this gives the same "informed decomposition" benefit without
 extra complexity.
 
-### Track status markers
+### Status markers
 
-| Marker | Meaning |
-|---|---|
-| `[ ]` | Not started |
-| `[x]` | Completed |
-| `[~]` | Skipped (recommended by track review or execution agent) |
+| Marker | Meaning | Used in |
+|---|---|---|
+| `[ ]` | Not started | Tracks, Phase 4 |
+| `[>]` | In progress | Phase 4 |
+| `[x]` | Completed | Tracks, Phase 4 |
+| `[~]` | Skipped | Tracks only (recommended by track review or execution agent) |
 
 ### Scope indicators (required)
 

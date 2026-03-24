@@ -24,6 +24,20 @@ Read:
   and what design deviations occurred. This is the richest source of context for
   understanding why the final design differs from the planned design.
 
+**Step 2.5 — Mark Phase 4 as in progress.**
+
+In `docs/adr/<dir-name>/implementation-plan.md`, update the `## Final Design
+Document` section to mark Phase 4 as in progress:
+
+```markdown
+## Final Design Document
+- [>] Phase 4: Final design document (`design-final.md`)
+```
+
+Commit this change with a message like: `Mark Phase 4 (final design document) as in progress`.
+
+Skip this step if Phase 4 is already marked `[>]` (resuming an interrupted session).
+
 **Step 3 — Read the implemented code.**
 
 Using the implementation plan's Architecture Notes (Component Map, Decision
@@ -82,7 +96,17 @@ Rules:
   invariants must have dedicated sections.
 - **Do NOT modify `design.md`** — the original stays untouched for comparison.
 
-**Step 5 — Commit.**
+**Step 5 — Commit and mark Phase 4 complete.**
 
-Commit `design-final.md` with a message explaining this is the
-post-implementation design document.
+1. Commit `design-final.md` with a message explaining this is the
+   post-implementation design document.
+
+2. Update the `## Final Design Document` section in
+   `docs/adr/<dir-name>/implementation-plan.md` to mark Phase 4 as complete:
+
+   ```markdown
+   ## Final Design Document
+   - [x] Phase 4: Final design document (`design-final.md`)
+   ```
+
+3. Commit the plan file update.
