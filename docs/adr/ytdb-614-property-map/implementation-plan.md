@@ -423,7 +423,7 @@ graph LR
   > integration tests can verify binary comparison correctness using
   > V2's `deserializeField()` + existing `BinaryComparatorV0`.
 
-- [ ] Track 6: Integration testing and backward compatibility verification
+- [x] Track 6: Integration testing and backward compatibility verification
   > End-to-end tests verifying that V2 works correctly in the full database
   > lifecycle: create entities, persist to disk, read back, update, query
   > via Gremlin, and verify backward compatibility with V1 records.
@@ -449,3 +449,15 @@ graph LR
   > **Scope:** ~3-5 steps covering round-trip tests, mixed-version tests,
   > edge case tests, and full database lifecycle tests
   > **Depends on:** Track 4, Track 5
+  >
+  > **Track episode:**
+  > Added 17 integration tests across 3 steps verifying V2 serializer correctness
+  > in real database scenarios: schema-aware round-trip (including 100+ properties
+  > stress test and long property names), link type round-trip (LINK, LINKLIST,
+  > LINKSET, LINKMAP), database lifecycle (persist→close→reopen), and binary
+  > comparator equivalence (BinaryComparatorV0 with V2-serialized fields). Key
+  > discovery: `getProperty()` for LINK values triggers lazy-load via
+  > `session.load(rid)`, requiring real persisted entities for link tests. No plan
+  > deviations or cross-track impact — this is the final track.
+  >
+  > **Step file:** `tracks/track-6.md` (3 steps, 0 failed)
