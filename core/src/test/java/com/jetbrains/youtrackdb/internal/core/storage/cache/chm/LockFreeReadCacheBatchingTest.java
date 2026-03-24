@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -22,6 +24,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.After;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -418,6 +421,35 @@ public class LockFreeReadCacheBatchingTest {
 
     readCache.assertSize();
     readCache.assertConsistency();
+  }
+
+  // --- resolveCacheHitRatio tests ---
+
+  /**
+   * When MetricsRegistry is null (early engine startup before the profiler is initialized),
+   * resolveCacheHitRatio must return Ratio.NOOP so the cache can still be constructed.
+   */
+  @Test
+  public void testResolveCacheHitRatioReturnsNoopForNullRegistry() {
+    var ratio = LockFreeReadCache.resolveCacheHitRatio(null);
+    Assert.assertSame(
+        "Null registry should produce Ratio.NOOP", Ratio.NOOP, ratio);
+  }
+
+  /**
+   * When MetricsRegistry is available (normal startup), resolveCacheHitRatio must return a real
+   * Ratio instance from the registry, not NOOP.
+   */
+  @Test
+  public void testResolveCacheHitRatioReturnsRealRatioForNonNullRegistry() {
+    var registry = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    // Skip (not silently pass) if the profiler is not initialized in this JVM.
+    Assume.assumeNotNull(registry);
+
+    var ratio = LockFreeReadCache.resolveCacheHitRatio(registry);
+    Assert.assertNotNull("Non-null registry should produce a non-null Ratio", ratio);
+    Assert.assertNotSame(
+        "Non-null registry should not produce Ratio.NOOP", Ratio.NOOP, ratio);
   }
 
   // --- Reflection helpers for accessing the thread-local ReadBatch ---

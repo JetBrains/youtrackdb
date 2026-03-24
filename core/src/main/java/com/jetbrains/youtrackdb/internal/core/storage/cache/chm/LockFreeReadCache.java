@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongInteger;
@@ -104,9 +105,19 @@ public final class LockFreeReadCache implements ReadCache {
       evictionLock.unlock();
     }
 
-    this.cacheHitRatio = YouTrackDBEnginesManager.instance()
-        .getMetricsRegistry()
-        .globalMetric(CoreMetrics.CACHE_HIT_RATIO);
+    this.cacheHitRatio = resolveCacheHitRatio(
+        YouTrackDBEnginesManager.instance().getMetricsRegistry());
+  }
+
+  /**
+   * Resolves the cache-hit ratio metric from the given registry. Returns {@link Ratio#NOOP} when
+   * the registry is {@code null}, which happens during early engine startup when the profiler has
+   * not yet been initialized. Package-private for testability.
+   */
+  static Ratio resolveCacheHitRatio(@Nullable final MetricsRegistry registry) {
+    return registry != null
+        ? registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO)
+        : Ratio.NOOP;
   }
 
   @Override
@@ -148,8 +159,7 @@ public final class LockFreeReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
       final int pageIndex,
@@ -158,7 +168,7 @@ public final class LockFreeReadCache implements ReadCache {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
     final var pageKey = new PageKey(fileId, pageIndex);
 
-    for (; ; ) {
+    for (;;) {
       var cacheEntry = data.get(pageKey);
 
       if (cacheEntry == null) {
@@ -207,8 +217,7 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  @Nullable
-  private CacheEntry doLoad(
+  @Nullable private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
