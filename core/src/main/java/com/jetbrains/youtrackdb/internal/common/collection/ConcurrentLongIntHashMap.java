@@ -514,10 +514,10 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Remove the entry at the given slot and perform backward-sweep tombstone cleanup. This avoids
-     * leaving tombstones in the probe chain: after nullifying the slot, any entries that were
-     * displaced past this slot during insertion are shifted backward to fill the gap. Must be called
-     * under write lock.
+     * Remove the entry at the given slot and perform backward-sweep compaction. After nullifying
+     * the slot, any entries that were displaced past this position during insertion are shifted
+     * backward to fill the gap. This prevents tombstones entirely — {@code usedBuckets} decreases
+     * with {@code size}. Must be called under write lock.
      */
     private void removeAt(int slotIdx) {
       values[slotIdx] = null;
@@ -549,14 +549,12 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Returns true if {@code idealBucket} is in the range (emptySlot, currentIdx] when considering
-     * wrap-around. This means the entry at currentIdx needs to be moved to emptySlot because its
-     * ideal position is at or before the gap.
+     * Returns true if the entry at {@code currentIdx} was displaced past the gap at {@code
+     * emptySlot} during its original insertion, meaning it should be shifted backward to fill the
+     * gap. Equivalently: the circular distance from {@code idealBucket} to {@code currentIdx} is
+     * &gt;= the distance from {@code emptySlot} to {@code currentIdx}.
      */
     private static boolean isBetween(int idealBucket, int emptySlot, int currentIdx, int mask) {
-      // The entry needs moving if its ideal position is "behind" or at the empty slot
-      // relative to its current position. In a circular buffer, this means:
-      // distance(idealBucket → currentIdx) >= distance(emptySlot → currentIdx)
       return ((currentIdx - idealBucket) & mask) >= ((currentIdx - emptySlot) & mask);
     }
 

@@ -750,4 +750,160 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.get(1L, 10)).isEqualTo("second");
     assertThat(map.size()).isEqualTo(1);
   }
+
+  // ---- Backward-sweep edge cases ----
+
+  @Test
+  public void removeSingleEntryLeavesMapConsistentForReinsert() {
+    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    long initialCapacity = map.capacity();
+
+    map.put(1L, 1, "only");
+    assertThat(map.size()).isEqualTo(1);
+
+    map.remove(1L, 1);
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+    assertThat(map.capacity()).isEqualTo(initialCapacity);
+
+    // Proves usedBuckets was correctly decremented to 0
+    map.put(2L, 2, "new");
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.capacity()).isEqualTo(initialCapacity);
+    assertThat(map.get(2L, 2)).isEqualTo("new");
+  }
+
+  @Test
+  public void removeAllEntriesOneByOneLeavesEmptyMap() {
+    // Non-sequential removal order stresses backward-sweep across the entire section
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    int count = 8;
+    for (int i = 0; i < count; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(count);
+
+    int[] removalOrder = {3, 0, 7, 1, 5, 2, 6, 4};
+    for (int i = 0; i < removalOrder.length; i++) {
+      map.remove(1L, removalOrder[i]);
+      assertThat(map.size()).isEqualTo(count - i - 1);
+      // All non-removed entries must still be findable
+      for (int j = i + 1; j < removalOrder.length; j++) {
+        assertThat(map.get(1L, removalOrder[j]))
+            .as(
+                "Entry (1, %d) must be findable after removing (1, %d)",
+                removalOrder[j], removalOrder[i])
+            .isEqualTo("val-" + removalOrder[j]);
+      }
+    }
+
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+
+    // Map must accept new inserts after full drain
+    map.put(99L, 99, "fresh");
+    assertThat(map.get(99L, 99)).isEqualTo("fresh");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  // ---- compute() additional edge cases ----
+
+  @Test
+  public void computeRemovalMaintainsProbeChainIntegrity() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 6; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+
+    // Remove entry (1, 2) via compute returning null
+    String result = map.compute(1L, 2, (fid, pid, current) -> null);
+    assertThat(result).isNull();
+    assertThat(map.size()).isEqualTo(5);
+
+    for (int i = 0; i < 6; i++) {
+      if (i == 2) {
+        assertThat(map.get(1L, i)).isNull();
+      } else {
+        assertThat(map.get(1L, i)).isEqualTo("val-" + i);
+      }
+    }
+  }
+
+  @Test
+  public void computeInsertTriggersResizeCorrectly() {
+    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 20; i++) {
+      final int idx = i;
+      map.compute(
+          (long) i,
+          i,
+          (fid, pid, current) -> {
+            assertThat(current).isNull();
+            return "computed-" + idx;
+          });
+    }
+
+    assertThat(map.size()).isEqualTo(20);
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+    for (int i = 0; i < 20; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("computed-" + i);
+    }
+  }
+
+  @Test
+  public void computeLeavesMapConsistentWhenFunctionThrows() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "existing");
+
+    // Function throws on present key
+    assertThatThrownBy(
+        () -> map.compute(
+            1L,
+            10,
+            (fid, pid, current) -> {
+              throw new RuntimeException("remapping failed");
+            }))
+        .isInstanceOf(RuntimeException.class);
+    assertThat(map.get(1L, 10)).isEqualTo("existing");
+    assertThat(map.size()).isEqualTo(1);
+
+    // Function throws on absent key
+    assertThatThrownBy(
+        () -> map.compute(
+            2L,
+            20,
+            (fid, pid, current) -> {
+              throw new RuntimeException("remapping failed");
+            }))
+        .isInstanceOf(RuntimeException.class);
+    assertThat(map.get(2L, 20)).isNull();
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void computeWithZeroKeyFieldsWorksCorrectly() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // Insert via compute on the (0, 0) key
+    map.compute(
+        0L,
+        0,
+        (fid, pid, current) -> {
+          assertThat(fid).isEqualTo(0L);
+          assertThat(pid).isEqualTo(0);
+          assertThat(current).isNull();
+          return "zero-zero";
+        });
+    assertThat(map.get(0L, 0)).isEqualTo("zero-zero");
+
+    // Replace via compute
+    map.compute(0L, 0, (fid, pid, current) -> "updated");
+    assertThat(map.get(0L, 0)).isEqualTo("updated");
+
+    // Remove via compute returning null
+    map.compute(0L, 0, (fid, pid, current) -> null);
+    assertThat(map.get(0L, 0)).isNull();
+    assertThat(map.size()).isEqualTo(0);
+  }
 }
