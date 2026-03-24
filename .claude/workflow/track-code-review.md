@@ -173,6 +173,32 @@ Iterate on the synthesized findings:
 
 ---
 
+## Plan Corrections from Deferred Findings
+
+During synthesis and the review loop, some findings may be **out of scope
+for the current track** — the issue is real but fixing it here would expand
+the track beyond its goals. After all in-scope fixes are applied and the
+review loop completes, process any deferred findings by updating the
+implementation plan:
+
+1. **Categorize** — for each finding you chose not to fix in the current
+   track, decide where the work belongs:
+   - An **existing future track** — if it fits that track's purpose, add
+     the item to that track's description. Update the scope indicator if
+     the addition meaningfully changes the expected step count.
+   - A **new separate track** — if no existing track covers the work, add
+     a new track to the plan's checklist with a description, scope
+     indicator, and dependency notation (typically depends on the current
+     track). Follow the same format as other tracks in the plan.
+
+2. **Commit plan changes** — commit the updated `implementation-plan.md`
+   as a separate commit. Reference the finding IDs in the commit message
+   so the plan correction is traceable to the review that motivated it.
+
+If no findings were deferred, skip this section.
+
+---
+
 ## Phase C Completion
 
 After all track-level reviews pass (or max iterations reached):
