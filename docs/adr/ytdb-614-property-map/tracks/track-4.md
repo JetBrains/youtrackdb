@@ -67,9 +67,11 @@
   > **What was done:** Implemented deserializePartial (O(1) per field via hash
   > table), deserializeField (returns BinaryField for binary comparison), and
   > getFieldNames (linear scan of KV entries). All three handle the linear/hash
-  > mode threshold. 18 tests covering single/multi-field partial, non-existent
-  > fields, null values, all binary-comparable types for deserializeField, and
-  > field name extraction for various entity sizes.
+  > mode threshold. Code review added hash8 fast-reject for corruption detection,
+  > extracted readFieldName() helper to eliminate duplication, and fixed bounds
+  > assertion. 18 tests covering single/multi-field partial, non-existent fields,
+  > null values, all binary-comparable types for deserializeField, and field name
+  > extraction for various entity sizes.
   >
   > **Key files:** `RecordSerializerBinaryV2.java` (modified),
   > `RecordSerializerBinaryV2PartialTest.java` (new)
