@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -76,27 +76,23 @@
   > **Key files:** `RecordSerializerBinaryV2.java` (modified),
   > `RecordSerializerBinaryV2PartialTest.java` (new)
 
-- [ ] Step 4: V2 registration in RecordSerializerBinary and backward compatibility
-  Wire V2 into the version dispatch system and verify backward compatibility:
-
-  **Registration** (RecordSerializerBinary modifications):
-  - `init()`: allocate `new EntitySerializer[2]`, register V1 at [0], V2 at [1]
-  - `CURRENT_RECORD_VERSION = 1` — new records written as V2
-  - `getNumberOfSupportedVersions()` returns 2
-
-  **Comparator stub**:
-  - `RecordSerializerBinaryV2.getComparator()` returns `new BinaryComparatorV0()`
-  - Track 5 will replace this with BinaryComparatorV1 for O(1) field lookup
-
-  **Tests**:
-  - **Backward compatibility**: Serialize entity as V1 (version byte 0), then
-    deserialize via RecordSerializerBinary dispatcher — must still work after
-    V2 is registered.
-  - **Mixed version**: Create V1 record, create V2 record, deserialize both
-    in same session. Verify both produce identical entity content.
-  - **Parameterized tests**: Track 2's `EntitySchemalessBinarySerializationTest`
-    automatically runs against V2 (version 1) since it iterates
-    `getNumberOfSupportedVersions()`. All 12 partial deserialization contract
-    tests must pass.
-  - **Version byte verification**: Serialize with V2, check first byte is 1.
-    Serialize with V1, check first byte is 0.
+- [x] Step 4: V2 registration in RecordSerializerBinary and backward compatibility
+  > **What was done:** Registered V2 in RecordSerializerBinary: init() creates
+  > EntitySerializer[2] with V1 at [0] and V2 at [1], CURRENT_RECORD_VERSION=1.
+  > 16 tests in RecordSerializerBinaryVersionDispatchTest covering registration,
+  > version bytes, backward compatibility, mixed-version round-trips (all common
+  > types with concrete value assertions), partial deserialization with absent-field
+  > checks, and a rawContainsProperty guard regression test.
+  > EntitySchemalessBinarySerializationTest now runs 68 tests (34 per version).
+  >
+  > **What was discovered:** V2's full deserialization was unconditionally
+  > overwriting properties already present in the entity, causing 40+ test failures.
+  > Root cause: when an entity is partially deserialized (a field is loaded), the
+  > field is modified in memory, and then full deserialization is triggered (via
+  > EntityImpl.setDirty() → checkForProperties()), V2 was overwriting the in-memory
+  > modification with stale serialized data. V1 has a `rawContainsProperty()` guard
+  > that skips already-present properties — V2 was missing this. Added the same guard.
+  >
+  > **Key files:** `RecordSerializerBinary.java` (modified),
+  > `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryVersionDispatchTest.java` (new)
