@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -25,7 +25,7 @@
 
 ## Steps
 
-- [ ] Step 1: Cuckoo hash table construction algorithm and utilities
+- [x] Step 1: Cuckoo hash table construction algorithm and utilities
   > Add new cuckoo construction methods alongside existing perfect hash code
   > (additive only — no existing code modified, all tests continue passing).
   >
@@ -54,6 +54,23 @@
   >
   > **Target files:** `RecordSerializerBinaryV2.java`,
   > `RecordSerializerBinaryV2HashTableTest.java`
+  >
+  > **What was done:** Added bucketized cuckoo hashing construction utilities alongside
+  > existing perfect hash code (additive only — no existing code modified). New methods:
+  > `computeLog2NumBuckets()` (bucket-count formula targeting 85% load), `buildCuckooTable()`
+  > (greedy placement + displacement chains + seed retry + capacity doubling),
+  > `fibonacciBucketIndex()` (Fibonacci hashing at bucket granularity), `computeH2Seed()`
+  > (h2 seed derivation via XOR with MurmurHash3 constant). Added `CuckooTableResult` value
+  > class. 32 test methods covering construction correctness, adversarial inputs, boundary
+  > transitions, capacity doubling, unicode names, sentinel verification, and overflow.
+  >
+  > **What was discovered:** Review found that deterministic slot-0 eviction can cause
+  > ping-pong displacement cycles when items share bucket1. Fixed with round-robin eviction
+  > (`evictions % BUCKET_SIZE`). Also found integer overflow risk in `computeLog2NumBuckets`
+  > for huge property counts — fixed with long arithmetic.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryV2HashTableTest.java` (modified)
 
 - [ ] Step 2: Atomic format swap — serialization + all deserialization paths
   > Wire cuckoo construction into serialization. Update ALL deserialization
