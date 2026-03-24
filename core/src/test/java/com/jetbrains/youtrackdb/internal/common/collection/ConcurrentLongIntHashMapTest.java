@@ -589,4 +589,165 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.size()).isEqualTo(3);
   }
 
+  // ---- compute() ----
+
+  @Test
+  public void computeOnAbsentKeyWithNullReturnIsNoOp() {
+    // Absent key + null return = no-op (R1/T2 review decision)
+    var map = new ConcurrentLongIntHashMap<String>();
+    String result = map.compute(1L, 10, (fid, pid, current) -> null);
+    assertThat(result).isNull();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.get(1L, 10)).isNull();
+  }
+
+  @Test
+  public void computeOnAbsentKeyWithNonNullReturnInserts() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    String result = map.compute(1L, 10, (fid, pid, current) -> {
+      assertThat(current).as("Current value should be null for absent key").isNull();
+      return "new-value";
+    });
+    assertThat(result).isEqualTo("new-value");
+    assertThat(map.get(1L, 10)).isEqualTo("new-value");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void computeOnPresentKeyWithNullReturnRemoves() {
+    // Present key + null return = removal (R1/T2 review decision)
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "existing");
+    String result = map.compute(1L, 10, (fid, pid, current) -> {
+      assertThat(current).isEqualTo("existing");
+      return null;
+    });
+    assertThat(result).isNull();
+    assertThat(map.get(1L, 10)).isNull();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void computeOnPresentKeyWithNonNullReturnReplaces() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "old");
+    String result = map.compute(1L, 10, (fid, pid, current) -> "new-" + current);
+    assertThat(result).isEqualTo("new-old");
+    assertThat(map.get(1L, 10)).isEqualTo("new-old");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void computePassesCallerSuppliedKeysForAbsentKey() {
+    // R8 review decision: pass caller's fileId/pageIndex, not array contents
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.compute(42L, 99, (fid, pid, current) -> {
+      assertThat(fid).isEqualTo(42L);
+      assertThat(pid).isEqualTo(99);
+      return "value";
+    });
+    assertThat(map.get(42L, 99)).isEqualTo("value");
+  }
+
+  // ---- remove() ----
+
+  @Test
+  public void removeReturnsRemovedValue() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "hello");
+    String removed = map.remove(1L, 10);
+    assertThat(removed).isEqualTo("hello");
+    assertThat(map.get(1L, 10)).isNull();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void removeReturnsNullForAbsentKey() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThat(map.remove(1L, 10)).isNull();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void removeDoesNotAffectOtherEntries() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, 1, "a");
+    map.put(2L, 2, "b");
+    map.put(3L, 3, "c");
+
+    map.remove(2L, 2);
+
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+    assertThat(map.get(2L, 2)).isNull();
+    assertThat(map.get(3L, 3)).isEqualTo("c");
+    assertThat(map.size()).isEqualTo(2);
+  }
+
+  @Test
+  public void getFindsEntryAfterRemovalInProbeChain() {
+    // Verify backward-sweep cleanup: after removing an entry mid-chain, subsequent
+    // entries must still be findable (no tombstone gap breaks the probe).
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    // Insert several entries that may form a probe chain in the single section
+    for (int i = 0; i < 8; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+
+    // Remove entries from the middle of the chain
+    map.remove(1L, 2);
+    map.remove(1L, 4);
+
+    // All remaining entries must still be findable
+    assertThat(map.get(1L, 0)).isEqualTo("val-0");
+    assertThat(map.get(1L, 1)).isEqualTo("val-1");
+    assertThat(map.get(1L, 2)).isNull();
+    assertThat(map.get(1L, 3)).isEqualTo("val-3");
+    assertThat(map.get(1L, 4)).isNull();
+    assertThat(map.get(1L, 5)).isEqualTo("val-5");
+    assertThat(map.get(1L, 6)).isEqualTo("val-6");
+    assertThat(map.get(1L, 7)).isEqualTo("val-7");
+    assertThat(map.size()).isEqualTo(6);
+  }
+
+  // ---- Conditional remove ----
+
+  @Test
+  public void conditionalRemoveSucceedsWithSameReference() {
+    // T7 review decision: reference equality
+    var map = new ConcurrentLongIntHashMap<String>();
+    String value = "hello";
+    map.put(1L, 10, value);
+    boolean removed = map.remove(1L, 10, value);
+    assertThat(removed).isTrue();
+    assertThat(map.get(1L, 10)).isNull();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void conditionalRemoveFailsWithDifferentReferenceEvenIfEqual() {
+    // T7: uses == not equals()
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "hello");
+    // new String creates a different reference that equals() the stored one
+    boolean removed = map.remove(1L, 10, new String("hello"));
+    assertThat(removed).isFalse();
+    assertThat(map.get(1L, 10)).isEqualTo("hello");
+    assertThat(map.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void conditionalRemoveReturnsFalseForAbsentKey() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    assertThat(map.remove(1L, 10, "nothing")).isFalse();
+  }
+
+  @Test
+  public void removeAndReinsertWorks() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "first");
+    map.remove(1L, 10);
+    map.put(1L, 10, "second");
+    assertThat(map.get(1L, 10)).isEqualTo("second");
+    assertThat(map.size()).isEqualTo(1);
+  }
 }

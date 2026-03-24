@@ -168,6 +168,53 @@ public class ConcurrentLongIntHashMap<V> {
     return sections[sectionIdx].computeIfAbsent(fileId, pageIndex, mappingFunction, (int) hash);
   }
 
+  /**
+   * Computes a new mapping for the given key. The remapping function receives the caller-supplied
+   * fileId and pageIndex, plus the current value (or {@code null} if absent).
+   *
+   * <p><b>Semantics:</b>
+   *
+   * <ul>
+   *   <li>Key absent, function returns null → no-op (key stays absent)
+   *   <li>Key absent, function returns non-null → insert
+   *   <li>Key present, function returns null → removal
+   *   <li>Key present, function returns non-null → replace
+   * </ul>
+   *
+   * <p><b>Warning:</b> The remapping function is called while holding the section's write lock. It
+   * must be fast, non-blocking, and must not call back into this map (StampedLock is not reentrant).
+   *
+   * @return the new value associated with the key, or {@code null} if removed/absent
+   */
+  public V compute(long fileId, int pageIndex, LongIntKeyValueFunction<V> remappingFunction) {
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].compute(fileId, pageIndex, remappingFunction, (int) hash);
+  }
+
+  /**
+   * Removes the entry for the given composite key.
+   *
+   * @return the removed value, or {@code null} if absent
+   */
+  public V remove(long fileId, int pageIndex) {
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].remove(fileId, pageIndex, (int) hash);
+  }
+
+  /**
+   * Removes the entry for the given composite key only if it is currently mapped to the specified
+   * value. Uses reference equality ({@code ==}), not {@code equals()}.
+   *
+   * @return {@code true} if the entry was removed
+   */
+  public boolean remove(long fileId, int pageIndex, V expected) {
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].remove(fileId, pageIndex, expected, (int) hash);
+  }
+
   /** Returns the total capacity (sum of all section capacities). */
   public long capacity() {
     long total = 0;
@@ -400,6 +447,117 @@ public class ConcurrentLongIntHashMap<V> {
       } finally {
         lock.unlockWrite(stamp);
       }
+    }
+
+    V compute(
+        long fileId, int pageIndex, LongIntKeyValueFunction<V> remappingFunction, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+
+        if (probeResult >= 0) {
+          // Key present — call function with current value
+          V newValue = remappingFunction.apply(fileId, pageIndex, values[probeResult]);
+          if (newValue != null) {
+            values[probeResult] = newValue;
+            return newValue;
+          }
+          // Function returned null on present key → removal
+          removeAt(probeResult);
+          return null;
+        }
+
+        // Key absent — call function with null
+        V newValue = remappingFunction.apply(fileId, pageIndex, null);
+        if (newValue == null) {
+          // Function returned null on absent key → no-op
+          return null;
+        }
+        insertAt(~probeResult, fileId, pageIndex, newValue, hashMix);
+        return newValue;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    V remove(long fileId, int pageIndex, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+        if (probeResult < 0) {
+          return null;
+        }
+        V prev = values[probeResult];
+        removeAt(probeResult);
+        return prev;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    boolean remove(long fileId, int pageIndex, V expected, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int probeResult = probeForKey(fileId, pageIndex, hashMix);
+        if (probeResult < 0) {
+          return false;
+        }
+        // Reference equality, not equals() (T7 review decision)
+        if (values[probeResult] != expected) {
+          return false;
+        }
+        removeAt(probeResult);
+        return true;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Remove the entry at the given slot and perform backward-sweep tombstone cleanup. This avoids
+     * leaving tombstones in the probe chain: after nullifying the slot, any entries that were
+     * displaced past this slot during insertion are shifted backward to fill the gap. Must be called
+     * under write lock.
+     */
+    private void removeAt(int slotIdx) {
+      values[slotIdx] = null;
+      size--;
+
+      // Backward-sweep cleanup: move entries that were displaced past the removed slot
+      // back toward their ideal bucket position.
+      int bucketMask = capacity - 1;
+      int nextIdx = (slotIdx + 1) & bucketMask;
+      while (values[nextIdx] != null) {
+        int idealBucket = (int) hash(fileIds[nextIdx], pageIndices[nextIdx]) & bucketMask;
+
+        // Check if the entry at nextIdx belongs in the gap we created.
+        // It needs to be moved if its ideal bucket is at or before the empty slot
+        // (accounting for wrap-around).
+        if (isBetween(idealBucket, slotIdx, nextIdx, bucketMask)) {
+          // Move the entry to the empty slot
+          fileIds[slotIdx] = fileIds[nextIdx];
+          pageIndices[slotIdx] = pageIndices[nextIdx];
+          values[slotIdx] = values[nextIdx];
+          values[nextIdx] = null;
+          slotIdx = nextIdx;
+        }
+        nextIdx = (nextIdx + 1) & bucketMask;
+      }
+
+      // No tombstones created — usedBuckets decreases with size
+      usedBuckets--;
+    }
+
+    /**
+     * Returns true if {@code idealBucket} is in the range (emptySlot, currentIdx] when considering
+     * wrap-around. This means the entry at currentIdx needs to be moved to emptySlot because its
+     * ideal position is at or before the gap.
+     */
+    private static boolean isBetween(int idealBucket, int emptySlot, int currentIdx, int mask) {
+      // The entry needs moving if its ideal position is "behind" or at the empty slot
+      // relative to its current position. In a circular buffer, this means:
+      // distance(idealBucket → currentIdx) >= distance(emptySlot → currentIdx)
+      return ((currentIdx - idealBucket) & mask) >= ((currentIdx - emptySlot) & mask);
     }
 
     /**
