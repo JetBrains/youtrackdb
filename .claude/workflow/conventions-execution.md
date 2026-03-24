@@ -66,32 +66,8 @@ the plan file directly — no strategy refresh line is written.
 
 ### Session state detection
 
-On session startup, the plan file and step files together determine
-the resume state:
-
-| Plan file state | Step file state | Session state |
-|---|---|---|
-| Last `[x]` track has a track episode but no `**Strategy refresh:**` line | — | **State A**: perform strategy refresh first |
-| All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file for next track | **State B**: fresh start on next track (Phase A) |
-| A track is `[ ]` | Step file exists | **State C**: mid-track resume — read Progress section for current sub-phase |
-| All tracks are `[x]` or `[~]` | — | **Done**: all work complete, workflow finished |
-
-**State C sub-states** (from step file Progress section):
-
-| Progress section | Resume action |
-|---|---|
-| `Review + decomposition` is `[ ]` | Reviews completed section may show partial progress — re-run only missing reviews, then decompose |
-| `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step, skipping any `[!]` (failed) steps before it (see step-implementation.md §Phase B Resume for incomplete step recovery and §Step Failure for retry handling) |
-| Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows the `[!]` — if yes, resume from the retry step. If the last `[!]` has no retry step after it, the previous session was interrupted before deciding retry/split — present the failed episode to the user and ask how to proceed |
-| All steps `[x]`, `Track-level code review` is `[ ]` or shows partial iterations | Run Phase C (track-level code review), starting from iteration 1 if `[ ]`, or continuing from the recorded iteration if partial |
-| All phases `[x]` | Track completion pending — compile track episode, present to user for approval, write to plan file only after approval (see workflow.md §Track Completion Protocol) |
-
-**Incomplete step recovery (Phase B resume):** When resuming at a `[ ]`
-step, the previous session may have committed code but not written the
-episode. Check `git log {base_commit}..HEAD` for orphan implementation
-commits after the last episoded step. If found, resume from the code
-review or episode sub-step instead of re-implementing. See
-step-implementation.md §Phase B Resume for the full protocol.
+Moved to `workflow.md` §Startup Protocol — the only place where state
+detection is used.
 
 ### Step file content (`tracks/track-N.md`)
 
@@ -160,129 +136,23 @@ require escalation.
 
 ## 2.2 Episode Formats
 
-### Step completion episode
+Three episode types: **step completion** (`[x]`), **step failed** (`[!]`),
+and **track episode** (in plan file after user approval).
 
-Recorded in the step file under the completed step item:
+Step completion fields: **What was done** (always), **What was discovered**
+(when applicable — fill whenever anything unexpected is found),
+**What changed from the plan** (when applicable — name affected future
+steps), **Key files** (always), **Critical context** (rare).
 
-```markdown
-- [x] Step: <description>
-  > **What was done:** ...
-  > **What was discovered:** ... (when applicable)
-  > **What changed from the plan:** ... (when applicable)
-  > **Key files:** ...
-  > **Critical context:** ... (when applicable)
-```
+Step failed fields: **What was attempted**, **Why it failed**, **Impact on
+remaining steps**, **Key files**.
 
-#### Episode fields
+Episodes are immutable once committed. Code is committed first, then the
+episode is written and committed as a **separate episode commit**. Episode
+length is proportional to cross-track impact.
 
-Episodes are produced by the **execution agent** (step implementation phase)
-after it commits the code changes and completes the code review cycle. The
-execution agent has full context of what it implemented, what it discovered,
-and what deviated from the plan.
-
-| Field | Required | Purpose |
-|---|---|---|
-| **What was done** | Always | Factual summary of the implementation — files created/modified, approach taken |
-| **What was discovered** | When applicable | Unexpected findings about the codebase, APIs, or behavior that weren't anticipated by the plan. This is the most important field — it's the mechanism for adapting to new information |
-| **What changed from the plan** | When applicable | Any deviations from the planned approach, and which future steps may be affected. If the deviation is significant, flag specific step IDs |
-| **Key files** | Always | Files created or modified, with (new) or (modified) annotations |
-| **Critical context** | When applicable | Free-form field for anything essential that doesn't fit the structured fields above — e.g., a fundamental architectural insight, a performance characteristic that changes the approach for the whole feature, or a constraint discovered that affects multiple tracks. Use sparingly; most episodes won't need this |
-
-**Rules:**
-- **"What was discovered" must be filled whenever anything unexpected is
-  found** — even if it didn't block the current step. Future sessions and
-  track reviews depend on this field to adapt.
-- **"What changed from the plan" must name affected future steps** when the
-  deviation could impact them. The execution agent uses this to
-  adapt remaining steps within the track and across tracks.
-- Keep each field concise but complete. A reviewer should understand the
-  full step outcome from the episode alone, without reading the diff.
-- Episodes are immutable once committed. If later work reveals an episode
-  was wrong, add a correction note to the later step's episode, don't edit
-  the original.
-
-#### Minimal episode (nothing unexpected)
-
-```markdown
-- [x] Step: Add histogram header to leaf page structure
-  > **What was done:** Extended `LeafPage` with 16-byte histogram header.
-  > Added serialization/deserialization in `LeafPageSerializer`.
-  >
-  > **Key files:** `LeafPage.java` (modified), `LeafPageSerializer.java`
-  > (modified), `LeafPageHistogramTest.java` (new)
-```
-
-When there are no discoveries and no plan deviations, those fields are
-simply omitted — no need for "N/A" placeholders.
-
-### Step failed episode
-
-```markdown
-- [!] Step: <description>
-  > **What was attempted:** ...
-  > **Why it failed:** ...
-  > **Impact on remaining steps:** ...
-  > **Key files:** ...
-```
-
-When a step implementation phase cannot complete its work
-(tests won't pass, coverage can't be met, code reviewer finds fundamental
-issues, wrong API assumption), it signals failure. The execution agent reverts
-uncommitted changes and produces a failed episode explaining what was
-attempted, why it failed, and the impact on remaining steps.
-
-The execution agent then decides:
-- **Retry** with a different approach
-- **Split** the step into smaller pieces that can succeed independently
-- **Adjust** upcoming steps to work around the discovered constraint
-- **Escalate** if the failure undermines the track's approach
-
-If the same step fails twice, stop and present the situation to the user
-(see workflow.md §Failure Handling).
-
-Failed episodes are recorded in the step file with the `[!]` marker so
-future sessions and reviews can see what was attempted and why it didn't
-work.
-
-### Track episode
-
-Written to the plan file under the completed track's checklist entry.
-Contains: what was built, key discoveries, plan deviations with cross-track
-impact. Reference to step file with counts.
-
-### Episode length rule
-
-Proportional to cross-track impact. A track that went as planned and
-produced no surprises needs 1-2 sentences. A track that discovered
-architectural issues, changed assumptions, or deviated from the plan
-should include enough detail for the execution agent to assess
-impact on remaining tracks without reading the step file. There is no
-hard line limit — clarity and completeness for downstream decision-making
-is the criterion.
-
-The same principle applies to step episodes: a trivial rename needs one
-line; a step that uncovered a concurrency bug needs a full explanation.
-
-### Commit and episode ordering
-
-During Phase 3, the step implementation phase commits its
-code changes first (including any code review fix commits). After all code
-is committed, the execution agent writes the episode to the step file and
-commits it as a **separate episode commit**. This avoids the chicken-and-egg
-problem of needing the episode before the commit while needing the
-implementation to produce the episode.
-
-### Where episodes live
-
-Step-level episodes are recorded in the **step file**
-(`docs/adr/<dir-name>/tracks/track-N.md`), not in the plan file. This keeps
-the plan file focused on strategic content.
-
-After a track completes (user review), the execution agent writes a
-compressed **track episode** into the plan file under
-the track's checklist entry. The track episode is a strategic summary
-synthesized from the step episodes — it captures what the track achieved
-and what was discovered, without step-level detail.
+**Full format, rules, and examples:**
+[`episode-format-reference.md`](episode-format-reference.md)
 
 ---
 
@@ -308,112 +178,14 @@ message explains why.
 
 ## 2.4 Two-Tier Dimensional Code Review
 
-Code review happens at two levels, both using **five specialized review
-agents** that each focus on a single dimension:
+Code review happens at two levels — step-level and track-level — both using
+ten specialized review sub-agents (5 code + 5 test quality) launched in
+parallel. After all complete, findings are deduplicated, severity-assigned
+(blocker / should-fix / suggestion), and attributed to source dimension(s).
+Max 3 iterations per level.
 
-| Agent | Dimension | Step prefix | Track prefix |
-|---|---|---|---|
-| `review-code-quality` | Conventions, readability, DRY, API boundaries | `cq1, cq2, ...` | `CQ1, CQ2, ...` |
-| `review-bugs-concurrency` | Logic errors, null safety, thread safety, races, leaks | `bc1, bc2, ...` | `BC1, BC2, ...` |
-| `review-crash-safety` | WAL correctness, durability, atomicity, recovery | `cs1, cs2, ...` | `CS1, CS2, ...` |
-| `review-security` | Injection, auth, data exposure, dependencies | `se1, se2, ...` | `SE1, SE2, ...` |
-| `review-performance` | Complexity, allocations, lock contention, I/O | `pf1, pf2, ...` | `PF1, PF2, ...` |
-
-All five agents are launched **in parallel** at both levels. After all
-complete, the execution agent **synthesizes** findings: deduplicates across
-dimensions (merging findings for the same code location), assigns severity
-(blocker / should-fix / suggestion), and attributes each finding to its
-source dimension(s).
-
-### Context passed to all review agents
-
-Both step-level and track-level reviews pass the same context structure to
-every agent:
-
-```
-## Review Target
-Track {N}, Step {M}: {description}   (step-level)
-Track {N}: {title}                    (track-level)
-Reviewing: {commit range or description}
-
-## Implementation Plan (strategic context)
-{contents of implementation-plan.md}
-
-## Track Steps (tactical context)
-{contents of tracks/track-N.md}
-
-## Skip These Files (generated code)
-- core/.../sql/parser/*, generated-sources/*, Gremlin DSL
-
-## Diff
-{the diff}
-```
-
-The implementation plan provides strategic context (goals, architecture,
-decision records, episodes from completed tracks). The step file provides
-tactical context (what each step does, what was discovered). Together they
-let each agent understand **why** the code was written this way, not just
-**what** it does.
-
-### Step-level dimensional review (within each execution agent step phase)
-
-After implementing and committing, the execution agent runs a review loop:
-
-1. Launches all ten review agents in parallel (five code review + five
-   test quality — same agents as track-level; fresh sub-agents each
-   iteration).
-2. Synthesizes findings from all ten into a unified, deduplicated list.
-3. If findings need fixes, applies them and re-runs only the dimension(s)
-   with open findings.
-4. Repeats until approved OR **max 3 iterations** reached.
-5. If max iterations reached, notes remaining findings in the episode.
-   Some findings may be genuinely hard or non-fixable within the step's
-   scope — this is an escalation signal, not a "try harder" signal.
-
-**What step-level review catches:** localized issues within a single step's
-diff — naming, error handling, edge cases, null safety, resource leaks,
-obvious concurrency bugs, security gaps in input handling, performance
-anti-patterns, weak test assertions, missing corner-case tests.
-
-The code review loop runs **within the execution agent's context** — no
-context clearing between review iterations. The execution agent retains
-full knowledge of why it made each implementation choice, enabling targeted
-and accurate fixes.
-
-### Track-level dimensional review (after all steps complete)
-
-After all steps are committed, the execution agent spawns **ten sub-agents
-in parallel** that review the full track diff (`git diff <base>..HEAD`):
-
-1. **Five dimensional code review agents** (same five as step-level) —
-   each reviews the entire track diff from its specialized perspective.
-2. **Five dimensional test quality agents** — each reviews test code from
-   its specialized perspective:
-
-| Agent | Dimension | Finding prefix |
-|---|---|---|
-| `review-test-behavior` | Behavior-driven quality, assertion precision, exception testing | `TB1, TB2, ...` |
-| `review-test-completeness` | Corner cases, boundary conditions, test data quality | `TC1, TC2, ...` |
-| `review-test-structure` | Isolation, independence, readability, documentation | `TS1, TS2, ...` |
-| `review-test-concurrency` | Concurrent behavior testing quality | `TX1, TX2, ...` |
-| `review-test-crash-safety` | Crash/recovery test quality, production assert statements | `TY1, TY2, ...` |
-
-All ten run in parallel. The execution agent synthesizes all findings into
-a unified, deduplicated list. The iteration loop re-runs only the agent(s)
-with open findings. Max 3 iterations total (shared counter). See
-`track-code-review.md` for the full protocol.
-
-**What track-level code review catches:** systematic patterns repeated
-across steps, cross-step consistency issues, accumulated technical debt
-that's individually acceptable but collectively problematic, integration
-issues where steps compile independently but the combined result has subtle
-interactions.
-
-**What track-level test quality review catches:** coverage-driven tests
-that exercise code without verifying behavior, shallow or imprecise
-assertions, missing corner cases and boundary conditions, test isolation
-issues, concurrency testing gaps, missing crash/recovery test scenarios,
-and opportunities for Java `assert` statements in production code.
+- **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
+- **Track-level:** see `track-code-review.md`
 
 ---
 

@@ -4,8 +4,7 @@ Read and follow the workflow for Phase 4 (Final Design Document).
 
 Read these before doing anything else:
 1. `.claude/workflow/conventions.md` — shared formats, glossary, plan file structure
-2. `.claude/workflow/planning.md` — §Design Document for the design document rules
-   and structure
+2. `.claude/workflow/design-document-rules.md` — design document rules and structure
 3. `.claude/workflow/workflow.md` — §Final Design Document (Phase 4) for the
    purpose and process
 
