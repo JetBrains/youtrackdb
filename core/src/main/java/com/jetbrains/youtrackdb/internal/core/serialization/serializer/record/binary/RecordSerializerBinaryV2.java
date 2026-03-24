@@ -136,6 +136,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
     int n = propertyNameBytes.length;
     int capacity = 1 << log2Capacity;
+    assert n < capacity : "property count " + n + " must be < capacity " + capacity
+        + " (load factor violation)";
     int seed = 0;
 
     // Allocate slot tracking arrays
@@ -176,6 +178,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       slotArray[byteOffset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
     }
 
+    assert slotArray.length == capacity * SLOT_SIZE
+        : "slotArray size mismatch: " + slotArray.length + " vs " + (capacity * SLOT_SIZE);
     return new HashTableResult(seed, log2Capacity, slotArray, slotPropertyIndex);
   }
 
@@ -475,7 +479,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   /**
-   * Cuckoo hash table mode full deserialization: skip hash table, read KV entries linearly.
+   * Hash table mode full deserialization: skip hash table header and slots, read KV entries linearly.
    */
   private void deserializeHashTableModeFull(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, int propertyCount) {
@@ -1120,13 +1124,15 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       throw new SerializationException(
           "Corrupted record: negative property count " + propertyCount);
     }
-    // Upper bound: 64 KB KV region practically limits property count well below 2048.
-    // At 0.625 load factor, 2048 slots support ~1280 properties.
-    // This is a generous corruption-detection sanity limit.
-    if (propertyCount > (1 << MAX_LOG2_CAPACITY)) {
+    // Upper bound: at 0.625 load factor with MAX_LOG2_CAPACITY=11 (2048 slots),
+    // the maximum property count is (2048 * 5 / 8) = 1280. We use (capacity - 1) as
+    // the corruption guard to guarantee at least one empty slot exists for linear
+    // probing termination.
+    int maxProperties = (1 << MAX_LOG2_CAPACITY) - 1;
+    if (propertyCount > maxProperties) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "
-              + (1 << MAX_LOG2_CAPACITY));
+              + maxProperties);
     }
   }
 
@@ -1137,10 +1143,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   private static int readAndValidateLog2Capacity(BytesContainer bytes) {
     int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
-    if (log2Capacity > MAX_LOG2_CAPACITY) {
+    if (log2Capacity < 1 || log2Capacity > MAX_LOG2_CAPACITY) {
       throw new SerializationException(
           "Corrupted record: invalid log2Capacity " + log2Capacity
-              + " (expected 0-" + MAX_LOG2_CAPACITY + ")");
+              + " (expected 1-" + MAX_LOG2_CAPACITY + ")");
     }
     return log2Capacity;
   }

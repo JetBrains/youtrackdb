@@ -606,6 +606,31 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
         .hasMessageContaining("negative property count");
   }
 
+  @Test
+  public void deserialize_corruptedLog2Capacity_zero_throwsSerializationException() {
+    // log2Capacity=0 is invalid for linear probing (minimum is 1).
+    // A corrupted record with 0 should be rejected by readAndValidateLog2Capacity.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 13; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+
+    // Corrupt log2Capacity byte to 0: after propertyCount varint + 4-byte seed
+    var readBytes = new BytesContainer(bytes.bytes);
+    VarIntSerializer.readAsInteger(readBytes); // skip propertyCount
+    readBytes.skip(4); // skip seed
+    bytes.bytes[readBytes.offset] = (byte) 0;
+
+    var target = (EntityImpl) session.newEntity();
+    assertThatThrownBy(
+        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("log2Capacity");
+  }
+
   // --- Hash table mode at moderate scale ---
 
   @Test
@@ -722,7 +747,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   @Test
   public void roundTrip_oneHundredMixedProperties() {
     // Stress test with 100 properties of mixed types to verify hash table construction,
-    // hash table sizing via bucket formula, and correct slot assignment at scale.
+    // hash table sizing via capacity formula, and correct slot assignment at scale.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 100; i++) {

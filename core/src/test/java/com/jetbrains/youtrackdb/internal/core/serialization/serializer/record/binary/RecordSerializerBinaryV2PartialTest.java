@@ -465,13 +465,13 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Cuckoo hash mode tests (13+ properties)
+  // Hash table mode tests (13+ properties)
   // ========================================================================================
 
   @Test
   public void partial_hashTableMode_fifteenProperties() {
     // 15 properties triggers hash table mode. Verify partial deserialization finds all requested
-    // fields via linear probe — some properties may land in h2 bucket.
+    // fields via linear probe — some properties may require multi-step probing.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
