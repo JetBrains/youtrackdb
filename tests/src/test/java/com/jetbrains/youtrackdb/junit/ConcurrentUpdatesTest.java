@@ -20,9 +20,11 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,12 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
 
   private final AtomicLong counter = new AtomicLong();
   private final AtomicLong totalRetries = new AtomicLong();
+
+  /**
+   * Collects exceptions thrown by worker threads so the main thread can detect
+   * and report failures instead of silently losing iterations.
+   */
+  private final CopyOnWriteArrayList<Throwable> threadErrors = new CopyOnWriteArrayList<>();
 
   class OptimisticUpdateField implements Runnable {
 
@@ -51,8 +59,9 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
 
     @Override
     public void run() {
+      DatabaseSessionEmbedded db = null;
       try {
-        var db = acquireSession();
+        db = acquireSession();
         for (var i = 0; i < OPTIMISTIC_CYCLES; i++) {
           var retries = 0;
           while (true) {
@@ -79,9 +88,12 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
           }
           fieldValue += ";" + i;
         }
-
       } catch (Throwable e) {
-        throw new IllegalStateException(e);
+        threadErrors.add(e);
+      } finally {
+        if (db != null) {
+          db.close();
+        }
       }
     }
   }
@@ -102,9 +114,9 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
 
     @Override
     public void run() {
+      DatabaseSessionEmbedded db = null;
       try {
-        var db = acquireSession();
-
+        db = acquireSession();
         for (var i = 0; i < PESSIMISTIC_CYCLES; i++) {
           var cmd = "update " + rid + " set total = total + 1";
           if (lock) {
@@ -133,9 +145,12 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
             }
           }
         }
-      } catch (RuntimeException e) {
-        e.printStackTrace();
-        throw e;
+      } catch (Throwable e) {
+        threadErrors.add(e);
+      } finally {
+        if (db != null) {
+          db.close();
+        }
       }
     }
   }
@@ -143,66 +158,70 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
   @Test
   void concurrentOptimisticUpdates() throws Exception {
     counter.set(0);
+    threadErrors.clear();
 
     var database = acquireSession();
+    try {
+      database.begin();
+      EntityImpl doc1 = database.newInstance();
+      doc1.setProperty("INIT", "ok");
+      database.commit();
 
-    database.begin();
-    EntityImpl doc1 = database.newInstance();
-    doc1.setProperty("INIT", "ok");
-    database.commit();
+      RID rid1 = doc1.getIdentity();
 
-    RID rid1 = doc1.getIdentity();
+      database.begin();
+      EntityImpl doc2 = database.newInstance();
+      doc2.setProperty("INIT", "ok");
 
-    database.begin();
-    EntityImpl doc2 = database.newInstance();
-    doc2.setProperty("INIT", "ok");
+      database.commit();
 
-    database.commit();
+      RID rid2 = doc2.getIdentity();
 
-    RID rid2 = doc2.getIdentity();
+      var ops = new OptimisticUpdateField[THREADS];
+      for (var i = 0; i < THREADS; ++i) {
+        ops[i] = new OptimisticUpdateField(rid1, rid2, "thread" + i);
+      }
 
-    var ops = new OptimisticUpdateField[THREADS];
-    for (var i = 0; i < THREADS; ++i) {
-      ops[i] = new OptimisticUpdateField(rid1, rid2, "thread" + i);
+      var threads = new Thread[THREADS];
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+      }
+
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i].start();
+      }
+
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i].join();
+      }
+
+      failOnThreadErrors();
+
+      assertEquals(OPTIMISTIC_CYCLES * THREADS, counter.get());
+
+      database.begin();
+      doc1 = database.load(rid1);
+
+      for (var i = 0; i < THREADS; ++i) {
+        assertEquals(ops[i].fieldValue, doc1.getProperty(ops[i].threadName),
+            ops[i].threadName);
+      }
+
+      doc1.toJSON();
+
+      doc2 = database.load(rid2);
+
+      for (var i = 0; i < THREADS; ++i) {
+        assertEquals(ops[i].fieldValue, doc2.getProperty(ops[i].threadName),
+            ops[i].threadName);
+      }
+
+      doc2.toJSON();
+      System.out.println(doc2.toJSON());
+      database.commit();
+    } finally {
+      database.close();
     }
-
-    var threads = new Thread[THREADS];
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
-    }
-
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i].start();
-    }
-
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i].join();
-    }
-
-    assertEquals(OPTIMISTIC_CYCLES * THREADS, counter.get());
-
-    database.begin();
-    doc1 = database.load(rid1);
-
-    for (var i = 0; i < THREADS; ++i) {
-      assertEquals(ops[i].fieldValue, doc1.getProperty(ops[i].threadName),
-          ops[i].threadName);
-    }
-
-    doc1.toJSON();
-
-    doc2 = database.load(rid2);
-
-    for (var i = 0; i < THREADS; ++i) {
-      assertEquals(ops[i].fieldValue, doc2.getProperty(ops[i].threadName),
-          ops[i].threadName);
-    }
-
-    doc2.toJSON();
-    System.out.println(doc2.toJSON());
-    database.commit();
-
-    database.close();
   }
 
   @Disabled("Pessimistic locking for SQL updates not yet implemented")
@@ -218,42 +237,62 @@ public class ConcurrentUpdatesTest extends BaseDBJUnit5Test {
 
   protected void sqlUpdate(boolean lock) throws InterruptedException {
     counter.set(0);
+    threadErrors.clear();
 
     var database = acquireSession();
-    database.begin();
-    EntityImpl doc1 = database.newInstance();
-    doc1.setProperty("total", 0);
+    try {
+      database.begin();
+      EntityImpl doc1 = database.newInstance();
+      doc1.setProperty("total", 0);
 
-    database.commit();
+      database.commit();
 
-    RID rid1 = doc1.getIdentity();
+      RID rid1 = doc1.getIdentity();
 
-    var ops = new PessimisticUpdate[THREADS];
-    for (var i = 0; i < THREADS; ++i) {
-      ops[i] = new PessimisticUpdate(rid1, "thread" + i, lock);
+      var ops = new PessimisticUpdate[THREADS];
+      for (var i = 0; i < THREADS; ++i) {
+        ops[i] = new PessimisticUpdate(rid1, "thread" + i, lock);
+      }
+
+      var threads = new Thread[THREADS];
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+      }
+
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i].start();
+      }
+
+      for (var i = 0; i < THREADS; ++i) {
+        threads[i].join();
+      }
+
+      failOnThreadErrors();
+
+      assertEquals(PESSIMISTIC_CYCLES * THREADS, counter.get());
+
+      database.begin();
+      doc1 = database.load(rid1);
+      assertEquals(PESSIMISTIC_CYCLES * THREADS, doc1.<Object>getProperty("total"));
+      database.commit();
+    } finally {
+      database.close();
     }
+  }
 
-    var threads = new Thread[THREADS];
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i] = new Thread(ops[i], "ConcurrentTest" + i);
+  /**
+   * Fails the test if any worker thread reported an error, attaching all additional
+   * errors as suppressed exceptions so no diagnostic information is lost.
+   */
+  private void failOnThreadErrors() {
+    if (!threadErrors.isEmpty()) {
+      var primary = threadErrors.getFirst();
+      for (var i = 1; i < threadErrors.size(); i++) {
+        primary.addSuppressed(threadErrors.get(i));
+      }
+      fail("Worker thread(s) failed (" + threadErrors.size() + " error(s)): "
+          + primary.getMessage(), primary);
     }
-
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i].start();
-    }
-
-    for (var i = 0; i < THREADS; ++i) {
-      threads[i].join();
-    }
-
-    assertEquals(PESSIMISTIC_CYCLES * THREADS, counter.get());
-
-    database.begin();
-    doc1 = database.load(rid1);
-    assertEquals(PESSIMISTIC_CYCLES * THREADS, doc1.<Object>getProperty("total"));
-    database.commit();
-
-    database.close();
   }
 
   @Test
