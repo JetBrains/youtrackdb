@@ -4281,4 +4281,177 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals("Should find posts with score > 15", 4, result.size());
     session.commit();
   }
+
+  /**
+   * Verifies EXPLAIN output shows the specific intersection descriptor type
+   * (EdgeRidLookup) when a back-reference $matched.X.@rid is used.
+   * The plan should contain "intersection: in('MHasCreator')" indicating
+   * the reverse edge lookup was chosen.
+   */
+  @Test
+  public void testExplainShowsEdgeRidLookupIntersection() {
+    session.execute("CREATE CLASS EPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EPost EXTENDS V").close();
+    session.execute("CREATE CLASS EForum EXTENDS V").close();
+    session.execute("CREATE CLASS EContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS EHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY EContainerOf.out LINK EForum").close();
+    session.execute("CREATE PROPERTY EContainerOf.in LINK EPost").close();
+    session.execute("CREATE PROPERTY EHasCreator.out LINK EPost").close();
+    session.execute("CREATE PROPERTY EHasCreator.in LINK EPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EForum SET name = 'F1'").close();
+    session.execute("CREATE VERTEX EPost SET title = 'P1'").close();
+    session.execute("CREATE VERTEX EPerson SET name = 'Alice'").close();
+    session.execute(
+        "CREATE EDGE EContainerOf FROM"
+            + " (SELECT FROM EForum WHERE name='F1') TO"
+            + " (SELECT FROM EPost WHERE title='P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE EHasCreator FROM"
+            + " (SELECT FROM EPost WHERE title='P1') TO"
+            + " (SELECT FROM EPerson WHERE name='Alice')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var matchQuery =
+        "MATCH"
+            + " {class: EPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('EHasCreator'){as: post}"
+            + "   .in('EContainerOf'){as: forum}"
+            + "   .out('EContainerOf'){as: post2}"
+            + "   .out('EHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    // Verify correctness
+    var result = session.query(matchQuery).toList();
+    assertFalse("Should return results", result.isEmpty());
+
+    // Verify EXPLAIN shows specific intersection type
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show EdgeRidLookup intersection with in('EHasCreator'),"
+            + " plan was:\n" + plan,
+        plan.contains("intersection:") && plan.contains("EHasCreator"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that a MATCH query with an indexed equality filter on the
+   * target node shows "intersection: index" in the EXPLAIN output,
+   * confirming the index pre-filter was pushed down to the MATCH engine.
+   */
+  @Test
+  public void testExplainShowsIndexIntersectionInMatch() {
+    session.execute("CREATE CLASS IxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IxCreated EXTENDS E").close();
+    session.execute("CREATE PROPERTY IxCreated.out LINK IxPerson").close();
+    session.execute("CREATE PROPERTY IxCreated.in LINK IxPost").close();
+    session.execute("CREATE PROPERTY IxPost.lang STRING").close();
+    session.execute(
+        "CREATE INDEX IxPost.lang ON IxPost (lang) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IxPerson SET name = 'Author'").close();
+    for (int i = 0; i < 10; i++) {
+      var lang = (i % 2 == 0) ? "en" : "de";
+      session.execute(
+          "CREATE VERTEX IxPost SET title = 'p" + i + "', lang = '" + lang + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE IxCreated FROM"
+              + " (SELECT FROM IxPerson WHERE name='Author') TO"
+              + " (SELECT FROM IxPost WHERE title='p" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Equality on indexed property → should trigger index intersection
+    var matchQuery =
+        "MATCH"
+            + " {class: IxPerson, as: author, where: (name = 'Author')}"
+            + "   .out('IxCreated'){class: IxPost, as: post,"
+            + "     where: (lang = 'en')}"
+            + " RETURN post.title";
+
+    var result = session.query(matchQuery).toList();
+    assertEquals("Should find 5 English posts", 5, result.size());
+
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show index intersection for lang filter,"
+            + " plan was:\n" + plan,
+        plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that a MATCH pattern with a back-reference uses the correct
+   * descriptor type by checking the EXPLAIN output shows the edge class name
+   * in the intersection annotation. This confirms the planner chose
+   * EdgeRidLookup (not a fallback).
+   */
+  @Test
+  public void testExplainIntersectionShowsEdgeClassName() {
+    session.execute("CREATE CLASS CxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS CxPost EXTENDS V").close();
+    session.execute("CREATE CLASS CxForum EXTENDS V").close();
+    session.execute("CREATE CLASS CxContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS CxHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY CxContainerOf.out LINK CxForum").close();
+    session.execute("CREATE PROPERTY CxContainerOf.in LINK CxPost").close();
+    session.execute("CREATE PROPERTY CxHasCreator.out LINK CxPost").close();
+    session.execute("CREATE PROPERTY CxHasCreator.in LINK CxPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CxForum SET name = 'F1'").close();
+    session.execute("CREATE VERTEX CxPerson SET name = 'Alice'").close();
+    for (int i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX CxPost SET title = 'p" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CxContainerOf FROM"
+              + " (SELECT FROM CxForum WHERE name='F1') TO"
+              + " (SELECT FROM CxPost WHERE title='p" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE CxHasCreator FROM"
+              + " (SELECT FROM CxPost WHERE title='p" + i + "') TO"
+              + " (SELECT FROM CxPerson WHERE name='Alice')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var matchQuery =
+        "MATCH"
+            + " {class: CxPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('CxHasCreator'){as: post}"
+            + "   .in('CxContainerOf'){as: forum}"
+            + "   .out('CxContainerOf'){as: post2}"
+            + "   .out('CxHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    var result = session.query(matchQuery).toList();
+    assertFalse("Should return results", result.isEmpty());
+
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    // Plan should show "intersection: in('CxHasCreator')" — confirming
+    // EdgeRidLookup descriptor was used with the correct edge class.
+    assertTrue(
+        "Plan should show CxHasCreator in intersection annotation,"
+            + " plan was:\n" + plan,
+        plan.contains("CxHasCreator") && plan.contains("intersection"));
+    session.commit();
+  }
 }
