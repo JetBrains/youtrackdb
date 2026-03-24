@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -44,7 +44,7 @@
   > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified),
   > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
-- [ ] Step 2: Link type V2 round-trip and collection tests
+- [x] Step 2: Link type V2 round-trip and collection tests
   > Add database-backed tests for link types (require real RIDs from persisted
   > records). Add to `RecordSerializerBinaryV2RoundTripTest` (which extends
   > `DbTestBase`):
@@ -59,6 +59,16 @@
   >
   > **Target files:** `RecordSerializerBinaryV2RoundTripTest.java`,
   > `RecordSerializerBinaryV2PartialTest.java`
+  >
+  > **What was done:** Added 6 round-trip tests (LINK, LINKLIST, LINKSET, LINKMAP,
+  > mixed links+regular) and 1 deserializeField test for LINK type. All use real
+  > persisted entities for LINK values.
+  > **What was discovered:** `getProperty()` for LINK values triggers lazy-load via
+  > `session.load(rid)` — synthetic RecordIds that don't exist in the DB return null.
+  > Also `getIdentity()` returns `ChangeableRecordId`, not `RecordId` — must compare
+  > via `RID` interface.
+  > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified),
+  > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
 - [ ] Step 3: Database lifecycle and binary comparator correctness
   > Database lifecycle tests: persist entities to disk, close database, reopen,
