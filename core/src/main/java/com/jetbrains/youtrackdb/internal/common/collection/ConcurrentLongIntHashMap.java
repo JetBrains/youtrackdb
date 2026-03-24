@@ -124,6 +124,50 @@ public class ConcurrentLongIntHashMap<V> {
     return size() == 0;
   }
 
+  /**
+   * Associates the value with the given composite key. If the key is already present, the previous
+   * value is replaced.
+   *
+   * @return the previous value, or {@code null} if absent
+   * @throws IllegalArgumentException if value is null
+   */
+  public V put(long fileId, int pageIndex, V value) {
+    if (value == null) {
+      throw new IllegalArgumentException("Null values are not allowed");
+    }
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].put(fileId, pageIndex, value, (int) hash);
+  }
+
+  /**
+   * Associates the value with the given composite key only if the key is not already present.
+   *
+   * @return the existing value if present, or {@code null} if the new value was inserted
+   * @throws IllegalArgumentException if value is null
+   */
+  public V putIfAbsent(long fileId, int pageIndex, V value) {
+    if (value == null) {
+      throw new IllegalArgumentException("Null values are not allowed");
+    }
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].putIfAbsent(fileId, pageIndex, value, (int) hash);
+  }
+
+  /**
+   * If the key is absent, computes a value using the mapping function and inserts it. If the key is
+   * present, returns the existing value without calling the function.
+   *
+   * @return the existing or newly computed value
+   * @throws IllegalArgumentException if the mapping function returns null
+   */
+  public V computeIfAbsent(long fileId, int pageIndex, LongIntFunction<V> mappingFunction) {
+    long hash = hash(fileId, pageIndex);
+    int sectionIdx = sectionIndex(hash);
+    return sections[sectionIdx].computeIfAbsent(fileId, pageIndex, mappingFunction, (int) hash);
+  }
+
   /** Returns the total capacity (sum of all section capacities). */
   public long capacity() {
     long total = 0;
@@ -178,6 +222,8 @@ public class ConcurrentLongIntHashMap<V> {
    * {@link StampedLock}. Uses open addressing with linear probing.
    */
   private static final class Section<V> {
+    private static final float FILL_FACTOR = 0.66f;
+
     private final StampedLock lock = new StampedLock();
 
     // Parallel arrays — same index across all three stores one logical entry.
@@ -189,8 +235,14 @@ public class ConcurrentLongIntHashMap<V> {
     /** Number of logically present entries. */
     private volatile int size;
 
+    /** Number of occupied buckets (entries + tombstones). Drives resize threshold. */
+    private int usedBuckets;
+
     /** Current array length (always a power of two). */
     private int capacity;
+
+    /** Resize when usedBuckets exceeds this. */
+    private int resizeThreshold;
 
     @SuppressWarnings("unchecked")
     Section(int capacity) {
@@ -199,6 +251,8 @@ public class ConcurrentLongIntHashMap<V> {
       this.pageIndices = new int[this.capacity];
       this.values = (V[]) new Object[this.capacity];
       this.size = 0;
+      this.usedBuckets = 0;
+      this.resizeThreshold = (int) (this.capacity * FILL_FACTOR);
     }
 
     V get(long fileId, int pageIndex, int hashMix) {
@@ -260,6 +314,183 @@ public class ConcurrentLongIntHashMap<V> {
         }
       }
       return null;
+    }
+
+    V put(long fileId, int pageIndex, V value, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int bucketMask = capacity - 1;
+        int bucket = hashMix & bucketMask;
+
+        // Probe for existing key or first empty slot
+        int firstEmpty = -1;
+        for (int i = 0; i < capacity; i++) {
+          int idx = (bucket + i) & bucketMask;
+          V val = values[idx];
+          if (val == null) {
+            if (firstEmpty == -1) {
+              firstEmpty = idx;
+            }
+            break;
+          }
+          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+            // Key found — replace value
+            V prev = values[idx];
+            // Write ordering: value before keys (A2 review decision).
+            // On the read path, a reader that sees the new value also sees valid keys.
+            // If the reader sees the old value, it's still consistent with the old keys.
+            values[idx] = value;
+            return prev;
+          }
+        }
+
+        insertAt(firstEmpty, fileId, pageIndex, value);
+        return null;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    V putIfAbsent(long fileId, int pageIndex, V value, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int bucketMask = capacity - 1;
+        int bucket = hashMix & bucketMask;
+
+        int firstEmpty = -1;
+        for (int i = 0; i < capacity; i++) {
+          int idx = (bucket + i) & bucketMask;
+          V val = values[idx];
+          if (val == null) {
+            if (firstEmpty == -1) {
+              firstEmpty = idx;
+            }
+            break;
+          }
+          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+            // Key exists — return current value, don't replace
+            return val;
+          }
+        }
+
+        insertAt(firstEmpty, fileId, pageIndex, value);
+        return null;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    V computeIfAbsent(
+        long fileId, int pageIndex, LongIntFunction<V> mappingFunction, int hashMix) {
+      long stamp = lock.writeLock();
+      try {
+        int bucketMask = capacity - 1;
+        int bucket = hashMix & bucketMask;
+
+        int firstEmpty = -1;
+        for (int i = 0; i < capacity; i++) {
+          int idx = (bucket + i) & bucketMask;
+          V val = values[idx];
+          if (val == null) {
+            if (firstEmpty == -1) {
+              firstEmpty = idx;
+            }
+            break;
+          }
+          if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+            return val;
+          }
+        }
+
+        // Key absent — compute the value
+        V newValue = mappingFunction.apply(fileId, pageIndex);
+        if (newValue == null) {
+          throw new IllegalArgumentException(
+              "computeIfAbsent mapping function must not return null");
+        }
+
+        insertAt(firstEmpty, fileId, pageIndex, newValue);
+        return newValue;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Insert a new entry at the given slot index. Handles resize if needed. Must be called under
+     * write lock.
+     */
+    private void insertAt(int slotIdx, long fileId, int pageIndex, V value) {
+      // Check if resize is needed before inserting
+      if (usedBuckets >= resizeThreshold) {
+        rehash(capacity * 2);
+        // Recalculate slot after resize — arrays have changed
+        slotIdx = findEmptySlot(fileId, pageIndex);
+      }
+
+      // Write ordering: value first, then key fields (A2 review decision).
+      // A concurrent optimistic reader that sees the value will also see valid keys
+      // because the write lock ensures ordering via the stamp validation.
+      values[slotIdx] = value;
+      fileIds[slotIdx] = fileId;
+      pageIndices[slotIdx] = pageIndex;
+
+      usedBuckets++;
+      size++;
+    }
+
+    /** Find an empty slot for the given key. Must be called under write lock after resize. */
+    private int findEmptySlot(long fileId, int pageIndex) {
+      int bucketMask = capacity - 1;
+      int bucket = (int) hash(fileId, pageIndex) & bucketMask;
+
+      for (int i = 0; i < capacity; i++) {
+        int idx = (bucket + i) & bucketMask;
+        if (values[idx] == null) {
+          return idx;
+        }
+      }
+
+      // Should never happen — resize ensures there's always room
+      throw new IllegalStateException("No empty slot found after resize");
+    }
+
+    /** Double the capacity and re-insert all entries. Must be called under write lock. */
+    @SuppressWarnings("unchecked")
+    private void rehash(int newCapacity) {
+      newCapacity = alignToPowerOfTwo(newCapacity);
+
+      long[] oldFileIds = fileIds;
+      int[] oldPageIndices = pageIndices;
+      V[] oldValues = values;
+      int oldCapacity = capacity;
+
+      capacity = newCapacity;
+      fileIds = new long[newCapacity];
+      pageIndices = new int[newCapacity];
+      values = (V[]) new Object[newCapacity];
+      resizeThreshold = (int) (newCapacity * FILL_FACTOR);
+      usedBuckets = size; // Rehash eliminates tombstones
+
+      int bucketMask = newCapacity - 1;
+      for (int i = 0; i < oldCapacity; i++) {
+        V val = oldValues[i];
+        if (val != null) {
+          long fId = oldFileIds[i];
+          int pIdx = oldPageIndices[i];
+          int bucket = (int) hash(fId, pIdx) & bucketMask;
+
+          // Find empty slot in new arrays
+          while (values[bucket] != null) {
+            bucket = (bucket + 1) & bucketMask;
+          }
+
+          // Write ordering: value first, then keys
+          values[bucket] = val;
+          fileIds[bucket] = fId;
+          pageIndices[bucket] = pIdx;
+        }
+      }
     }
   }
 }
