@@ -24,6 +24,7 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.StampedLock;
+import java.util.function.Consumer;
 
 /**
  * Concurrent hash map with composite {@code (long fileId, int pageIndex)} key and generic value.
@@ -161,6 +162,9 @@ public class ConcurrentLongIntHashMap<V> {
    * If the key is absent, computes a value using the mapping function and inserts it. If the key is
    * present, returns the existing value without calling the function.
    *
+   * <p><b>Warning:</b> The mapping function is called while holding the section's write lock. It
+   * must be fast, non-blocking, and must not call back into this map (StampedLock is not reentrant).
+   *
    * @return the existing or newly computed value
    * @throws IllegalArgumentException if the mapping function returns null
    */
@@ -253,7 +257,7 @@ public class ConcurrentLongIntHashMap<V> {
   }
 
   /** Iterates all values, passing each to the consumer. */
-  public void forEachValue(java.util.function.Consumer<V> consumer) {
+  public void forEachValue(Consumer<V> consumer) {
     for (Section<V> s : sections) {
       s.forEachValue(consumer);
     }
@@ -602,37 +606,9 @@ public class ConcurrentLongIntHashMap<V> {
       }
     }
 
-    /**
-     * Rehash at the same capacity — re-insert all live entries into fresh arrays. Eliminates any
-     * gaps left by bulk removal. Must be called under write lock.
-     */
-    @SuppressWarnings("unchecked")
+    /** Same-capacity rehash to compact gaps from bulk removal. Must be called under write lock. */
     private void rehashSameCapacity() {
-      long[] oldFileIds = fileIds;
-      int[] oldPageIndices = pageIndices;
-      V[] oldValues = values;
-
-      fileIds = new long[capacity];
-      pageIndices = new int[capacity];
-      values = (V[]) new Object[capacity];
-
-      int bucketMask = capacity - 1;
-      for (int i = 0; i < capacity; i++) {
-        V val = oldValues[i];
-        if (val != null) {
-          long fId = oldFileIds[i];
-          int pIdx = oldPageIndices[i];
-          int bucket = (int) hash(fId, pIdx) & bucketMask;
-
-          while (values[bucket] != null) {
-            bucket = (bucket + 1) & bucketMask;
-          }
-
-          values[bucket] = val;
-          fileIds[bucket] = fId;
-          pageIndices[bucket] = pIdx;
-        }
-      }
+      rehashTo(capacity);
     }
 
     /**
@@ -716,13 +692,19 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /** Double the capacity and re-insert all entries. Must be called under write lock. */
-    @SuppressWarnings("unchecked")
     private void rehash() {
       if (capacity >= (1 << 30)) {
         throw new IllegalStateException("Maximum section capacity reached (2^30)");
       }
-      int newCapacity = capacity * 2;
+      rehashTo(capacity * 2);
+    }
 
+    /**
+     * Re-insert all live entries into fresh arrays of the given capacity. Updates capacity,
+     * resizeThreshold, and usedBuckets. Must be called under write lock.
+     */
+    @SuppressWarnings("unchecked")
+    private void rehashTo(int newCapacity) {
       long[] oldFileIds = fileIds;
       int[] oldPageIndices = pageIndices;
       V[] oldValues = values;
@@ -782,7 +764,7 @@ public class ConcurrentLongIntHashMap<V> {
       }
     }
 
-    void forEachValue(java.util.function.Consumer<V> consumer) {
+    void forEachValue(Consumer<V> consumer) {
       long stamp = lock.readLock();
       try {
         for (int i = 0; i < capacity; i++) {
@@ -797,48 +779,19 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Shrink capacity to fit current entries. Must hold write lock during the rehash. The minimum
+     * Shrink capacity to fit current entries. Acquires the write lock internally. The minimum
      * capacity is 2 (matching the constructor floor).
      */
-    @SuppressWarnings("unchecked")
     void shrink() {
       long stamp = lock.writeLock();
       try {
+        // When size == 0, yields newCapacity = 2 (minimum)
         int newCapacity = alignToPowerOfTwo((int) Math.ceil(size / FILL_FACTOR));
         newCapacity = Math.max(2, newCapacity);
         if (newCapacity >= capacity) {
-          return; // No shrinking needed
+          return;
         }
-
-        long[] oldFileIds = fileIds;
-        int[] oldPageIndices = pageIndices;
-        V[] oldValues = values;
-        int oldCapacity = capacity;
-
-        capacity = newCapacity;
-        fileIds = new long[newCapacity];
-        pageIndices = new int[newCapacity];
-        values = (V[]) new Object[newCapacity];
-        resizeThreshold = (int) (newCapacity * FILL_FACTOR);
-        usedBuckets = size;
-
-        int bucketMask = newCapacity - 1;
-        for (int i = 0; i < oldCapacity; i++) {
-          V val = oldValues[i];
-          if (val != null) {
-            long fId = oldFileIds[i];
-            int pIdx = oldPageIndices[i];
-            int bucket = (int) hash(fId, pIdx) & bucketMask;
-
-            while (values[bucket] != null) {
-              bucket = (bucket + 1) & bucketMask;
-            }
-
-            values[bucket] = val;
-            fileIds[bucket] = fId;
-            pageIndices[bucket] = pIdx;
-          }
-        }
+        rehashTo(newCapacity);
       } finally {
         lock.unlockWrite(stamp);
       }

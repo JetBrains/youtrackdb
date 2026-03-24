@@ -1324,4 +1324,89 @@ public class ConcurrentLongIntHashMapTest {
       assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
     }
   }
+
+  // ---- Additional edge cases from Step 5 review ----
+
+  @Test
+  public void shrinkAfterManyInsertsAndRemovesPreservesRemainingEntries() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+
+    for (int i = 0; i < 500; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    long capacityBeforeRemoval = map.capacity();
+
+    // Remove most entries, leaving only 10
+    for (int i = 10; i < 500; i++) {
+      map.remove((long) i, i);
+    }
+    assertThat(map.size()).isEqualTo(10);
+    assertThat(map.capacity()).isEqualTo(capacityBeforeRemoval);
+
+    map.shrink();
+    assertThat(map.capacity()).isLessThan(capacityBeforeRemoval);
+
+    for (int i = 0; i < 10; i++) {
+      assertThat(map.get((long) i, i))
+          .as("Entry (%d, %d) must survive shrink", (long) i, i)
+          .isEqualTo("val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(10);
+
+    // Map still functional after shrink
+    map.put(999L, 999, "new");
+    assertThat(map.get(999L, 999)).isEqualTo("new");
+  }
+
+  @Test
+  public void clearFollowedByShrinkReducesToMinimumCapacity() {
+    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    for (int i = 0; i < 100; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+
+    map.clear();
+    map.shrink();
+    assertThat(map.capacity()).isEqualTo(2);
+
+    map.put(1L, 1, "a");
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+  }
+
+  @Test
+  public void forEachVisitsCorrectEntriesAfterRemovals() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 20; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    for (int i = 0; i < 20; i += 2) {
+      map.remove((long) i, i);
+    }
+
+    var visited = new java.util.HashMap<String, String>();
+    map.forEach((fid, pid, val) -> visited.put(fid + ":" + pid, val));
+
+    assertThat(visited).hasSize(10);
+    for (int i = 1; i < 20; i += 2) {
+      assertThat(visited).containsEntry(i + ":" + i, "val-" + i);
+    }
+  }
+
+  @Test
+  public void shrinkThenInsertManyTriggersCorrectResize() {
+    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    map.put(1L, 1, "a");
+    map.shrink();
+    long shrunkCapacity = map.capacity();
+
+    for (int i = 0; i < 200; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(200);
+    assertThat(map.capacity()).isGreaterThan(shrunkCapacity);
+
+    for (int i = 0; i < 200; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
+    }
+  }
 }
