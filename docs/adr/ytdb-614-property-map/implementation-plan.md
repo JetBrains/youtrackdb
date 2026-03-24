@@ -313,6 +313,8 @@ graph LR
   > exact hash values for the V2 serializer. No surprises or cross-track impact.
   >
   > **Step file:** `tracks/track-3.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 4: RecordSerializerBinaryV2 — hash map serialization format
   > Core track: implement the new V2 serializer that writes and reads the
