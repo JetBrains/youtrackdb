@@ -5,6 +5,9 @@
 - [ ] Step implementation
 - [ ] Track-level code review
 
+## Base commit
+`08217cb44b`
+
 ## Reviews completed
 - [x] Technical (9 findings: 0 blocker, 4 should-fix, 5 suggestion — all accepted)
 
