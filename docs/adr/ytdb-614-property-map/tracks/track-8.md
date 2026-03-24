@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -21,31 +21,21 @@
 
 ## Steps
 
-- [ ] Step 1: Tier-boundary DB-lifecycle integration tests
-  > Add DB-lifecycle tests covering all 3 tiers through persist→close→reopen
-  > on disk storage. Existing `dbLifecycle_persistCloseReopenVerify` covers
-  > tier 2 (7 properties, in-memory only). Add:
+- [x] Step 1: Tier-boundary DB-lifecycle integration tests
+  > **What was done:** Added 5 integration tests across 2 test files:
+  > - 3 disk-storage DB lifecycle tests in `RecordSerializerBinaryVersionDispatchTest`:
+  >   linear tier (2 props), cuckoo tier (15 props with mixed types), and cuckoo
+  >   partial deserialization (15 props, getProperty triggers 2-bucket scan).
+  > - 2 cuckoo-mode binary comparator tests in `RecordSerializerBinaryV2PartialTest`:
+  >   double field and string field comparison with 15 properties each.
   >
-  > **In `RecordSerializerBinaryVersionDispatchTest`:**
-  > - `dbLifecycle_diskStorage_linearTier_persistCloseReopenVerify()` — 2
-  >   properties (tier 1), using disk storage via `DatabaseType.DISK`. Verify
-  >   properties survive full page flush and reopen.
-  > - `dbLifecycle_diskStorage_cuckooTier_persistCloseReopenVerify()` — 15+
-  >   properties (tier 3), using disk storage. Verify cuckoo-serialized
-  >   records survive persist→close→reopen cycle on actual disk pages.
-  > - `dbLifecycle_diskStorage_cuckooTier_partialDeserialization()` — persist
-  >   entity with 15+ properties to disk, reopen, access a single property
-  >   via `getProperty()` (triggers partial deserialization through cuckoo
-  >   2-bucket scan on disk-loaded pages).
+  > **What was discovered:** Dimensional review (10 agents) found 5 actionable items:
+  > disk DB cleanup needed finally blocks, hasSize() assertions lacked name verification,
+  > cuckoo disk test used homogeneous string types, string comparator test lacked null
+  > guards, partial deser test should verify non-existent property returns null. All fixed.
   >
-  > **In `RecordSerializerBinaryV2PartialTest` (or RoundTripTest):**
-  > - `binaryComparator_cuckooMode_deserializeFieldWithComparatorV0()` — 15+
-  >   properties, serialize with V2 cuckoo, call `deserializeField()`, verify
-  >   `BinaryComparatorV0.isEqual()` and `compare()`. Extends existing 3-property
-  >   binary comparator test from Track 6 to cuckoo tier.
-  >
-  > **Target files:** `RecordSerializerBinaryVersionDispatchTest.java`,
-  > `RecordSerializerBinaryV2PartialTest.java` or `RecordSerializerBinaryV2RoundTripTest.java`
+  > **Key files:** `RecordSerializerBinaryVersionDispatchTest.java` (modified),
+  > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
 - [ ] Step 2: JMH serialization benchmark — V1 vs V2 comparison
   > Create a new JMH benchmark class in `core/src/test/` that measures
