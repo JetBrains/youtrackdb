@@ -906,4 +906,137 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.get(0L, 0)).isNull();
     assertThat(map.size()).isEqualTo(0);
   }
+
+  // ---- removeByFileId() ----
+
+  @Test
+  public void removeByFileIdRemovesOnlyTargetFile() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    // Insert pages from 3 different files
+    for (int page = 0; page < 10; page++) {
+      map.put(1L, page, "f1-p" + page);
+      map.put(2L, page, "f2-p" + page);
+      map.put(3L, page, "f3-p" + page);
+    }
+    assertThat(map.size()).isEqualTo(30);
+
+    // Remove all pages for file 2
+    var removed = map.removeByFileId(2L);
+    assertThat(removed).hasSize(10);
+
+    // File 2 pages are gone
+    for (int page = 0; page < 10; page++) {
+      assertThat(map.get(2L, page)).isNull();
+    }
+    // File 1 and 3 pages intact
+    for (int page = 0; page < 10; page++) {
+      assertThat(map.get(1L, page)).isEqualTo("f1-p" + page);
+      assertThat(map.get(3L, page)).isEqualTo("f3-p" + page);
+    }
+    assertThat(map.size()).isEqualTo(20);
+  }
+
+  @Test
+  public void removeByFileIdReturnsCorrectValues() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(42L, 0, "a");
+    map.put(42L, 1, "b");
+    map.put(42L, 2, "c");
+    map.put(99L, 0, "other");
+
+    var removed = map.removeByFileId(42L);
+    assertThat(removed).containsExactlyInAnyOrder("a", "b", "c");
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(99L, 0)).isEqualTo("other");
+  }
+
+  @Test
+  public void removeByFileIdOnEmptyMap() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    var removed = map.removeByFileId(1L);
+    assertThat(removed).isEmpty();
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void removeByFileIdForNonExistentFileId() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 0, "exists");
+    var removed = map.removeByFileId(999L);
+    assertThat(removed).isEmpty();
+    assertThat(map.size()).isEqualTo(1);
+    assertThat(map.get(1L, 0)).isEqualTo("exists");
+  }
+
+  @Test
+  public void removeByFileIdCompactsSection() {
+    // After removeByFileId, the section should be compacted so that
+    // remaining entries are still findable (no broken probe chains).
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    // Interleave entries from two files
+    for (int i = 0; i < 8; i++) {
+      map.put(1L, i, "f1-" + i);
+      map.put(2L, i, "f2-" + i);
+    }
+    assertThat(map.size()).isEqualTo(16);
+
+    map.removeByFileId(1L);
+    assertThat(map.size()).isEqualTo(8);
+
+    // All file-2 entries must be findable after compaction
+    for (int i = 0; i < 8; i++) {
+      assertThat(map.get(2L, i))
+          .as("Entry (2, %d) must be findable after removeByFileId(1)", i)
+          .isEqualTo("f2-" + i);
+    }
+  }
+
+  @Test
+  public void removeByFileIdAllowsReinsertionAfterRemoval() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "old-" + i);
+    }
+    map.removeByFileId(1L);
+    assertThat(map.size()).isEqualTo(0);
+
+    // Re-insert with same fileId — must work correctly
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "new-" + i);
+    }
+    for (int i = 0; i < 5; i++) {
+      assertThat(map.get(1L, i)).isEqualTo("new-" + i);
+    }
+    assertThat(map.size()).isEqualTo(5);
+  }
+
+  @Test
+  public void removeByFileIdWithManyEntriesAcrossMultipleSections() {
+    // Entries from many files spread across all 16 sections
+    var map = new ConcurrentLongIntHashMap<String>();
+    int filesCount = 10;
+    int pagesPerFile = 50;
+    for (long fid = 0; fid < filesCount; fid++) {
+      for (int page = 0; page < pagesPerFile; page++) {
+        map.put(fid, page, "f" + fid + "-p" + page);
+      }
+    }
+    assertThat(map.size()).isEqualTo(filesCount * pagesPerFile);
+
+    // Remove file 5
+    var removed = map.removeByFileId(5L);
+    assertThat(removed).hasSize(pagesPerFile);
+    assertThat(map.size()).isEqualTo((filesCount - 1) * pagesPerFile);
+
+    // Verify all other files intact
+    for (long fid = 0; fid < filesCount; fid++) {
+      for (int page = 0; page < pagesPerFile; page++) {
+        if (fid == 5) {
+          assertThat(map.get(fid, page)).isNull();
+        } else {
+          assertThat(map.get(fid, page)).isEqualTo("f" + fid + "-p" + page);
+        }
+      }
+    }
+  }
 }

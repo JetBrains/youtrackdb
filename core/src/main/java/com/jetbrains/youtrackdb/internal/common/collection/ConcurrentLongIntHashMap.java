@@ -21,6 +21,8 @@
  */
 package com.jetbrains.youtrackdb.internal.common.collection;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.locks.StampedLock;
 
 /**
@@ -213,6 +215,27 @@ public class ConcurrentLongIntHashMap<V> {
     long hash = hash(fileId, pageIndex);
     int sectionIdx = sectionIndex(hash);
     return sections[sectionIdx].remove(fileId, pageIndex, expected, (int) hash);
+  }
+
+  /**
+   * Removes all entries with the given fileId across all sections.
+   *
+   * <p>Each section is swept linearly under its write lock: matching entries are collected into a
+   * list and the section's arrays are compacted (same-capacity rehash if needed). The returned list
+   * is safe to iterate outside any lock — callers can perform post-removal processing (e.g.,
+   * freeze, eviction callbacks) without holding segment locks.
+   *
+   * <p>Cross-section removal is not collectively atomic, matching the per-entry atomicity of
+   * individual {@code remove()} calls.
+   *
+   * @return a list of removed values (may be empty, never null)
+   */
+  public List<V> removeByFileId(long fileId) {
+    var result = new ArrayList<V>();
+    for (Section<V> section : sections) {
+      section.removeByFileId(fileId, result);
+    }
+    return result;
   }
 
   /** Returns the total capacity (sum of all section capacities). */
@@ -510,6 +533,74 @@ public class ConcurrentLongIntHashMap<V> {
         return true;
       } finally {
         lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Remove all entries with the given fileId. Sweeps the entire section linearly under write
+     * lock, collecting removed values into the provided list. After the sweep, if the tombstone
+     * ratio is too high, performs a same-capacity rehash to compact the section.
+     */
+    void removeByFileId(long fileId, List<V> removedEntries) {
+      long stamp = lock.writeLock();
+      try {
+        int removed = 0;
+        for (int i = 0; i < capacity; i++) {
+          V val = values[i];
+          if (val != null && fileIds[i] == fileId) {
+            removedEntries.add(val);
+            values[i] = null;
+            removed++;
+          }
+        }
+
+        if (removed == 0) {
+          return;
+        }
+
+        size -= removed;
+        usedBuckets -= removed;
+
+        // After bulk removal, compact if tombstone ratio exceeds threshold.
+        // Since we used simple nullification (not backward-sweep per entry), there may be
+        // gaps in probe chains. A same-capacity rehash eliminates all gaps.
+        // Always rehash after removeByFileId to restore probe chain integrity.
+        rehashSameCapacity();
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    /**
+     * Rehash at the same capacity — re-insert all live entries into fresh arrays. Eliminates any
+     * gaps left by bulk removal. Must be called under write lock.
+     */
+    @SuppressWarnings("unchecked")
+    private void rehashSameCapacity() {
+      long[] oldFileIds = fileIds;
+      int[] oldPageIndices = pageIndices;
+      V[] oldValues = values;
+
+      fileIds = new long[capacity];
+      pageIndices = new int[capacity];
+      values = (V[]) new Object[capacity];
+
+      int bucketMask = capacity - 1;
+      for (int i = 0; i < capacity; i++) {
+        V val = oldValues[i];
+        if (val != null) {
+          long fId = oldFileIds[i];
+          int pIdx = oldPageIndices[i];
+          int bucket = (int) hash(fId, pIdx) & bucketMask;
+
+          while (values[bucket] != null) {
+            bucket = (bucket + 1) & bucketMask;
+          }
+
+          values[bucket] = val;
+          fileIds[bucket] = fId;
+          pageIndices[bucket] = pIdx;
+        }
       }
     }
 
