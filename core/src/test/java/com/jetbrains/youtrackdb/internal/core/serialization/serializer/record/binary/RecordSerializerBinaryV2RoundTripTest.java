@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
@@ -677,6 +679,159 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((String) deserialized.getProperty(name200)).isEqualTo("val200");
     assertThat((String) deserialized.getProperty(name350)).isEqualTo("val350");
     assertThat((String) deserialized.getProperty(name500)).isEqualTo("val500");
+  }
+
+  // --- Link types ---
+
+  @Test
+  public void roundTrip_singleLinkProperty() {
+    // LINK property stores a RID referencing another entity. V2 delegates LINK
+    // value serialization to V1 but still encodes the name + type via V2 format.
+    // Uses real persisted entities because getProperty() triggers lazy-load for
+    // LINK values — a synthetic RecordId that doesn't exist in the DB returns null.
+    session.createClass("LinkTarget");
+    session.begin();
+    var target = (EntityImpl) session.newEntity("LinkTarget");
+    target.setString("label", "target");
+    session.commit();
+    var targetRid = target.getIdentity();
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("name", "source");
+    entity.setString("extra", "padding");
+    entity.setProperty("ref", targetRid, PropertyType.LINK);
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((String) deserialized.getProperty("name")).isEqualTo("source");
+    var refId = (Identifiable) deserialized.getProperty("ref");
+    assertThat(refId.getIdentity()).isEqualTo(targetRid);
+  }
+
+  @Test
+  public void roundTrip_linkList() {
+    // LINKLIST: ordered list of RIDs. V2 delegates to V1 for value encoding.
+    session.createClass("LinkListTarget");
+    session.begin();
+    var t1 = (EntityImpl) session.newEntity("LinkListTarget");
+    t1.setString("n", "1");
+    var t2 = (EntityImpl) session.newEntity("LinkListTarget");
+    t2.setString("n", "2");
+    var t3 = (EntityImpl) session.newEntity("LinkListTarget");
+    t3.setString("n", "3");
+    session.commit();
+    var rid1 = t1.getIdentity();
+    var rid2 = t2.getIdentity();
+    var rid3 = t3.getIdentity();
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("a", "pad1");
+    entity.setString("b", "pad2");
+    var linkList = session.newLinkList();
+    linkList.add(rid1);
+    linkList.add(rid2);
+    linkList.add(rid3);
+    entity.setProperty("refs", linkList, PropertyType.LINKLIST);
+
+    var deserialized = serializeAndDeserialize(entity);
+    @SuppressWarnings("unchecked")
+    var result = (List<Identifiable>) deserialized.getProperty("refs");
+    assertThat(result).hasSize(3);
+    assertThat(result.get(0).getIdentity()).isEqualTo(rid1);
+    assertThat(result.get(1).getIdentity()).isEqualTo(rid2);
+    assertThat(result.get(2).getIdentity()).isEqualTo(rid3);
+  }
+
+  @Test
+  public void roundTrip_linkSet() {
+    // LINKSET: unordered set of RIDs. V2 delegates to V1 for value encoding.
+    session.createClass("LinkSetTarget");
+    session.begin();
+    var t1 = (EntityImpl) session.newEntity("LinkSetTarget");
+    t1.setString("n", "a");
+    var t2 = (EntityImpl) session.newEntity("LinkSetTarget");
+    t2.setString("n", "b");
+    session.commit();
+    var rid1 = t1.getIdentity();
+    var rid2 = t2.getIdentity();
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("x", "pad1");
+    entity.setString("y", "pad2");
+    var linkSet = session.newLinkSet();
+    linkSet.add(rid1);
+    linkSet.add(rid2);
+    entity.setProperty("members", linkSet, PropertyType.LINKSET);
+
+    var deserialized = serializeAndDeserialize(entity);
+    @SuppressWarnings("unchecked")
+    var result = (java.util.Set<Identifiable>) deserialized.getProperty("members");
+    assertThat(result).hasSize(2);
+    var rids = new java.util.HashSet<RID>();
+    for (var item : result) {
+      rids.add(item.getIdentity());
+    }
+    assertThat(rids).contains(rid1, rid2);
+  }
+
+  @Test
+  public void roundTrip_linkMap() {
+    // LINKMAP: map of string→RID. V2 delegates to V1 for value encoding.
+    session.createClass("LinkMapTarget");
+    session.begin();
+    var t1 = (EntityImpl) session.newEntity("LinkMapTarget");
+    t1.setString("n", "target1");
+    session.commit();
+    var rid1 = t1.getIdentity();
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("p", "pad1");
+    entity.setString("q", "pad2");
+    var linkMap = session.newLinkMap();
+    linkMap.put("primary", rid1);
+    entity.setProperty("links", linkMap, PropertyType.LINKMAP);
+
+    var deserialized = serializeAndDeserialize(entity);
+    @SuppressWarnings("unchecked")
+    var result = (java.util.Map<String, Identifiable>) deserialized.getProperty("links");
+    assertThat(result).hasSize(1);
+    assertThat(result.get("primary").getIdentity()).isEqualTo(rid1);
+  }
+
+  @Test
+  public void roundTrip_mixedLinksAndRegularProperties() {
+    // Combine LINK, LINKLIST, and regular properties in one entity to verify
+    // V2 hash table correctly handles the mixed type set.
+    session.createClass("MixedLinkTarget");
+    session.begin();
+    var target = (EntityImpl) session.newEntity("MixedLinkTarget");
+    target.setString("label", "linked");
+    session.commit();
+    var targetRid = target.getIdentity();
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("name", "mixed");
+    entity.setInt("count", 7);
+    entity.setProperty("singleRef", targetRid, PropertyType.LINK);
+    var linkList = session.newLinkList();
+    linkList.add(targetRid);
+    entity.setProperty("refList", linkList, PropertyType.LINKLIST);
+    entity.setDouble("score", 88.5);
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((String) deserialized.getProperty("name")).isEqualTo("mixed");
+    assertThat((int) deserialized.getProperty("count")).isEqualTo(7);
+    assertThat((double) deserialized.getProperty("score")).isEqualTo(88.5);
+    var refId = (Identifiable) deserialized.getProperty("singleRef");
+    assertThat(refId.getIdentity()).isEqualTo(targetRid);
+    @SuppressWarnings("unchecked")
+    var refListResult = (List<Identifiable>) deserialized.getProperty("refList");
+    assertThat(refListResult).hasSize(1);
+    assertThat(refListResult.get(0).getIdentity()).isEqualTo(targetRid);
   }
 
   // --- Helper ---
