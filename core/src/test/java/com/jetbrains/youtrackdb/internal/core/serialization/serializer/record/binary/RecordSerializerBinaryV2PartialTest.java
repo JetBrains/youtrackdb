@@ -555,6 +555,42 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
+  public void field_hashTableMode_nonExistentFieldReturnsNull() {
+    // deserializeField for a field that doesn't exist in hash table mode should return null.
+    // This exercises the empty-slot termination path in deserializeFieldHashTable,
+    // which is a separate implementation from deserializePartialHashTable.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 15; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+    var field = deserializeFieldFromEntity(entity, "nonexistent_field", false);
+    assertThat(field).isNull();
+    session.rollback();
+  }
+
+  @Test
+  public void partial_hashTableMode_hash8CollisionResolved() {
+    // With 30 properties and 256 possible hash8 values, there is a ~83% probability
+    // of at least one hash8 collision. The linear probe must skip hash8-matching but
+    // name-mismatching slots and continue probing. Verify each property is individually
+    // retrievable via partial deserialization to confirm the continue-on-mismatch path.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    int n = 30;
+    for (int i = 0; i < n; i++) {
+      entity.setString("f_" + i, "v_" + i);
+    }
+    for (int i = 0; i < n; i++) {
+      var deserialized = partialDeserialize(entity, "f_" + i);
+      assertThat(deserialized.getString("f_" + i))
+          .as("property f_%d", i)
+          .isEqualTo("v_" + i);
+    }
+    session.rollback();
+  }
+
+  @Test
   public void partial_hashTableMode_mixedTierEmbeddedEntity() {
     // Small parent (2 properties, linear) with large embedded child (15+ properties, hash table).
     // Verifies that different tiers can coexist in the same serialized record.

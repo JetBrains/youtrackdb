@@ -106,6 +106,15 @@ public class RecordSerializerBinaryV2HashTableTest {
   }
 
   @Test
+  public void computeLog2Capacity_exactPowerOfTwoMinSlots() {
+    // N=5: minSlots = (5*8+4)/5 = 8 (exact power of two)
+    // 32 - nlz(7) = 32 - 29 = 3 → capacity = 8 (correct, not 4)
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(5)).isEqualTo(3);
+    // N=10: minSlots = (10*8+4)/5 = 16 (exact power of two)
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(10)).isEqualTo(4);
+  }
+
+  @Test
   public void computeLog2Capacity_clampedToMax() {
     // Very large property count should be clamped to MAX_LOG2_CAPACITY
     assertThat(RecordSerializerBinaryV2.computeLog2Capacity(5000))
@@ -234,7 +243,8 @@ public class RecordSerializerBinaryV2HashTableTest {
     RecordSerializerBinaryV2.HashTableResult result2 =
         RecordSerializerBinaryV2.buildHashTable(names, log2);
 
-    assertThat(result1.seed).isEqualTo(result2.seed);
+    assertThat(result1.seed).isEqualTo(0);
+    assertThat(result2.seed).isEqualTo(0);
     assertThat(result1.log2Capacity).isEqualTo(result2.log2Capacity);
     assertThat(result1.slotArray).isEqualTo(result2.slotArray);
     assertThat(result1.slotPropertyIndex).isEqualTo(result2.slotPropertyIndex);
@@ -282,24 +292,44 @@ public class RecordSerializerBinaryV2HashTableTest {
 
   @Test
   public void buildHashTable_capacityBoundary() {
-    // Single property at threshold (13) — smallest hash table case
+    // Smallest hash table case (13 properties): capacity must be exactly 32 (= 2^5)
     byte[][] names = generateNames(13);
     int log2 = RecordSerializerBinaryV2.computeLog2Capacity(13);
     RecordSerializerBinaryV2.HashTableResult result =
         RecordSerializerBinaryV2.buildHashTable(names, log2);
     assertAllEntriesLocatable(names, result);
-    // Capacity should be power of two >= ceil(13 * 8/5) = 21 → 32
-    assertThat(1 << result.log2Capacity).isGreaterThanOrEqualTo(21);
+    assertThat(1 << result.log2Capacity).isEqualTo(32);
   }
 
   @Test
   public void buildHashTable_wrapAroundProbe() {
-    // Use enough properties to increase the chance of wrap-around during probing
-    byte[][] names = generateNames(60);
-    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(60);
-    RecordSerializerBinaryV2.HashTableResult result =
-        RecordSerializerBinaryV2.buildHashTable(names, log2);
-    assertAllEntriesLocatable(names, result);
+    // Verify that linear probing actually wraps around the end of the slot array.
+    // Sweep property counts until we find one where at least one property's final
+    // slot index is less than its Fibonacci start slot (proving wrap-around occurred).
+    boolean wrapFound = false;
+    for (int n = 13; n <= 200 && !wrapFound; n++) {
+      byte[][] names = generateNames(n);
+      int log2 = RecordSerializerBinaryV2.computeLog2Capacity(n);
+      RecordSerializerBinaryV2.HashTableResult result =
+          RecordSerializerBinaryV2.buildHashTable(names, log2);
+      int capacity = 1 << result.log2Capacity;
+      assertAllEntriesLocatable(names, result);
+      for (int i = 0; i < n; i++) {
+        int hash = MurmurHash3.hash32WithSeed(names[i], 0, names[i].length, result.seed);
+        int startSlot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, result.log2Capacity);
+        for (int s = 0; s < capacity; s++) {
+          if (result.slotPropertyIndex[s] == i) {
+            if (s < startSlot) {
+              wrapFound = true;
+            }
+            break;
+          }
+        }
+      }
+    }
+    assertThat(wrapFound)
+        .as("Expected at least one property to wrap around the slot array boundary")
+        .isTrue();
   }
 
   @Test
@@ -352,7 +382,8 @@ public class RecordSerializerBinaryV2HashTableTest {
 
   @Test
   public void buildHashTable_maxProbeLengthBounded() {
-    // R4: Verify max probe length stays reasonable (< 15) for 50-100 properties
+    // R4: At 0.625 load factor, expected max probe length is O(log n) ~7 for 100 entries.
+    // Bound of 15 provides generous headroom for hash clustering variance.
     for (int n : new int[] {50, 75, 100}) {
       byte[][] names = generateNames(n);
       int log2 = RecordSerializerBinaryV2.computeLog2Capacity(n);
@@ -386,10 +417,10 @@ public class RecordSerializerBinaryV2HashTableTest {
   @Test
   public void buildHashTable_failsWhenCapacityInsufficient() {
     // 10 properties in a table with only 2 slots (log2Capacity=1) cannot fit.
-    // With assertions enabled (test JVM), this must throw AssertionError.
     byte[][] names = generateNames(10);
     assertThatThrownBy(() -> RecordSerializerBinaryV2.buildHashTable(names, 1))
-        .isInstanceOf(AssertionError.class);
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("must be < capacity");
   }
 
   @Test
