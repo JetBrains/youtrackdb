@@ -27,12 +27,21 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
     implements IdentityChangeListener {
 
   private static final Logger logger = LoggerFactory.getLogger(WeakValueHashMap.class);
+  private static final int EVICTION_INTERVAL_MASK = 63; // evict once every 64 operations
+
+  static {
+    assert (EVICTION_INTERVAL_MASK & (EVICTION_INTERVAL_MASK + 1)) == 0
+        : "EVICTION_INTERVAL_MASK must be 2^n - 1 for bitmask eviction to work correctly, got: "
+            + EVICTION_INTERVAL_MASK;
+  }
 
   private final ReferenceQueue<V> refQueue = new ReferenceQueue<>();
 
   private final Map<K, WeakRefValue<K, V>> referenceMap;
   private final Consumer<K> cleanupCallback;
 
+  // Overflow is intentional and harmless: the bitmask check works for all int values.
+  private int operationCounter;
   private boolean stopModification = false;
 
   /**
@@ -51,15 +60,24 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
     this.cleanupCallback = cleanupCallback;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public V get(Object key) {
-    evictStaleEntries();
+    amortizedEviction();
     final var k = (K) key;
     final var weakRef = referenceMap.get(k);
 
     return weakRef == null ? null : weakRef.get();
 
+  }
+
+  /**
+   * Performs eviction only once every 64 operations to amortize the cost of polling
+   * the reference queue across multiple map operations.
+   */
+  private void amortizedEviction() {
+    if ((operationCounter++ & EVICTION_INTERVAL_MASK) == 0) {
+      evictStaleEntries();
+    }
   }
 
   private void evictStaleEntries() {
@@ -100,10 +118,9 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
   }
 
   @Override
-  @Nullable
-  public V put(final K key, final V value) {
+  @Nullable public V put(final K key, final V value) {
     checkModificationAllowed();
-    evictStaleEntries();
+    amortizedEviction();
 
     if (key instanceof ChangeableIdentity changeableIdentity) {
       changeableIdentity.addIdentityChangeListener(this);
@@ -121,10 +138,9 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
   }
 
   @Override
-  @Nullable
-  public V remove(Object key) {
+  @Nullable public V remove(Object key) {
     checkModificationAllowed();
-    evictStaleEntries();
+    amortizedEviction();
 
     if (key instanceof ChangeableIdentity changeableIdentity) {
       changeableIdentity.removeIdentityChangeListener(this);
@@ -165,8 +181,7 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
               public V setValue(V value) {
                 throw new UnsupportedOperationException("setValue is not supported");
               }
-            }
-        );
+            });
       }
     }
     return result;
@@ -231,7 +246,8 @@ public final class WeakValueHashMap<K, V> extends AbstractMap<K, V>
       this.key = key;
     }
 
-    @Override public boolean equals(Object o) {
+    @Override
+    public boolean equals(Object o) {
       if (this == o) {
         return true;
       }
