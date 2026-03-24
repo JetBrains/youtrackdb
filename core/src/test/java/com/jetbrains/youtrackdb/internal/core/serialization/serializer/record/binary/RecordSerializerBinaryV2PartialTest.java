@@ -15,8 +15,8 @@ import org.junit.Test;
 
 /**
  * Tests for V2 partial deserialization (deserializePartial), field lookup (deserializeField), and
- * field name extraction (getFieldNames). Covers both linear mode (<=2 properties) and hash table
- * mode (3+ properties), including edge cases.
+ * field name extraction (getFieldNames). Covers linear mode (<=12 properties), cuckoo hash table
+ * mode (13+ properties), and edge cases.
  */
 public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
 
@@ -40,7 +40,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_singleField_hashMode() {
+  public void partial_singleField_linearMode_fiveProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -56,7 +56,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_multipleFields_hashMode() {
+  public void partial_multipleFields_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("first", "A");
@@ -97,7 +97,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_allFields_hashMode() {
+  public void partial_allFields_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("a", "1");
@@ -123,10 +123,10 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void partial_schemaAwareProperty_hashMode() {
+  public void partial_schemaAwareProperty_linearMode() {
     // Schema-aware properties use global property ID encoding. Verify partial
     // deserialization correctly resolves the ID back to the property name and
-    // returns the correct value via hash table lookup.
+    // returns the correct value.
     var clazz = session.createClass("PartialSchemaV2Test");
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("age", PropertyType.INTEGER);
@@ -176,7 +176,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_stringField_hashMode() {
+  public void field_stringField_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Alice");
@@ -195,7 +195,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_integerField_hashMode() {
+  public void field_integerField_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -292,7 +292,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_linkProperty_hashMode() {
+  public void field_linkProperty_linearMode() {
     // Verify deserializeField returns a non-null BinaryField for a LINK property
     // so that BinaryComparatorV0 can compare RID bytes directly.
     session.begin();
@@ -339,7 +339,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void fieldNames_hashMode() {
+  public void fieldNames_linearMode_fiveProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("a", "1");
@@ -383,19 +383,19 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void partial_threeProperties_hashModeBoundary() {
-    // Exactly 3 properties = first hash mode case (LINEAR_MODE_THRESHOLD = 2).
+  public void partial_thirteenProperties_cuckooModeBoundary() {
+    // Exactly 13 properties = first cuckoo hash mode case (LINEAR_MODE_THRESHOLD = 12).
     // An off-by-one in the threshold check would route to the wrong deserialize path.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
-    entity.setString("a", "val_a");
-    entity.setInt("b", 42);
-    entity.setDouble("c", 3.14);
+    for (int i = 0; i < 13; i++) {
+      entity.setString("field_" + i, "val_" + i);
+    }
 
-    var deserialized = partialDeserialize(entity, "b");
-    assertThat((int) deserialized.getProperty("b")).isEqualTo(42);
-    assertThat(deserialized.hasProperty("a")).isFalse();
-    assertThat(deserialized.hasProperty("c")).isFalse();
+    var deserialized = partialDeserialize(entity, "field_7");
+    assertThat(deserialized.getString("field_7")).isEqualTo("val_7");
+    assertThat(deserialized.hasProperty("field_0")).isFalse();
+    assertThat(deserialized.hasProperty("field_12")).isFalse();
   }
 
   // ========================================================================================
@@ -403,7 +403,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_embeddedEntity_hashMode() {
+  public void field_embeddedEntity_linearMode() {
     // Verify deserializeField works when embedded=true, which adds a class name
     // prefix before the property count. If the class name skip is wrong,
     // the field lookup reads garbage.
@@ -461,6 +461,120 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
 
     var field = deserializeFieldFromEntity(entity, "emb", false);
     assertThat(field).isNull();
+  }
+
+  // ========================================================================================
+  // Cuckoo hash mode tests (13+ properties)
+  // ========================================================================================
+
+  @Test
+  public void partial_cuckooMode_fifteenProperties() {
+    // 15 properties triggers cuckoo mode. Verify partial deserialization finds all requested
+    // fields via 2-bucket scan — some properties may land in h2 bucket.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 15; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+
+    // Request 3 fields scattered across the property list
+    var deserialized = partialDeserialize(entity, "prop_0", "prop_7", "prop_14");
+    assertThat(deserialized.getString("prop_0")).isEqualTo("val_0");
+    assertThat(deserialized.getString("prop_7")).isEqualTo("val_7");
+    assertThat(deserialized.getString("prop_14")).isEqualTo("val_14");
+    assertThat(deserialized.hasProperty("prop_1")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void partial_cuckooMode_fiftyProperties() {
+    // 50-property stress test for cuckoo partial deserialization
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 50; i++) {
+      entity.setString("field_" + i, "value_" + i);
+    }
+
+    var deserialized = partialDeserialize(entity, "field_25", "field_49");
+    assertThat(deserialized.getString("field_25")).isEqualTo("value_25");
+    assertThat(deserialized.getString("field_49")).isEqualTo("value_49");
+    session.rollback();
+  }
+
+  @Test
+  public void field_cuckooMode_fifteenProperties() {
+    // Verify deserializeField works in cuckoo mode — field lookup via 2-bucket scan
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 15; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+
+    var field = deserializeFieldFromEntity(entity, "prop_10", false);
+    assertThat(field).isNotNull();
+    assertThat(field.name).isEqualTo("prop_10");
+    assertThat(field.type).isEqualTo(PropertyTypeInternal.STRING);
+    session.rollback();
+  }
+
+  @Test
+  public void fieldNames_cuckooMode_fifteenProperties() {
+    // Verify getFieldNames in cuckoo mode returns all property names
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 15; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+
+    var names = getFieldNamesFromEntity(entity, false);
+    assertThat(names).hasSize(15);
+    for (int i = 0; i < 15; i++) {
+      assertThat(names).contains("prop_" + i);
+    }
+    session.rollback();
+  }
+
+  @Test
+  public void partial_cuckooMode_nonExistentField() {
+    // Requesting a field that doesn't exist in cuckoo mode should not throw
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 13; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+
+    var deserialized = partialDeserialize(entity, "nonexistent");
+    assertThat(deserialized.hasProperty("nonexistent")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void partial_cuckooMode_mixedTierEmbeddedEntity() {
+    // Small parent (2 properties, linear) with large embedded child (15+ properties, cuckoo).
+    // Verifies that different tiers can coexist in the same serialized record.
+    session.begin();
+    var parent = (EntityImpl) session.newEntity();
+    parent.setString("parentName", "root");
+
+    var child = new EmbeddedEntityImpl(session);
+    for (int i = 0; i < 15; i++) {
+      child.setProperty("child_" + i, "cval_" + i);
+    }
+    parent.setProperty("child", child, PropertyType.EMBEDDED);
+
+    // Full round-trip verifies both linear parent and cuckoo embedded child
+    var bytes = new BytesContainer();
+    v2.serialize(session, parent, bytes);
+    var deserialized = (EntityImpl) session.newEntity();
+    v2.deserialize(session, deserialized, new BytesContainer(bytes.bytes));
+
+    assertThat(deserialized.getString("parentName")).isEqualTo("root");
+    var deserializedChild = (EntityImpl) deserialized.getProperty("child");
+    assertThat(deserializedChild).isNotNull();
+    for (int i = 0; i < 15; i++) {
+      assertThat(deserializedChild.getString("child_" + i)).isEqualTo("cval_" + i);
+    }
+    session.rollback();
   }
 
   // ========================================================================================
