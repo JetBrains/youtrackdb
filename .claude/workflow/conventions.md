@@ -124,6 +124,7 @@ reviews (track-review.md), and track-level code review.
 
 - Max 3 iterations per review type
 - Finding IDs are cumulative across iterations:
+  - `CR1, CR2, ...` for consistency review
   - `S1, S2, ...` for structural review
   - `T1, T2, ...` for technical review
   - `R1, R2, ...` for risk review

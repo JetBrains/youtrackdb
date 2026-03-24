@@ -1,21 +1,19 @@
-# Structural Review (Phase 2)
+# Structural Review (Step 2 of Implementation Review)
 
 ## Goal
 
-Validate the plan's structure, consistency, and completeness before execution
-begins. This is a lightweight check that does NOT read the codebase — it
-catches plan-level defects (dependency cycles, missing descriptions,
-contradictions) cheaply.
+Validate the plan's internal structure and completeness. This is a
+lightweight check that does NOT read the codebase — it catches plan-level
+defects (dependency cycles, missing descriptions, contradictions) cheaply.
+
+This runs **automatically** as step 2 of the implementation review
+(Phase 2), after the consistency review passes. See
+[`implementation-review.md`](implementation-review.md) for the full
+Phase 2 orchestration.
 
 Technical, risk, and adversarial reviews happen later, adaptively per-track
 during Phase 3, when the execution agent has maximum context about the
 codebase and can benefit from what was learned executing earlier tracks.
-
-## How to run
-
-Start a new Claude Code session and run `/review-plan` (optionally pass a
-branch name; if omitted, the current git branch is used). The command prompt
-is at `.claude/commands/review-plan.md`.
 
 ## Structural review prompt
 

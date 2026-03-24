@@ -1,18 +1,14 @@
-Read and follow the workflow for Phase 2 (Structural Review).
+Read and follow the workflow for Phase 2 (Implementation Review).
 
 Read these workflow documents in order before starting:
 1. `.claude/workflow/conventions.md` — shared formats,
    glossary, plan file structure, scope indicators, review iteration protocol
-2. `.claude/workflow/structural-review.md` — Phase 2 instructions:
-   structural review prompt, gate verification, review iteration, review output
+2. `.claude/workflow/implementation-review.md` — Phase 2 orchestration:
+   two-step review (consistency review then automatic structural review)
 
-You are the Structural Review Orchestrator. Your job is to validate the plan's
-structure, consistency, and completeness before execution begins. You do NOT
-need to read the codebase — this review is about plan quality, not technical
-accuracy.
-
-Technical, risk, and adversarial reviews happen later, per-track during
-Phase 3 execution.
+You are the Implementation Review Orchestrator. Your job is to validate
+the plan's consistency with the codebase and design document, then validate
+its structural quality — all before execution begins.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -22,40 +18,74 @@ Plan file: docs/adr/<dir-name>/implementation-plan.md
 Design document: docs/adr/<dir-name>/design.md
 Review output directory: docs/adr/<dir-name>/reviews/
 
-Steps:
-1. Read the plan file, the design document, and the workflow documents
-   (conventions.md and structural-review.md). Also consult `planning.md`
-   §Architecture Notes format and `design-document-rules.md` for the rules
-   the structural review validates against (architecture notes, design
-   document, track descriptions, scope indicators, track sizing).
-2. Spawn the structural review sub-agent with the prompt from
-   `.claude/workflow/prompts/structural-review.md`. Pass the workflow
-   directory path (`.claude/workflow/`) and the design document path so
-   the sub-agent can reference the conventions and review the design document.
+---
+
+## Step 1: Consistency Review (interactive)
+
+1. Read the plan file, the design document, and the workflow documents.
+   Also consult `planning.md` §Architecture Notes format and
+   `design-document-rules.md` for the rules the review validates against.
+2. Spawn the consistency review sub-agent with the prompt from
+   `.claude/workflow/prompts/consistency-review.md`. Pass the plan file,
+   design document path, and workflow directory path so the sub-agent can
+   read code and verify references.
 3. Receive the findings report.
 4. Present findings to the user grouped by severity (blocker → should-fix
    → suggestion). For each finding, show:
-   - The issue
+   - The issue and evidence from the code
    - The proposed fix
    - Your recommendation (accept/modify/reject) with reasoning
 5. Wait for the user's decision on each finding.
-6. Apply accepted fixes to the plan file.
-7. Spawn the gate verification sub-agent with:
+6. Apply accepted fixes to the plan file and/or design document.
+7. Spawn the consistency gate verification sub-agent with:
    - The previous findings list
-   - The updated plan
+   - The updated plan and design document
    - Instructions to verify fixes and flag regressions
 8. If the gate finds new blockers, present them and loop (max 3 iterations).
-   If fixes significantly restructured the plan (tracks reordered,
-   tracks added/removed, scope indicators changed substantially), re-run
-   the full structural review instead of the gate.
+   If fixes significantly restructure the plan or design document
+   (tracks reordered, classes/flows redesigned, scope indicators changed
+   substantially), re-run the full consistency review instead of the gate.
 9. When the gate is clean, save the review document to
-   docs/adr/<dir-name>/reviews/structural.md using the format from
-   structural-review.md.
+   docs/adr/<dir-name>/reviews/consistency.md.
+
+Finding IDs are cumulative across iterations (CR1, CR2, ... CR6, CR7).
+
+---
+
+## Step 2: Structural Review (automatic)
+
+After consistency review passes, proceed **automatically** to structural
+review without waiting for user confirmation.
+
+10. Spawn the structural review sub-agent with the prompt from
+    `.claude/workflow/prompts/structural-review.md`. Pass the workflow
+    directory path and the design document path.
+11. Receive the findings report.
+12. **If no blockers**: save the review document to
+    docs/adr/<dir-name>/reviews/structural.md and proceed to completion.
+13. **If blockers found**: present findings to the user grouped by severity.
+    For each finding, show:
+    - The issue
+    - The proposed fix
+    - Your recommendation (accept/modify/reject) with reasoning
+14. Wait for the user's decision on each finding.
+15. Apply accepted fixes.
+16. Spawn the gate verification sub-agent.
+17. If the gate finds new blockers, present them and loop (max 3 iterations).
+    If fixes significantly restructured the plan (tracks reordered,
+    tracks added/removed, scope indicators changed substantially), re-run
+    the full structural review instead of the gate.
+18. When the gate is clean, save the review document to
+    docs/adr/<dir-name>/reviews/structural.md.
 
 Finding IDs are cumulative across iterations (S1, S2, ... S6, S7).
 
-When the review passes:
-10. Summarize all changes made to the plan.
-11. Confirm the plan is ready for Phase 3 — the user can invoke
+---
+
+## Completion
+
+When both reviews pass:
+19. Summarize all changes made to the plan and design document.
+20. Confirm the plan is ready for Phase 3 — the user can invoke
     `/execute-tracks` to begin implementation. Remind the user that
     technical/risk/adversarial reviews will happen per-track during execution.
