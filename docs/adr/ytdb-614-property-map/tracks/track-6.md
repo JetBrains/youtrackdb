@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -21,7 +21,7 @@
 
 ## Steps
 
-- [ ] Step 1: Schema-aware V2 round-trip and stress tests
+- [x] Step 1: Schema-aware V2 round-trip and stress tests
   > Add to `RecordSerializerBinaryV2RoundTripTest`:
   > - Schema-aware round-trip: create class with typed properties (5+ properties
   >   including string, integer, double, boolean, datetime), serialize via V2,
@@ -36,6 +36,13 @@
   >
   > **Target files:** `RecordSerializerBinaryV2RoundTripTest.java`,
   > `RecordSerializerBinaryV2PartialTest.java`
+  >
+  > **What was done:** Added 7 test methods: schema-aware round-trip (6 typed
+  > properties), mixed schema+dynamic round-trip, 100-property stress test (5
+  > types), long property names (200/350/500 chars), and 2 schema-aware partial
+  > deserialization tests (single field + multi-field). All tests pass.
+  > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified),
+  > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
 - [ ] Step 2: Link type V2 round-trip and collection tests
   > Add database-backed tests for link types (require real RIDs from persisted
