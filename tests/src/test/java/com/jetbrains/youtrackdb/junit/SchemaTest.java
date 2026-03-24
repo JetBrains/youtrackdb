@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
@@ -141,29 +142,48 @@ public class SchemaTest extends BaseDBJUnit5Test {
   @Test
   @Order(7)
   void testMultiThreadSchemaCreation() throws InterruptedException {
+    // Create the class on the main thread so it's available in the schema.
+    session.getMetadata().getSchema().createClass("NewClass");
+
+    // Background thread must use its own session — sessions are thread-local.
+    var error = new AtomicReference<Throwable>();
     var thread =
         new Thread(
-            new Runnable() {
+            () -> {
+              var db = acquireSession();
+              try {
+                db.begin();
+                var doc = ((EntityImpl) db.newEntity("NewClass"));
+                db.commit();
 
-              @Override
-              public void run() {
-                var doc = ((EntityImpl) session.newEntity("NewClass"));
-
-                session.begin();
-                session.commit();
-
-                session.begin();
-                var activeTx = session.getActiveTransaction();
+                db.begin();
+                var activeTx = db.getActiveTransaction();
                 doc = activeTx.load(doc);
                 doc.delete();
-                session.commit();
-
-                session.getMetadata().getSchema().dropClass("NewClass");
+                db.commit();
+              } catch (Throwable t) {
+                error.set(t);
+              } finally {
+                db.close();
               }
             });
 
     thread.start();
-    thread.join();
+    // Use a timeout to prevent infinite CI hangs if the background thread deadlocks.
+    thread.join(30_000);
+    if (thread.isAlive()) {
+      thread.interrupt();
+      fail("Background thread did not complete within 30 seconds — possible deadlock");
+    }
+
+    // Check for background thread error before cleanup, so cleanup exceptions
+    // don't mask the original failure.
+    if (error.get() != null) {
+      fail("Background thread failed", error.get());
+    }
+
+    // Clean up the class on the main thread after the background thread finishes.
+    session.getMetadata().getSchema().dropClass("NewClass");
   }
 
   @Test
