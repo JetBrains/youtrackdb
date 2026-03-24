@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -170,9 +169,13 @@ public class AtomicOperationsTableTest {
     // minActiveOperationTimestamp itself is not visible (it's in progress)
     assertFalse(snapshot.isEntryVisible(50));
 
-    // Records at or above maxActiveOperationTimestamp are not visible
-    assertFalse(snapshot.isEntryVisible(51));
-    assertFalse(snapshot.isEntryVisible(100));
+    // Records above maxActiveOperationTs but within snapshotTs are visible
+    // (they must be committed because they're not in the in-progress set)
+    assertTrue(snapshot.isEntryVisible(51));
+    assertTrue(snapshot.isEntryVisible(100));
+
+    // Records above snapshotTs are not visible (truly future)
+    assertFalse(snapshot.isEntryVisible(101));
   }
 
   @Test
@@ -193,9 +196,12 @@ public class AtomicOperationsTableTest {
     assertFalse(snapshot.isEntryVisible(20));
     assertFalse(snapshot.isEntryVisible(30));
 
-    // Records at or above max (30) are not visible
-    assertFalse(snapshot.isEntryVisible(31));
-    assertFalse(snapshot.isEntryVisible(100));
+    // Records above max (30) but within snapshotTs (100) are visible (committed)
+    assertTrue(snapshot.isEntryVisible(31));
+    assertTrue(snapshot.isEntryVisible(100));
+
+    // Records above snapshotTs are not visible
+    assertFalse(snapshot.isEntryVisible(101));
   }
 
   @Test
@@ -220,8 +226,11 @@ public class AtomicOperationsTableTest {
     assertTrue(snapshot.isEntryVisible(25));
     assertTrue(snapshot.isEntryVisible(29));
 
-    // At or above max is not visible
-    assertFalse(snapshot.isEntryVisible(31));
+    // Above max but within snapshotTs: visible (committed)
+    assertTrue(snapshot.isEntryVisible(31));
+
+    // Above snapshotTs: not visible
+    assertFalse(snapshot.isEntryVisible(101));
   }
 
   @Test
@@ -371,7 +380,11 @@ public class AtomicOperationsTableTest {
     assertTrue(snapshot.isEntryVisible(1000));
     assertTrue(snapshot.isEntryVisible(1009));
     assertFalse(snapshot.isEntryVisible(1010));
-    assertFalse(snapshot.isEntryVisible(1011));
+    // 1011 is above max in-progress (1010) but within snapshotTs (1100): visible
+    assertTrue(snapshot.isEntryVisible(1011));
+    assertTrue(snapshot.isEntryVisible(1100));
+    // Above snapshotTs: not visible
+    assertFalse(snapshot.isEntryVisible(1101));
   }
 
   // ==================== Thread Safety Tests ====================
@@ -617,8 +630,7 @@ public class AtomicOperationsTableTest {
             startLatch.await();
             for (var i = 0; i < snapshotsPerReader; i++) {
               var snapshot = table.snapshotAtomicOperationTableState(Long.MAX_VALUE);
-              // Just ensure snapshot is consistent (no exceptions)
-              assertNotNull(snapshot.inProgressTxs());
+              verifySnapshotConsistency(snapshot);
               Thread.yield();
             }
           } catch (Throwable e) {
@@ -814,15 +826,17 @@ public class AtomicOperationsTableTest {
 
     // minActiveOperationTimestamp = 5, maxActiveOperationTimestamp = 15
     // Boundary conditions:
-    assertTrue(snapshot.isEntryVisible(4));   // Just below min - visible
-    assertFalse(snapshot.isEntryVisible(5));  // Exactly min - not visible
-    assertTrue(snapshot.isEntryVisible(6));   // Between min and next in-progress - visible
-    assertTrue(snapshot.isEntryVisible(9));   // Just below 10 - visible
+    assertTrue(snapshot.isEntryVisible(4)); // Just below min - visible
+    assertFalse(snapshot.isEntryVisible(5)); // Exactly min - not visible
+    assertTrue(snapshot.isEntryVisible(6)); // Between min and next in-progress - visible
+    assertTrue(snapshot.isEntryVisible(9)); // Just below 10 - visible
     assertFalse(snapshot.isEntryVisible(10)); // In-progress - not visible
-    assertTrue(snapshot.isEntryVisible(11));  // Between 10 and 15 - visible
-    assertTrue(snapshot.isEntryVisible(14));  // Just below max - visible
-    assertFalse(snapshot.isEntryVisible(15)); // Exactly max - not visible
-    assertFalse(snapshot.isEntryVisible(16)); // Above max - not visible
+    assertTrue(snapshot.isEntryVisible(11)); // Between 10 and 15 - visible
+    assertTrue(snapshot.isEntryVisible(14)); // Just below max - visible
+    assertFalse(snapshot.isEntryVisible(15)); // Exactly max (in-progress) - not visible
+    assertTrue(snapshot.isEntryVisible(16)); // Above max, within snapshotTs (20) - visible
+    assertTrue(snapshot.isEntryVisible(20)); // At snapshotTs - visible
+    assertFalse(snapshot.isEntryVisible(21)); // Above snapshotTs - not visible
   }
 
   @Test
@@ -872,6 +886,83 @@ public class AtomicOperationsTableTest {
 
     assertEquals(-1, table.getSegmentEarliestOperationInProgress());
     assertEquals(-1, table.getSegmentEarliestNotPersistedOperation());
+  }
+
+  /// After compaction advances the offset, attempting to start an operation with
+  /// a timestamp below the new offset must throw IllegalStateException because
+  /// the slot no longer exists in the table.
+  @Test(expected = IllegalStateException.class)
+  public void testOperationBelowOffsetAfterCompactionThrows() {
+    var table = new AtomicOperationsTable(10, 0);
+
+    // Complete operations 0-4 and compact
+    for (var i = 0; i < 5; i++) {
+      table.startOperation(i, i);
+      table.commitOperation(i);
+      table.persistOperation(i);
+    }
+    table.compactTable();
+
+    // Attempt to start an operation with a timestamp below the new offset —
+    // should fail because the offset has advanced past timestamp 0
+    table.startOperation(0, 10);
+  }
+
+  /// Compaction must correctly prune a mix of PERSISTED and ROLLED_BACK entries
+  /// at the front of the table, stopping at the first active entry.
+  @Test
+  public void testCompactionPrunesMixedTerminalStates() {
+    var table = new AtomicOperationsTable(100, 0);
+
+    // Create a mix: persisted, rolled-back, persisted, then in-progress
+    table.startOperation(0, 10);
+    table.commitOperation(0);
+    table.persistOperation(0); // PERSISTED
+
+    table.startOperation(1, 11);
+    table.rollbackOperation(1); // ROLLED_BACK
+
+    table.startOperation(2, 12);
+    table.commitOperation(2);
+    table.persistOperation(2); // PERSISTED
+
+    table.startOperation(3, 13); // IN_PROGRESS
+
+    table.compactTable();
+
+    // Only the in-progress operation at ts=3 should remain
+    assertEquals(13, table.getSegmentEarliestOperationInProgress());
+
+    // Verify snapshot correctness after compaction
+    var snapshot = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snapshot.inProgressTxs().size());
+    assertTrue(snapshot.inProgressTxs().contains(3));
+    assertEquals(3, snapshot.minActiveOperationTs());
+  }
+
+  /// Calling compactTable() twice in succession when the first compaction already
+  /// removed all purgeable entries — the second call should be a no-op.
+  @Test
+  public void testDoubleCompactionIsIdempotent() {
+    var table = new AtomicOperationsTable(10, 0);
+
+    table.startOperation(0, 10);
+    table.commitOperation(0);
+    table.persistOperation(0);
+    table.startOperation(1, 11); // IN_PROGRESS
+
+    table.compactTable();
+    // After first compaction: only ts=1 remains
+    assertEquals(11, table.getSegmentEarliestOperationInProgress());
+
+    table.compactTable();
+    // Second compaction should be no-op (ts=1 is IN_PROGRESS, cannot be pruned)
+    assertEquals(11, table.getSegmentEarliestOperationInProgress());
+
+    // Verify snapshot still correct
+    var snapshot = table.snapshotAtomicOperationTableState(100);
+    assertEquals(1, snapshot.inProgressTxs().size());
+    assertTrue(snapshot.inProgressTxs().contains(1));
   }
 
   @Test
@@ -1066,12 +1157,12 @@ public class AtomicOperationsTableTest {
   }
 
   /// Verifies that the cached min survives compaction correctly: after
-  /// compaction restructures segments, snapshots still return accurate results.
+  /// compaction prunes completed entries, snapshots still return accurate results.
   @Test
   public void testCachedMinAfterCompaction() {
     var table = new AtomicOperationsTable(10, 1);
 
-    // Create enough operations to build up segments
+    // Create enough operations to build up the table
     for (var i = 1; i <= 15; i++) {
       table.startOperation(i, i);
       if (i <= 10) {
@@ -1085,7 +1176,7 @@ public class AtomicOperationsTableTest {
     assertEquals(11, snap1.minActiveOperationTs());
     assertEquals(15, snap1.maxActiveOperationTs());
 
-    // Force compaction — segments restructure but active ops don't change
+    // Force compaction — table compacts but active ops don't change
     table.compactTable();
 
     // Snapshot after compaction should show same active set
@@ -1283,15 +1374,15 @@ public class AtomicOperationsTableTest {
     assertTrue(snap.inProgressTxs().contains(300));
   }
 
-  /// Creates operations spanning multiple segments with a small compaction
-  /// interval, then verifies that the snapshot correctly skips completed
-  /// segments via scan range narrowing.
+  /// Creates many operations with a small compaction interval, then verifies
+  /// that the snapshot correctly finds active operations after compaction
+  /// prunes completed entries and narrows the scan range.
   @Test
-  public void testMultiSegmentScanRangeSkipping() {
-    // Small compaction interval to create multiple segments
+  public void testScanRangeSkippingAfterCompaction() {
+    // Small compaction interval to trigger compaction
     var table = new AtomicOperationsTable(5, 1);
 
-    // Start 20 operations (spanning multiple segments)
+    // Start 20 operations
     for (var i = 1; i <= 20; i++) {
       table.startOperation(i, i);
     }
@@ -1304,10 +1395,10 @@ public class AtomicOperationsTableTest {
       }
     }
 
-    // Force compaction to restructure segments
+    // Force compaction to prune completed entries
     table.compactTable();
 
-    // Snapshot should find exactly ts=15 and ts=18 despite segment restructuring
+    // Snapshot should find exactly ts=15 and ts=18 despite compaction
     var snap = table.snapshotAtomicOperationTableState(100);
     assertEquals(15, snap.minActiveOperationTs());
     assertEquals(18, snap.maxActiveOperationTs());
@@ -1342,7 +1433,6 @@ public class AtomicOperationsTableTest {
     assertEquals(1, snap.inProgressTxs().size());
     assertTrue(snap.inProgressTxs().contains(5));
   }
-
 
   // ==================== Cached Min Thread Safety Tests ====================
 
@@ -1766,7 +1856,7 @@ public class AtomicOperationsTableTest {
 
     var actualMin = Long.MAX_VALUE;
     var actualMax = Long.MIN_VALUE;
-    for (var it = set.iterator(); it.hasNext(); ) {
+    for (var it = set.iterator(); it.hasNext();) {
       var ts = it.nextLong();
       if (ts < actualMin) {
         actualMin = ts;
@@ -1795,5 +1885,138 @@ public class AtomicOperationsTableTest {
       fail("Errors occurred: " + first.getClass().getSimpleName()
           + ": " + first.getMessage());
     }
+  }
+
+  // ==================== Snapshot Visibility Upper Bound Tests ====================
+
+  /// Verifies the fix for the CME bug: a committed transaction with a timestamp
+  /// above maxActiveOperationTs must be visible. The old rule
+  /// `recordTs >= maxActiveOperationTs → NOT VISIBLE` was wrong because committed
+  /// transactions can have higher timestamps than in-progress ones.
+  ///
+  /// Scenario: long-running op D at ts=5 is still IN_PROGRESS while short-lived
+  /// op C at ts=7 has already committed. A new reader at snapshotTs=10 must see
+  /// C's writes (version 7).
+  @Test
+  public void testCommittedVersionAboveMaxInProgressIsVisible() {
+    var table = new AtomicOperationsTable(100, 0);
+
+    // D starts at ts=5, still in progress
+    table.startOperation(5, 1);
+    // C starts at ts=7 and commits — record gets version 7
+    table.startOperation(7, 1);
+    table.commitOperation(7);
+
+    // New reader takes snapshot at ts=10
+    var snapshot = table.snapshotAtomicOperationTableState(10);
+
+    // maxActiveOperationTs is 5 (only D is in-progress)
+    assertEquals(5, snapshot.maxActiveOperationTs());
+    assertEquals(10, snapshot.snapshotTs());
+
+    // Version 7 is ABOVE maxActiveOperationTs but BELOW snapshotTs.
+    // It must be visible because it's committed and within the registered range.
+    assertTrue("Committed version above max in-progress must be visible",
+        snapshot.isEntryVisible(7));
+
+    // Version 5 is in-progress — not visible
+    assertFalse(snapshot.isEntryVisible(5));
+
+    // Version 11 is truly future — not visible
+    assertFalse(snapshot.isEntryVisible(11));
+  }
+
+  /// Verifies that the snapshotTs field correctly reflects the currentTimestamp
+  /// passed to snapshotAtomicOperationTableState.
+  @Test
+  public void testSnapshotTsMatchesCurrentTimestamp() {
+    var table = new AtomicOperationsTable(100, 0);
+    table.startOperation(0, 1);
+
+    var snapshot = table.snapshotAtomicOperationTableState(42);
+    assertEquals(42, snapshot.snapshotTs());
+  }
+
+  /// Verifies the full visibility spectrum across the timestamp space:
+  /// below min (visible), in-progress (not visible), between min and max (depends),
+  /// above max but below snapshotTs (visible), above snapshotTs (not visible).
+  @Test
+  public void testVisibilitySpectrum() {
+    var table = new AtomicOperationsTable(100, 0);
+
+    // Create a gap: ops at ts=5 and ts=15 are in-progress, ts=10 is committed
+    table.startOperation(5, 1);
+    table.startOperation(10, 1);
+    table.commitOperation(10);
+    table.startOperation(15, 1);
+    table.commitOperation(15);
+    table.startOperation(20, 1);
+
+    // Snapshot at ts=25
+    var snapshot = table.snapshotAtomicOperationTableState(25);
+    assertEquals(5, snapshot.minActiveOperationTs());
+    assertEquals(20, snapshot.maxActiveOperationTs());
+    assertEquals(25, snapshot.snapshotTs());
+
+    // Below min: visible
+    assertTrue(snapshot.isEntryVisible(3));
+
+    // At min (in-progress): not visible
+    assertFalse(snapshot.isEntryVisible(5));
+
+    // Between min and max, committed: visible
+    assertTrue(snapshot.isEntryVisible(10));
+    assertTrue(snapshot.isEntryVisible(15));
+
+    // At max (in-progress): not visible
+    assertFalse(snapshot.isEntryVisible(20));
+
+    // Above max, below snapshotTs: visible (committed in registered range)
+    assertTrue(snapshot.isEntryVisible(22));
+
+    // At snapshotTs: visible
+    assertTrue(snapshot.isEntryVisible(25));
+
+    // Above snapshotTs: not visible (truly future)
+    assertFalse(snapshot.isEntryVisible(26));
+  }
+
+  /// Verifies that when no operations are in progress, all versions up to
+  /// snapshotTs are visible and versions above it are not.
+  @Test
+  public void testNoActiveOpsVisibility() {
+    var table = new AtomicOperationsTable(100, 0);
+
+    table.startOperation(0, 1);
+    table.commitOperation(0);
+
+    var snapshot = table.snapshotAtomicOperationTableState(5);
+    assertEquals(5, snapshot.snapshotTs());
+
+    assertTrue(snapshot.isEntryVisible(0));
+    assertTrue(snapshot.isEntryVisible(5));
+    assertFalse(snapshot.isEntryVisible(6));
+  }
+
+  /// Reproduces the exact CME scenario from CI: a long-running background operation
+  /// (e.g., GC at ts=140) is IN_PROGRESS while a frontend transaction committed a
+  /// vertex at ts=142. A new reader must see version 142.
+  @Test
+  public void testBackgroundOpDoesNotHideCommittedVersion() {
+    var table = new AtomicOperationsTable(100, 100);
+
+    // Background GC starts at ts=140
+    table.startOperation(140, 1);
+    // Frontend tx commits a record at ts=142
+    table.startOperation(142, 1);
+    table.commitOperation(142);
+
+    // New frontend tx takes snapshot at ts=145
+    var snapshot = table.snapshotAtomicOperationTableState(145);
+    assertEquals(140, snapshot.maxActiveOperationTs());
+
+    // Version 142 must be visible — it's committed and within the registered range
+    assertTrue("Committed version 142 must be visible despite GC at 140",
+        snapshot.isEntryVisible(142));
   }
 }

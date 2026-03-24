@@ -59,7 +59,7 @@ public class AtomicOperationSnapshotProxyTest {
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
-    var snapshot = new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet());
+    var snapshot = new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
     return new AtomicOperationBinaryTracking(
         readCache, writeCache, 1, snapshot,
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),

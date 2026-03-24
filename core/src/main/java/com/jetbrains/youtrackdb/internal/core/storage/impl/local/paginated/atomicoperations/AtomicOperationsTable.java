@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
 /// A concurrent transaction tracking table for implementing Snapshot Isolation (SI).
@@ -28,11 +27,12 @@ import java.util.concurrent.atomic.AtomicLong;
 ///
 /// ## Design
 ///
-/// The table uses a **segmented structure** where each segment covers a contiguous range
-/// of timestamps. This enables O(1) index calculation: `itemIndex = operationTs - tsOffset`.
+/// The table uses a single contiguous [CASObjectArray] covering a range of timestamps
+/// starting from [#tsOffset]. This enables O(1) index calculation:
+/// `itemIndex = operationTs - tsOffset`.
 ///
 /// **Concurrency model**:
-/// - Individual status updates use lock-free CAS operations within segments
+/// - Individual status updates use lock-free CAS operations within the table
 /// - Shared lock is held during reads and status changes (allows concurrency)
 /// - Exclusive lock is acquired only during structural changes (compaction)
 ///
@@ -77,34 +77,31 @@ public class AtomicOperationsTable {
   private static final OperationInformation ATOMIC_OPERATION_STATUS_PLACE_HOLDER =
       new OperationInformation(AtomicOperationStatus.NOT_STARTED, -1, -1);
 
-  /// Base timestamps for each table segment.
+  /// Base timestamp for the table.
   ///
-  /// Each element represents the starting timestamp for the corresponding segment in
-  /// [#tables]. The index of an operation within a segment is calculated as:
-  /// `operationTs - tsOffsets[segmentIndex]`.
+  /// The index of an operation within the table is calculated as:
+  /// `operationTs - tsOffset`.
   ///
-  /// Segments cover contiguous, non-overlapping timestamp ranges:
-  /// - `[tsOffsets[0], tsOffsets[1])` → `tables[0]`
-  /// - `[tsOffsets[1], tsOffsets[2])` → `tables[1]`
-  /// - `[tsOffsets[n], ∞)` → `tables[n]`
-  private long[] tsOffsets;
+  /// During compaction, the offset advances as completed entries are pruned from
+  /// the front of the table.
+  private long tsOffset;
 
-  /// Array of lock-free arrays storing operation information.
+  /// Lock-free array storing operation information.
   ///
-  /// Each [CASObjectArray] represents a segment of the table, containing
-  /// [OperationInformation] records for operations within the timestamp range
-  /// defined by the corresponding entry in [#tsOffsets].
-  private CASObjectArray<OperationInformation>[] tables;
+  /// Contains [OperationInformation] records for operations with timestamps
+  /// in the range `[tsOffset, ∞)`. Replaced atomically during compaction
+  /// with a pruned copy.
+  private CASObjectArray<OperationInformation> table;
 
   /// Reader-writer lock protecting structural changes to the table.
   ///
   /// **Shared lock** is acquired for:
   /// - Reading operation status
-  /// - Changing operation status (CAS within segments)
+  /// - Changing operation status (CAS within the table)
   /// - Creating snapshots
   ///
   /// **Exclusive lock** is acquired only during [#compactTable()] to prevent
-  /// concurrent access while segments are being restructured.
+  /// concurrent access while the table is being restructured.
   private final ScalableRWLock compactionLock = new ScalableRWLock();
 
   /// Number of operations between automatic compaction attempts.
@@ -146,9 +143,10 @@ public class AtomicOperationsTable {
   /// ## Visibility Rules
   ///
   /// For a record with timestamp `recordTs`:
-  /// - `recordTs < minActiveOperationTs` → **Visible** (committed before snapshot)
-  /// - `recordTs >= maxActiveOperationTs` → **Not visible** (future or in-progress)
-  /// - `recordTs == minActiveOperationTs` → **Not visible** (snapshot boundary)
+  /// - `recordTs < minActiveOperationTs` → **Visible** (committed before all active ops)
+  /// - `recordTs > snapshotTs` → **Not visible** (truly future, not yet registered)
+  /// - `recordTs > maxActiveOperationTs` → **Visible** (above all in-progress ops,
+  ///   so must be committed; still within the registered range)
   /// - `recordTs` in `inProgressTxs` → **Not visible** (concurrent uncommitted)
   /// - Otherwise → **Visible** (committed between min and max)
   ///
@@ -157,9 +155,13 @@ public class AtomicOperationsTable {
   /// @param maxActiveOperationTs the maximum timestamp among all in-progress operations,
   ///                             or `currentTimestamp + 1` if no operations are active
   /// @param inProgressTxs        set of timestamps for all currently in-progress transactions
+  /// @param snapshotTs            the timestamp at which this snapshot was taken (the last
+  ///                             registered operation ID); any record with a timestamp above
+  ///                             this value is truly future and not visible
   public record AtomicOperationsSnapshot(long minActiveOperationTs,
-                                         long maxActiveOperationTs,
-                                         LongOpenHashSet inProgressTxs) {
+      long maxActiveOperationTs,
+      LongOpenHashSet inProgressTxs,
+      long snapshotTs) {
 
     /// Determines whether a record version with the given timestamp is visible to this snapshot.
     ///
@@ -167,25 +169,33 @@ public class AtomicOperationsTable {
     /// it was committed before the snapshot was taken and is not part of a concurrent
     /// in-progress transaction.
     ///
+    /// The key distinction is between `maxActiveOperationTs` (the highest in-progress
+    /// timestamp — used as a fast-path to skip the hash set lookup) and `snapshotTs`
+    /// (the last registered ID — the true upper visibility bound). Committed transactions
+    /// with timestamps between `maxActiveOperationTs` and `snapshotTs` are correctly
+    /// treated as visible.
+    ///
     /// Note: Rolled-back entries are kept in the system and handled separately;
     /// this method does not filter them out.
     ///
     /// @param recordTs the timestamp of the record version to check
     /// @return `true` if the record version is visible to this snapshot, `false` otherwise
     public boolean isEntryVisible(long recordTs) {
-      //TX is for sure committed, we do keep rolled-back entries
+      // Fast path: committed before all active transactions
       if (recordTs < minActiveOperationTs) {
         return true;
       }
-      //TS is in progress or in the future, so not visible
-      if (recordTs >= maxActiveOperationTs) {
+      // Truly future: not yet registered in the operations table
+      if (recordTs > snapshotTs) {
         return false;
       }
-      //TX is in progress so not visible
-      if (minActiveOperationTs == recordTs) {
-        return false;
+      // Fast path: above all in-progress operations, so must be committed
+      // (all operations with ts <= snapshotTs are registered; this one is not
+      // in inProgressTxs because it's above the max in-progress ts)
+      if (recordTs > maxActiveOperationTs) {
+        return true;
       }
-      //TX is in progress so not visible
+      // In the [min, max] range: check the in-progress set
       return !inProgressTxs.contains(recordTs);
     }
   }
@@ -199,14 +209,13 @@ public class AtomicOperationsTable {
   ///                                starting from this value can be registered in the table
   public AtomicOperationsTable(final int tableCompactionInterval, final long tsOffset) {
     this.tableCompactionInterval = tableCompactionInterval;
-    this.tsOffsets = new long[]{tsOffset};
-    //noinspection unchecked
-    tables = new CASObjectArray[]{new CASObjectArray<>()};
+    this.tsOffset = tsOffset;
+    table = new CASObjectArray<>();
   }
 
   /// Creates an immutable snapshot of the current atomic operations table state.
   ///
-  /// This method scans all table segments to identify in-progress operations and
+  /// This method scans the table to identify in-progress operations and
   /// captures their timestamps. The resulting snapshot can be used by readers to
   /// determine record visibility under Snapshot Isolation.
   ///
@@ -255,35 +264,34 @@ public class AtomicOperationsTable {
       // the happens-before chain guarantees that the subsequent read of table[X]
       // (with X < Y) also sees IN_PROGRESS:
       //   store(X) hb store(Y) hb read(Y) hb read(X)  [transitivity]
-      for (var segIdx = tables.length - 1; segIdx >= 0; segIdx--) {
-        final var table = tables[segIdx];
-        final var segOffset = tsOffsets[segIdx];
-        final var tableSize = table.size();
-        if (tableSize == 0) {
-          continue;
+      final var currentTable = this.table;
+      final var currentOffset = this.tsOffset;
+      final var tableSize = currentTable.size();
+
+      if (tableSize > 0) {
+        final long lastTs = currentOffset + tableSize - 1;
+
+        // Compute the lowest index (skip entries before cachedMin)
+        final int lowIdx;
+        if (scanFromTs > currentOffset) {
+          lowIdx = (int) (scanFromTs - currentOffset);
+        } else {
+          lowIdx = 0;
         }
 
-        final long segLastTs = segOffset + tableSize - 1;
+        // Only scan if the table extends beyond the scan start
+        if (lastTs >= scanFromTs) {
+          for (var i = tableSize - 1; i >= lowIdx; i--) {
+            final var operationInformation = currentTable.get(i);
 
-        // Skip segment if entirely before the scan start
-        if (segLastTs < scanFromTs) {
-          continue;
-        }
-
-        // Compute the lowest index within this segment (skip entries before cachedMin)
-        final int lowIdx = (scanFromTs > segOffset)
-            ? (int) (scanFromTs - segOffset) : 0;
-
-        for (var i = tableSize - 1; i >= lowIdx; i--) {
-          final var operationInformation = table.get(i);
-
-          if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
-            inProgressTs.add(operationInformation.operationTs);
-            if (operationInformation.operationTs < minOp) {
-              minOp = operationInformation.operationTs;
-            }
-            if (operationInformation.operationTs > maxOp) {
-              maxOp = operationInformation.operationTs;
+            if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
+              inProgressTs.add(operationInformation.operationTs);
+              if (operationInformation.operationTs < minOp) {
+                minOp = operationInformation.operationTs;
+              }
+              if (operationInformation.operationTs > maxOp) {
+                maxOp = operationInformation.operationTs;
+              }
             }
           }
         }
@@ -340,7 +348,7 @@ public class AtomicOperationsTable {
         }
       }
 
-      return new AtomicOperationsSnapshot(minOp, maxOp, inProgressTs);
+      return new AtomicOperationsSnapshot(minOp, maxOp, inProgressTs, currentTimestamp);
     } finally {
       compactionLock.sharedUnlock();
     }
@@ -407,13 +415,12 @@ public class AtomicOperationsTable {
   public long getSegmentEarliestOperationInProgress() {
     compactionLock.sharedLock();
     try {
-      for (final var table : tables) {
-        final var size = table.size();
-        for (var i = 0; i < size; i++) {
-          final var operationInformation = table.get(i);
-          if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
-            return operationInformation.segment;
-          }
+      final var currentTable = this.table;
+      final var size = currentTable.size();
+      for (var i = 0; i < size; i++) {
+        final var operationInformation = currentTable.get(i);
+        if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS) {
+          return operationInformation.segment;
         }
       }
     } finally {
@@ -433,14 +440,13 @@ public class AtomicOperationsTable {
   public long getSegmentEarliestNotPersistedOperation() {
     compactionLock.sharedLock();
     try {
-      for (final var table : tables) {
-        final var size = table.size();
-        for (var i = 0; i < size; i++) {
-          final var operationInformation = table.get(i);
-          if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
-              || operationInformation.status == AtomicOperationStatus.COMMITTED) {
-            return operationInformation.segment;
-          }
+      final var currentTable = this.table;
+      final var size = currentTable.size();
+      for (var i = 0; i < size; i++) {
+        final var operationInformation = currentTable.get(i);
+        if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
+            || operationInformation.status == AtomicOperationStatus.COMMITTED) {
+          return operationInformation.segment;
         }
       }
     } finally {
@@ -452,9 +458,9 @@ public class AtomicOperationsTable {
 
   /// Changes the status of an operation in the table.
   ///
-  /// This is the core method for all state transitions. It locates the correct
-  /// table segment based on the operation timestamp and performs a CAS update
-  /// to change the status atomically.
+  /// This is the core method for all state transitions. It locates the operation
+  /// by computing `operationTs - tsOffset` and performs a CAS update to change
+  /// the status atomically.
   ///
   /// May trigger compaction if the number of started operations exceeds the
   /// compaction threshold.
@@ -492,65 +498,46 @@ public class AtomicOperationsTable {
             "Invalid value of transaction segment for newly started operation");
       }
 
-      var currentIndex = 0;
-      var currentOffset = tsOffsets[0];
-      var nextOffset = tsOffsets.length > 1 ? tsOffsets[1] : Long.MAX_VALUE;
+      final var currentTable = this.table;
+      final var currentOffset = this.tsOffset;
+      final var itemIndex = (int) (operationTs - currentOffset);
+      if (itemIndex < 0) {
+        throw new IllegalStateException(
+            "Invalid state of table of atomic operations, entry for the transaction with TS "
+                + operationTs
+                + " can not be found (offset=" + currentOffset + ")");
+      }
+      if (newStatus == AtomicOperationStatus.IN_PROGRESS) {
+        currentTable.set(
+            itemIndex,
+            new OperationInformation(AtomicOperationStatus.IN_PROGRESS, segment, operationTs),
+            ATOMIC_OPERATION_STATUS_PLACE_HOLDER);
+        operationsStarted.incrementAndGet();
+      } else {
+        final var currentInformation = currentTable.get(itemIndex);
+        if (currentInformation.operationTs != operationTs) {
+          throw new IllegalStateException(
+              "Invalid operation TS, expected "
+                  + currentInformation.operationTs
+                  + " but found "
+                  + operationTs);
+        }
+        if (currentInformation.status != expectedStatus) {
+          throw new IllegalStateException(
+              "Invalid state of table of atomic operations, incorrect expected state "
+                  + currentInformation.status
+                  + " for upcoming state "
+                  + newStatus
+                  + " . Expected state was "
+                  + expectedStatus
+                  + " .");
+        }
 
-      while (true) {
-        if (currentOffset <= operationTs && operationTs < nextOffset) {
-          final var itemIndex = (int) (operationTs - currentOffset);
-          if (itemIndex < 0) {
-            throw new IllegalStateException("Invalid state of table of atomic operations");
-          }
-
-          final var table = tables[currentIndex];
-          if (newStatus == AtomicOperationStatus.IN_PROGRESS) {
-            table.set(
-                itemIndex,
-                new OperationInformation(AtomicOperationStatus.IN_PROGRESS, segment, operationTs),
-                ATOMIC_OPERATION_STATUS_PLACE_HOLDER);
-            operationsStarted.incrementAndGet();
-          } else {
-            final var currentInformation = table.get(itemIndex);
-            if (currentInformation.operationTs != operationTs) {
-              throw new IllegalStateException(
-                  "Invalid operation TS, expected "
-                      + currentInformation.operationTs
-                      + " but found "
-                      + operationTs);
-            }
-            if (currentInformation.status != expectedStatus) {
-              throw new IllegalStateException(
-                  "Invalid state of table of atomic operations, incorrect expected state "
-                      + currentInformation.status
-                      + " for upcoming state "
-                      + newStatus
-                      + " . Expected state was "
-                      + expectedStatus
-                      + " .");
-            }
-
-            if (!table.compareAndSet(
-                itemIndex,
-                currentInformation,
-                new OperationInformation(newStatus, currentInformation.segment, operationTs))) {
-              throw new IllegalStateException("Invalid state of table of atomic operations");
-            }
-          }
-
-          break;
-        } else {
-          currentIndex++;
-          if (currentIndex >= tsOffsets.length) {
-            throw new IllegalStateException(
-                "Invalid state of table of atomic operations, entry for the transaction with TS "
-                    + operationTs
-                    + " can not be found");
-          }
-
-          currentOffset = tsOffsets[currentIndex];
-          nextOffset =
-              tsOffsets.length > currentIndex + 1 ? tsOffsets[currentIndex + 1] : Long.MAX_VALUE;
+        if (!currentTable.compareAndSet(
+            itemIndex,
+            currentInformation,
+            new OperationInformation(newStatus, currentInformation.segment, operationTs))) {
+          throw new IllegalStateException("Invalid state of table of atomic operations");
         }
       }
 
@@ -591,130 +578,78 @@ public class AtomicOperationsTable {
   ///         or [#UNKNOWN_TS] if no such entry exists within the scan limit
   private long findNextInProgressFrom(long startTs) {
     var scanned = 0;
-    for (var segIdx = 0; segIdx < tsOffsets.length; segIdx++) {
-      final var segOffset = tsOffsets[segIdx];
-      final var table = tables[segIdx];
-      final var tableSize = table.size();
+    final var currentTable = this.table;
+    final var currentOffset = this.tsOffset;
+    final var tableSize = currentTable.size();
 
-      // Skip segments entirely before startTs
-      if (segOffset + tableSize <= startTs) {
-        continue;
+    final int startIndex = (startTs > currentOffset)
+        ? (int) (startTs - currentOffset) : 0;
+
+    for (var i = startIndex; i < tableSize; i++) {
+      if (++scanned > MAX_FORWARD_SCAN) {
+        return UNKNOWN_TS;
       }
-
-      final int startIndex = (startTs > segOffset)
-          ? (int) (startTs - segOffset) : 0;
-
-      for (var i = startIndex; i < tableSize; i++) {
-        if (++scanned > MAX_FORWARD_SCAN) {
-          return UNKNOWN_TS;
-        }
-        final var info = table.get(i);
-        if (info.status == AtomicOperationStatus.IN_PROGRESS) {
-          return info.operationTs;
-        }
+      final var info = currentTable.get(i);
+      if (info.status == AtomicOperationStatus.IN_PROGRESS) {
+        return info.operationTs;
       }
     }
     return UNKNOWN_TS;
   }
 
-  /// Compacts the table by removing completed (persisted or rolled-back) entries.
+  /// Compacts the table by removing completed (persisted or rolled-back) entries
+  /// from the front.
   ///
   /// This method acquires an exclusive lock, blocking all other operations.
   /// It performs the following:
   ///
   /// 1. **Prunes completed entries**: Removes `PERSISTED` and `ROLLED_BACK` entries
-  ///    from the front of each segment
-  /// 2. **Updates offsets**: Adjusts `tsOffsets` to reflect new segment boundaries
-  /// 3. **Removes empty segments**: Deletes segments that become empty after pruning
-  ///    (always keeping at least one segment)
+  ///    from the front of the table
+  /// 2. **Updates offset**: Adjusts [#tsOffset] to reflect the new table start
   ///
   /// Compaction is triggered automatically when
   /// `operationsStarted > lastCompactionOperation + tableCompactionInterval`.
   ///
   /// Note: [#cachedMinActiveTs] remains valid across compaction because it
-  /// stores a timestamp (not a segment index). Compaction only removes completed
-  /// entries and adjusts segment offsets; the set of IN_PROGRESS operations and
+  /// stores a timestamp (not an index). Compaction only removes completed
+  /// entries and adjusts the offset; the set of IN_PROGRESS operations and
   /// their timestamps are unchanged.
   public void compactTable() {
     compactionLock.exclusiveLock();
     try {
-      final var tablesToRemove = new ArrayDeque<Integer>(tables.length);
+      final var oldTable = this.table;
+      final var oldOffset = this.tsOffset;
 
-      var tablesAreFull = true;
-      var maxId = Long.MIN_VALUE;
+      final var newTable = new CASObjectArray<OperationInformation>();
+      final var tableSize = oldTable.size();
+      var addition = false;
 
-      for (var tableIndex = 0; tableIndex < tables.length; tableIndex++) {
-        final var table = tables[tableIndex];
-        final var tsOffset = tsOffsets[tableIndex];
+      long newTsOffset = -1;
+      for (var i = 0; i < tableSize; i++) {
+        final var operationInformation = oldTable.get(i);
+        if (!addition) {
+          if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
+              || operationInformation.status == AtomicOperationStatus.NOT_STARTED
+              || operationInformation.status == AtomicOperationStatus.COMMITTED) {
+            addition = true;
 
-        final var newTable = new CASObjectArray<OperationInformation>();
-        final var tableSize = table.size();
-        var addition = false;
-
-        long newTsOffset = -1;
-        for (var i = 0; i < tableSize; i++) {
-          final var operationInformation = table.get(i);
-          if (!addition) {
-            if (operationInformation.status == AtomicOperationStatus.IN_PROGRESS
-                || operationInformation.status == AtomicOperationStatus.NOT_STARTED
-                || operationInformation.status == AtomicOperationStatus.COMMITTED) {
-              addition = true;
-
-              newTsOffset = i + tsOffset;
-              newTable.add(operationInformation);
-            }
-          } else {
+            newTsOffset = i + oldOffset;
             newTable.add(operationInformation);
           }
-
-          if (maxId < tsOffset + i) {
-            maxId = i;
-          }
-        }
-
-        if (newTsOffset < 0) {
-          newTsOffset = tsOffset + tableSize;
-        }
-
-        this.tables[tableIndex] = newTable;
-        this.tsOffsets[tableIndex] = newTsOffset;
-
-        if (newTable.size() == 0) {
-          tablesToRemove.push(tableIndex);
         } else {
-          tablesAreFull =
-              (tablesAreFull || tableIndex == 0) && newTable.size() == tableCompactionInterval;
+          newTable.add(operationInformation);
         }
       }
 
-      if (!tablesToRemove.isEmpty() && tables.length > 1) {
-        if (tablesToRemove.size() == tables.length) {
-          this.tsOffsets = new long[]{maxId + 1};
-          //noinspection unchecked
-          this.tables = new CASObjectArray[]{tables[0]};
-        } else {
-          //noinspection unchecked
-          CASObjectArray<OperationInformation>[] newTables =
-              new CASObjectArray[this.tables.length - tablesToRemove.size()];
-          var newIdOffsets = new long[this.tsOffsets.length - tablesToRemove.size()];
-
-          var firstSrcIndex = 0;
-          var firstDestIndex = 0;
-
-          for (final int tableIndex : tablesToRemove) {
-            final var len = tableIndex - firstSrcIndex;
-            if (len > 0) {
-              System.arraycopy(this.tables, firstSrcIndex, newTables, firstDestIndex, len);
-              System.arraycopy(this.tsOffsets, firstSrcIndex, newIdOffsets, firstDestIndex, len);
-              firstDestIndex += len;
-            }
-            firstSrcIndex = tableIndex + 1;
-          }
-
-          this.tables = newTables;
-          this.tsOffsets = newIdOffsets;
-        }
+      if (newTsOffset < 0) {
+        newTsOffset = oldOffset + tableSize;
       }
+
+      assert newTsOffset >= oldOffset
+          : "compaction must not decrease tsOffset: old=" + oldOffset + " new=" + newTsOffset;
+
+      this.table = newTable;
+      this.tsOffset = newTsOffset;
 
       lastCompactionOperation = operationsStarted.get();
     } finally {
@@ -724,7 +659,7 @@ public class AtomicOperationsTable {
 
   /// Immutable record holding the state of a single atomic operation.
   ///
-  /// This is the unit of storage within each table segment. It captures all
+  /// This is the unit of storage within the table. It captures all
   /// information needed to track an operation's lifecycle and determine its
   /// impact on WAL segment retention.
   ///
@@ -734,7 +669,7 @@ public class AtomicOperationsTable {
   /// @param operationTs the unique timestamp identifying this operation;
   ///                    serves as both an identifier and ordering key
   private record OperationInformation(AtomicOperationStatus status, long segment,
-                                      long operationTs) {
+      long operationTs) {
 
   }
 }
