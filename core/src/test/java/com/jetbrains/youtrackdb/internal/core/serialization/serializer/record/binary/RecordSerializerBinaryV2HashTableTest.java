@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import java.nio.charset.StandardCharsets;
@@ -380,6 +381,27 @@ public class RecordSerializerBinaryV2HashTableTest {
           .as("Max probe length for %d properties", n)
           .isLessThan(15);
     }
+  }
+
+  @Test
+  public void buildHashTable_failsWhenCapacityInsufficient() {
+    // 10 properties in a table with only 2 slots (log2Capacity=1) cannot fit.
+    // With assertions enabled (test JVM), this must throw AssertionError.
+    byte[][] names = generateNames(10);
+    assertThatThrownBy(() -> RecordSerializerBinaryV2.buildHashTable(names, 1))
+        .isInstanceOf(AssertionError.class);
+  }
+
+  @Test
+  public void buildHashTable_atMaxCapacityClamp_1280Properties() {
+    // 1280 properties at MAX_LOG2_CAPACITY=11 (2048 slots) = exact 0.625 load factor.
+    // This is the tightest packing the capacity formula is designed for.
+    byte[][] names = generateNames(1280);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(1280);
+    assertThat(log2).isEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   // --- Helper methods ---
