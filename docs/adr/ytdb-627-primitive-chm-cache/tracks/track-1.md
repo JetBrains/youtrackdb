@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/5 complete)
+- [ ] Step implementation (4/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -84,19 +84,23 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
-- [ ] Step 4: removeByFileId() with tombstone compaction
-  > Implement bulk removal:
-  > - `removeByFileId(long fileId)` — linear sweep per segment under write lock
-  > - Collects removed entries into a list, returns `List<V>` after lock release
-  >   (deferred consumer model — caller processes entries outside segment lock)
-  > - After sweep, if tombstone ratio exceeds threshold (usedBuckets - size > capacity/4),
-  >   perform same-capacity rehash for compaction (T3/R4/A7)
-  > - Unit tests: removeByFileId with interleaved entries from multiple files (verify only
-  >   target file removed), removeByFileId returns correct entries, tombstone compaction
-  >   triggers correctly, usedBuckets == size after compaction, removeByFileId on empty
-  >   map, removeByFileId for non-existent fileId
+- [x] Step 4: removeByFileId() with same-capacity rehash compaction
+  > **What was done:** Implemented removeByFileId(long) sweeping each section linearly
+  > under write lock. Matching entries collected into returned List<V> (deferred consumer
+  > model). After sweep, always performs same-capacity rehash to restore probe chain
+  > integrity. 12 new tests (76 total) covering: only target file removed, correct values
+  > returned, empty map, non-existent fileId, compaction with interleaved entries,
+  > reinsertion after removal, many entries across sections, fileId=0 edge case,
+  > remove-all-then-fill to threshold, consecutive calls, repeated cycles, idempotent
+  > double-removal.
   >
-  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+  > **What changed from the plan:** Plan specified conditional compaction (tombstone ratio
+  > threshold). Implemented unconditional same-capacity rehash instead — simpler and
+  > always correct since removeByFileId uses bulk nullification (not backward-sweep per
+  > entry), leaving gaps that must be compacted. The cost is acceptable since
+  > removeByFileId is called on file close/truncate/delete, not a latency-sensitive path.
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
 - [ ] Step 5: resize, shrink, clear, forEach, forEachValue, and remaining unit tests
   > Complete the API and comprehensive testing:
