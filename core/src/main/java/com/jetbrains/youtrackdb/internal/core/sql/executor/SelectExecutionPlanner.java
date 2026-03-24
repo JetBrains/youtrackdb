@@ -2674,7 +2674,7 @@ public class SelectExecutionPlanner {
    * @param clazz   the target schema class
    * @return the best index descriptor, or {@code null} if no index can be used
    */
-  @Nullable public static IndexSearchDescriptor findBestIndexFor(
+  @Nullable static IndexSearchDescriptor findBestIndexFor(
       CommandContext ctx, Set<Index> indexes, SQLAndBlock block, SchemaClass clazz) {
     // get all valid index descriptors
     var descriptors =
