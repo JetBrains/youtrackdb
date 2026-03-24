@@ -104,9 +104,16 @@ public final class LockFreeReadCache implements ReadCache {
       evictionLock.unlock();
     }
 
-    this.cacheHitRatio = YouTrackDBEnginesManager.instance()
-        .getMetricsRegistry()
-        .globalMetric(CoreMetrics.CACHE_HIT_RATIO);
+    // MetricsRegistry may be null during early engine startup: startUp() assigns
+    // the singleton 'instance' before calling startup() (which creates the Profiler),
+    // so a concurrent onEmbeddedFactoryInit() → EngineLocalPaginated.startup() path
+    // can reach this constructor before the profiler is initialized. Fall back to a
+    // no-op ratio in that case — cache hits are still counted correctly once the
+    // profiler comes up in subsequent LockFreeReadCache instances.
+    var registry = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    this.cacheHitRatio = registry != null
+        ? registry.globalMetric(CoreMetrics.CACHE_HIT_RATIO)
+        : Ratio.NOOP;
   }
 
   @Override
@@ -148,8 +155,7 @@ public final class LockFreeReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
       final int pageIndex,
@@ -158,7 +164,7 @@ public final class LockFreeReadCache implements ReadCache {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
     final var pageKey = new PageKey(fileId, pageIndex);
 
-    for (; ; ) {
+    for (;;) {
       var cacheEntry = data.get(pageKey);
 
       if (cacheEntry == null) {
@@ -207,8 +213,7 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  @Nullable
-  private CacheEntry doLoad(
+  @Nullable private CacheEntry doLoad(
       final long extFileId,
       final int pageIndex,
       final WriteCache writeCache,
