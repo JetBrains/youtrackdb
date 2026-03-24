@@ -226,6 +226,8 @@ flowchart LR
   > as planned.
   >
   > **Step file:** `tracks/track-1.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: Tests for edge tombstone GC during split
   > Comprehensive tests verifying tombstone GC correctness during page
