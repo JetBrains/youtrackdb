@@ -567,6 +567,118 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     }
   }
 
+  // --- Schema-aware round-trip ---
+
+  @Test
+  public void roundTrip_schemaAwareProperties() {
+    // Schema-aware properties use global property ID encoding (negative varint)
+    // instead of inline name strings. Verify V2 correctly writes and reads them.
+    var clazz = session.createClass("SchemaAwareV2Test");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("age", PropertyType.INTEGER);
+    clazz.createProperty("score", PropertyType.DOUBLE);
+    clazz.createProperty("active", PropertyType.BOOLEAN);
+    clazz.createProperty("created", PropertyType.DATETIME);
+    clazz.createProperty("ratio", PropertyType.FLOAT);
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("SchemaAwareV2Test");
+    var now = new Date();
+    entity.setProperty("name", "SchemaTest");
+    entity.setProperty("age", 42);
+    entity.setProperty("score", 98.6);
+    entity.setProperty("active", true);
+    entity.setProperty("created", now);
+    entity.setProperty("ratio", 3.14f);
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((String) deserialized.getProperty("name")).isEqualTo("SchemaTest");
+    assertThat((int) deserialized.getProperty("age")).isEqualTo(42);
+    assertThat((double) deserialized.getProperty("score")).isEqualTo(98.6);
+    assertThat((boolean) deserialized.getProperty("active")).isTrue();
+    assertThat((Date) deserialized.getProperty("created")).isEqualTo(now);
+    assertThat((float) deserialized.getProperty("ratio")).isEqualTo(3.14f);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(6);
+  }
+
+  @Test
+  public void roundTrip_schemaAwareWithExtraDynamicProperty() {
+    // Mixed: some properties are schema-defined (global property ID encoding),
+    // one is dynamic/schema-less (inline name encoding). Both must round-trip.
+    var clazz = session.createClass("MixedSchemaV2Test");
+    clazz.createProperty("schemaField", PropertyType.STRING);
+    clazz.createProperty("schemaInt", PropertyType.INTEGER);
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("MixedSchemaV2Test");
+    entity.setProperty("schemaField", "defined");
+    entity.setProperty("schemaInt", 99);
+    entity.setProperty("dynamicExtra", "dynamic_value");
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((String) deserialized.getProperty("schemaField")).isEqualTo("defined");
+    assertThat((int) deserialized.getProperty("schemaInt")).isEqualTo(99);
+    assertThat((String) deserialized.getProperty("dynamicExtra")).isEqualTo("dynamic_value");
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(3);
+  }
+
+  // --- Stress tests ---
+
+  @Test
+  public void roundTrip_oneHundredMixedProperties() {
+    // Stress test with 100 properties of mixed types to verify seed search,
+    // hash table sizing (4x capacity for N>40), and correct slot assignment
+    // all work at scale.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 100; i++) {
+      switch (i % 5) {
+        case 0 -> entity.setString("prop_" + i, "str_" + i);
+        case 1 -> entity.setInt("prop_" + i, i);
+        case 2 -> entity.setDouble("prop_" + i, i * 1.1);
+        case 3 -> entity.setBoolean("prop_" + i, i % 4 == 0);
+        case 4 -> entity.setLong("prop_" + i, (long) i * 10000);
+      }
+    }
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(100);
+    for (int i = 0; i < 100; i++) {
+      switch (i % 5) {
+        case 0 -> assertThat((String) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo("str_" + i);
+        case 1 -> assertThat((int) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i);
+        case 2 -> assertThat((double) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i * 1.1);
+        case 3 -> assertThat((boolean) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i % 4 == 0);
+        case 4 -> assertThat((long) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo((long) i * 10000);
+      }
+    }
+  }
+
+  // --- Long property names ---
+
+  @Test
+  public void roundTrip_longPropertyNames() {
+    // Property names with 200-500 characters stress the MurmurHash3 hash function
+    // on long UTF-8 inputs. Verify hash table correctly maps these names.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var name200 = "a".repeat(200);
+    var name350 = "b".repeat(350);
+    var name500 = "c".repeat(500);
+    entity.setString(name200, "val200");
+    entity.setString(name350, "val350");
+    entity.setString(name500, "val500");
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((String) deserialized.getProperty(name200)).isEqualTo("val200");
+    assertThat((String) deserialized.getProperty(name350)).isEqualTo("val350");
+    assertThat((String) deserialized.getProperty(name500)).isEqualTo("val500");
+  }
+
   // --- Helper ---
 
   private EntityImpl serializeAndDeserialize(EntityImpl entity) {

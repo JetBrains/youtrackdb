@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.Date;
@@ -112,6 +113,59 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     var deserialized = partialDeserialize(entity, "anything");
     assertThat(deserialized.hasProperty("anything")).isFalse();
+  }
+
+  // ========================================================================================
+  // Schema-aware partial deserialization
+  // ========================================================================================
+
+  @Test
+  public void partial_schemaAwareProperty_hashMode() {
+    // Schema-aware properties use global property ID encoding. Verify partial
+    // deserialization correctly resolves the ID back to the property name and
+    // returns the correct value via hash table lookup.
+    var clazz = session.createClass("PartialSchemaV2Test");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("age", PropertyType.INTEGER);
+    clazz.createProperty("score", PropertyType.DOUBLE);
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("PartialSchemaV2Test");
+    entity.setProperty("name", "Alice");
+    entity.setProperty("age", 30);
+    entity.setProperty("score", 95.5);
+
+    var deserialized = partialDeserialize(entity, "score");
+    assertThat((double) deserialized.getProperty("score")).isEqualTo(95.5);
+    assertThat(deserialized.hasProperty("name")).isFalse();
+    assertThat(deserialized.hasProperty("age")).isFalse();
+  }
+
+  @Test
+  public void partial_schemaAwareMultipleFields() {
+    // Request two schema-aware properties out of five to verify multi-field
+    // partial deserialization with global property ID encoding.
+    var clazz = session.createClass("PartialSchemaMultiV2");
+    clazz.createProperty("a", PropertyType.STRING);
+    clazz.createProperty("b", PropertyType.INTEGER);
+    clazz.createProperty("c", PropertyType.DOUBLE);
+    clazz.createProperty("d", PropertyType.BOOLEAN);
+    clazz.createProperty("e", PropertyType.STRING);
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("PartialSchemaMultiV2");
+    entity.setProperty("a", "val_a");
+    entity.setProperty("b", 10);
+    entity.setProperty("c", 3.14);
+    entity.setProperty("d", true);
+    entity.setProperty("e", "val_e");
+
+    var deserialized = partialDeserialize(entity, "b", "e");
+    assertThat((int) deserialized.getProperty("b")).isEqualTo(10);
+    assertThat((String) deserialized.getProperty("e")).isEqualTo("val_e");
+    assertThat(deserialized.hasProperty("a")).isFalse();
+    assertThat(deserialized.hasProperty("c")).isFalse();
+    assertThat(deserialized.hasProperty("d")).isFalse();
   }
 
   // ========================================================================================
