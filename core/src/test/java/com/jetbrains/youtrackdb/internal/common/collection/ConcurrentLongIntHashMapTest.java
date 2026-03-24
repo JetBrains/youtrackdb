@@ -1141,4 +1141,187 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.size()).isEqualTo(1);
     assertThat(map.get(9L, 0)).isEqualTo("other");
   }
+
+  // ---- clear() ----
+
+  @Test
+  public void clearRemovesAllEntries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    for (int i = 0; i < 50; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(50);
+
+    map.clear();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+    for (int i = 0; i < 50; i++) {
+      assertThat(map.get((long) i, i)).isNull();
+    }
+  }
+
+  @Test
+  public void clearOnEmptyMapIsNoOp() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.clear();
+    assertThat(map.size()).isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
+
+  @Test
+  public void clearAllowsReinsertion() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    long initialCapacity = map.capacity();
+
+    map.put(1L, 1, "a");
+    map.put(2L, 2, "b");
+    map.clear();
+
+    map.put(3L, 3, "c");
+    assertThat(map.get(3L, 3)).isEqualTo("c");
+    assertThat(map.size()).isEqualTo(1);
+    // Capacity should not change from clear
+    assertThat(map.capacity()).isEqualTo(initialCapacity);
+  }
+
+  // ---- forEach() ----
+
+  @Test
+  public void forEachVisitsAllEntries() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "a");
+    map.put(2L, 20, "b");
+    map.put(3L, 30, "c");
+
+    var visited = new java.util.HashMap<String, String>();
+    map.forEach((fid, pid, val) -> visited.put(fid + ":" + pid, val));
+
+    assertThat(visited)
+        .containsEntry("1:10", "a")
+        .containsEntry("2:20", "b")
+        .containsEntry("3:30", "c")
+        .hasSize(3);
+  }
+
+  @Test
+  public void forEachOnEmptyMapVisitsNothing() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int[] count = {0};
+    map.forEach((fid, pid, val) -> count[0]++);
+    assertThat(count[0]).isEqualTo(0);
+  }
+
+  // ---- forEachValue() ----
+
+  @Test
+  public void forEachValueVisitsAllValues() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "a");
+    map.put(2L, 20, "b");
+    map.put(3L, 30, "c");
+
+    var values = new java.util.ArrayList<String>();
+    map.forEachValue(values::add);
+
+    assertThat(values).containsExactlyInAnyOrder("a", "b", "c");
+  }
+
+  // ---- shrink() ----
+
+  @Test
+  public void shrinkReducesCapacity() {
+    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    assertThat(map.capacity()).isEqualTo(1024);
+
+    // Insert only a few entries
+    map.put(1L, 1, "a");
+    map.put(2L, 2, "b");
+    map.put(3L, 3, "c");
+
+    map.shrink();
+    // Capacity should be smaller than 1024 but still hold the 3 entries
+    assertThat(map.capacity()).isLessThan(1024);
+    assertThat(map.capacity()).isGreaterThanOrEqualTo(3);
+
+    // All entries must survive shrink
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+    assertThat(map.get(2L, 2)).isEqualTo("b");
+    assertThat(map.get(3L, 3)).isEqualTo("c");
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  @Test
+  public void shrinkOnEmptyMapKeepsMinimumCapacity() {
+    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    map.shrink();
+    // Minimum capacity is 2 per section
+    assertThat(map.capacity()).isEqualTo(2);
+    // Map must still be usable
+    map.put(1L, 1, "a");
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+  }
+
+  @Test
+  public void shrinkIsNoOpWhenCapacityAlreadyOptimal() {
+    // With capacity=2 (minimum) and 1 entry, ceil(1/0.66)=2 → no shrink possible
+    var map = new ConcurrentLongIntHashMap<String>(2, 1);
+    map.put(1L, 1, "a");
+    long capBefore = map.capacity();
+
+    map.shrink();
+    assertThat(map.capacity()).isEqualTo(capBefore);
+    assertThat(map.get(1L, 1)).isEqualTo("a");
+  }
+
+  // ---- Resize with many entries (entries survive) ----
+
+  @Test
+  public void resizeWithManyEntriesPreservesAll() {
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+
+    // Insert enough to trigger multiple resizes
+    for (int i = 0; i < 1000; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(1000);
+
+    // Verify all entries survived all resizes
+    for (int i = 0; i < 1000; i++) {
+      assertThat(map.get((long) i, i))
+          .as("Entry (%d, %d) must survive multiple resizes", (long) i, i)
+          .isEqualTo("val-" + i);
+    }
+
+    // Capacity should be power of two
+    long cap = map.capacity();
+    assertThat(cap & (cap - 1))
+        .as("Capacity must be power of two")
+        .isEqualTo(0);
+  }
+
+  // ---- Large map with many sections ----
+
+  @Test
+  public void largeMapWithManySections() {
+    var map = new ConcurrentLongIntHashMap<String>(1024, 16);
+    for (int i = 0; i < 1000; i++) {
+      map.put((long) i, i, "val-" + i);
+    }
+    assertThat(map.size()).isEqualTo(1000);
+
+    for (int i = 0; i < 1000; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
+    }
+
+    // Remove half
+    for (int i = 0; i < 500; i++) {
+      map.remove((long) i, i);
+    }
+    assertThat(map.size()).isEqualTo(500);
+
+    // Remaining entries intact
+    for (int i = 500; i < 1000; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
+    }
+  }
 }
