@@ -204,7 +204,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     assert propertyCount > 0 : "propertyCount must be positive: " + propertyCount;
 
     // ceil(N / (4 * 0.85)) = ceil(N / 3.4) = ceil(N * 10 / 34) = (N * 10 + 33) / 34
-    int minBuckets = (propertyCount * 10 + 33) / 34;
+    // Use long arithmetic to avoid overflow for very large property counts
+    int minBuckets = (int) (((long) propertyCount * 10 + 33) / 34);
     if (minBuckets <= 1) {
       return 0;
     }
@@ -217,8 +218,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    * seed used, log2 of the bucket count, and the bucket array bytes.
    *
    * <p>Algorithm: greedy placement with displacement chains. For each property, try bucket1
-   * (from h1), then bucket2 (from h2). If both are full, evict a random item from bucket1 and
-   * re-place it in its alternate bucket. Repeat for up to {@link #MAX_EVICTIONS} evictions. If the
+   * (from h1), then bucket2 (from h2). If both are full, evict a slot from bucket1 (round-robin
+   * by eviction count) and re-place it. Repeat for up to {@link #MAX_EVICTIONS} evictions. If the
    * chain exceeds the limit, increment the seed and retry (up to {@link #MAX_SEED_RETRIES}). If
    * all seeds fail, double the bucket count and retry.
    *
@@ -230,6 +231,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   static CuckooTableResult buildCuckooTable(byte[][] propertyNameBytes, int log2NumBuckets) {
     assert propertyNameBytes != null : "propertyNameBytes must not be null";
     assert propertyNameBytes.length > 0 : "must have at least one property";
+    assert log2NumBuckets >= 0 && log2NumBuckets <= MAX_LOG2_CAPACITY
+        : "log2NumBuckets out of range: " + log2NumBuckets;
 
     int n = propertyNameBytes.length;
     int currentLog2 = log2NumBuckets;
@@ -238,23 +241,21 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       int numBuckets = 1 << currentLog2;
       int totalSlots = numBuckets * BUCKET_SIZE;
 
+      // Allocate working arrays once per capacity level, reuse across seed retries
+      byte[] slotHash8 = new byte[totalSlots];
+      int[] slotPropertyIndex = new int[totalSlots];
+      int[] propBucket1 = new int[n];
+      int[] propBucket2 = new int[n];
+      int[] propH1 = new int[n];
+
       for (int seed = 0; seed < MAX_SEED_RETRIES; seed++) {
         int h2Seed = computeH2Seed(seed);
 
-        // Each slot stores: hash8 (1 byte) + offset placeholder (2 bytes).
-        // During construction we only need hash8 and the property index to track placement.
-        // We use parallel arrays for efficiency:
-        //   slotHash8[i] — the hash8 prefix stored at slot i (EMPTY_HASH8 if empty)
-        //   slotPropertyIndex[i] — the index into propertyNameBytes for the item at slot i
-        byte[] slotHash8 = new byte[totalSlots];
-        int[] slotPropertyIndex = new int[totalSlots];
+        // Reset slot tracking arrays for this seed attempt
         Arrays.fill(slotHash8, EMPTY_HASH8);
         Arrays.fill(slotPropertyIndex, -1);
 
-        // For each property, precompute bucket1 and bucket2 for displacement chain lookups
-        int[] propBucket1 = new int[n];
-        int[] propBucket2 = new int[n];
-        int[] propH1 = new int[n];
+        // Precompute bucket1 and bucket2 for displacement chain lookups
         for (int i = 0; i < n; i++) {
           byte[] nameBytes = propertyNameBytes[i];
           int h1 = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
@@ -274,22 +275,23 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
         }
 
         if (success) {
-          // Build the byte array: numBuckets * BUCKET_SIZE * SLOT_SIZE bytes
+          // Build the byte array in a single pass: for each slot, write hash8 + offset sentinel.
+          // Occupied slots get actual hash8; empty slots get EMPTY_HASH8. All offsets are
+          // initialized to EMPTY_OFFSET and will be backpatched during serializeHashTableMode.
           byte[] bucketArray = new byte[totalSlots * SLOT_SIZE];
-          // Initialize all slots to empty sentinel
           for (int s = 0; s < totalSlots; s++) {
-            int offset = s * SLOT_SIZE;
-            bucketArray[offset] = EMPTY_HASH8;
-            bucketArray[offset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
-            bucketArray[offset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
-          }
-          // Fill in occupied slots with hash8 (offset will be backpatched during serialization)
-          for (int s = 0; s < totalSlots; s++) {
-            if (slotHash8[s] != EMPTY_HASH8 || slotPropertyIndex[s] != -1) {
-              bucketArray[s * SLOT_SIZE] = slotHash8[s];
-              // Offset left as 0xFFFF — will be backpatched during serializeHashTableMode
+            int byteOffset = s * SLOT_SIZE;
+            if (slotPropertyIndex[s] != -1) {
+              bucketArray[byteOffset] = slotHash8[s];
+            } else {
+              bucketArray[byteOffset] = EMPTY_HASH8;
             }
+            bucketArray[byteOffset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
+            bucketArray[byteOffset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
           }
+          assert bucketArray.length == totalSlots * SLOT_SIZE
+              : "bucketArray size mismatch: " + bucketArray.length
+                  + " vs " + (totalSlots * SLOT_SIZE);
           return new CuckooTableResult(seed, currentLog2, bucketArray, slotPropertyIndex);
         }
       }
@@ -315,8 +317,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
   /**
    * Attempts to insert property at {@code propIdx} into the cuckoo table. Uses greedy placement
-   * with displacement chains: try bucket1, then bucket2, then evict from bucket1 and re-place the
-   * evicted item.
+   * with displacement chains: try bucket1, then bucket2, then evict a slot from bucket1
+   * (round-robin by eviction count to avoid ping-pong cycles) and re-place the evicted item.
    *
    * @return true if insertion succeeded, false if displacement chain exceeded MAX_EVICTIONS
    */
@@ -353,8 +355,9 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
         }
       }
 
-      // Both buckets full — evict the first occupied slot in bucket1
-      int evictSlotIdx = bucket1Start; // Deterministic: always evict first slot
+      // Both buckets full — evict from bucket1 using round-robin slot selection to avoid
+      // ping-pong cycles that would occur with always-evict-first-slot strategy
+      int evictSlotIdx = bucket1Start + (evictions % BUCKET_SIZE);
       int evictedPropIdx = slotPropertyIndex[evictSlotIdx];
 
       // Place current item in the evicted slot
@@ -372,6 +375,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   /**
    * Result of cuckoo table construction, containing the seed, bucket layout, and slot-to-property
    * mapping for backpatching offsets during serialization.
+   *
+   * <p>Note: offset fields in {@code bucketArray} are initialized to the empty sentinel (0xFFFF)
+   * during construction. Use {@code slotPropertyIndex} to determine slot occupancy. Offsets must
+   * be backpatched during serialization with actual KV region offsets.
    */
   static final class CuckooTableResult {
     final int seed;
