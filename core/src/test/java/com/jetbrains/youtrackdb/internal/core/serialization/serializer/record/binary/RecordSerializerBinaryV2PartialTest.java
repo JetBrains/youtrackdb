@@ -584,6 +584,96 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
+  // Binary comparator with cuckoo mode (15+ properties)
+  // ========================================================================================
+
+  /**
+   * Binary comparator correctness in cuckoo mode: serialize entities with 15+ properties
+   * using V2, call deserializeField() to locate a field via the cuckoo 2-bucket scan,
+   * then verify BinaryComparatorV0.isEqual() and compare() produce correct results.
+   * Extends the 3-property binary comparator test from Track 6 to the cuckoo tier.
+   */
+  @Test
+  public void binaryComparator_cuckooMode_deserializeFieldWithComparatorV0() {
+    session.begin();
+
+    // Build two entities with 15 properties each (triggers cuckoo mode),
+    // differing only in the "score" field
+    var entity1 = (EntityImpl) session.newEntity();
+    var entity2 = (EntityImpl) session.newEntity();
+    var entity3 = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 14; i++) {
+      entity1.setString("pad_" + i, "val_" + i);
+      entity2.setString("pad_" + i, "val_" + i);
+      entity3.setString("pad_" + i, "val_" + i);
+    }
+    entity1.setDouble("score", 85.5);
+    entity2.setDouble("score", 92.0);
+    entity3.setDouble("score", 85.5);
+
+    var field1 = deserializeFieldFromEntity(entity1, "score", false);
+    var field2 = deserializeFieldFromEntity(entity2, "score", false);
+    var field3 = deserializeFieldFromEntity(entity3, "score", false);
+
+    assertThat(field1).isNotNull();
+    assertThat(field2).isNotNull();
+    assertThat(field3).isNotNull();
+
+    var comparator = new BinaryComparatorV0();
+
+    // 85.5 != 92.0
+    assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+
+    // 85.5 == 85.5
+    assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+
+    // 85.5 < 92.0 → negative
+    assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+
+    // 92.0 > 85.5 → positive
+    assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
+
+    // 85.5 == 85.5 → zero
+    assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
+    session.rollback();
+  }
+
+  /**
+   * Binary comparator with cuckoo mode for string fields: verifies that deserializeField()
+   * correctly locates string fields in the cuckoo hash table and BinaryComparatorV0 compares
+   * them correctly via byte-level comparison.
+   */
+  @Test
+  public void binaryComparator_cuckooMode_stringFieldComparison() {
+    session.begin();
+
+    var entity1 = (EntityImpl) session.newEntity();
+    var entity2 = (EntityImpl) session.newEntity();
+    var entity3 = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 14; i++) {
+      entity1.setString("pad_" + i, "val");
+      entity2.setString("pad_" + i, "val");
+      entity3.setString("pad_" + i, "val");
+    }
+    entity1.setString("key", "apple");
+    entity2.setString("key", "banana");
+    entity3.setString("key", "apple");
+
+    var field1 = deserializeFieldFromEntity(entity1, "key", false);
+    var field2 = deserializeFieldFromEntity(entity2, "key", false);
+    var field3 = deserializeFieldFromEntity(entity3, "key", false);
+
+    var comparator = new BinaryComparatorV0();
+
+    assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+    assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+    assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+    assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
+    assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
+    session.rollback();
+  }
+
+  // ========================================================================================
   // Helpers
   // ========================================================================================
 

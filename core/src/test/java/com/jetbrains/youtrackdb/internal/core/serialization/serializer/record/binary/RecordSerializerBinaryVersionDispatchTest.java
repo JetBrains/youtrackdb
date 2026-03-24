@@ -465,6 +465,137 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     }
   }
 
+  // --- Disk-storage DB lifecycle: persist → close → reopen → verify ---
+
+  /**
+   * Disk-storage lifecycle for tier 1 (linear mode, ≤2 properties): persist an entity with 2
+   * properties to actual disk pages via DatabaseType.DISK, close the database, reopen it, and
+   * verify all properties survive the full page flush and reload cycle.
+   */
+  @Test
+  public void dbLifecycle_diskStorage_linearTier_persistCloseReopenVerify() {
+    var dbName = "v2DiskLinearTierTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskLinear";
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
+      ytdb.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+
+      RID rid;
+      // Create entity with 2 properties (tier 1 linear mode)
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.createClass("LinearTierEntity");
+        db.begin();
+        var entity = (EntityImpl) db.newEntity("LinearTierEntity");
+        entity.setProperty("name", "disk_linear");
+        entity.setProperty("count", 7);
+        db.commit();
+        rid = entity.getIdentity();
+      }
+
+      // Reopen and verify properties survive full disk flush
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var reloaded = (EntityImpl) db.load(rid);
+        assertThat(reloaded).isNotNull();
+        assertThat((String) reloaded.getProperty("name")).isEqualTo("disk_linear");
+        assertThat((int) reloaded.getProperty("count")).isEqualTo(7);
+        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(2);
+        db.rollback();
+      }
+
+      ytdb.drop(dbName);
+    }
+  }
+
+  /**
+   * Disk-storage lifecycle for tier 3 (cuckoo hash mode, >12 properties): persist an entity
+   * with 15 properties to disk pages, close the database, reopen it, and verify all properties
+   * survive the persist→close→reopen cycle with cuckoo-serialized records on actual disk pages.
+   */
+  @Test
+  public void dbLifecycle_diskStorage_cuckooTier_persistCloseReopenVerify() {
+    var dbName = "v2DiskCuckooTierTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskCuckoo";
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
+      ytdb.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+
+      RID rid;
+      // Create entity with 15 properties (tier 3 cuckoo mode)
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.createClass("CuckooTierEntity");
+        db.begin();
+        var entity = (EntityImpl) db.newEntity("CuckooTierEntity");
+        for (int i = 0; i < 15; i++) {
+          entity.setProperty("prop_" + i, "value_" + i);
+        }
+        db.commit();
+        rid = entity.getIdentity();
+      }
+
+      // Reopen and verify all 15 properties survive full disk flush
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var reloaded = (EntityImpl) db.load(rid);
+        assertThat(reloaded).isNotNull();
+        for (int i = 0; i < 15; i++) {
+          assertThat((String) reloaded.getProperty("prop_" + i))
+              .as("prop_%d", i)
+              .isEqualTo("value_" + i);
+        }
+        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(15);
+        db.rollback();
+      }
+
+      ytdb.drop(dbName);
+    }
+  }
+
+  /**
+   * Disk-storage partial deserialization for cuckoo tier: persist an entity with 15+ properties
+   * to disk, reopen the database, access a single property via getProperty() which triggers
+   * partial deserialization through the cuckoo 2-bucket scan on disk-loaded pages.
+   */
+  @Test
+  public void dbLifecycle_diskStorage_cuckooTier_partialDeserialization() {
+    var dbName = "v2DiskCuckooPartialTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskCuckooPartial";
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
+      ytdb.create(dbName, DatabaseType.DISK,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+
+      RID rid;
+      // Create entity with 15 properties (cuckoo mode)
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.createClass("CuckooPartialEntity");
+        db.begin();
+        var entity = (EntityImpl) db.newEntity("CuckooPartialEntity");
+        for (int i = 0; i < 15; i++) {
+          entity.setProperty("field_" + i, "data_" + i);
+        }
+        db.commit();
+        rid = entity.getIdentity();
+      }
+
+      // Reopen and access a single property — triggers partial deserialization via
+      // EntityImpl.checkForProperties(name) → deserializePartial() through the cuckoo
+      // 2-bucket scan path on disk-loaded pages.
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var reloaded = (EntityImpl) db.load(rid);
+        assertThat(reloaded).isNotNull();
+        // Access a mid-range property to exercise the cuckoo hash lookup path
+        assertThat((String) reloaded.getProperty("field_7")).isEqualTo("data_7");
+        // Access first and last properties as well
+        assertThat((String) reloaded.getProperty("field_0")).isEqualTo("data_0");
+        assertThat((String) reloaded.getProperty("field_14")).isEqualTo("data_14");
+        db.rollback();
+      }
+
+      ytdb.drop(dbName);
+    }
+  }
+
   // --- Binary comparator correctness with V2 ---
 
   /**
