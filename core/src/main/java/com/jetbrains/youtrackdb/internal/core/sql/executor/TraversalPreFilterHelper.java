@@ -204,6 +204,44 @@ public final class TraversalPreFilterHelper {
   }
 
   /**
+   * Returns the size of the reverse link bag for the given target vertex
+   * and edge class, without iterating its entries. O(1) — the size is a
+   * stored field on the link bag.
+   *
+   * <p>Used by {@link RidFilterDescriptor.EdgeRidLookup#estimatedSize}
+   * for pre-resolution ratio checks.
+   *
+   * @return the reverse link bag size, or {@code -1} if the target vertex
+   *     cannot be loaded or has no matching reverse link bag
+   */
+  public static int reverseLinkBagSize(
+      RID targetRid, String edgeClassName,
+      String traversalDirection, CommandContext ctx) {
+    var db = ctx.getDatabaseSession();
+    if (db == null) {
+      return -1;
+    }
+    EntityImpl targetEntity;
+    try {
+      var rec = db.getActiveTransaction().load(targetRid);
+      if (!(rec instanceof EntityImpl entity)) {
+        return -1;
+      }
+      targetEntity = entity;
+    } catch (RecordNotFoundException e) {
+      return -1;
+    }
+
+    var reversePrefix = "out".equals(traversalDirection) ? "in_" : "out_";
+    var fieldName = reversePrefix + edgeClassName;
+    var fieldValue = targetEntity.getPropertyInternal(fieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return -1;
+    }
+    return linkBag.size();
+  }
+
+  /**
    * Attempts to find the best index for the given WHERE clause on the
    * specified target class. Only single-OR-branch WHERE clauses are
    * considered (multi-branch OR is too complex for this optimisation).

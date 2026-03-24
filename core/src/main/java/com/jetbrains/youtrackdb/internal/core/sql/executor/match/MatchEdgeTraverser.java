@@ -638,11 +638,15 @@ public class MatchEdgeTraverser implements ExecutionStream {
       vfli = vfli.withClassFilter(edge.getAcceptedCollectionIds());
     }
 
-    // Apply RidSet intersection filter
+    // Apply RidSet intersection filter.
+    // resolveWithCache() performs a pre-resolution estimate check: if the
+    // estimated RidSet size is too large relative to this vertex's link bag,
+    // it returns null without materializing. Only the first vertex whose
+    // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
       int linkBagSize = vfli.size();
       if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
-        var ridSet = edge.resolveWithCache(ctx);
+        var ridSet = edge.resolveWithCache(ctx, linkBagSize);
         if (ridSet != null
             && TraversalPreFilterHelper.passesRatioCheck(
                 ridSet.size(), linkBagSize)) {

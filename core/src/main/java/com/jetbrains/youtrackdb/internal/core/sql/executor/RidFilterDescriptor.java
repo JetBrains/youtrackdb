@@ -27,6 +27,30 @@ import javax.annotation.Nullable;
 public sealed interface RidFilterDescriptor {
 
   /**
+   * Returns a cheap size estimate of the RidSet that {@link #resolve}
+   * would produce, without performing full materialization. Used by
+   * {@code EdgeTraversal.resolveWithCache()} to decide whether
+   * materialization is worthwhile for a given forward link bag size
+   * before paying the I/O cost.
+   *
+   * <p>Accuracy varies by descriptor type:
+   * <ul>
+   *   <li>{@link DirectRid} — always 1 (exact)
+   *   <li>{@link EdgeRidLookup} — reverse link bag size (exact, O(1)
+   *       stored field; requires loading the target vertex)
+   *   <li>{@link IndexLookup} — histogram-based estimate (approximate)
+   *   <li>{@link Composite} — minimum of child estimates
+   * </ul>
+   *
+   * <p>Returns {@code -1} if the estimate is unavailable (e.g. the
+   * target vertex cannot be loaded or the index has no statistics).
+   *
+   * @param ctx command context
+   * @return estimated number of RIDs, or {@code -1} if unknown
+   */
+  int estimatedSize(CommandContext ctx);
+
+  /**
    * Resolves this descriptor against the current execution context
    * and returns a {@link RidSet} of accepted vertex RIDs, or
    * {@code null} if resolution fails or yields too many results
@@ -60,6 +84,12 @@ public sealed interface RidFilterDescriptor {
    * Resolves the expression to a single RID and returns a singleton set.
    */
   record DirectRid(SQLExpression ridExpression) implements RidFilterDescriptor {
+    /** A direct RID filter always produces exactly 1 entry. */
+    @Override
+    public int estimatedSize(CommandContext ctx) {
+      return 1;
+    }
+
     @Override
     @Nullable public RidSet resolve(CommandContext ctx) {
       var value = ridExpression.execute((Result) null, ctx);
@@ -97,6 +127,21 @@ public sealed interface RidFilterDescriptor {
       String traversalDirection,
       SQLExpression targetRidExpression) implements RidFilterDescriptor {
 
+    /**
+     * Returns the reverse link bag size — exact, O(1) stored field.
+     * Requires loading the target vertex but no iteration.
+     */
+    @Override
+    public int estimatedSize(CommandContext ctx) {
+      var value = targetRidExpression.execute((Result) null, ctx);
+      RID targetRid = TraversalPreFilterHelper.toRid(value);
+      if (targetRid == null) {
+        return -1;
+      }
+      return TraversalPreFilterHelper.reverseLinkBagSize(
+          targetRid, edgeClassName, traversalDirection, ctx);
+    }
+
     @Override
     @Nullable public RidSet resolve(CommandContext ctx) {
       var value = targetRidExpression.execute((Result) null, ctx);
@@ -130,6 +175,19 @@ public sealed interface RidFilterDescriptor {
   record IndexLookup(
       IndexSearchDescriptor indexDescriptor) implements RidFilterDescriptor {
 
+    /**
+     * Returns a histogram-based estimate of index hits. Approximate but
+     * cheap (O(1), uses cached statistics).
+     */
+    @Override
+    public int estimatedSize(CommandContext ctx) {
+      long est = indexDescriptor.estimateHits(ctx);
+      if (est < 0) {
+        return -1;
+      }
+      return (int) Math.min(est, Integer.MAX_VALUE);
+    }
+
     @Override
     @Nullable public RidSet resolve(CommandContext ctx) {
       return TraversalPreFilterHelper.resolveIndexToRidSet(
@@ -154,6 +212,22 @@ public sealed interface RidFilterDescriptor {
    */
   record Composite(
       List<RidFilterDescriptor> descriptors) implements RidFilterDescriptor {
+
+    /**
+     * Returns the minimum of child estimates. Since Composite intersects
+     * results, the output is bounded by the smallest input.
+     */
+    @Override
+    public int estimatedSize(CommandContext ctx) {
+      int min = -1;
+      for (var d : descriptors) {
+        int est = d.estimatedSize(ctx);
+        if (est >= 0 && (min < 0 || est < min)) {
+          min = est;
+        }
+      }
+      return min;
+    }
 
     @Override
     @Nullable public RidSet resolve(CommandContext ctx) {

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -149,31 +150,67 @@ public class EdgeTraversal {
   }
 
   /**
-   * Resolves the intersection descriptor with a fixed-capacity cache.
-   * The first {@value #CACHE_CAPACITY} distinct cache keys are retained
-   * for the duration of the query — no eviction, no LRU bookkeeping.
+   * Resolves the intersection descriptor with lazy resolution and a
+   * fixed-capacity cache. Uses a three-way decision based on a cheap
+   * size estimate to avoid wasted materialization:
    *
-   * <p>Resolution uses only the absolute cap ({@link
-   * com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#maxRidSetSize()})
-   * to bound materialization. The caller must perform a per-vertex
-   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper#passesRatioCheck
-   * ratio check} using the actual link bag size.
+   * <ol>
+   *   <li><b>Cache hit</b> — return immediately. The caller performs
+   *       a per-vertex ratio check in {@code applyPreFilter()}.</li>
+   *   <li><b>Absolute cap exceeded</b> (estimate &gt; maxRidSetSize) —
+   *       cache {@code null} permanently. No vertex of any link bag
+   *       size would benefit from a RidSet this large.</li>
+   *   <li><b>Per-vertex ratio check against estimate</b> — if this
+   *       vertex's link bag is too small relative to the estimated
+   *       RidSet size, return {@code null} without caching (a later
+   *       vertex with a larger link bag may trigger resolution).</li>
+   *   <li><b>First big-enough hit</b> — resolve (materialize) and
+   *       cache. The cached RidSet is a pure function of descriptor
+   *       parameters.</li>
+   * </ol>
    *
+   * @param ctx         command context
+   * @param linkBagSize the forward link bag size for the current vertex
    * @return the cached or freshly built RidSet, or {@code null} if the
-   *     descriptor resolves to too many entries (absolute cap exceeded)
+   *     descriptor is too large or the current vertex's link bag is
+   *     too small to benefit
    */
-  @Nullable public RidSet resolveWithCache(CommandContext ctx) {
+  @Nullable public RidSet resolveWithCache(CommandContext ctx, int linkBagSize) {
     var desc = intersectionDescriptor;
     if (desc == null) {
       return null;
     }
     var key = desc.cacheKey(ctx);
-    if (key != null) {
-      var cached = cache.get(key);
-      if (cached != null || cache.containsKey(key)) {
-        return cached;
-      }
+
+    // 1. Cache hit — return immediately.
+    //    Caller does per-vertex ratio check in applyPreFilter().
+    if (key != null && cache.containsKey(key)) {
+      return cache.get(key);
     }
+
+    // 2. Cheap size estimate — no full materialization.
+    int estimatedSize = desc.estimatedSize(ctx);
+
+    // 3. Absolute cap exceeded — safe to cache null permanently.
+    //    No vertex of any link bag size would benefit from a RidSet
+    //    this large (exceeds maxRidSetSize).
+    if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
+      if (key != null && cache.size() < CACHE_CAPACITY) {
+        cache.put(key, null);
+      }
+      return null;
+    }
+
+    // 4. Per-vertex ratio check against estimate — DON'T cache null.
+    //    This vertex's link bag is too small relative to the estimated
+    //    RidSet size. A later vertex with a larger link bag may benefit,
+    //    so we leave the cache empty for this key.
+    if (estimatedSize >= 0
+        && !TraversalPreFilterHelper.passesRatioCheck(estimatedSize, linkBagSize)) {
+      return null;
+    }
+
+    // 5. First big-enough hit — resolve (materialize) and cache.
     var ridSet = desc.resolve(ctx);
     if (key != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);

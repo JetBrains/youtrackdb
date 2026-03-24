@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.D
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.EdgeRidLookup;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor.IndexLookup;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import org.junit.Test;
@@ -30,6 +32,13 @@ import org.junit.Test;
  * verify cache hit/miss behaviour without requiring a database context.
  */
 public class EdgeTraversalCacheTest {
+
+  /**
+   * A large link bag size that ensures the ratio check passes for
+   * small RidSets. Tests that focus on cache behaviour (not ratio
+   * checking) use this value.
+   */
+  private static final int LARGE_LINKBAG = 1_000_000;
 
   private EdgeTraversal createEdgeTraversal() {
     var nodeA = new PatternNode();
@@ -48,6 +57,15 @@ public class EdgeTraversalCacheTest {
   }
 
   /**
+   * Stubs the mock descriptor to return a small estimatedSize so that
+   * the ratio check in resolveWithCache passes when called with a large
+   * linkBagSize.
+   */
+  private void stubSmallEstimate(RidFilterDescriptor mock) {
+    when(mock.estimatedSize(any())).thenReturn(1);
+  }
+
+  /**
    * When the cache key is non-null and unchanged between calls,
    * resolve() is called only once and the cached RidSet is reused.
    */
@@ -59,21 +77,21 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any()))
-        .thenReturn(ridSet);
+    when(desc.resolve(any())).thenReturn(ridSet);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    var first = et.resolveWithCache(ctx);
-    var second = et.resolveWithCache(ctx);
+    var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
     verify(desc, times(1)).resolve(any());
     assertThat(second).isSameAs(first);
   }
 
   /**
-   * When the cache key changes between calls, the cache is invalidated
-   * and resolve() is called again.
+   * When the cache key changes between calls, the cache stores both
+   * entries and resolve() is called once per unique key.
    */
   @Test
   public void resolveWithCache_differentKey_rebuildsRidSet() {
@@ -85,13 +103,13 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key1, key2);
-    when(desc.resolve(any()))
-        .thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    var first = et.resolveWithCache(ctx);
-    var second = et.resolveWithCache(ctx);
+    var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
     verify(desc, times(2)).resolve(any());
     assertThat(second).isNotSameAs(first);
@@ -109,13 +127,13 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(null);
-    when(desc.resolve(any()))
-        .thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    var first = et.resolveWithCache(ctx);
-    var second = et.resolveWithCache(ctx);
+    var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
+    var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
     verify(desc, times(2)).resolve(any());
     assertThat(second).isNotSameAs(first);
@@ -130,7 +148,7 @@ public class EdgeTraversalCacheTest {
     var et = createEdgeTraversal();
     var ctx = new BasicCommandContext();
 
-    assertThat(et.resolveWithCache(ctx)).isNull();
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
   }
 
   /**
@@ -146,15 +164,15 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any()))
-        .thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    et.resolveWithCache(ctx);
+    et.resolveWithCache(ctx, LARGE_LINKBAG);
 
     var copy = et.copy();
-    var fromCopy = copy.resolveWithCache(ctx);
+    var fromCopy = copy.resolveWithCache(ctx, LARGE_LINKBAG);
 
     verify(desc, times(2)).resolve(any());
     assertThat(fromCopy).isSameAs(ridSet2);
@@ -172,22 +190,22 @@ public class EdgeTraversalCacheTest {
     var key = new RecordId(5, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any()))
-        .thenReturn(null);
+    when(desc.resolve(any())).thenReturn(null);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
-    var first = et.resolveWithCache(ctx);
+    var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
     assertThat(first).isNull();
 
-    var second = et.resolveWithCache(ctx);
+    var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
     assertThat(second).isNull();
 
     verify(desc, times(1)).resolve(any());
   }
 
   // =========================================================================
-  // DirectRid — cacheKey() and resolve()
+  // DirectRid — cacheKey(), resolve(), and estimatedSize()
   // =========================================================================
 
   /**
@@ -199,6 +217,14 @@ public class EdgeTraversalCacheTest {
     var expr = mock(SQLExpression.class);
     var desc = new DirectRid(expr);
     assertThat(desc.cacheKey(new BasicCommandContext())).isNull();
+  }
+
+  /** {@link DirectRid#estimatedSize} always returns 1. */
+  @Test
+  public void directRid_estimatedSize_returnsOne() {
+    var expr = mock(SQLExpression.class);
+    var desc = new DirectRid(expr);
+    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(1);
   }
 
   /**
@@ -320,6 +346,32 @@ public class EdgeTraversalCacheTest {
     assertThat(desc.cacheKey(ctx)).isEqualTo(desc.cacheKey(ctx));
   }
 
+  /**
+   * {@link IndexLookup#estimatedSize} delegates to
+   * {@code IndexSearchDescriptor.estimateHits()}.
+   */
+  @Test
+  public void indexLookup_estimatedSize_delegatesToEstimateHits() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateHits(any())).thenReturn(42L);
+    var desc = new IndexLookup(indexDesc);
+
+    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(42);
+  }
+
+  /**
+   * {@link IndexLookup#estimatedSize} returns -1 when estimateHits
+   * returns -1 (unknown).
+   */
+  @Test
+  public void indexLookup_estimatedSize_unknownReturnsNegative() {
+    var indexDesc = mock(IndexSearchDescriptor.class);
+    when(indexDesc.estimateHits(any())).thenReturn(-1L);
+    var desc = new IndexLookup(indexDesc);
+
+    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(-1);
+  }
+
   // =========================================================================
   // addIntersectionDescriptor — accumulation and Composite wrapping
   // =========================================================================
@@ -354,7 +406,7 @@ public class EdgeTraversalCacheTest {
   }
 
   // =========================================================================
-  // Composite — resolve and cacheKey
+  // Composite — resolve, cacheKey, and estimatedSize
   // =========================================================================
 
   /**
@@ -424,6 +476,54 @@ public class EdgeTraversalCacheTest {
     assertThat(key).isEqualTo(java.util.List.of(key1, key2));
   }
 
+  /**
+   * Composite.estimatedSize() returns the minimum of child estimates.
+   */
+  @Test
+  public void composite_estimatedSize_returnsMinimum() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    when(desc1.estimatedSize(any())).thenReturn(500);
+    when(desc2.estimatedSize(any())).thenReturn(100);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    assertThat(composite.estimatedSize(new BasicCommandContext()))
+        .isEqualTo(100);
+  }
+
+  /**
+   * Composite.estimatedSize() ignores children that return -1.
+   */
+  @Test
+  public void composite_estimatedSize_ignoresUnknown() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    when(desc1.estimatedSize(any())).thenReturn(-1);
+    when(desc2.estimatedSize(any())).thenReturn(200);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    assertThat(composite.estimatedSize(new BasicCommandContext()))
+        .isEqualTo(200);
+  }
+
+  /**
+   * Composite.estimatedSize() returns -1 when all children are unknown.
+   */
+  @Test
+  public void composite_estimatedSize_allUnknown_returnsNegative() {
+    var desc1 = mock(EdgeRidLookup.class);
+    var desc2 = mock(EdgeRidLookup.class);
+    when(desc1.estimatedSize(any())).thenReturn(-1);
+    when(desc2.estimatedSize(any())).thenReturn(-1);
+
+    var composite = new RidFilterDescriptor.Composite(
+        java.util.List.of(desc1, desc2));
+    assertThat(composite.estimatedSize(new BasicCommandContext()))
+        .isEqualTo(-1);
+  }
+
   // =========================================================================
   // Multi-entry cache — multiple distinct keys are retained
   // =========================================================================
@@ -445,17 +545,139 @@ public class EdgeTraversalCacheTest {
         .thenReturn(key1, key2, key1, key2);
     when(desc.resolve(any()))
         .thenReturn(ridSet1, ridSet2);
+    stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
     // First calls — cache misses
-    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet1);
-    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet2);
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet1);
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet2);
     // Second calls — cache hits
-    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet1);
-    assertThat(et.resolveWithCache(ctx)).isSameAs(ridSet2);
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet1);
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet2);
 
     // resolve() called only twice (once per unique key)
+    verify(desc, times(2)).resolve(any());
+  }
+
+  // =========================================================================
+  // Lazy resolution — three-way decision tests
+  // =========================================================================
+
+  /**
+   * Scenario A: estimatedSize exceeds maxRidSetSize → null is cached
+   * permanently. resolve() is never called.
+   */
+  @Test
+  public void resolveWithCache_estimateExceedsCap_cachesNull() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any()))
+        .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Both calls return null
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
+
+    // resolve() never called — estimate rejected it
+    verify(desc, never()).resolve(any());
+  }
+
+  /**
+   * Scenario B: estimatedSize is small but linkBagSize is too small for
+   * the ratio check → null returned but NOT cached. A later call with
+   * a larger linkBagSize triggers resolution.
+   */
+  @Test
+  public void resolveWithCache_smallLinkBag_defersResolution() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+    var ridSet = singletonRidSet(10, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    // estimatedSize = 500, which fails ratio check for linkBag=50
+    // (500/50 = 10.0 > maxSelectivityRatio)
+    when(desc.estimatedSize(any())).thenReturn(500);
+    when(desc.resolve(any())).thenReturn(ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Small link bag → ratio fails → null, not cached
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+    verify(desc, never()).resolve(any());
+
+    // Large link bag → ratio passes → resolve and cache
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any());
+
+    // Subsequent call with same key → cache hit
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any());
+  }
+
+  /**
+   * Scenario C: estimatedSize is unknown (-1) → ratio check is skipped,
+   * resolution proceeds unconditionally (conservative behavior).
+   */
+  @Test
+  public void resolveWithCache_unknownEstimate_proceedsToResolve() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var key = new RecordId(5, 1);
+    var ridSet = singletonRidSet(10, 1);
+
+    when(desc.cacheKey(any())).thenReturn(key);
+    when(desc.estimatedSize(any())).thenReturn(-1);
+    when(desc.resolve(any())).thenReturn(ridSet);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Unknown estimate → skip ratio check → resolve
+    assertThat(et.resolveWithCache(ctx, 50)).isSameAs(ridSet);
+    verify(desc, times(1)).resolve(any());
+  }
+
+  /**
+   * Scenario D (mixed keys): vertex 1 (target=X, small linkBag) defers;
+   * vertex 2 (target=Y, large linkBag) resolves Y and caches;
+   * vertex 3 (target=X, large linkBag) resolves X and caches;
+   * vertex 4 (target=Y) hits cache.
+   */
+  @Test
+  public void resolveWithCache_mixedKeys_independentResolution() {
+    var et = createEdgeTraversal();
+    var desc = mock(EdgeRidLookup.class);
+    var keyX = new RecordId(5, 1);
+    var keyY = new RecordId(5, 2);
+    var ridSetX = singletonRidSet(10, 1);
+    var ridSetY = singletonRidSet(10, 2);
+
+    when(desc.cacheKey(any()))
+        .thenReturn(keyX, keyY, keyX, keyY);
+    when(desc.estimatedSize(any())).thenReturn(500);
+    // resolve() is called in order: first for keyY (vertex 2), then keyX (vertex 3)
+    when(desc.resolve(any())).thenReturn(ridSetY, ridSetX);
+    et.setIntersectionDescriptor(desc);
+    var ctx = new BasicCommandContext();
+
+    // Vertex 1: target=X, small linkBag → deferred (no resolve)
+    assertThat(et.resolveWithCache(ctx, 50)).isNull();
+
+    // Vertex 2: target=Y, large linkBag → first resolve() → ridSetY
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSetY);
+
+    // Vertex 3: target=X, large linkBag → second resolve() → ridSetX
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSetX);
+
+    // Vertex 4: target=Y → cache hit → ridSetY
+    assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSetY);
+
     verify(desc, times(2)).resolve(any());
   }
 }
