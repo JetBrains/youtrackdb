@@ -186,8 +186,13 @@ public class EdgeTraversal {
 
     // 1. Cache hit — return immediately.
     //    Caller does per-vertex ratio check in applyPreFilter().
-    if (key != null && cache != null && cache.containsKey(key)) {
-      return cache.get(key);
+    if (key != null) {
+      if (cache == null) {
+        cache = new HashMap<>();
+      }
+      if (cache.containsKey(key)) {
+        return cache.get(key);
+      }
     }
 
     // 2. Cheap size estimate — no full materialization.
@@ -199,8 +204,8 @@ public class EdgeTraversal {
     //    No vertex of any link bag size would benefit from a RidSet
     //    this large (exceeds maxRidSetSize).
     if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
-      if (key != null) {
-        cacheput(key, null);
+      if (key != null && cache.size() < CACHE_CAPACITY) {
+        cache.put(key, null);
       }
       return null;
     }
@@ -217,20 +222,10 @@ public class EdgeTraversal {
     // 5. First big-enough hit — resolve (materialize) and cache.
     //    Pass the cache key so EdgeRidLookup reuses the target RID.
     var ridSet = desc.resolve(ctx, key);
-    if (key != null) {
-      cacheput(key, ridSet);
+    if (key != null && cache.size() < CACHE_CAPACITY) {
+      cache.put(key, ridSet);
     }
     return ridSet;
-  }
-
-  /** Lazily allocates the cache and inserts the entry if under capacity. */
-  private void cacheput(Object key, @Nullable RidSet value) {
-    if (cache == null) {
-      cache = new HashMap<>();
-    }
-    if (cache.size() < CACHE_CAPACITY) {
-      cache.put(key, value);
-    }
   }
 
   @Override
