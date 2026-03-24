@@ -9,8 +9,9 @@ session.
 
 - **Phase 1 (Planning):** Iteratively develop a plan with Claude's help.
   Produce tracks with architecture notes, scope indicators, and design document.
-- **Phase 2 (Structural Review):** See
-  [`structural-review.md`](structural-review.md).
+- **Phase 2 (Implementation Review):** See
+  [`implementation-review.md`](implementation-review.md) — two-step review:
+  (1) consistency review (design doc ↔ code ↔ plan), (2) structural review.
 - **Phase 3 (Execution):** See [`workflow.md`](workflow.md).
 - **Phase 4 (Final Design Document):** See [`workflow.md`](workflow.md)
   §Final Design Document.
@@ -18,7 +19,7 @@ session.
 ```mermaid
 flowchart TD
     P1["/create-plan\nPhase 1: Planning\nTracks + architecture notes\n+ design document"]
-    P2["/review-plan\nPhase 2: Structural Review\nValidate plan structure\nMax 3 iterations"]
+    P2["/review-plan\nPhase 2: Implementation Review\n1. Consistency review (interactive)\n2. Structural review (automatic)"]
     P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
     P4["Phase 4: Final Design Document\nPost-implementation design\nCompare planned vs actual"]
     DONE((Done))

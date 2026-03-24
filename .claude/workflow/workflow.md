@@ -15,7 +15,9 @@ parallel execution is valuable.
 
 The overall workflow has four stages:
 - **Phase 1 (Planning)**: `/create-plan` — develop the implementation plan and design document
-- **Phase 2 (Structural Review)**: `/review-plan` — validate plan structure
+- **Phase 2 (Implementation Review)**: `/review-plan` — two-step review:
+  (1) consistency review (design doc ↔ code ↔ plan, interactive),
+  (2) structural review (plan-internal quality, automatic)
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
 - **Phase 4 (Final Design Document)**: produce post-implementation design document (prompt: `prompts/create-final-design.md`)
 
@@ -398,7 +400,7 @@ For other workflow components, see:
 - **`step-implementation.md`** — Phase B: step implementation
 - **`track-code-review.md`** — Phase C: track-level code review
 - **`planning.md`** — Phase 1 (planning)
-- **`structural-review.md`** — Phase 2 (structural review)
+- **`implementation-review.md`** — Phase 2 (implementation review: consistency + structural)
 - **`prompts/create-final-design.md`** — Phase 4 (final design document)
 
 On-demand reference documents (loaded only when their specific situation arises):
@@ -407,3 +409,4 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`episode-format-reference.md`** — detailed episode format, rules, examples
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
+- **`structural-review.md`** — structural review details (loaded by implementation-review.md)
