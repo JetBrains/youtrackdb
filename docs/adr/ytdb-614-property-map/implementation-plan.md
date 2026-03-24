@@ -289,7 +289,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 3: MurmurHash3 32-bit seeded variant
+- [x] Track 3: MurmurHash3 32-bit seeded variant
   > Add a 32-bit seeded hash method to the existing `MurmurHash3` class.
   > The current implementation provides only 128-bit unseeded hashing.
   > The new method `hash32WithSeed(byte[] data, int offset, int len, int seed)`
@@ -304,6 +304,15 @@ graph LR
   > for hash computation.
   >
   > **Scope:** ~2-3 steps covering implementation and test vectors
+  >
+  > **Track episode:**
+  > Implemented `MurmurHash3.hash32WithSeed(byte[], int, int, int)` — standard
+  > MurmurHash3_x86_32 algorithm with offset support. Added 33 test methods
+  > covering reference vectors, all tail lengths, seed variation, high-byte
+  > masking, offset correctness, and typical property name strings that lock in
+  > exact hash values for the V2 serializer. No surprises or cross-track impact.
+  >
+  > **Step file:** `tracks/track-3.md` (2 steps, 0 failed)
 
 - [ ] Track 4: RecordSerializerBinaryV2 — hash map serialization format
   > Core track: implement the new V2 serializer that writes and reads the
