@@ -189,7 +189,9 @@ public class EdgeTraversal {
     }
 
     // 2. Cheap size estimate — no full materialization.
-    int estimatedSize = desc.estimatedSize(ctx);
+    //    Pass the cache key so EdgeRidLookup can reuse the pre-computed
+    //    target RID instead of re-evaluating the expression.
+    int estimatedSize = desc.estimatedSize(ctx, key);
 
     // 3. Absolute cap exceeded — safe to cache null permanently.
     //    No vertex of any link bag size would benefit from a RidSet
@@ -211,7 +213,8 @@ public class EdgeTraversal {
     }
 
     // 5. First big-enough hit — resolve (materialize) and cache.
-    var ridSet = desc.resolve(ctx);
+    //    Pass the cache key so EdgeRidLookup reuses the target RID.
+    var ridSet = desc.resolve(ctx, key);
     if (key != null && cache.size() < CACHE_CAPACITY) {
       cache.put(key, ridSet);
     }

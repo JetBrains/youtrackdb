@@ -45,10 +45,16 @@ public sealed interface RidFilterDescriptor {
    * <p>Returns {@code -1} if the estimate is unavailable (e.g. the
    * target vertex cannot be loaded or the index has no statistics).
    *
-   * @param ctx command context
+   * <p>Implementations should use the pre-computed {@code cacheKey}
+   * when available (e.g. {@link EdgeRidLookup} uses the target RID
+   * from the cache key to avoid re-evaluating the expression).
+   *
+   * @param ctx      command context
+   * @param cacheKey the value returned by {@link #cacheKey}, or
+   *                 {@code null} if caching is disabled
    * @return estimated number of RIDs, or {@code -1} if unknown
    */
-  int estimatedSize(CommandContext ctx);
+  int estimatedSize(CommandContext ctx, @Nullable Object cacheKey);
 
   /**
    * Resolves this descriptor against the current execution context
@@ -61,10 +67,15 @@ public sealed interface RidFilterDescriptor {
    * link bag size) are performed by the caller — see
    * {@link TraversalPreFilterHelper#passesRatioCheck}.
    *
-   * @param ctx command context (may contain {@code $parent}
-   *            or {@code $matched} references)
+   * <p>Implementations should use the pre-computed {@code cacheKey}
+   * when available to avoid re-evaluating the expression.
+   *
+   * @param ctx      command context (may contain {@code $parent}
+   *                 or {@code $matched} references)
+   * @param cacheKey the value returned by {@link #cacheKey}, or
+   *                 {@code null} if caching is disabled
    */
-  @Nullable RidSet resolve(CommandContext ctx);
+  @Nullable RidSet resolve(CommandContext ctx, @Nullable Object cacheKey);
 
   /**
    * Returns a key that identifies the resolved RidSet content for
@@ -86,12 +97,12 @@ public sealed interface RidFilterDescriptor {
   record DirectRid(SQLExpression ridExpression) implements RidFilterDescriptor {
     /** A direct RID filter always produces exactly 1 entry. */
     @Override
-    public int estimatedSize(CommandContext ctx) {
+    public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
       return 1;
     }
 
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
+    @Nullable public RidSet resolve(CommandContext ctx, @Nullable Object cacheKey) {
       var value = ridExpression.execute((Result) null, ctx);
       RID rid = TraversalPreFilterHelper.toRid(value);
       if (rid == null) {
@@ -129,12 +140,12 @@ public sealed interface RidFilterDescriptor {
 
     /**
      * Returns the reverse link bag size — exact, O(1) stored field.
-     * Requires loading the target vertex but no iteration.
+     * Uses the pre-computed target RID from {@code cacheKey} to avoid
+     * re-evaluating the expression.
      */
     @Override
-    public int estimatedSize(CommandContext ctx) {
-      var value = targetRidExpression.execute((Result) null, ctx);
-      RID targetRid = TraversalPreFilterHelper.toRid(value);
+    public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
+      RID targetRid = cacheKey instanceof RID rid ? rid : resolveTargetRid(ctx);
       if (targetRid == null) {
         return -1;
       }
@@ -142,15 +153,24 @@ public sealed interface RidFilterDescriptor {
           targetRid, edgeClassName, traversalDirection, ctx);
     }
 
+    /**
+     * Resolves the reverse edge lookup. Uses the pre-computed target RID
+     * from {@code cacheKey} to avoid re-evaluating the expression.
+     */
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
-      var value = targetRidExpression.execute((Result) null, ctx);
-      RID targetRid = TraversalPreFilterHelper.toRid(value);
+    @Nullable public RidSet resolve(CommandContext ctx, @Nullable Object cacheKey) {
+      RID targetRid = cacheKey instanceof RID rid ? rid : resolveTargetRid(ctx);
       if (targetRid == null) {
         return null;
       }
       return TraversalPreFilterHelper.resolveReverseEdgeLookup(
           targetRid, edgeClassName, traversalDirection, ctx);
+    }
+
+    /** Resolves the target RID from the expression. */
+    @Nullable private RID resolveTargetRid(CommandContext ctx) {
+      var value = targetRidExpression.execute((Result) null, ctx);
+      return TraversalPreFilterHelper.toRid(value);
     }
 
     /**
@@ -159,8 +179,7 @@ public sealed interface RidFilterDescriptor {
      */
     @Override
     @Nullable public Object cacheKey(CommandContext ctx) {
-      var value = targetRidExpression.execute((Result) null, ctx);
-      return TraversalPreFilterHelper.toRid(value);
+      return resolveTargetRid(ctx);
     }
   }
 
@@ -177,10 +196,11 @@ public sealed interface RidFilterDescriptor {
 
     /**
      * Returns a histogram-based estimate of index hits. Approximate but
-     * cheap (O(1), uses cached statistics).
+     * cheap (O(1), uses cached statistics). The {@code cacheKey} is not
+     * used (index results are constant for the entire query).
      */
     @Override
-    public int estimatedSize(CommandContext ctx) {
+    public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
       long est = indexDescriptor.estimateHits(ctx);
       if (est < 0) {
         return -1;
@@ -189,7 +209,7 @@ public sealed interface RidFilterDescriptor {
     }
 
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
+    @Nullable public RidSet resolve(CommandContext ctx, @Nullable Object cacheKey) {
       return TraversalPreFilterHelper.resolveIndexToRidSet(
           indexDescriptor, ctx);
     }
@@ -215,13 +235,15 @@ public sealed interface RidFilterDescriptor {
 
     /**
      * Returns the minimum of child estimates. Since Composite intersects
-     * results, the output is bounded by the smallest input.
+     * results, the output is bounded by the smallest input. Each child
+     * receives {@code null} as its cache key (Composite manages its own
+     * composite key).
      */
     @Override
-    public int estimatedSize(CommandContext ctx) {
+    public int estimatedSize(CommandContext ctx, @Nullable Object cacheKey) {
       int min = -1;
       for (var d : descriptors) {
-        int est = d.estimatedSize(ctx);
+        int est = d.estimatedSize(ctx, null);
         if (est >= 0 && (min < 0 || est < min)) {
           min = est;
         }
@@ -230,10 +252,10 @@ public sealed interface RidFilterDescriptor {
     }
 
     @Override
-    @Nullable public RidSet resolve(CommandContext ctx) {
+    @Nullable public RidSet resolve(CommandContext ctx, @Nullable Object cacheKey) {
       RidSet combined = null;
       for (var desc : descriptors) {
-        var partial = desc.resolve(ctx);
+        var partial = desc.resolve(ctx, null);
         combined = TraversalPreFilterHelper.intersect(combined, partial);
       }
       return combined;

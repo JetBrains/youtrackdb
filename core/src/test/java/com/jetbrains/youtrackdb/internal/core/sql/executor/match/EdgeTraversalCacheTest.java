@@ -62,7 +62,7 @@ public class EdgeTraversalCacheTest {
    * linkBagSize.
    */
   private void stubSmallEstimate(RidFilterDescriptor mock) {
-    when(mock.estimatedSize(any())).thenReturn(1);
+    when(mock.estimatedSize(any(), any())).thenReturn(1);
   }
 
   /**
@@ -77,7 +77,7 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any())).thenReturn(ridSet);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -85,7 +85,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
     var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    verify(desc, times(1)).resolve(any());
+    verify(desc, times(1)).resolve(any(), any());
     assertThat(second).isSameAs(first);
   }
 
@@ -103,7 +103,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key1, key2);
-    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -111,7 +111,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
     var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    verify(desc, times(2)).resolve(any());
+    verify(desc, times(2)).resolve(any(), any());
     assertThat(second).isNotSameAs(first);
   }
 
@@ -127,7 +127,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(null);
-    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -135,7 +135,7 @@ public class EdgeTraversalCacheTest {
     var first = et.resolveWithCache(ctx, LARGE_LINKBAG);
     var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    verify(desc, times(2)).resolve(any());
+    verify(desc, times(2)).resolve(any(), any());
     assertThat(second).isNotSameAs(first);
   }
 
@@ -164,7 +164,7 @@ public class EdgeTraversalCacheTest {
     var ridSet2 = singletonRidSet(10, 2);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any())).thenReturn(ridSet1, ridSet2);
+    when(desc.resolve(any(), any())).thenReturn(ridSet1, ridSet2);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -174,7 +174,7 @@ public class EdgeTraversalCacheTest {
     var copy = et.copy();
     var fromCopy = copy.resolveWithCache(ctx, LARGE_LINKBAG);
 
-    verify(desc, times(2)).resolve(any());
+    verify(desc, times(2)).resolve(any(), any());
     assertThat(fromCopy).isSameAs(ridSet2);
   }
 
@@ -190,7 +190,7 @@ public class EdgeTraversalCacheTest {
     var key = new RecordId(5, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.resolve(any())).thenReturn(null);
+    when(desc.resolve(any(), any())).thenReturn(null);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -201,7 +201,7 @@ public class EdgeTraversalCacheTest {
     var second = et.resolveWithCache(ctx, LARGE_LINKBAG);
     assertThat(second).isNull();
 
-    verify(desc, times(1)).resolve(any());
+    verify(desc, times(1)).resolve(any(), any());
   }
 
   // =========================================================================
@@ -224,7 +224,7 @@ public class EdgeTraversalCacheTest {
   public void directRid_estimatedSize_returnsOne() {
     var expr = mock(SQLExpression.class);
     var desc = new DirectRid(expr);
-    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(1);
+    assertThat(desc.estimatedSize(new BasicCommandContext(), null)).isEqualTo(1);
   }
 
   /**
@@ -238,7 +238,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn(rid);
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext());
+    var result = desc.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isNotNull();
     assertThat(result.size()).isEqualTo(1);
@@ -255,7 +255,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn("not-a-rid");
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext());
+    var result = desc.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isNull();
   }
@@ -270,7 +270,7 @@ public class EdgeTraversalCacheTest {
     when(expr.execute(nullable(Result.class), any())).thenReturn(null);
 
     var desc = new DirectRid(expr);
-    var result = desc.resolve(new BasicCommandContext());
+    var result = desc.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isNull();
   }
@@ -356,7 +356,7 @@ public class EdgeTraversalCacheTest {
     when(indexDesc.estimateHits(any())).thenReturn(42L);
     var desc = new IndexLookup(indexDesc);
 
-    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(42);
+    assertThat(desc.estimatedSize(new BasicCommandContext(), null)).isEqualTo(42);
   }
 
   /**
@@ -369,7 +369,7 @@ public class EdgeTraversalCacheTest {
     when(indexDesc.estimateHits(any())).thenReturn(-1L);
     var desc = new IndexLookup(indexDesc);
 
-    assertThat(desc.estimatedSize(new BasicCommandContext())).isEqualTo(-1);
+    assertThat(desc.estimatedSize(new BasicCommandContext(), null)).isEqualTo(-1);
   }
 
   // =========================================================================
@@ -425,12 +425,12 @@ public class EdgeTraversalCacheTest {
     set2.add(new RecordId(10, 2));
     set2.add(new RecordId(10, 3));
 
-    when(desc1.resolve(any())).thenReturn(set1);
-    when(desc2.resolve(any())).thenReturn(set2);
+    when(desc1.resolve(any(), any())).thenReturn(set1);
+    when(desc2.resolve(any(), any())).thenReturn(set2);
 
     var composite = new RidFilterDescriptor.Composite(
         java.util.List.of(desc1, desc2));
-    var result = composite.resolve(new BasicCommandContext());
+    var result = composite.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isNotNull();
     assertThat(result.size()).isEqualTo(1);
@@ -447,12 +447,12 @@ public class EdgeTraversalCacheTest {
     var desc2 = mock(EdgeRidLookup.class);
 
     var set1 = singletonRidSet(10, 1);
-    when(desc1.resolve(any())).thenReturn(set1);
-    when(desc2.resolve(any())).thenReturn(null);
+    when(desc1.resolve(any(), any())).thenReturn(set1);
+    when(desc2.resolve(any(), any())).thenReturn(null);
 
     var composite = new RidFilterDescriptor.Composite(
         java.util.List.of(desc1, desc2));
-    var result = composite.resolve(new BasicCommandContext());
+    var result = composite.resolve(new BasicCommandContext(), null);
 
     assertThat(result).isSameAs(set1);
   }
@@ -483,12 +483,12 @@ public class EdgeTraversalCacheTest {
   public void composite_estimatedSize_returnsMinimum() {
     var desc1 = mock(EdgeRidLookup.class);
     var desc2 = mock(EdgeRidLookup.class);
-    when(desc1.estimatedSize(any())).thenReturn(500);
-    when(desc2.estimatedSize(any())).thenReturn(100);
+    when(desc1.estimatedSize(any(), any())).thenReturn(500);
+    when(desc2.estimatedSize(any(), any())).thenReturn(100);
 
     var composite = new RidFilterDescriptor.Composite(
         java.util.List.of(desc1, desc2));
-    assertThat(composite.estimatedSize(new BasicCommandContext()))
+    assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(100);
   }
 
@@ -499,12 +499,12 @@ public class EdgeTraversalCacheTest {
   public void composite_estimatedSize_ignoresUnknown() {
     var desc1 = mock(EdgeRidLookup.class);
     var desc2 = mock(EdgeRidLookup.class);
-    when(desc1.estimatedSize(any())).thenReturn(-1);
-    when(desc2.estimatedSize(any())).thenReturn(200);
+    when(desc1.estimatedSize(any(), any())).thenReturn(-1);
+    when(desc2.estimatedSize(any(), any())).thenReturn(200);
 
     var composite = new RidFilterDescriptor.Composite(
         java.util.List.of(desc1, desc2));
-    assertThat(composite.estimatedSize(new BasicCommandContext()))
+    assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(200);
   }
 
@@ -515,12 +515,12 @@ public class EdgeTraversalCacheTest {
   public void composite_estimatedSize_allUnknown_returnsNegative() {
     var desc1 = mock(EdgeRidLookup.class);
     var desc2 = mock(EdgeRidLookup.class);
-    when(desc1.estimatedSize(any())).thenReturn(-1);
-    when(desc2.estimatedSize(any())).thenReturn(-1);
+    when(desc1.estimatedSize(any(), any())).thenReturn(-1);
+    when(desc2.estimatedSize(any(), any())).thenReturn(-1);
 
     var composite = new RidFilterDescriptor.Composite(
         java.util.List.of(desc1, desc2));
-    assertThat(composite.estimatedSize(new BasicCommandContext()))
+    assertThat(composite.estimatedSize(new BasicCommandContext(), null))
         .isEqualTo(-1);
   }
 
@@ -543,7 +543,7 @@ public class EdgeTraversalCacheTest {
 
     when(desc.cacheKey(any()))
         .thenReturn(key1, key2, key1, key2);
-    when(desc.resolve(any()))
+    when(desc.resolve(any(), any()))
         .thenReturn(ridSet1, ridSet2);
     stubSmallEstimate(desc);
     et.setIntersectionDescriptor(desc);
@@ -557,7 +557,7 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet2);
 
     // resolve() called only twice (once per unique key)
-    verify(desc, times(2)).resolve(any());
+    verify(desc, times(2)).resolve(any(), any());
   }
 
   // =========================================================================
@@ -575,7 +575,7 @@ public class EdgeTraversalCacheTest {
     var key = new RecordId(5, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.estimatedSize(any()))
+    when(desc.estimatedSize(any(), any()))
         .thenReturn(TraversalPreFilterHelper.maxRidSetSize() + 1);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
@@ -585,7 +585,7 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
 
     // resolve() never called — estimate rejected it
-    verify(desc, never()).resolve(any());
+    verify(desc, never()).resolve(any(), any());
   }
 
   /**
@@ -603,22 +603,22 @@ public class EdgeTraversalCacheTest {
     when(desc.cacheKey(any())).thenReturn(key);
     // estimatedSize = 500, which fails ratio check for linkBag=50
     // (500/50 = 10.0 > maxSelectivityRatio)
-    when(desc.estimatedSize(any())).thenReturn(500);
-    when(desc.resolve(any())).thenReturn(ridSet);
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
     // Small link bag → ratio fails → null, not cached
     assertThat(et.resolveWithCache(ctx, 50)).isNull();
-    verify(desc, never()).resolve(any());
+    verify(desc, never()).resolve(any(), any());
 
     // Large link bag → ratio passes → resolve and cache
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
-    verify(desc, times(1)).resolve(any());
+    verify(desc, times(1)).resolve(any(), any());
 
     // Subsequent call with same key → cache hit
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSet);
-    verify(desc, times(1)).resolve(any());
+    verify(desc, times(1)).resolve(any(), any());
   }
 
   /**
@@ -633,14 +633,14 @@ public class EdgeTraversalCacheTest {
     var ridSet = singletonRidSet(10, 1);
 
     when(desc.cacheKey(any())).thenReturn(key);
-    when(desc.estimatedSize(any())).thenReturn(-1);
-    when(desc.resolve(any())).thenReturn(ridSet);
+    when(desc.estimatedSize(any(), any())).thenReturn(-1);
+    when(desc.resolve(any(), any())).thenReturn(ridSet);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
     // Unknown estimate → skip ratio check → resolve
     assertThat(et.resolveWithCache(ctx, 50)).isSameAs(ridSet);
-    verify(desc, times(1)).resolve(any());
+    verify(desc, times(1)).resolve(any(), any());
   }
 
   /**
@@ -660,9 +660,9 @@ public class EdgeTraversalCacheTest {
 
     when(desc.cacheKey(any()))
         .thenReturn(keyX, keyY, keyX, keyY);
-    when(desc.estimatedSize(any())).thenReturn(500);
+    when(desc.estimatedSize(any(), any())).thenReturn(500);
     // resolve() is called in order: first for keyY (vertex 2), then keyX (vertex 3)
-    when(desc.resolve(any())).thenReturn(ridSetY, ridSetX);
+    when(desc.resolve(any(), any())).thenReturn(ridSetY, ridSetX);
     et.setIntersectionDescriptor(desc);
     var ctx = new BasicCommandContext();
 
@@ -678,6 +678,6 @@ public class EdgeTraversalCacheTest {
     // Vertex 4: target=Y → cache hit → ridSetY
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isSameAs(ridSetY);
 
-    verify(desc, times(2)).resolve(any());
+    verify(desc, times(2)).resolve(any(), any());
   }
 }

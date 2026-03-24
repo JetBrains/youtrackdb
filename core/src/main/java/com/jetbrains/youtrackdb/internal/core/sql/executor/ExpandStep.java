@@ -118,7 +118,7 @@ public class ExpandStep extends AbstractExecutionStep {
 
     @Nullable RidSet ridFilterSet = null;
     if (ridFilterDescriptor != null) {
-      ridFilterSet = ridFilterDescriptor.resolve(ctx);
+      ridFilterSet = ridFilterDescriptor.resolve(ctx, null);
     }
     @Nullable RidSet indexRidSet = null;
     if (indexDescriptor != null) {
