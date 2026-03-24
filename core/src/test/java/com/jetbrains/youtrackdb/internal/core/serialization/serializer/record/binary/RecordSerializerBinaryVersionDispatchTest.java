@@ -2,7 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
+import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.Date;
@@ -353,5 +360,202 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
     // Other fields loaded normally
     assertThat((int) target.getProperty("age")).isEqualTo(30);
     assertThat((String) target.getProperty("city")).isEqualTo("Berlin");
+  }
+
+  // --- Database lifecycle: persist → close → reopen → verify ---
+
+  /**
+   * Full storage lifecycle: create entities with various V2 property types, commit,
+   * close the database, reopen it, and verify all properties read back correctly.
+   * This tests V2 through the full storage layer (WAL, page cache, etc).
+   */
+  @Test
+  public void dbLifecycle_persistCloseReopenVerify() {
+    var dbName = "v2LifecycleTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp";
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+
+      RID rid;
+      // Create and persist an entity with various property types
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.createClass("V2Entity");
+
+        db.begin();
+        var entity = (EntityImpl) db.newEntity("V2Entity");
+        entity.setProperty("name", "lifecycle_test");
+        entity.setProperty("count", 42);
+        entity.setProperty("score", 98.6);
+        entity.setProperty("active", true);
+        entity.setProperty("created", new Date(1700000000000L));
+        entity.setProperty("ratio", 3.14f);
+        entity.setProperty("amount", new BigDecimal("999.99"));
+        db.commit();
+        rid = entity.getIdentity();
+      }
+
+      // Reopen and verify all properties
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var reloaded = (EntityImpl) db.load(rid);
+        assertThat(reloaded).isNotNull();
+        assertThat((String) reloaded.getProperty("name")).isEqualTo("lifecycle_test");
+        assertThat((int) reloaded.getProperty("count")).isEqualTo(42);
+        assertThat((double) reloaded.getProperty("score")).isEqualTo(98.6);
+        assertThat((boolean) reloaded.getProperty("active")).isTrue();
+        assertThat((Date) reloaded.getProperty("created")).isEqualTo(new Date(1700000000000L));
+        assertThat((float) reloaded.getProperty("ratio")).isEqualTo(3.14f);
+        assertThat((BigDecimal) reloaded.getProperty("amount"))
+            .isEqualByComparingTo(new BigDecimal("999.99"));
+        db.rollback();
+      }
+
+      ytdb.drop(dbName);
+    }
+  }
+
+  /**
+   * Update lifecycle: persist an entity, reopen the DB, modify properties,
+   * re-persist, close, reopen again and verify the updated values.
+   */
+  @Test
+  public void dbLifecycle_updateAndVerify() {
+    var dbName = "v2UpdateTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "temp";
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
+      ytdb.create(dbName, DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
+
+      RID rid;
+      // Create initial entity
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.createClass("UpdateEntity");
+        db.begin();
+        var entity = (EntityImpl) db.newEntity("UpdateEntity");
+        entity.setProperty("name", "original");
+        entity.setProperty("version", 1);
+        db.commit();
+        rid = entity.getIdentity();
+      }
+
+      // Reopen, update, re-persist
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var entity = (EntityImpl) db.load(rid);
+        entity.setProperty("name", "updated");
+        entity.setProperty("version", 2);
+        entity.setProperty("newField", "added_after_update");
+        db.commit();
+      }
+
+      // Reopen and verify updated values
+      try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
+        db.begin();
+        var reloaded = (EntityImpl) db.load(rid);
+        assertThat((String) reloaded.getProperty("name")).isEqualTo("updated");
+        assertThat((int) reloaded.getProperty("version")).isEqualTo(2);
+        assertThat((String) reloaded.getProperty("newField")).isEqualTo("added_after_update");
+        db.rollback();
+      }
+
+      ytdb.drop(dbName);
+    }
+  }
+
+  // --- Binary comparator correctness with V2 ---
+
+  /**
+   * Binary comparator correctness: serialize two entities with V2, use
+   * deserializeField() to locate a shared field, then verify
+   * BinaryComparatorV0.isEqual() and compare() produce correct results.
+   */
+  @Test
+  public void binaryComparator_v2DeserializeFieldWithComparatorV0() {
+    session.begin();
+    // Two entities with the same field "score" but different values
+    var entity1 = (EntityImpl) session.newEntity();
+    entity1.setString("name", "Alice");
+    entity1.setInt("age", 30);
+    entity1.setDouble("score", 85.5);
+
+    var entity2 = (EntityImpl) session.newEntity();
+    entity2.setString("name", "Bob");
+    entity2.setInt("age", 25);
+    entity2.setDouble("score", 92.0);
+
+    // Entity with same score as entity1
+    var entity3 = (EntityImpl) session.newEntity();
+    entity3.setString("name", "Charlie");
+    entity3.setInt("age", 35);
+    entity3.setDouble("score", 85.5);
+
+    var v2 = new RecordSerializerBinaryV2();
+
+    // Serialize all three with V2
+    var field1 = getV2BinaryField(v2, entity1, "score");
+    var field2 = getV2BinaryField(v2, entity2, "score");
+    var field3 = getV2BinaryField(v2, entity3, "score");
+
+    assertThat(field1).isNotNull();
+    assertThat(field2).isNotNull();
+    assertThat(field3).isNotNull();
+
+    var comparator = new BinaryComparatorV0();
+
+    // entity1.score (85.5) != entity2.score (92.0)
+    assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+
+    // entity1.score (85.5) == entity3.score (85.5)
+    assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+
+    // entity1.score (85.5) < entity2.score (92.0) → negative
+    assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+
+    // entity2.score (92.0) > entity1.score (85.5) → positive
+    assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
+
+    // entity1.score (85.5) == entity3.score (85.5) → zero
+    assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
+  }
+
+  @Test
+  public void binaryComparator_v2StringFieldComparison() {
+    session.begin();
+    var entity1 = (EntityImpl) session.newEntity();
+    entity1.setString("key", "apple");
+    entity1.setString("pad1", "x");
+    entity1.setString("pad2", "y");
+
+    var entity2 = (EntityImpl) session.newEntity();
+    entity2.setString("key", "banana");
+    entity2.setString("pad1", "x");
+    entity2.setString("pad2", "y");
+
+    var entity3 = (EntityImpl) session.newEntity();
+    entity3.setString("key", "apple");
+    entity3.setString("pad1", "x");
+    entity3.setString("pad2", "y");
+
+    var v2 = new RecordSerializerBinaryV2();
+
+    var field1 = getV2BinaryField(v2, entity1, "key");
+    var field2 = getV2BinaryField(v2, entity2, "key");
+    var field3 = getV2BinaryField(v2, entity3, "key");
+
+    var comparator = new BinaryComparatorV0();
+
+    assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+    assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+    assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+    assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
+  }
+
+  private BinaryField getV2BinaryField(RecordSerializerBinaryV2 v2, EntityImpl entity,
+      String fieldName) {
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+    var readBytes = new BytesContainer(bytes.bytes);
+    return v2.deserializeField(session, readBytes, null, fieldName, false, null, null);
   }
 }
