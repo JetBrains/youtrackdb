@@ -6,9 +6,11 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -265,10 +267,23 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     entity.setDateTime("dt", new Date(1711238400000L));
     entity.setProperty("dc", new BigDecimal("99.99"));
 
-    for (String field : new String[] {"s", "i", "l", "sh", "f", "d", "by", "bo", "dt", "dc"}) {
-      var bf = deserializeFieldFromEntity(entity, field, false);
-      assertThat(bf).as("Field '%s' should be non-null", field).isNotNull();
-      assertThat(bf.name).isEqualTo(field);
+    var expectedTypes = Map.of(
+        "s", PropertyTypeInternal.STRING,
+        "i", PropertyTypeInternal.INTEGER,
+        "l", PropertyTypeInternal.LONG,
+        "sh", PropertyTypeInternal.SHORT,
+        "f", PropertyTypeInternal.FLOAT,
+        "d", PropertyTypeInternal.DOUBLE,
+        "by", PropertyTypeInternal.BYTE,
+        "bo", PropertyTypeInternal.BOOLEAN,
+        "dt", PropertyTypeInternal.DATETIME,
+        "dc", PropertyTypeInternal.DECIMAL);
+
+    for (var entry : expectedTypes.entrySet()) {
+      var bf = deserializeFieldFromEntity(entity, entry.getKey(), false);
+      assertThat(bf).as("Field '%s' should be non-null", entry.getKey()).isNotNull();
+      assertThat(bf.name).isEqualTo(entry.getKey());
+      assertThat(bf.type).as("Field '%s' type", entry.getKey()).isEqualTo(entry.getValue());
     }
   }
 
@@ -292,6 +307,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(field).isNotNull();
     assertThat(field.name).isEqualTo("ref");
     assertThat(field.type).isEqualTo(PropertyTypeInternal.LINK);
+
+    // Verify value bytes encode the correct RID (consistent with other field tests).
+    // deserializeField returns raw value bytes in V1-compatible format.
+    var value = new RecordSerializerBinaryV1()
+        .deserializeValue(session, field.bytes, field.type, null);
+    assertThat(value).isEqualTo(rid);
   }
 
   // ========================================================================================
@@ -358,6 +379,91 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
+  // Boundary: 3-property threshold (first hash mode case)
+  // ========================================================================================
+
+  @Test
+  public void partial_threeProperties_hashModeBoundary() {
+    // Exactly 3 properties = first hash mode case (LINEAR_MODE_THRESHOLD = 2).
+    // An off-by-one in the threshold check would route to the wrong deserialize path.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("a", "val_a");
+    entity.setInt("b", 42);
+    entity.setDouble("c", 3.14);
+
+    var deserialized = partialDeserialize(entity, "b");
+    assertThat((int) deserialized.getProperty("b")).isEqualTo(42);
+    assertThat(deserialized.hasProperty("a")).isFalse();
+    assertThat(deserialized.hasProperty("c")).isFalse();
+  }
+
+  // ========================================================================================
+  // deserializeField — embedded=true code path
+  // ========================================================================================
+
+  @Test
+  public void field_embeddedEntity_hashMode() {
+    // Verify deserializeField works when embedded=true, which adds a class name
+    // prefix before the property count. If the class name skip is wrong,
+    // the field lookup reads garbage.
+    session.createClass("EmbFieldTest");
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("EmbFieldTest");
+    entity.setString("name", "embedded");
+    entity.setInt("value", 42);
+    entity.setString("extra", "pad");
+
+    var field = deserializeFieldFromEntity(entity, "value", true);
+    assertThat(field).isNotNull();
+    assertThat(field.name).isEqualTo("value");
+    assertThat(field.type).isEqualTo(PropertyTypeInternal.INTEGER);
+
+    // Verify value bytes
+    var value = new RecordSerializerBinaryV1()
+        .deserializeValue(session, field.bytes, field.type, null);
+    assertThat(value).isEqualTo(42);
+  }
+
+  // ========================================================================================
+  // getFieldNames — embedded=true code path
+  // ========================================================================================
+
+  @Test
+  public void fieldNames_embeddedEntity() {
+    // Verify getFieldNames works when embedded=true (same class name skip logic).
+    session.createClass("EmbNamesTest");
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("EmbNamesTest");
+    entity.setString("a", "1");
+    entity.setString("b", "2");
+    entity.setString("c", "3");
+
+    var names = getFieldNamesFromEntity(entity, true);
+    assertThat(names).containsExactlyInAnyOrder("a", "b", "c");
+  }
+
+  // ========================================================================================
+  // deserializeField — non-binary-comparable type returns null
+  // ========================================================================================
+
+  @Test
+  public void field_nonBinaryComparableType_returnsNull() {
+    // EMBEDDEDLIST is not binary-comparable; deserializeField must return null
+    // to prevent binary comparison on non-comparable types.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("name", "test");
+    entity.setString("extra", "pad");
+    var emb = new EmbeddedEntityImpl(session);
+    emb.setProperty("inner", "val");
+    entity.setProperty("emb", emb, PropertyType.EMBEDDED);
+
+    var field = deserializeFieldFromEntity(entity, "emb", false);
+    assertThat(field).isNull();
+  }
+
+  // ========================================================================================
   // Helpers
   // ========================================================================================
 
@@ -371,7 +477,6 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     return deserialized;
   }
 
-  @SuppressWarnings("SameParameterValue")
   private BinaryField deserializeFieldFromEntity(EntityImpl entity, String fieldName,
       boolean embedded) {
     var bytes = new BytesContainer();
