@@ -60,10 +60,10 @@ public class ConcurrentLongIntHashMap<V> {
     void accept(long fileId, int pageIndex, T value);
   }
 
-  /** Remapping function for {@link #compute}. Receives the key and the current value (or null). */
+  /** Remapping function for {@code compute}. Receives the key and the current value (or null). */
   @FunctionalInterface
-  public interface LongIntKeyValueFunction<V> {
-    V apply(long fileId, int pageIndex, V currentValue);
+  public interface LongIntKeyValueFunction<T> {
+    T apply(long fileId, int pageIndex, T currentValue);
   }
 
   // ---- Constructors ----
@@ -164,6 +164,10 @@ public class ConcurrentLongIntHashMap<V> {
     if (n <= 1) {
       return 1;
     }
+    if (n > (1 << 30)) {
+      throw new IllegalArgumentException(
+          "Cannot align to power of two: " + n + " exceeds maximum array capacity (2^30)");
+    }
     return Integer.highestOneBit(n - 1) << 1;
   }
 
@@ -182,7 +186,7 @@ public class ConcurrentLongIntHashMap<V> {
     private int[] pageIndices;
     private V[] values;
 
-    /** Number of logically present entries (not counting tombstones). */
+    /** Number of logically present entries. */
     private volatile int size;
 
     /** Current array length (always a power of two). */
@@ -198,22 +202,30 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     V get(long fileId, int pageIndex, int hashMix) {
-      int bucketMask = capacity - 1;
-      int bucket = hashMix & bucketMask;
-
-      // Optimistic read — no memory barriers other than the stamp validation
+      // Optimistic read — acquire stamp first, then snapshot all mutable fields to locals.
+      // If a concurrent resize replaces the arrays between stamp and validate, the stamp
+      // validation will fail and we fall back to the read lock.
       long stamp = lock.tryOptimisticRead();
 
-      // Probe loop under optimistic read
+      // Snapshot mutable fields to locals under the optimistic stamp
+      int cap = capacity;
+      long[] fIds = fileIds;
+      int[] pIdxs = pageIndices;
+      V[] vals = values;
+
+      int bucketMask = cap - 1;
+      int bucket = hashMix & bucketMask;
+
+      // Probe loop using local snapshots only
       V foundValue = null;
-      for (int i = 0; i < capacity; i++) {
+      for (int i = 0; i < cap; i++) {
         int idx = (bucket + i) & bucketMask;
-        V val = values[idx];
+        V val = vals[idx];
         if (val == null) {
           // Empty slot — key is not present
           break;
         }
-        if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+        if (fIds[idx] == fileId && pIdxs[idx] == pageIndex) {
           foundValue = val;
           break;
         }
