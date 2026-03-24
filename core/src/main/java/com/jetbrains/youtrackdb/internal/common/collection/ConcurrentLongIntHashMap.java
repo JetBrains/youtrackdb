@@ -238,6 +238,39 @@ public class ConcurrentLongIntHashMap<V> {
     return result;
   }
 
+  /** Removes all entries from all sections. */
+  public void clear() {
+    for (Section<V> s : sections) {
+      s.clear();
+    }
+  }
+
+  /** Iterates all entries, passing (fileId, pageIndex, value) to the consumer. */
+  public void forEach(LongIntObjConsumer<V> consumer) {
+    for (Section<V> s : sections) {
+      s.forEach(consumer);
+    }
+  }
+
+  /** Iterates all values, passing each to the consumer. */
+  public void forEachValue(java.util.function.Consumer<V> consumer) {
+    for (Section<V> s : sections) {
+      s.forEachValue(consumer);
+    }
+  }
+
+  /**
+   * Shrinks the internal capacity to fit the current number of entries (respecting the fill
+   * factor). Each section independently shrinks to the smallest power-of-two capacity that can hold
+   * its current entries. Available but not called automatically — the cache has a stable working set
+   * size.
+   */
+  public void shrink() {
+    for (Section<V> s : sections) {
+      s.shrink();
+    }
+  }
+
   /** Returns the total capacity (sum of all section capacities). */
   public long capacity() {
     long total = 0;
@@ -718,6 +751,96 @@ public class ConcurrentLongIntHashMap<V> {
           fileIds[bucket] = fId;
           pageIndices[bucket] = pIdx;
         }
+      }
+    }
+
+    @SuppressWarnings("unchecked")
+    void clear() {
+      long stamp = lock.writeLock();
+      try {
+        fileIds = new long[capacity];
+        pageIndices = new int[capacity];
+        values = (V[]) new Object[capacity];
+        size = 0;
+        usedBuckets = 0;
+      } finally {
+        lock.unlockWrite(stamp);
+      }
+    }
+
+    void forEach(LongIntObjConsumer<V> consumer) {
+      long stamp = lock.readLock();
+      try {
+        for (int i = 0; i < capacity; i++) {
+          V val = values[i];
+          if (val != null) {
+            consumer.accept(fileIds[i], pageIndices[i], val);
+          }
+        }
+      } finally {
+        lock.unlockRead(stamp);
+      }
+    }
+
+    void forEachValue(java.util.function.Consumer<V> consumer) {
+      long stamp = lock.readLock();
+      try {
+        for (int i = 0; i < capacity; i++) {
+          V val = values[i];
+          if (val != null) {
+            consumer.accept(val);
+          }
+        }
+      } finally {
+        lock.unlockRead(stamp);
+      }
+    }
+
+    /**
+     * Shrink capacity to fit current entries. Must hold write lock during the rehash. The minimum
+     * capacity is 2 (matching the constructor floor).
+     */
+    @SuppressWarnings("unchecked")
+    void shrink() {
+      long stamp = lock.writeLock();
+      try {
+        int newCapacity = alignToPowerOfTwo((int) Math.ceil(size / FILL_FACTOR));
+        newCapacity = Math.max(2, newCapacity);
+        if (newCapacity >= capacity) {
+          return; // No shrinking needed
+        }
+
+        long[] oldFileIds = fileIds;
+        int[] oldPageIndices = pageIndices;
+        V[] oldValues = values;
+        int oldCapacity = capacity;
+
+        capacity = newCapacity;
+        fileIds = new long[newCapacity];
+        pageIndices = new int[newCapacity];
+        values = (V[]) new Object[newCapacity];
+        resizeThreshold = (int) (newCapacity * FILL_FACTOR);
+        usedBuckets = size;
+
+        int bucketMask = newCapacity - 1;
+        for (int i = 0; i < oldCapacity; i++) {
+          V val = oldValues[i];
+          if (val != null) {
+            long fId = oldFileIds[i];
+            int pIdx = oldPageIndices[i];
+            int bucket = (int) hash(fId, pIdx) & bucketMask;
+
+            while (values[bucket] != null) {
+              bucket = (bucket + 1) & bucketMask;
+            }
+
+            values[bucket] = val;
+            fileIds[bucket] = fId;
+            pageIndices[bucket] = pIdx;
+          }
+        }
+      } finally {
+        lock.unlockWrite(stamp);
       }
     }
   }
