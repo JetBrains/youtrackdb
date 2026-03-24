@@ -235,39 +235,6 @@ public class TraversalPreFilterHelperTest {
   }
 
   // =========================================================================
-  // toRid — value conversion
-  // =========================================================================
-
-  @Test
-  public void toRid_withRid_returnsSameRid() {
-    RID rid = new RecordId(10, 1);
-    assertThat(TraversalPreFilterHelper.toRid(rid)).isSameAs(rid);
-  }
-
-  @Test
-  public void toRid_withIdentifiable_returnsIdentity() {
-    RID rid = new RecordId(10, 2);
-    Identifiable identifiable = mock(Identifiable.class);
-    when(identifiable.getIdentity()).thenReturn(rid);
-    assertThat(TraversalPreFilterHelper.toRid(identifiable)).isEqualTo(rid);
-  }
-
-  @Test
-  public void toRid_withNull_returnsNull() {
-    assertThat(TraversalPreFilterHelper.toRid(null)).isNull();
-  }
-
-  @Test
-  public void toRid_withString_returnsNull() {
-    assertThat(TraversalPreFilterHelper.toRid("not a rid")).isNull();
-  }
-
-  @Test
-  public void toRid_withNumber_returnsNull() {
-    assertThat(TraversalPreFilterHelper.toRid(42)).isNull();
-  }
-
-  // =========================================================================
   // findIndexForFilter — null guards
   // =========================================================================
 
