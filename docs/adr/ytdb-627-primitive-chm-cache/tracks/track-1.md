@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (4/5 complete)
+- [x] Step implementation (5/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -102,16 +102,17 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
-- [ ] Step 5: resize, shrink, clear, forEach, forEachValue, and remaining unit tests
-  > Complete the API and comprehensive testing:
-  > - Explicit `shrink()` method (available but not called automatically)
-  > - `clear()` — reset all sections
-  > - `forEach(LongIntObjConsumer<V>)` — iterates all entries under read locks
-  > - `forEachValue(Consumer<V>)` — value-only iteration (T5/A5)
-  > - Doc comment on `compute()` warning about lock-held execution (T9)
-  > - Unit tests: resize with many entries (verify all entries survive), shrink reduces
-  >   capacity, clear resets size to 0, forEach visits all entries, forEachValue visits
-  >   all values, concurrent rehash + get correctness (basic — full stress in Track 3),
-  >   large map with many sections, edge case: single-section map
+- [x] Step 5: resize, shrink, clear, forEach, forEachValue, and remaining unit tests
+  > **What was done:** Completed the API: clear() under write locks, forEach/forEachValue
+  > under read locks, shrink() reducing capacity to fit current entries. Added lock-held
+  > warning Javadoc to computeIfAbsent (T9). 15 new tests (91 total) covering clear with
+  > reinsertion, forEach/forEachValue, shrink (basic, empty, no-op, after bulk removal),
+  > clear+shrink, forEach after mutations, shrink-then-insert resize, 1000-entry resize
+  > survival, large map with 16 sections.
   >
-  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+  > **What was discovered:** Code review found rehash logic duplicated 3x across rehash(),
+  > rehashSameCapacity(), and shrink(). Extracted into shared rehashTo(int newCapacity)
+  > method, eliminating ~40 duplicated lines. Also fixed Consumer import (was FQN inline)
+  > and shrink() Javadoc (was incorrectly describing caller-held lock).
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
