@@ -5,6 +5,9 @@
 - [ ] Step implementation (0/4 complete)
 - [ ] Track-level code review
 
+## Base commit
+`3dfc5c533c`
+
 ## Reviews completed
 - [x] Technical (9 findings: 4 blocker, 3 should-fix, 2 suggestion — all resolved)
 - [x] Risk (12 findings: 2 blocker, 7 should-fix, 3 suggestion — all resolved)
