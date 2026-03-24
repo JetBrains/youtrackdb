@@ -4166,4 +4166,119 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertTrue("Should find P2", titles.contains("P2"));
     session.commit();
   }
+
+  /**
+   * Tests that a MATCH pattern with a back-reference ($matched.person.@rid)
+   * triggers the reverse edge lookup path in TraversalPreFilterHelper.
+   * The query finds friends-of-friends, filtering by the back-reference.
+   */
+  @Test
+  public void testBackReferenceReverseEdgeLookup() {
+    session.execute("CREATE CLASS BRPerson EXTENDS V").close();
+    session.execute("CREATE CLASS BRKnows EXTENDS E").close();
+    session.execute("CREATE PROPERTY BRKnows.out LINK BRPerson").close();
+    session.execute("CREATE PROPERTY BRKnows.in LINK BRPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX BRPerson SET name='Alice'").close();
+    session.execute("CREATE VERTEX BRPerson SET name='Bob'").close();
+    session.execute("CREATE VERTEX BRPerson SET name='Carol'").close();
+    session.execute(
+        "CREATE EDGE BRKnows FROM"
+            + " (SELECT FROM BRPerson WHERE name='Alice')"
+            + " TO (SELECT FROM BRPerson WHERE name='Bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE BRKnows FROM"
+            + " (SELECT FROM BRPerson WHERE name='Bob')"
+            + " TO (SELECT FROM BRPerson WHERE name='Carol')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // This pattern triggers the back-reference intersection path:
+    // $matched.person is bound when processing the second edge.
+    var result = session.query(
+        "MATCH"
+            + " {class: BRPerson, as: person, where: (name='Alice')}"
+            + "   .out('BRKnows'){as: friend}"
+            + "   .out('BRKnows'){as: fof}"
+            + " RETURN person.name, friend.name, fof.name")
+        .toList();
+
+    assertFalse("Should find friend-of-friend", result.isEmpty());
+    assertEquals("Alice", result.getFirst().getProperty("person.name"));
+    assertEquals("Bob", result.getFirst().getProperty("friend.name"));
+    assertEquals("Carol", result.getFirst().getProperty("fof.name"));
+    session.commit();
+  }
+
+  /**
+   * Tests EXPLAIN output for a LET subquery, which exercises
+   * LetQueryStep.getPreviewPlan() and prettyPrint().
+   */
+  @Test
+  public void testExplainWithLetSubquery() {
+    session.execute("CREATE CLASS LetTestV EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LetTestV SET name='A'").close();
+    session.execute("CREATE VERTEX LetTestV SET name='B'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "EXPLAIN SELECT *, $cnt"
+            + " FROM LetTestV"
+            + " LET $cnt = (SELECT count(*) FROM LetTestV)")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // The plan should contain the LET step with the preview sub-plan
+    assertTrue("EXPLAIN should show LET step", plan.contains("LET"));
+    session.commit();
+  }
+
+  /**
+   * Tests that a MATCH query with an indexed WHERE condition on the target
+   * node exercises the index pre-filter path (resolveIndexToRidSet).
+   */
+  @Test
+  public void testMatchWithIndexedTargetFilter() {
+    session.execute("CREATE CLASS IdxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IdxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IdxCreated EXTENDS E").close();
+    session.execute("CREATE PROPERTY IdxCreated.out LINK IdxPerson").close();
+    session.execute("CREATE PROPERTY IdxCreated.in LINK IdxPost").close();
+    session.execute("CREATE PROPERTY IdxPost.score INTEGER").close();
+    session.execute("CREATE INDEX IdxPost.score ON IdxPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IdxPerson SET name='Author'").close();
+    for (int i = 0; i < 20; i++) {
+      session.execute("CREATE VERTEX IdxPost SET title='post" + i + "', score=" + i)
+          .close();
+      session.execute(
+          "CREATE EDGE IdxCreated FROM"
+              + " (SELECT FROM IdxPerson WHERE name='Author')"
+              + " TO (SELECT FROM IdxPost WHERE title='post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // This MATCH pattern has an indexed filter on the target node (score > 15),
+    // which should trigger the index pre-filter path.
+    var result = session.query(
+        "MATCH"
+            + " {class: IdxPerson, as: author, where: (name='Author')}"
+            + "   .out('IdxCreated'){class: IdxPost, as: post,"
+            + "     where: (score > 15)}"
+            + " RETURN post.title")
+        .toList();
+
+    assertEquals("Should find posts with score > 15", 4, result.size());
+    session.commit();
+  }
 }

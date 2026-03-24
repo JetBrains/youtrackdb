@@ -7,6 +7,8 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -254,6 +256,52 @@ public class MatchStepUnitTest extends DbTestBase {
     var result = step.prettyPrint(0, 2);
     assertTrue("Should contain EdgeRidLookup intersection",
         result.contains("(intersection: out('Knows'))"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows "(intersection: index ...)" when
+   * the edge has an IndexLookup descriptor.
+   */
+  @Test
+  public void testMatchStepPrettyPrintIndexLookupIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(index.getName()).thenReturn("Post.creationDate");
+    var indexDesc = mock(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
+
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.IndexLookup(indexDesc));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain IndexLookup intersection",
+        result.contains("(intersection: index Post.creationDate)"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows both descriptors for Composite.
+   */
+  @Test
+  public void testMatchStepPrettyPrintCompositeIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+
+    var edgeDesc = new RidFilterDescriptor.EdgeRidLookup(
+        "Knows", "out", new SQLExpression(-1));
+    var directDesc = new RidFilterDescriptor.DirectRid(new SQLExpression(-1));
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.Composite(java.util.List.of(edgeDesc, directDesc)));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain EdgeRidLookup in composite",
+        result.contains("(intersection: out('Knows'))"));
+    assertTrue("Should contain direct-rid in composite",
+        result.contains("(intersection: direct-rid)"));
   }
 
   /**
