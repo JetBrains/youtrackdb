@@ -1,0 +1,112 @@
+# Track 1: ConcurrentLongIntHashMap — Core Data Structure
+
+## Progress
+- [x] Review + decomposition
+- [ ] Step implementation
+- [ ] Track-level code review
+
+## Base commit
+
+## Reviews completed
+- [x] Technical
+- [x] Risk
+- [x] Adversarial
+
+## Review decisions summary
+
+Key decisions from reviews that affect step implementation:
+
+1. **compute() null-return semantics** (T2/R1 — blocker): Must match ConcurrentHashMap.compute()
+   contract. Absent key + null return = no-op. Present key + null return = removal. Add unit tests.
+2. **compute() passes caller-supplied keys** (R8 — blocker): For absent keys, pass the
+   caller's fileId/pageIndex to the remapping function, NOT array contents.
+3. **Conditional remove uses reference equality** (T7 — blocker): `remove(fileId, pageIndex, expected)`
+   uses `==` not `equals()` for value comparison. Add test.
+4. **removeByFileId tombstone compaction** (T3/R4/A7): After bulk sweep, if tombstones exceed
+   threshold, do same-capacity rehash. Add unit test.
+5. **Configurable segment count** (R7/A10): Constructor takes segment count parameter. Default 16.
+6. **Composition over inheritance** (A11/T6): Section has-a StampedLock, not extends.
+7. **forEachValue(Consumer)** (T5/A5): Add value-only iteration alongside forEach.
+8. **Write ordering** (A2): In put(), value written before key fields. Document in code.
+9. **Functional interfaces nested** (T8): Nest LongIntFunction, LongIntObjConsumer,
+   LongIntKeyValueFunction inside ConcurrentLongIntHashMap.
+10. **hashForFrequencySketch moved to Track 2** (A13/T4): Not in Track 1 scope.
+11. **removeByFileId last** (A4): Implement after all base operations pass tests.
+
+## Steps
+
+- [ ] Step 1: Class skeleton, Section with StampedLock composition, hash function, and get()
+  > Create `ConcurrentLongIntHashMap<V>` in `core/.../internal/common/collection/` with:
+  > - Class skeleton with constructor (expectedItems, concurrencyLevel/sectionCount)
+  > - Nested functional interfaces: `LongIntFunction<R>`, `LongIntObjConsumer<T>`,
+  >   `LongIntKeyValueFunction<V>`
+  > - `Section` as private static inner class with StampedLock composition (not inheritance)
+  > - Per-section parallel arrays: `long[] fileIds`, `int[] pageIndices`, `V[] values`
+  > - Murmur3-style hash mixing both fileId and pageIndex
+  > - `get(long fileId, int pageIndex)` with optimistic read + single read-lock fallback
+  > - `size()`, `isEmpty()`, `capacity()`
+  > - Apache 2.0 attribution header from BookKeeper
+  > - Unit tests: get on empty map, get with fileId=0/pageIndex=0, size/isEmpty on empty map,
+  >   hash distribution sanity test
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+
+- [ ] Step 2: put(), putIfAbsent(), computeIfAbsent()
+  > Implement write operations:
+  > - `put(long fileId, int pageIndex, V value)` — insert or update, returns previous value
+  > - `putIfAbsent(long fileId, int pageIndex, V value)` — returns existing or inserts new
+  > - `computeIfAbsent(long fileId, int pageIndex, LongIntFunction<V> mappingFunction)`
+  > - Write ordering: value written before key fields in array slots (A2)
+  > - Null value disallowed (IllegalArgumentException)
+  > - Auto-resize when `usedBuckets > capacity * fillFactor` (default 0.66)
+  > - Unit tests: basic put/get roundtrip, putIfAbsent when present/absent, computeIfAbsent
+  >   when present/absent, null value rejection, fileId=0 and pageIndex=0 as valid keys,
+  >   resize trigger verification
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+
+- [ ] Step 3: compute(), remove(), conditional remove()
+  > Implement mutation operations:
+  > - `compute(long fileId, int pageIndex, LongIntKeyValueFunction<V> fn)` with:
+  >   - Passes caller-supplied fileId/pageIndex to remapping function (R8)
+  >   - Null return on absent key = no-op (R1/T2)
+  >   - Null return on present key = removal (R1/T2)
+  >   - Holds segment write lock during function execution
+  > - `remove(long fileId, int pageIndex)` — returns removed value or null
+  > - `remove(long fileId, int pageIndex, V expected)` — conditional remove using
+  >   reference equality `==` (T7), returns boolean
+  > - Backward-sweep tombstone cleanup after individual removal
+  > - Unit tests: compute on absent key with null return (no-op), compute on present key
+  >   with null return (removal), compute with side effects under lock, remove returning
+  >   previous value, conditional remove with same reference (succeeds), conditional remove
+  >   with equals-but-different reference (fails), probe-through-tombstone after removal (R9)
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+
+- [ ] Step 4: removeByFileId() with tombstone compaction
+  > Implement bulk removal:
+  > - `removeByFileId(long fileId)` — linear sweep per segment under write lock
+  > - Collects removed entries into a list, returns `List<V>` after lock release
+  >   (deferred consumer model — caller processes entries outside segment lock)
+  > - After sweep, if tombstone ratio exceeds threshold (usedBuckets - size > capacity/4),
+  >   perform same-capacity rehash for compaction (T3/R4/A7)
+  > - Unit tests: removeByFileId with interleaved entries from multiple files (verify only
+  >   target file removed), removeByFileId returns correct entries, tombstone compaction
+  >   triggers correctly, usedBuckets == size after compaction, removeByFileId on empty
+  >   map, removeByFileId for non-existent fileId
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+
+- [ ] Step 5: resize, shrink, clear, forEach, forEachValue, and remaining unit tests
+  > Complete the API and comprehensive testing:
+  > - Explicit `shrink()` method (available but not called automatically)
+  > - `clear()` — reset all sections
+  > - `forEach(LongIntObjConsumer<V>)` — iterates all entries under read locks
+  > - `forEachValue(Consumer<V>)` — value-only iteration (T5/A5)
+  > - Doc comment on `compute()` warning about lock-held execution (T9)
+  > - Unit tests: resize with many entries (verify all entries survive), shrink reduces
+  >   capacity, clear resets size to 0, forEach visits all entries, forEachValue visits
+  >   all values, concurrent rehash + get correctness (basic — full stress in Track 3),
+  >   large map with many sections, edge case: single-section map
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
