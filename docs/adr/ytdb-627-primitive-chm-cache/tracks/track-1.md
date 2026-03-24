@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/5 complete)
+- [ ] Step implementation (3/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -68,23 +68,21 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
-- [ ] Step 3: compute(), remove(), conditional remove()
-  > Implement mutation operations:
-  > - `compute(long fileId, int pageIndex, LongIntKeyValueFunction<V> fn)` with:
-  >   - Passes caller-supplied fileId/pageIndex to remapping function (R8)
-  >   - Null return on absent key = no-op (R1/T2)
-  >   - Null return on present key = removal (R1/T2)
-  >   - Holds segment write lock during function execution
-  > - `remove(long fileId, int pageIndex)` — returns removed value or null
-  > - `remove(long fileId, int pageIndex, V expected)` — conditional remove using
-  >   reference equality `==` (T7), returns boolean
-  > - Backward-sweep tombstone cleanup after individual removal
-  > - Unit tests: compute on absent key with null return (no-op), compute on present key
-  >   with null return (removal), compute with side effects under lock, remove returning
-  >   previous value, conditional remove with same reference (succeeds), conditional remove
-  >   with equals-but-different reference (fails), probe-through-tombstone after removal (R9)
+- [x] Step 3: compute(), remove(), conditional remove()
+  > **What was done:** Implemented compute() with full ConcurrentHashMap semantics (4 branches),
+  > remove() returning previous value, conditional remove with reference equality (==), and
+  > backward-sweep compaction in removeAt() — eliminates tombstones by shifting displaced
+  > entries back to fill gaps. 19 new tests (64 total) including all compute branches, probe
+  > chain integrity after removal, drain-all-entries in non-sequential order, single-entry
+  > removal with reinsert, compute resize, function-throws consistency, (0,0) key lifecycle.
   >
-  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+  > **What was discovered:** Bugs & concurrency review verified the backward-sweep algorithm
+  > (isBetween circular distance formula) is correct with no issues. Code quality review
+  > noted the terminology should be "backward-sweep compaction" not "tombstone cleanup"
+  > since the algorithm prevents tombstones entirely. removeAt does not need hashMix
+  > parameter — it recomputes hash for each candidate entry in the sweep.
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java` (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
 - [ ] Step 4: removeByFileId() with tombstone compaction
   > Implement bulk removal:
