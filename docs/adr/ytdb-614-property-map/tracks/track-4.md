@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -63,35 +63,16 @@
   > **Key files:** `RecordSerializerBinaryV2.java` (modified),
   > `RecordSerializerBinaryV2RoundTripTest.java` (new)
 
-- [ ] Step 3: V2 partial deserialization, field lookup, and field names
-  Implement the O(1) field access methods that make V2 valuable:
-
-  **`deserializePartial(fields)`**:
-  - Read class name, property count
-  - If count ≤ 2: linear scan (same as V1)
-  - If count > 2: for each requested field name:
-    1. Compute `hash32WithSeed(fieldNameBytes, seed)`
-    2. Compute `fibonacciIndex(hash, log2Cap)` → slot index
-    3. Read slot: if hash8 == 0xFF and offset == 0xFFFF → field not found
-    4. Bounds check: offset < KV region size (corruption detection per A9)
-    5. Follow offset to KV entry, read name-encoding, verify key matches
-    6. If key matches: read type + value. If not: field not found (corruption).
-
-  **`deserializeField(fieldName)`**:
-  - Same hash lookup as deserializePartial but returns `BinaryField` wrapping
-    the raw bytes (type + BytesContainer positioned at value bytes + Collate).
-  - Used by BinaryComparator for index-level field comparison.
-
-  **`getFieldNames()`**:
-  - If count ≤ 2: read names linearly
-  - If count > 2: iterate slot array, skip empty slots (0xFF/0xFFFF), follow
-    offsets to read property names from KV entries.
-
-  **Tests**: Partial deserialization with 5+ properties (hash mode), requesting
-  subset of fields. Non-existent field returns null. Field at offset 0 (first
-  entry). deserializeField for all 13 binary-comparable types. getFieldNames
-  for schema-aware, schema-less, and mixed entities. Offset bounds violation
-  detection (synthetic corrupted bytes).
+- [x] Step 3: V2 partial deserialization, field lookup, and field names
+  > **What was done:** Implemented deserializePartial (O(1) per field via hash
+  > table), deserializeField (returns BinaryField for binary comparison), and
+  > getFieldNames (linear scan of KV entries). All three handle the linear/hash
+  > mode threshold. 18 tests covering single/multi-field partial, non-existent
+  > fields, null values, all binary-comparable types for deserializeField, and
+  > field name extraction for various entity sizes.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryV2PartialTest.java` (new)
 
 - [ ] Step 4: V2 registration in RecordSerializerBinary and backward compatibility
   Wire V2 into the version dispatch system and verify backward compatibility:
