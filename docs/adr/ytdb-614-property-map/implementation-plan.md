@@ -316,7 +316,7 @@ graph LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 4: RecordSerializerBinaryV2 — hash map serialization format
+- [x] Track 4: RecordSerializerBinaryV2 — hash map serialization format
   > Core track: implement the new V2 serializer that writes and reads the
   > open-addressing hash map format.
   >
@@ -368,6 +368,19 @@ graph LR
   > deserialization (full + partial + field), field name extraction,
   > registration in RecordSerializerBinary, and round-trip tests
   > **Depends on:** Track 2, Track 3
+  >
+  > **Track episode:**
+  > Implemented `RecordSerializerBinaryV2` — open-addressing perfect hash map
+  > serializer for O(1) property lookup. Supports linear mode (≤2 properties)
+  > and hash table mode (>2 properties) with Fibonacci-hashed slots (1-byte
+  > hash8 + 2-byte offset). Seed search is brute-force with capacity doubling
+  > (max 1024). Embedded entities/sets/lists/maps serialize recursively in V2.
+  > Registered as version 1 in `RecordSerializerBinary`; V1 remains readable.
+  > Key discoveries: V1's recursive `serializeValue()` required V2 to override
+  > all recursive types; full deserialization needed `rawContainsProperty()`
+  > guard to avoid overwriting in-memory modifications during lazy loading.
+  >
+  > **Step file:** `tracks/track-4.md` (4 steps, 0 failed)
 
 - [ ] Track 5: BinaryComparatorV1 — hash-based field lookup for binary comparison
   > Implement a new binary comparator that uses the V2 hash table format
