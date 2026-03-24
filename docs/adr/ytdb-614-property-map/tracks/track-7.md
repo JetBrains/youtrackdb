@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -155,7 +155,7 @@
   >
   > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
-- [ ] Step 4: Cuckoo integration tests and coverage verification
+- [x] Step 4: Cuckoo integration tests and coverage verification
   > Add tests verifying cuckoo-specific behavior in round-trip and partial
   > deserialization paths. Verify coverage targets.
   >
@@ -186,3 +186,15 @@
   > **Target files:** `RecordSerializerBinaryV2RoundTripTest.java`,
   > `RecordSerializerBinaryV2PartialTest.java`,
   > `RecordSerializerBinaryV2HashTableTest.java`
+  >
+  > **What was done:** Added 7 cuckoo-mode tests for partial deserialization, field lookup, and
+  > field names with 13-50 properties exercising the 2-bucket scan path. Added mixed-tier embedded
+  > entity test (2-property linear parent + 15-property cuckoo child). Renamed 10 test methods
+  > from hashMode → linearMode to match the new threshold (12). Fixed stale boundary test (was
+  > 3-property, now 13-property). Ran coverage gate: 91.9% line / 85.4% branch — passes targets.
+  >
+  > **What was discovered:** Many existing tests that claimed "hashMode" with 3-5 properties were
+  > actually testing linear mode after the threshold change. All were functionally valid (they test
+  > the EntitySerializer contract, not hash table internals) but names were misleading.
+  >
+  > **Key files:** `RecordSerializerBinaryV2PartialTest.java` (modified)
