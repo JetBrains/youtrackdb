@@ -392,7 +392,6 @@
             <path>
               <groupId>org.slf4j</groupId>
               <artifactId>slf4j-nop</artifactId>
-              <version>${slf4j.version}</version>
             </path>
           </annotationProcessorPaths>
         </configuration>
