@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/5 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -36,21 +36,22 @@ Key decisions from reviews that affect step implementation:
 
 ## Steps
 
-- [ ] Step 1: Class skeleton, Section with StampedLock composition, hash function, and get()
-  > Create `ConcurrentLongIntHashMap<V>` in `core/.../internal/common/collection/` with:
-  > - Class skeleton with constructor (expectedItems, concurrencyLevel/sectionCount)
-  > - Nested functional interfaces: `LongIntFunction<R>`, `LongIntObjConsumer<T>`,
-  >   `LongIntKeyValueFunction<V>`
-  > - `Section` as private static inner class with StampedLock composition (not inheritance)
-  > - Per-section parallel arrays: `long[] fileIds`, `int[] pageIndices`, `V[] values`
-  > - Murmur3-style hash mixing both fileId and pageIndex
-  > - `get(long fileId, int pageIndex)` with optimistic read + single read-lock fallback
-  > - `size()`, `isEmpty()`, `capacity()`
-  > - Apache 2.0 attribution header from BookKeeper
-  > - Unit tests: get on empty map, get with fileId=0/pageIndex=0, size/isEmpty on empty map,
-  >   hash distribution sanity test
+- [x] Step 1: Class skeleton, Section with StampedLock composition, hash function, and get()
+  > **What was done:** Created `ConcurrentLongIntHashMap<V>` with class skeleton, Section
+  > inner class (StampedLock composition), Murmur3 hash mixing both key fields, get() with
+  > optimistic read + read-lock fallback, size/isEmpty/capacity, three nested functional
+  > interfaces, and Apache 2.0 attribution header. 22 unit tests covering constructors,
+  > get on empty map, hash distribution (fileIds and pageIndices separately), edge cases
+  > (zero/negative/extreme keys), and alignToPowerOfTwo with overflow boundary.
   >
-  > **Key files:** `ConcurrentLongIntHashMap.java`, `ConcurrentLongIntHashMapTest.java`
+  > **What was discovered:** Optimistic read correctness requires snapshotting all mutable
+  > fields (array refs + capacity) to locals after the stamp, before the probe loop — reading
+  > fields directly would allow stale reads to pass validation after a concurrent resize.
+  > Also, alignToPowerOfTwo overflows to Integer.MIN_VALUE for n > 2^30 — added an explicit
+  > guard. LongIntKeyValueFunction type param renamed from V to T to avoid shadowing the
+  > outer class type parameter.
+  >
+  > **Key files:** `ConcurrentLongIntHashMap.java` (new), `ConcurrentLongIntHashMapTest.java` (new)
 
 - [ ] Step 2: put(), putIfAbsent(), computeIfAbsent()
   > Implement write operations:
