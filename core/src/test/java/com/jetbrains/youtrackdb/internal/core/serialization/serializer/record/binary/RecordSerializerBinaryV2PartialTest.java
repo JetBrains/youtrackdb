@@ -15,7 +15,7 @@ import org.junit.Test;
 
 /**
  * Tests for V2 partial deserialization (deserializePartial), field lookup (deserializeField), and
- * field name extraction (getFieldNames). Covers linear mode (<=12 properties), cuckoo hash table
+ * field name extraction (getFieldNames). Covers linear mode (<=12 properties), linear probing hash table
  * mode (13+ properties), and edge cases.
  */
 public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
@@ -380,12 +380,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Boundary: 13-property threshold (first cuckoo hash mode case)
+  // Boundary: 13-property threshold (first hash table mode case)
   // ========================================================================================
 
   @Test
-  public void partial_thirteenProperties_cuckooModeBoundary() {
-    // Exactly 13 properties = first cuckoo hash mode case (LINEAR_MODE_THRESHOLD = 12).
+  public void partial_thirteenProperties_hashTableModeBoundary() {
+    // Exactly 13 properties = first hash table mode case (LINEAR_MODE_THRESHOLD = 12).
     // An off-by-one in the threshold check would route to the wrong deserialize path.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
@@ -469,9 +469,9 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void partial_cuckooMode_fifteenProperties() {
-    // 15 properties triggers cuckoo mode. Verify partial deserialization finds all requested
-    // fields via 2-bucket scan — some properties may land in h2 bucket.
+  public void partial_hashTableMode_fifteenProperties() {
+    // 15 properties triggers hash table mode. Verify partial deserialization finds all requested
+    // fields via linear probe — some properties may land in h2 bucket.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -488,8 +488,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_cuckooMode_fiftyProperties() {
-    // 50-property stress test for cuckoo partial deserialization
+  public void partial_hashTableMode_fiftyProperties() {
+    // 50-property stress test for hash table partial deserialization
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 50; i++) {
@@ -503,8 +503,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_cuckooMode_fifteenProperties() {
-    // Verify deserializeField works in cuckoo mode — field lookup via 2-bucket scan
+  public void field_hashTableMode_fifteenProperties() {
+    // Verify deserializeField works in hash table mode — field lookup via linear probe
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -523,8 +523,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void fieldNames_cuckooMode_fifteenProperties() {
-    // Verify getFieldNames in cuckoo mode returns all property names
+  public void fieldNames_hashTableMode_fifteenProperties() {
+    // Verify getFieldNames in hash table mode returns all property names
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -541,8 +541,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_cuckooMode_nonExistentField() {
-    // Requesting a field that doesn't exist in cuckoo mode should not throw
+  public void partial_hashTableMode_nonExistentField() {
+    // Requesting a field that doesn't exist in hash table mode should not throw
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 13; i++) {
@@ -555,8 +555,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_cuckooMode_mixedTierEmbeddedEntity() {
-    // Small parent (2 properties, linear) with large embedded child (15+ properties, cuckoo).
+  public void partial_hashTableMode_mixedTierEmbeddedEntity() {
+    // Small parent (2 properties, linear) with large embedded child (15+ properties, hash table).
     // Verifies that different tiers can coexist in the same serialized record.
     session.begin();
     var parent = (EntityImpl) session.newEntity();
@@ -568,7 +568,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     }
     parent.setProperty("child", child, PropertyType.EMBEDDED);
 
-    // Full round-trip verifies both linear parent and cuckoo embedded child
+    // Full round-trip verifies both linear parent and hash table embedded child
     var bytes = new BytesContainer();
     v2.serialize(session, parent, bytes);
     var deserialized = (EntityImpl) session.newEntity();
@@ -584,20 +584,20 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Binary comparator with cuckoo mode (15+ properties)
+  // Binary comparator with hash table mode (15+ properties)
   // ========================================================================================
 
   /**
-   * Binary comparator correctness in cuckoo mode: serialize entities with 15+ properties
-   * using V2, call deserializeField() to locate a field via the cuckoo 2-bucket scan,
+   * Binary comparator correctness in hash table mode: serialize entities with 15+ properties
+   * using V2, call deserializeField() to locate a field via the hash table linear probe,
    * then verify BinaryComparatorV0.isEqual() and compare() produce correct results.
-   * Extends the 3-property binary comparator test from Track 6 to the cuckoo tier.
+   * Extends the 3-property binary comparator test from Track 6 to the hash table tier.
    */
   @Test
-  public void binaryComparator_cuckooMode_deserializeFieldWithComparatorV0() {
+  public void binaryComparator_hashTableMode_deserializeFieldWithComparatorV0() {
     session.begin();
 
-    // Build two entities with 15 properties each (triggers cuckoo mode),
+    // Build two entities with 15 properties each (triggers hash table mode),
     // differing only in the "score" field
     var entity1 = (EntityImpl) session.newEntity();
     var entity2 = (EntityImpl) session.newEntity();
@@ -639,12 +639,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   /**
-   * Binary comparator with cuckoo mode for string fields: verifies that deserializeField()
-   * correctly locates string fields in the cuckoo hash table and BinaryComparatorV0 compares
+   * Binary comparator with hash table mode for string fields: verifies that deserializeField()
+   * correctly locates string fields in the linear probing hash table and BinaryComparatorV0 compares
    * them correctly via byte-level comparison.
    */
   @Test
-  public void binaryComparator_cuckooMode_stringFieldComparison() {
+  public void binaryComparator_hashTableMode_stringFieldComparison() {
     session.begin();
 
     var entity1 = (EntityImpl) session.newEntity();

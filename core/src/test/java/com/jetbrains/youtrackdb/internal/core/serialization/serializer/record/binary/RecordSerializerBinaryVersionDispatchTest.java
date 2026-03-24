@@ -510,26 +510,26 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
   }
 
   /**
-   * Disk-storage lifecycle for tier 3 (cuckoo hash mode, >12 properties): persist an entity
+   * Disk-storage lifecycle for tier 3 (hash table mode, >12 properties): persist an entity
    * with 15 properties to disk pages, close the database, reopen it, and verify all properties
-   * survive the persist→close→reopen cycle with cuckoo-serialized records on actual disk pages.
+   * survive the persist→close→reopen cycle with hash table-serialized records on actual disk pages.
    */
   @Test
-  public void dbLifecycle_diskStorage_cuckooTier_persistCloseReopenVerify() {
-    var dbName = "v2DiskCuckooTierTest";
-    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskCuckoo";
+  public void dbLifecycle_diskStorage_hashTableTier_persistCloseReopenVerify() {
+    var dbName = "v2DiskHashTableTierTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskHashTable";
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
       ytdb.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try {
         RID rid;
-        // Create entity with 15 properties using mixed types (tier 3 cuckoo mode).
+        // Create entity with 15 properties using mixed types (tier 3 hash table mode).
         // Mixed types exercise variable-width value encoding (varint for strings,
-        // fixed 4/8 bytes for int/double) in the cuckoo offset table.
+        // fixed 4/8 bytes for int/double) in the hash table offset table.
         try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-          db.createClass("CuckooTierEntity");
+          db.createClass("HashTableTierEntity");
           db.begin();
-          var entity = (EntityImpl) db.newEntity("CuckooTierEntity");
+          var entity = (EntityImpl) db.newEntity("HashTableTierEntity");
           for (int i = 0; i < 10; i++) {
             entity.setProperty("str_" + i, "value_" + i);
           }
@@ -579,24 +579,24 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
   }
 
   /**
-   * Disk-storage partial deserialization for cuckoo tier: persist an entity with 15+ properties
+   * Disk-storage partial deserialization for hash table tier: persist an entity with 15+ properties
    * to disk, reopen the database, access a single property via getProperty() which triggers
-   * partial deserialization through the cuckoo 2-bucket scan on disk-loaded pages.
+   * partial deserialization through the hash table linear probe on disk-loaded pages.
    */
   @Test
-  public void dbLifecycle_diskStorage_cuckooTier_partialDeserialization() {
-    var dbName = "v2DiskCuckooPartialTest";
-    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskCuckooPartial";
+  public void dbLifecycle_diskStorage_hashTableTier_partialDeserialization() {
+    var dbName = "v2DiskHashTablePartialTest";
+    var basePath = DbTestBase.getBaseDirectoryPathStr(getClass()) + "diskHashTablePartial";
     try (var ytdb = (YouTrackDBImpl) YourTracks.instance(basePath)) {
       ytdb.create(dbName, DatabaseType.DISK,
           new LocalUserCredential("admin", "adminpwd", PredefinedLocalRole.ADMIN));
       try {
         RID rid;
-        // Create entity with 15 properties (cuckoo mode)
+        // Create entity with 15 properties (hash table mode)
         try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
-          db.createClass("CuckooPartialEntity");
+          db.createClass("HashTablePartialEntity");
           db.begin();
-          var entity = (EntityImpl) db.newEntity("CuckooPartialEntity");
+          var entity = (EntityImpl) db.newEntity("HashTablePartialEntity");
           for (int i = 0; i < 15; i++) {
             entity.setProperty("field_" + i, "data_" + i);
           }
@@ -605,18 +605,18 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
         }
 
         // Reopen and access a single property — triggers partial deserialization via
-        // EntityImpl.checkForProperties(name) → deserializePartial() through the cuckoo
-        // 2-bucket scan path on disk-loaded pages.
+        // EntityImpl.checkForProperties(name) → deserializePartial() through the hash table
+        // linear probe path on disk-loaded pages.
         try (var db = (DatabaseSessionEmbedded) ytdb.open(dbName, "admin", "adminpwd")) {
           db.begin();
           var reloaded = (EntityImpl) db.load(rid);
           assertThat(reloaded).isNotNull();
-          // Access a mid-range property to exercise the cuckoo hash lookup path
+          // Access a mid-range property to exercise the hash table lookup path
           assertThat((String) reloaded.getProperty("field_7")).isEqualTo("data_7");
           // Access first and last properties as well
           assertThat((String) reloaded.getProperty("field_0")).isEqualTo("data_0");
           assertThat((String) reloaded.getProperty("field_14")).isEqualTo("data_14");
-          // Verify non-existent property returns null (not a phantom cuckoo collision)
+          // Verify non-existent property returns null (not a phantom hash table collision)
           assertThat((String) reloaded.getProperty("nonexistent_field")).isNull();
           db.rollback();
         }

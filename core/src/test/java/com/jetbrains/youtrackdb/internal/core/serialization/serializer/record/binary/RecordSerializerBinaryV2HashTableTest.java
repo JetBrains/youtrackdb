@@ -1,14 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
 /**
  * Tests for the hash table core utilities in RecordSerializerBinaryV2: hash8 computation, sentinel
- * constants, and bucketized cuckoo hash table construction.
+ * constants, linear probing hash table construction, and Fibonacci slot indexing.
  */
 public class RecordSerializerBinaryV2HashTableTest {
 
@@ -16,7 +16,7 @@ public class RecordSerializerBinaryV2HashTableTest {
 
   @Test
   public void emptySlotSentinelValues() {
-    // Empty slot sentinel must be 0xFF / 0xFFFF (not 0x00 / 0x0000) per review decision T3/R2/A2
+    // Empty slot sentinel must be 0xFF / 0xFFFF per review decision T3/R2/A2
     assertThat(RecordSerializerBinaryV2.EMPTY_HASH8).isEqualTo((byte) 0xFF);
     assertThat(RecordSerializerBinaryV2.EMPTY_OFFSET).isEqualTo((short) 0xFFFF);
   }
@@ -51,266 +51,216 @@ public class RecordSerializerBinaryV2HashTableTest {
   }
 
   // ========================================================================================
-  // Bucketized cuckoo hashing tests
+  // Linear probing hash table tests
   // ========================================================================================
 
-  // --- computeH2Seed ---
+  // --- computeLog2Capacity ---
 
   @Test
-  public void computeH2Seed_xorsWithCuckooConstant() {
-    // h2 seed is derived by XOR with the MurmurHash3 finalization constant
-    assertThat(RecordSerializerBinaryV2.computeH2Seed(0))
-        .isEqualTo(RecordSerializerBinaryV2.CUCKOO_XOR_CONSTANT);
-    assertThat(RecordSerializerBinaryV2.computeH2Seed(42))
-        .isEqualTo(42 ^ RecordSerializerBinaryV2.CUCKOO_XOR_CONSTANT);
+  public void computeLog2Capacity_thirteenProperties() {
+    // 13 * 8 / 5 = 20.8 → ceil = 21 → nextPow2 = 32 → log2 = 5
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(13)).isEqualTo(5);
   }
 
   @Test
-  public void computeH2Seed_neverEqualToH1Seed() {
-    // XOR with non-zero constant ensures h1 seed != h2 seed
-    for (int seed = 0; seed < 1000; seed++) {
-      assertThat(RecordSerializerBinaryV2.computeH2Seed(seed))
-          .as("seed=%d", seed)
-          .isNotEqualTo(seed);
-    }
-  }
-
-  // --- computeLog2NumBuckets ---
-
-  @Test
-  public void computeLog2NumBuckets_thirteenProperties() {
-    // 13 / 3.4 = 3.82 → ceil = 4 → nextPow2 = 4 → log2 = 2
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(13)).isEqualTo(2);
+  public void computeLog2Capacity_twentyProperties() {
+    // 20 * 8 / 5 = 32.0 → ceil = 32 → nextPow2 = 32 → log2 = 5
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(20)).isEqualTo(5);
   }
 
   @Test
-  public void computeLog2NumBuckets_twentyProperties() {
-    // 20 / 3.4 = 5.88 → ceil = 6 → nextPow2 = 8 → log2 = 3
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(20)).isEqualTo(3);
+  public void computeLog2Capacity_thirtyProperties() {
+    // 30 * 8 / 5 = 48.0 → ceil = 48 → nextPow2 = 64 → log2 = 6
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(30)).isEqualTo(6);
   }
 
   @Test
-  public void computeLog2NumBuckets_thirtyProperties() {
-    // 30 / 3.4 = 8.82 → ceil = 9 → nextPow2 = 16 → log2 = 4
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(30)).isEqualTo(4);
+  public void computeLog2Capacity_fiftyProperties() {
+    // 50 * 8 / 5 = 80.0 → ceil = 80 → nextPow2 = 128 → log2 = 7
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(50)).isEqualTo(7);
   }
 
   @Test
-  public void computeLog2NumBuckets_fiftyProperties() {
-    // 50 / 3.4 = 14.71 → ceil = 15 → nextPow2 = 16 → log2 = 4
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(50)).isEqualTo(4);
+  public void computeLog2Capacity_hundredProperties() {
+    // 100 * 8 / 5 = 160.0 → ceil = 160 → nextPow2 = 256 → log2 = 8
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(100)).isEqualTo(8);
   }
 
   @Test
-  public void computeLog2NumBuckets_hundredProperties() {
-    // 100 / 3.4 = 29.41 → ceil = 30 → nextPow2 = 32 → log2 = 5
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(100)).isEqualTo(5);
+  public void computeLog2Capacity_singleProperty() {
+    // 1 * 8 / 5 = 1.6 → ceil = 2 → log2 = 1 (minimum)
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(1)).isEqualTo(1);
   }
 
   @Test
-  public void computeLog2NumBuckets_singleProperty() {
-    // 1 / 3.4 = 0.29 → ceil = 1 → log2 = 0 (single bucket)
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(1)).isEqualTo(0);
+  public void computeLog2Capacity_twoProperties() {
+    // 2 * 8 / 5 = 3.2 → ceil = 4 → log2 = 2
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(2)).isEqualTo(2);
   }
 
   @Test
-  public void computeLog2NumBuckets_threeProperties() {
-    // 3 / 3.4 = 0.88 → ceil = 1 → log2 = 0 (single bucket with 4 slots)
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(3)).isEqualTo(0);
+  public void computeLog2Capacity_threeProperties() {
+    // 3 * 8 / 5 = 4.8 → ceil = 5 → nextPow2 = 8 → log2 = 3
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(3)).isEqualTo(3);
   }
 
   @Test
-  public void computeLog2NumBuckets_twoProperties() {
-    // 2 / 3.4 = 0.59 → ceil = 1 → log2 = 0 (still single bucket)
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(2)).isEqualTo(0);
+  public void computeLog2Capacity_clampedToMax() {
+    // Very large property count should be clamped to MAX_LOG2_CAPACITY
+    assertThat(RecordSerializerBinaryV2.computeLog2Capacity(5000))
+        .isEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
   }
 
-  @Test
-  public void computeLog2NumBuckets_fourProperties_transitionToTwoBuckets() {
-    // 4 / 3.4 = 1.18 → ceil = 2 → log2 = 1 (first count requiring 2 buckets)
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(4)).isEqualTo(1);
-  }
+  // --- fibonacciSlotIndex ---
 
   @Test
-  public void computeLog2NumBuckets_sevenProperties_transitionToFourBuckets() {
-    // 7 / 3.4 = 2.06 → ceil = 3 → nextPow2 = 4 → log2 = 2
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(7)).isEqualTo(2);
-  }
-
-  @Test
-  public void computeLog2NumBuckets_fourteenProperties_transitionToEightBuckets() {
-    // 14 / 3.4 = 4.12 → ceil = 5 → nextPow2 = 8 → log2 = 3
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(14)).isEqualTo(3);
-  }
-
-  @Test
-  public void computeLog2NumBuckets_clampedToMax() {
-    // Very large property count should be clamped to MAX_LOG2_NUM_BUCKETS
-    assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(5000))
-        .isEqualTo(RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS);
-  }
-
-  // --- fibonacciBucketIndex ---
-
-  @Test
-  public void fibonacciBucketIndex_singleBucketAlwaysReturnsZero() {
-    // log2NumBuckets = 0 means 1 bucket — all hashes map to bucket 0
-    for (int hash = -1000; hash <= 1000; hash++) {
-      assertThat(RecordSerializerBinaryV2.fibonacciBucketIndex(hash, 0))
-          .as("hash=%d", hash)
-          .isEqualTo(0);
-    }
-  }
-
-  @Test
-  public void fibonacciBucketIndex_producesValidIndices() {
-    // For each valid log2NumBuckets, bucket index must be in [0, numBuckets)
-    for (int log2 = 0; log2 <= RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS; log2++) {
-      int numBuckets = 1 << log2;
+  public void fibonacciSlotIndex_producesValidIndices() {
+    // For each valid log2Capacity, slot index must be in [0, capacity)
+    for (int log2 = 1; log2 <= RecordSerializerBinaryV2.MAX_LOG2_CAPACITY; log2++) {
+      int capacity = 1 << log2;
       for (int hash = -1000; hash <= 1000; hash++) {
-        int bucket = RecordSerializerBinaryV2.fibonacciBucketIndex(hash, log2);
-        assertThat(bucket)
+        int slot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, log2);
+        assertThat(slot)
             .as("log2=%d, hash=%d", log2, hash)
             .isGreaterThanOrEqualTo(0)
-            .isLessThan(numBuckets);
+            .isLessThan(capacity);
       }
     }
   }
 
   @Test
-  public void fibonacciBucketIndex_extremeHashValues() {
+  public void fibonacciSlotIndex_extremeHashValues() {
     // MurmurHash3 can return any int value including Integer.MIN_VALUE.
-    // Verify Fibonacci hashing produces valid bucket indices at extremes.
+    // Verify Fibonacci hashing produces valid slot indices at extremes.
     int[] extremeHashes = {Integer.MIN_VALUE, Integer.MAX_VALUE, 0, -1, 1};
-    for (int log2 = 0; log2 <= RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS; log2++) {
-      int numBuckets = 1 << log2;
+    for (int log2 = 1; log2 <= RecordSerializerBinaryV2.MAX_LOG2_CAPACITY; log2++) {
+      int capacity = 1 << log2;
       for (int hash : extremeHashes) {
-        int bucket = RecordSerializerBinaryV2.fibonacciBucketIndex(hash, log2);
-        assertThat(bucket)
+        int slot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, log2);
+        assertThat(slot)
             .as("log2=%d, hash=%d", log2, hash)
             .isGreaterThanOrEqualTo(0)
-            .isLessThan(numBuckets);
+            .isLessThan(capacity);
       }
     }
   }
 
-  // --- buildCuckooTable ---
+  // --- buildHashTable ---
 
   @Test
-  public void buildCuckooTable_thirteenProperties() {
-    // Minimum cuckoo property count: 13. Verify all entries locatable via 2-bucket scan.
+  public void buildHashTable_thirteenProperties() {
+    // Minimum hash table property count: 13. Verify all entries locatable via linear probe.
     byte[][] names = generateNames(13);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(13);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(13);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_twentyProperties() {
+  public void buildHashTable_twentyProperties() {
     byte[][] names = generateNames(20);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(20);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(20);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_fiftyProperties() {
+  public void buildHashTable_fiftyProperties() {
     byte[][] names = generateNames(50);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(50);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(50);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_hundredProperties() {
+  public void buildHashTable_hundredProperties() {
     byte[][] names = generateNames(100);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(100);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(100);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_similarPrefixNames() {
+  public void buildHashTable_similarPrefixNames() {
     // Adversarial: names that differ only in suffix — tests hash independence
     byte[][] names = new byte[20][];
     for (int i = 0; i < 20; i++) {
       names[i] = toBytes("commonPrefix_" + i);
     }
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(20);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(20);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_identicalLengthNames() {
+  public void buildHashTable_identicalLengthNames() {
     // Adversarial: all names have the same length
     byte[][] names = new byte[20][];
     for (int i = 0; i < 20; i++) {
       names[i] = toBytes(String.format("name%04d", i));
     }
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(20);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(20);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_allCountsFrom13To60() {
-    // Comprehensive sweep: verify cuckoo construction succeeds for all counts in range
+  public void buildHashTable_allCountsFrom13To60() {
+    // Comprehensive sweep: verify linear probing construction succeeds for all counts in range
     for (int n = 13; n <= 60; n++) {
       byte[][] names = generateNames(n);
-      int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(n);
-      RecordSerializerBinaryV2.CuckooTableResult result =
-          RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-      assertAllCuckooEntriesLocatable(names, result);
+      int log2 = RecordSerializerBinaryV2.computeLog2Capacity(n);
+      RecordSerializerBinaryV2.HashTableResult result =
+          RecordSerializerBinaryV2.buildHashTable(names, log2);
+      assertAllEntriesLocatable(names, result);
     }
   }
 
   @Test
-  public void buildCuckooTable_deterministic() {
+  public void buildHashTable_deterministic() {
     // Same input produces same output: seed and slot assignments are deterministic
     byte[][] names = generateNames(30);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(30);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(30);
 
-    RecordSerializerBinaryV2.CuckooTableResult result1 =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    RecordSerializerBinaryV2.CuckooTableResult result2 =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
+    RecordSerializerBinaryV2.HashTableResult result1 =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    RecordSerializerBinaryV2.HashTableResult result2 =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
 
     assertThat(result1.seed).isEqualTo(result2.seed);
-    assertThat(result1.log2NumBuckets).isEqualTo(result2.log2NumBuckets);
-    assertThat(result1.bucketArray).isEqualTo(result2.bucketArray);
+    assertThat(result1.log2Capacity).isEqualTo(result2.log2Capacity);
+    assertThat(result1.slotArray).isEqualTo(result2.slotArray);
     assertThat(result1.slotPropertyIndex).isEqualTo(result2.slotPropertyIndex);
-    assertAllCuckooEntriesLocatable(names, result1);
+    assertAllEntriesLocatable(names, result1);
   }
 
   @Test
-  public void buildCuckooTable_bucketArraySize() {
-    // Bucket array size must be numBuckets * BUCKET_SIZE * SLOT_SIZE
+  public void buildHashTable_slotArraySize() {
+    // Slot array size must be capacity * SLOT_SIZE
     byte[][] names = generateNames(25);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(25);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(25);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
 
-    int numBuckets = 1 << result.log2NumBuckets;
-    int expectedSize =
-        numBuckets * RecordSerializerBinaryV2.BUCKET_SIZE * RecordSerializerBinaryV2.SLOT_SIZE;
-    assertThat(result.bucketArray).hasSize(expectedSize);
-    assertAllCuckooEntriesLocatable(names, result);
+    int capacity = 1 << result.log2Capacity;
+    int expectedSize = capacity * RecordSerializerBinaryV2.SLOT_SIZE;
+    assertThat(result.slotArray).hasSize(expectedSize);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_noSlotOccupiedTwice() {
+  public void buildHashTable_noSlotOccupiedTwice() {
     // Verify no two properties occupy the same slot and exactly N slots are occupied
     byte[][] names = generateNames(40);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(40);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(40);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
 
     int placedCount = 0;
     boolean[] seenPropertyIndex = new boolean[names.length];
@@ -326,56 +276,33 @@ public class RecordSerializerBinaryV2HashTableTest {
       }
     }
     assertThat(placedCount).isEqualTo(names.length);
-    assertAllCuckooEntriesLocatable(names, result);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_singleBucket_threeProperties() {
-    // 3 properties with log2NumBuckets=0: single bucket (4 slots), both bucket1 and
-    // bucket2 resolve to bucket 0, testing the degenerate case
-    byte[][] names = generateNames(3);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(3);
-    assertThat(log2).isEqualTo(0);
-
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+  public void buildHashTable_capacityBoundary() {
+    // Single property at threshold (13) — smallest hash table case
+    byte[][] names = generateNames(13);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(13);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
+    // Capacity should be power of two >= ceil(13 * 8/5) = 21 → 32
+    assertThat(1 << result.log2Capacity).isGreaterThanOrEqualTo(21);
   }
 
   @Test
-  public void buildCuckooTable_allCountsFrom1To12() {
-    // Sweep small property counts covering single-bucket and two-bucket degenerate cases
-    for (int n = 1; n <= 12; n++) {
-      byte[][] names = generateNames(n);
-      int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(n);
-      RecordSerializerBinaryV2.CuckooTableResult result =
-          RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-      assertAllCuckooEntriesLocatable(names, result);
-    }
+  public void buildHashTable_wrapAroundProbe() {
+    // Use enough properties to increase the chance of wrap-around during probing
+    byte[][] names = generateNames(60);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(60);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_forcesCapacityDoubling() {
-    // 20 properties with log2NumBuckets=0 (4 slots) forces capacity doubling
-    byte[][] names = generateNames(20);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, 0);
-    assertThat(result.log2NumBuckets).isGreaterThan(0);
-    assertAllCuckooEntriesLocatable(names, result);
-  }
-
-  @Test
-  public void buildCuckooTable_throwsWhenPropertyCountExceedsMaxCapacity() {
-    // 4096 slots at MAX_LOG2_NUM_BUCKETS cannot hold 5000 properties
-    byte[][] names = generateNames(5000);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(5000);
-    assertThatThrownBy(() -> RecordSerializerBinaryV2.buildCuckooTable(names, log2))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("Failed to build cuckoo table");
-  }
-
-  @Test
-  public void buildCuckooTable_unicodePropertyNames() {
+  public void buildHashTable_unicodePropertyNames() {
     // Multi-byte UTF-8 property names: CJK, accented, mixed-script
     byte[][] names = {
         toBytes("\u540d\u524d"),
@@ -392,33 +319,66 @@ public class RecordSerializerBinaryV2HashTableTest {
         toBytes("\u2603_snowman"),
         toBytes("prop_extra"),
     };
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(names.length);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
-    assertAllCuckooEntriesLocatable(names, result);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(names.length);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
+    assertAllEntriesLocatable(names, result);
   }
 
   @Test
-  public void buildCuckooTable_emptySlotsSentinelBytes() {
+  public void buildHashTable_emptySlotsSentinelBytes() {
     // Verify unoccupied slots contain the empty sentinel pattern: 0xFF, 0xFF, 0xFF
     byte[][] names = generateNames(13);
-    int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(13);
-    RecordSerializerBinaryV2.CuckooTableResult result =
-        RecordSerializerBinaryV2.buildCuckooTable(names, log2);
+    int log2 = RecordSerializerBinaryV2.computeLog2Capacity(13);
+    RecordSerializerBinaryV2.HashTableResult result =
+        RecordSerializerBinaryV2.buildHashTable(names, log2);
 
     for (int s = 0; s < result.slotPropertyIndex.length; s++) {
       if (result.slotPropertyIndex[s] == -1) {
         int offset = s * RecordSerializerBinaryV2.SLOT_SIZE;
-        assertThat(result.bucketArray[offset])
+        assertThat(result.slotArray[offset])
             .as("Empty slot %d hash8 byte", s)
             .isEqualTo(RecordSerializerBinaryV2.EMPTY_HASH8);
-        assertThat(result.bucketArray[offset + 1])
+        assertThat(result.slotArray[offset + 1])
             .as("Empty slot %d offset low byte", s)
             .isEqualTo((byte) 0xFF);
-        assertThat(result.bucketArray[offset + 2])
+        assertThat(result.slotArray[offset + 2])
             .as("Empty slot %d offset high byte", s)
             .isEqualTo((byte) 0xFF);
       }
+    }
+  }
+
+  @Test
+  public void buildHashTable_maxProbeLengthBounded() {
+    // R4: Verify max probe length stays reasonable (< 15) for 50-100 properties
+    for (int n : new int[] {50, 75, 100}) {
+      byte[][] names = generateNames(n);
+      int log2 = RecordSerializerBinaryV2.computeLog2Capacity(n);
+      RecordSerializerBinaryV2.HashTableResult result =
+          RecordSerializerBinaryV2.buildHashTable(names, log2);
+      int capacity = 1 << result.log2Capacity;
+      int seed = result.seed;
+
+      int maxProbes = 0;
+      for (int i = 0; i < n; i++) {
+        byte[] nameBytes = names[i];
+        int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+        int startSlot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, result.log2Capacity);
+
+        int probes = 0;
+        for (int p = 0; p < capacity; p++) {
+          int slot = (startSlot + p) & (capacity - 1);
+          probes++;
+          if (result.slotPropertyIndex[slot] == i) {
+            break;
+          }
+        }
+        maxProbes = Math.max(maxProbes, probes);
+      }
+      assertThat(maxProbes)
+          .as("Max probe length for %d properties", n)
+          .isLessThan(15);
     }
   }
 
@@ -437,70 +397,57 @@ public class RecordSerializerBinaryV2HashTableTest {
   }
 
   /**
-   * Asserts that every property in the cuckoo table is locatable by scanning at most 2 buckets
-   * (bucket1 from h1, bucket2 from h2). Each property must be found in exactly one slot with the
-   * correct hash8 prefix.
+   * Asserts that every property in the hash table is locatable by starting at the Fibonacci slot
+   * index and probing forward. Each property must be found with the correct hash8 prefix.
    */
-  private static void assertAllCuckooEntriesLocatable(byte[][] names,
-      RecordSerializerBinaryV2.CuckooTableResult result) {
+  private static void assertAllEntriesLocatable(byte[][] names,
+      RecordSerializerBinaryV2.HashTableResult result) {
     int seed = result.seed;
-    int h2Seed = RecordSerializerBinaryV2.computeH2Seed(seed);
-    int log2 = result.log2NumBuckets;
+    int log2 = result.log2Capacity;
+    int capacity = 1 << log2;
     int[] slotPropIdx = result.slotPropertyIndex;
 
     for (int i = 0; i < names.length; i++) {
       byte[] nameBytes = names[i];
-      int h1 = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3.hash32WithSeed(
-          nameBytes, 0, nameBytes.length, seed);
-      int h2 = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3.hash32WithSeed(
-          nameBytes, 0, nameBytes.length, h2Seed);
-      byte expectedHash8 = RecordSerializerBinaryV2.computeHash8(h1);
-
-      int bucket1 = RecordSerializerBinaryV2.fibonacciBucketIndex(h1, log2);
-      int bucket2 = RecordSerializerBinaryV2.fibonacciBucketIndex(h2, log2);
+      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
+      byte expectedHash8 = RecordSerializerBinaryV2.computeHash8(hash);
+      int startSlot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, log2);
 
       boolean found = false;
-      // Scan bucket1
-      int b1Start = bucket1 * RecordSerializerBinaryV2.BUCKET_SIZE;
-      for (int s = 0; s < RecordSerializerBinaryV2.BUCKET_SIZE; s++) {
-        if (slotPropIdx[b1Start + s] == i) {
-          assertThat(result.bucketArray[(b1Start + s) * RecordSerializerBinaryV2.SLOT_SIZE])
-              .as("hash8 mismatch for property '%s' at bucket1 slot %d",
-                  new String(nameBytes, StandardCharsets.UTF_8), s)
+      // Linear probe forward from startSlot
+      for (int probe = 0; probe < capacity; probe++) {
+        int slot = (startSlot + probe) & (capacity - 1);
+
+        // Empty slot means property not found (should not happen)
+        if (slotPropIdx[slot] == -1) {
+          break;
+        }
+
+        if (slotPropIdx[slot] == i) {
+          // Verify hash8 is correct in the slot array
+          assertThat(result.slotArray[slot * RecordSerializerBinaryV2.SLOT_SIZE])
+              .as("hash8 mismatch for property '%s' at slot %d",
+                  new String(nameBytes, StandardCharsets.UTF_8), slot)
               .isEqualTo(expectedHash8);
           found = true;
           break;
         }
       }
-      // Scan bucket2 if not found
-      if (!found) {
-        int b2Start = bucket2 * RecordSerializerBinaryV2.BUCKET_SIZE;
-        for (int s = 0; s < RecordSerializerBinaryV2.BUCKET_SIZE; s++) {
-          if (slotPropIdx[b2Start + s] == i) {
-            assertThat(result.bucketArray[(b2Start + s) * RecordSerializerBinaryV2.SLOT_SIZE])
-                .as("hash8 mismatch for property '%s' at bucket2 slot %d",
-                    new String(nameBytes, StandardCharsets.UTF_8), s)
-                .isEqualTo(expectedHash8);
-            found = true;
-            break;
-          }
-        }
-      }
       assertThat(found)
-          .as("Property '%s' (index %d) not found in bucket1=%d or bucket2=%d",
-              new String(nameBytes, StandardCharsets.UTF_8), i, bucket1, bucket2)
+          .as("Property '%s' (index %d) not found via linear probe from slot %d",
+              new String(nameBytes, StandardCharsets.UTF_8), i, startSlot)
           .isTrue();
     }
 
-    // Verify empty slots in bucketArray contain correct sentinel bytes
+    // Verify empty slots in slotArray contain correct sentinel bytes
     for (int s = 0; s < slotPropIdx.length; s++) {
       int byteOffset = s * RecordSerializerBinaryV2.SLOT_SIZE;
       if (slotPropIdx[s] == -1) {
-        assertThat(result.bucketArray[byteOffset])
+        assertThat(result.slotArray[byteOffset])
             .as("empty slot %d hash8 must be EMPTY_HASH8", s)
             .isEqualTo(RecordSerializerBinaryV2.EMPTY_HASH8);
-        int storedOffset = (result.bucketArray[byteOffset + 1] & 0xFF)
-            | ((result.bucketArray[byteOffset + 2] & 0xFF) << 8);
+        int storedOffset = (result.slotArray[byteOffset + 1] & 0xFF)
+            | ((result.slotArray[byteOffset + 2] & 0xFF) << 8);
         assertThat(storedOffset)
             .as("empty slot %d offset must be EMPTY_OFFSET", s)
             .isEqualTo(RecordSerializerBinaryV2.EMPTY_OFFSET & 0xFFFF);
