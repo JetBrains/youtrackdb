@@ -145,9 +145,9 @@ public class RecordSerializerBinaryV2HashTableTest {
 
   @Test
   public void computeLog2NumBuckets_clampedToMax() {
-    // Very large property count should be clamped to MAX_LOG2_CAPACITY
+    // Very large property count should be clamped to MAX_LOG2_NUM_BUCKETS
     assertThat(RecordSerializerBinaryV2.computeLog2NumBuckets(5000))
-        .isEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+        .isEqualTo(RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS);
   }
 
   // --- fibonacciBucketIndex ---
@@ -165,9 +165,26 @@ public class RecordSerializerBinaryV2HashTableTest {
   @Test
   public void fibonacciBucketIndex_producesValidIndices() {
     // For each valid log2NumBuckets, bucket index must be in [0, numBuckets)
-    for (int log2 = 0; log2 <= RecordSerializerBinaryV2.MAX_LOG2_CAPACITY; log2++) {
+    for (int log2 = 0; log2 <= RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS; log2++) {
       int numBuckets = 1 << log2;
       for (int hash = -1000; hash <= 1000; hash++) {
+        int bucket = RecordSerializerBinaryV2.fibonacciBucketIndex(hash, log2);
+        assertThat(bucket)
+            .as("log2=%d, hash=%d", log2, hash)
+            .isGreaterThanOrEqualTo(0)
+            .isLessThan(numBuckets);
+      }
+    }
+  }
+
+  @Test
+  public void fibonacciBucketIndex_extremeHashValues() {
+    // MurmurHash3 can return any int value including Integer.MIN_VALUE.
+    // Verify Fibonacci hashing produces valid bucket indices at extremes.
+    int[] extremeHashes = {Integer.MIN_VALUE, Integer.MAX_VALUE, 0, -1, 1};
+    for (int log2 = 0; log2 <= RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS; log2++) {
+      int numBuckets = 1 << log2;
+      for (int hash : extremeHashes) {
         int bucket = RecordSerializerBinaryV2.fibonacciBucketIndex(hash, log2);
         assertThat(bucket)
             .as("log2=%d, hash=%d", log2, hash)
@@ -349,7 +366,7 @@ public class RecordSerializerBinaryV2HashTableTest {
 
   @Test
   public void buildCuckooTable_throwsWhenPropertyCountExceedsMaxCapacity() {
-    // 4096 slots at MAX_LOG2_CAPACITY cannot hold 5000 properties
+    // 4096 slots at MAX_LOG2_NUM_BUCKETS cannot hold 5000 properties
     byte[][] names = generateNames(5000);
     int log2 = RecordSerializerBinaryV2.computeLog2NumBuckets(5000);
     assertThatThrownBy(() -> RecordSerializerBinaryV2.buildCuckooTable(names, log2))

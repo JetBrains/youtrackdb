@@ -360,10 +360,11 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
       entity.setString("prop_" + i, "val");
     }
     var names = getFieldNamesFromEntity(entity, false);
-    assertThat(names).hasSize(20);
+    String[] expected = new String[20];
     for (int i = 0; i < 20; i++) {
-      assertThat(names).contains("prop_" + i);
+      expected[i] = "prop_" + i;
     }
+    assertThat(names).containsExactlyInAnyOrder(expected);
   }
 
   @Test
@@ -379,7 +380,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Boundary: 3-property threshold (first hash mode case)
+  // Boundary: 13-property threshold (first cuckoo hash mode case)
   // ========================================================================================
 
   @Test
@@ -514,6 +515,10 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(field).isNotNull();
     assertThat(field.name).isEqualTo("prop_10");
     assertThat(field.type).isEqualTo(PropertyTypeInternal.STRING);
+    // Verify the value bytes decode to the correct value
+    var value = new RecordSerializerBinaryV1()
+        .deserializeValue(session, field.bytes, field.type, null);
+    assertThat(value).isEqualTo("val_10");
     session.rollback();
   }
 
@@ -527,10 +532,11 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     }
 
     var names = getFieldNamesFromEntity(entity, false);
-    assertThat(names).hasSize(15);
+    String[] expected = new String[15];
     for (int i = 0; i < 15; i++) {
-      assertThat(names).contains("prop_" + i);
+      expected[i] = "prop_" + i;
     }
+    assertThat(names).containsExactlyInAnyOrder(expected);
     session.rollback();
   }
 
