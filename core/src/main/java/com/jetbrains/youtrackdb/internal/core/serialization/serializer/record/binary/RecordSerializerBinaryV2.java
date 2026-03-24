@@ -109,7 +109,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Bucketized cuckoo hashing — construction utilities (Track 7, Step 1)
+  // Bucketized cuckoo hashing — construction utilities
   // ========================================================================================
 
   /**
@@ -1275,7 +1275,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       throw new SerializationException(
           "Corrupted record: negative property count " + propertyCount);
     }
-    // Upper bound: 1 << MAX_LOG2_CAPACITY = 1024 slots; property count cannot exceed capacity
+    // Upper bound: MAX_LOG2_CAPACITY=10 → max 1024 buckets. With 64 KB KV region, this is
+    // a generous sanity limit for property count.
     if (propertyCount > (1 << MAX_LOG2_CAPACITY)) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "

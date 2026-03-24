@@ -7,9 +7,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
 /**
- * Tests for the hash table core utilities in RecordSerializerBinaryV2: Fibonacci hashing, capacity
- * computation, perfect hash seed search, hash8 computation, sentinel constants, and bucketized
- * cuckoo hash table construction.
+ * Tests for the hash table core utilities in RecordSerializerBinaryV2: hash8 computation, sentinel
+ * constants, and bucketized cuckoo hash table construction.
  */
 public class RecordSerializerBinaryV2HashTableTest {
 
