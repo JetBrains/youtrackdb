@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -73,10 +74,10 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((Object) deserialized.getProperty("value")).isNull();
   }
 
-  // --- Hash table mode (3+ properties) ---
+  // --- Linear mode (3-12 properties) ---
 
   @Test
-  public void roundTrip_threeProperties_hashMode() {
+  public void roundTrip_threeProperties_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -89,7 +90,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_fiveProperties_hashMode() {
+  public void roundTrip_fiveProperties_linearMode() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Charlie");
@@ -385,12 +386,20 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     }
     var deserialized = serializeAndDeserialize(entity);
     assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(50);
-    // Spot-check a few
-    assertThat((String) deserialized.getProperty("prop_0")).isEqualTo("str_0");
-    assertThat((int) deserialized.getProperty("prop_1")).isEqualTo(1);
-    assertThat((double) deserialized.getProperty("prop_2")).isEqualTo(3.0);
-    assertThat((boolean) deserialized.getProperty("prop_3")).isFalse();
-    assertThat((long) deserialized.getProperty("prop_4")).isEqualTo(4000L);
+    for (int i = 0; i < 50; i++) {
+      switch (i % 5) {
+        case 0 -> assertThat((String) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo("str_" + i);
+        case 1 -> assertThat((int) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i);
+        case 2 -> assertThat((double) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i * 1.5);
+        case 3 -> assertThat((boolean) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo(i % 2 == 0);
+        case 4 -> assertThat((long) deserialized.getProperty("prop_" + i))
+            .as("prop_%d", i).isEqualTo((long) i * 1000);
+      }
+    }
   }
 
   // --- Null values mixed with non-null ---
@@ -455,7 +464,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     // Read log2NumBuckets (1 byte)
     int log2NumBuckets = result.bytes[result.offset++] & 0xFF;
     assertThat(log2NumBuckets).isGreaterThanOrEqualTo(0);
-    assertThat(log2NumBuckets).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+    assertThat(log2NumBuckets).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS);
 
     // Verify bucket array has correct size
     int numBuckets = 1 << log2NumBuckets;
@@ -478,10 +487,10 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
       int bucket2 = RecordSerializerBinaryV2.fibonacciBucketIndex(h2, log2NumBuckets);
 
       boolean found = findInBucket(result.bytes, bucketArrayStart, kvRegionBase,
-          bucket1, expectedHash8);
+          bucket1, expectedHash8, name);
       if (!found) {
         found = findInBucket(result.bytes, bucketArrayStart, kvRegionBase,
-            bucket2, expectedHash8);
+            bucket2, expectedHash8, name);
       }
       assertThat(found).as("Property '%s' not found in bucket1=%d or bucket2=%d",
           name, bucket1, bucket2).isTrue();
@@ -489,7 +498,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   private static boolean findInBucket(byte[] data, int slotArrayStart, int kvRegionBase,
-      int bucketIndex, byte expectedHash8) {
+      int bucketIndex, byte expectedHash8, String expectedName) {
     int bucketStart = slotArrayStart
         + bucketIndex * RecordSerializerBinaryV2.BUCKET_SIZE * RecordSerializerBinaryV2.SLOT_SIZE;
     for (int s = 0; s < RecordSerializerBinaryV2.BUCKET_SIZE; s++) {
@@ -500,9 +509,16 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
           && slotOffset == (RecordSerializerBinaryV2.EMPTY_OFFSET & 0xFFFF)) {
         continue;
       }
-      if (slotHash8 == expectedHash8 && slotOffset != (RecordSerializerBinaryV2.EMPTY_OFFSET
-          & 0xFFFF)) {
-        return true;
+      if (slotHash8 == expectedHash8
+          && slotOffset != (RecordSerializerBinaryV2.EMPTY_OFFSET & 0xFFFF)) {
+        // Verify the offset points to the correct property name in the KV region
+        var kvBytes = new BytesContainer(data);
+        kvBytes.offset = kvRegionBase + slotOffset;
+        int nameLen = VarIntSerializer.readAsInteger(kvBytes);
+        String name = new String(data, kvBytes.offset, nameLen, StandardCharsets.UTF_8);
+        if (name.equals(expectedName)) {
+          return true;
+        }
       }
     }
     return false;
@@ -529,7 +545,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
   // --- Error paths ---
 
-  @Test(expected = SerializationException.class)
+  @Test
   public void serialize_kvRegionExceeding64KB_throwsSerializationException() {
     // KV region >64 KB triggers overflow guard (2-byte offsets cannot address beyond 64 KB).
     // The guard checks entryOffset > MAX_KV_REGION_SIZE (65534) at the START of each entry,
@@ -543,12 +559,14 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     }
     // Total KV ~75 KB; the check triggers when an entry starts at offset >65534
     var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
+    assertThatThrownBy(() -> v2.serialize(session, entity, bytes))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("KV region");
   }
 
-  @Test(expected = SerializationException.class)
-  public void deserialize_corruptedLog2Capacity_throwsSerializationException() {
-    // Corrupt the log2NumBuckets byte to an invalid value (>MAX_LOG2_CAPACITY).
+  @Test
+  public void deserialize_corruptedLog2NumBuckets_throwsSerializationException() {
+    // Corrupt the log2NumBuckets byte to an invalid value (>MAX_LOG2_NUM_BUCKETS).
     // Requires 13+ properties to trigger hash table mode.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
@@ -566,24 +584,30 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     bytes.bytes[log2Pos] = (byte) 30; // invalid: would mean 1B+ buckets
 
     var target = (EntityImpl) session.newEntity();
-    v2.deserialize(session, target, new BytesContainer(bytes.bytes));
+    assertThatThrownBy(
+        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("log2NumBuckets");
   }
 
-  @Test(expected = SerializationException.class)
+  @Test
   public void deserialize_negativePropertyCount_throwsSerializationException() {
     session.begin();
     // Craft a byte array with a negative property count varint
     var bytes = new BytesContainer();
     VarIntSerializer.write(bytes, -5); // negative count
     var target = (EntityImpl) session.newEntity();
-    v2.deserialize(session, target, new BytesContainer(bytes.bytes));
+    assertThatThrownBy(
+        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("negative property count");
   }
 
-  // --- Capacity boundary: 40 vs 41 properties (2x vs 4x capacity switch) ---
+  // --- Cuckoo mode at moderate scale ---
 
   @Test
-  public void roundTrip_fortyProperties_2xCapacityBoundary() {
-    // 40 properties use 2x capacity (HIGH_CAPACITY_THRESHOLD boundary)
+  public void roundTrip_fortyProperties() {
+    // 40 properties: cuckoo table at moderate scale
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 40; i++) {
@@ -598,8 +622,8 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_fortyOneProperties_4xCapacityBoundary() {
-    // 41 properties switch to 4x capacity
+  public void roundTrip_fortyOneProperties() {
+    // 41 properties: cuckoo table just above 40
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 41; i++) {
@@ -668,13 +692,34 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(3);
   }
 
+  @Test
+  public void roundTrip_schemaAwareThirteenProperties_cuckooMode() {
+    // 13+ schema-defined properties trigger cuckoo mode with global property ID encoding.
+    // Schema-aware names encode the property ID as a negative varint, changing the byte
+    // length of the name encoding. Verify hash-based lookup works with this encoding.
+    var clazz = session.createClass("SchemaCuckooV2Test");
+    for (int i = 0; i < 13; i++) {
+      clazz.createProperty("field_" + i, PropertyType.STRING);
+    }
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("SchemaCuckooV2Test");
+    for (int i = 0; i < 13; i++) {
+      entity.setProperty("field_" + i, "value_" + i);
+    }
+    var deserialized = serializeAndDeserialize(entity);
+    for (int i = 0; i < 13; i++) {
+      assertThat((String) deserialized.getProperty("field_" + i))
+          .as("field_%d", i).isEqualTo("value_" + i);
+    }
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(13);
+  }
+
   // --- Stress tests ---
 
   @Test
   public void roundTrip_oneHundredMixedProperties() {
-    // Stress test with 100 properties of mixed types to verify seed search,
-    // hash table sizing (4x capacity for N>40), and correct slot assignment
-    // all work at scale.
+    // Stress test with 100 properties of mixed types to verify cuckoo construction,
+    // hash table sizing via bucket formula, and correct slot assignment at scale.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 100; i++) {
@@ -925,7 +970,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     readBytes.skip(4);
     // Read log2NumBuckets (should be valid)
     int log2 = readBytes.bytes[readBytes.offset] & 0xFF;
-    assertThat(log2).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_CAPACITY);
+    assertThat(log2).isLessThanOrEqualTo(RecordSerializerBinaryV2.MAX_LOG2_NUM_BUCKETS);
 
     // Verify round-trip correctness
     var deserialized = serializeAndDeserialize(entity);

@@ -68,7 +68,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   static final int SLOT_SIZE = 3;
 
   // Maximum log2 of bucket count (1024 buckets × 4 slots = 4096 total slots)
-  static final int MAX_LOG2_CAPACITY = 10;
+  static final int MAX_LOG2_NUM_BUCKETS = 10;
 
   // Maximum offset value for 2-byte offsets (64 KB minus 1, since 0xFFFF is sentinel)
   static final int MAX_KV_REGION_SIZE = 0xFFFE;
@@ -136,7 +136,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return 0;
     }
     int log2 = 32 - Integer.numberOfLeadingZeros(minBuckets - 1);
-    return Math.min(log2, MAX_LOG2_CAPACITY);
+    return Math.min(log2, MAX_LOG2_NUM_BUCKETS);
   }
 
   /**
@@ -157,13 +157,13 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   static CuckooTableResult buildCuckooTable(byte[][] propertyNameBytes, int log2NumBuckets) {
     assert propertyNameBytes != null : "propertyNameBytes must not be null";
     assert propertyNameBytes.length > 0 : "must have at least one property";
-    assert log2NumBuckets >= 0 && log2NumBuckets <= MAX_LOG2_CAPACITY
+    assert log2NumBuckets >= 0 && log2NumBuckets <= MAX_LOG2_NUM_BUCKETS
         : "log2NumBuckets out of range: " + log2NumBuckets;
 
     int n = propertyNameBytes.length;
     int currentLog2 = log2NumBuckets;
 
-    while (currentLog2 <= MAX_LOG2_CAPACITY) {
+    while (currentLog2 <= MAX_LOG2_NUM_BUCKETS) {
       int numBuckets = 1 << currentLog2;
       int totalSlots = numBuckets * BUCKET_SIZE;
 
@@ -227,7 +227,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
     throw new IllegalStateException(
         "Failed to build cuckoo table for " + n + " properties at max capacity "
-            + ((1 << MAX_LOG2_CAPACITY) * BUCKET_SIZE) + " slots");
+            + ((1 << MAX_LOG2_NUM_BUCKETS) * BUCKET_SIZE) + " slots");
   }
 
   /**
@@ -321,7 +321,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Serialization (Step 2)
+  // Serialization
   // ========================================================================================
 
   @Override
@@ -543,7 +543,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Deserialization (Step 2)
+  // Deserialization
   // ========================================================================================
 
   @Override
@@ -607,7 +607,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
   /**
    * Reads a single KV entry: [name-encoding][type byte][value-size varint][value-bytes].
-   * The value-size field is used by partial deserialization (Step 3) to skip entries; during
+   * The value-size field is used by partial deserialization to skip entries; during
    * full deserialization it serves as a consistency check.
    */
   private void deserializeEntry(DatabaseSessionEmbedded db, EntityImpl entity,
@@ -641,7 +641,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   // ========================================================================================
-  // Partial deserialization, field lookup, field names (Step 3)
+  // Partial deserialization, field lookup, field names
   // ========================================================================================
 
   @Override
@@ -1275,26 +1275,26 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       throw new SerializationException(
           "Corrupted record: negative property count " + propertyCount);
     }
-    // Upper bound: MAX_LOG2_CAPACITY=10 → max 1024 buckets. With 64 KB KV region, this is
-    // a generous sanity limit for property count.
-    if (propertyCount > (1 << MAX_LOG2_CAPACITY)) {
+    // Upper bound: 64 KB KV region practically limits property count well below 1024.
+    // This is a generous corruption-detection sanity limit.
+    if (propertyCount > (1 << MAX_LOG2_NUM_BUCKETS)) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "
-              + (1 << MAX_LOG2_CAPACITY));
+              + (1 << MAX_LOG2_NUM_BUCKETS));
     }
   }
 
   /**
-   * Validates that log2Capacity read from a serialized record is within the supported range.
+   * Validates that log2NumBuckets read from a serialized record is within the supported range.
    * A corrupted byte could produce a value like 30 or 255, causing massive memory allocation or
-   * integer overflow in capacity computation.
+   * integer overflow in bucket count computation.
    */
   private static int readAndValidateLog2NumBuckets(BytesContainer bytes) {
     int log2NumBuckets = bytes.bytes[bytes.offset++] & 0xFF;
-    if (log2NumBuckets > MAX_LOG2_CAPACITY) {
+    if (log2NumBuckets > MAX_LOG2_NUM_BUCKETS) {
       throw new SerializationException(
           "Corrupted record: invalid log2NumBuckets " + log2NumBuckets
-              + " (expected 0-" + MAX_LOG2_CAPACITY + ")");
+              + " (expected 0-" + MAX_LOG2_NUM_BUCKETS + ")");
     }
     return log2NumBuckets;
   }
