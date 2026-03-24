@@ -4454,4 +4454,81 @@ public class MatchStatementExecutionTest extends DbTestBase {
         plan.contains("CxHasCreator") && plan.contains("intersection"));
     session.commit();
   }
+
+  /**
+   * Tests back-reference intersection with a large enough link bag
+   * to trigger the resolveReverseEdgeLookup path in
+   * TraversalPreFilterHelper (link bag size > minLinkBagSize = 50).
+   * Creates a forum with 80 posts by two authors, then uses a MATCH
+   * pattern with $matched.person.@rid back-reference. The intersection
+   * pre-filter should fire and be visible in EXPLAIN.
+   */
+  @Test
+  public void testBackReferenceIntersection_largeLinkBag() {
+    session.execute("CREATE CLASS LgPerson EXTENDS V").close();
+    session.execute("CREATE CLASS LgPost EXTENDS V").close();
+    session.execute("CREATE CLASS LgForum EXTENDS V").close();
+    session.execute("CREATE CLASS LgContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS LgHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY LgContainerOf.out LINK LgForum").close();
+    session.execute("CREATE PROPERTY LgContainerOf.in LINK LgPost").close();
+    session.execute("CREATE PROPERTY LgHasCreator.out LINK LgPost").close();
+    session.execute("CREATE PROPERTY LgHasCreator.in LINK LgPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LgForum SET name = 'Forum1'").close();
+    session.execute("CREATE VERTEX LgPerson SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX LgPerson SET name = 'Bob'").close();
+
+    // 80 posts: 40 by Alice, 40 by Bob → link bags > 50
+    for (int i = 0; i < 80; i++) {
+      var creator = (i % 2 == 0) ? "Alice" : "Bob";
+      session.execute(
+          "CREATE VERTEX LgPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE LgContainerOf FROM"
+              + " (SELECT FROM LgForum WHERE name='Forum1') TO"
+              + " (SELECT FROM LgPost WHERE title='post" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE LgHasCreator FROM"
+              + " (SELECT FROM LgPost WHERE title='post" + i + "') TO"
+              + " (SELECT FROM LgPerson WHERE name='" + creator + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Pattern: person → posts → forum → all posts in forum → creator must
+    // be same person. The large link bag (80 posts in forum) should trigger
+    // the intersection pre-filter on the last edge.
+    var matchQuery =
+        "MATCH"
+            + " {class: LgPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('LgHasCreator'){as: post}"
+            + "   .in('LgContainerOf'){as: forum}"
+            + "   .out('LgContainerOf'){as: post2}"
+            + "   .out('LgHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    var result = session.query(matchQuery).toList();
+    // Only posts by Alice should appear as post2 (40 posts × 40 post
+    // combinations from the cross product)
+    assertFalse("Should return results", result.isEmpty());
+
+    // Verify correctness: returned results should have post2.title set
+    for (var r : result) {
+      assertNotNull(r.getProperty("post2.title"));
+    }
+
+    // Verify intersection optimization is active
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show intersection pre-filter for large link bag,"
+            + " plan was:\n" + plan,
+        plan.contains("intersection"));
+    session.commit();
+  }
 }
