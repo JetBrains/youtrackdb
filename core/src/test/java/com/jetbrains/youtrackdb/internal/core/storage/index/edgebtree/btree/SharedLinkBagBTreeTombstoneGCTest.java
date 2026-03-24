@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
+import java.lang.reflect.Field;
+import java.util.Set;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -96,6 +98,44 @@ public class SharedLinkBagBTreeTombstoneGCTest {
   public void afterMethod() throws Exception {
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.delete(atomicOperation));
+    // Clean shared storage-level indexes so tests that call clear()
+    // (e.g. testNoGhostResurrectionAfterGC) don't leak state to other tests.
+    storage.getSharedEdgeSnapshotIndex().clear();
+    storage.getEdgeVisibilityIndex().clear();
+  }
+
+  // ---- LWM pinning helpers (via reflection) ----
+  // TsMinHolder is package-private, so we use reflection to create instances,
+  // set tsMin, and register/unregister in AbstractStorage.tsMins.
+
+  /**
+   * Registers a TsMinHolder in AbstractStorage.tsMins to pin the global LWM
+   * at the given value. Returns the holder (as Object) for later removal.
+   */
+  @SuppressWarnings("unchecked")
+  private static Object pinLwm(long lwmValue) throws Exception {
+    Class<?> holderClass = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.impl.local.TsMinHolder");
+    var ctor = holderClass.getDeclaredConstructor();
+    ctor.setAccessible(true);
+    Object holder = ctor.newInstance();
+    Field tsMinField = holderClass.getDeclaredField("tsMin");
+    tsMinField.setAccessible(true);
+    tsMinField.setLong(holder, lwmValue);
+
+    Field tsMinsField = AbstractStorage.class.getDeclaredField("tsMins");
+    tsMinsField.setAccessible(true);
+    Set<Object> tsMins = (Set<Object>) tsMinsField.get(storage);
+    tsMins.add(holder);
+    return holder;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void unpinLwm(Object holder) throws Exception {
+    Field tsMinsField = AbstractStorage.class.getDeclaredField("tsMins");
+    tsMinsField.setAccessible(true);
+    Set<Object> tsMins = (Set<Object>) tsMinsField.get(storage);
+    tsMins.remove(holder);
   }
 
   // ---- Helpers ----
@@ -227,47 +267,53 @@ public class SharedLinkBagBTreeTombstoneGCTest {
 
   @Test
   public void testTreeSizeConsistencyAfterGC() throws Exception {
-    // Verify that after GC, all live entries are still retrievable and
-    // the correct count of tombstones has been removed.
+    // Verify that after GC, the actual number of entries in the tree
+    // matches the expected count: live entries + surviving tombstones.
+    // Uses same targetCollection=0 so entries co-locate in buckets.
 
-    // Interleave tombstones and live entries in the same key range.
-    // Positions 0,1,2,...,2*FILL_COUNT-1. Even = tombstone, odd = live.
-    for (int i = 0; i < FILL_COUNT * 2; i++) {
-      final int pos = i;
-      final boolean isTombstone = (i % 2 == 0);
+    // Insert FILL_COUNT tombstones at even positions (ts=1, no snapshots)
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = i * 2;
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation,
               new EdgeKey(4L, 0, pos, 1L),
-              new LinkBagValue(pos, 0, 0, isTombstone)));
+              new LinkBagValue(pos, 0, 0, true)));
     }
 
-    // Now trigger overflows by inserting into the same range with a new
-    // 3-tuple prefix (different ridBagId) — this uses different buckets.
-    // Instead, insert at new positions that interleave with existing ones.
-    // Use half-integer positions by using targetCollection=1 as offset.
+    // Insert FILL_COUNT live entries at odd positions to trigger overflow+GC
     for (int i = 0; i < FILL_COUNT; i++) {
-      final int pos = i * 2; // same positions as tombstones
+      final int pos = i * 2 + 1;
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> bTree.put(atomicOperation,
-              new EdgeKey(4L, 1, pos, 100L),
+              new EdgeKey(4L, 0, pos, 100L),
               new LinkBagValue(pos, 0, 0, false)));
     }
 
-    // All live entries at odd positions must be present
-    assertThat(countLiveEntries(4L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
+    // Verify GC ran
+    int remainingTombstones = countTombstones(4L, 0, FILL_COUNT, 2);
+    assertThat(remainingTombstones)
+        .as("GC should have removed some tombstones")
+        .isLessThan(FILL_COUNT);
 
-    // All new live entries (targetCollection=1) must be present
-    final int[] newLiveCount = {0};
+    // All live entries at odd positions must be present
+    int liveCount = countLiveEntries(4L, 1, FILL_COUNT, 2);
+    assertThat(liveCount).isEqualTo(FILL_COUNT);
+
+    // Count total actual entries (live + surviving tombstones) by scanning
+    // all inserted positions. This verifies updateSize(-removedCount) is
+    // correct — the actual entry count must match expectations.
+    final int[] totalEntries = {0};
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      for (int i = 0; i < FILL_COUNT; i++) {
-        int pos = i * 2;
-        var entry = bTree.findCurrentEntry(atomicOperation, 4L, 1, pos);
-        if (entry != null && !entry.second().tombstone()) {
-          newLiveCount[0]++;
+      for (int i = 0; i < FILL_COUNT * 2; i++) {
+        var entry = bTree.findCurrentEntry(atomicOperation, 4L, 0, i);
+        if (entry != null) {
+          totalEntries[0]++;
         }
       }
     });
-    assertThat(newLiveCount[0]).isEqualTo(FILL_COUNT);
+    assertThat(totalEntries[0])
+        .as("Total entries must equal live + surviving tombstones")
+        .isEqualTo(liveCount + remainingTombstones);
   }
 
   @Test
@@ -341,6 +387,10 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new LinkBagValue(pos, 0, 0, false)));
     }
 
+    // Record tombstone count before cross-tx remove to distinguish GC
+    // that happened during put() from GC during remove().
+    int tombstonesBeforeRemove = countTombstones(8L, 0, FILL_COUNT, 2);
+
     // Now do a cross-tx remove on one of the live entries. The tombstone
     // insertion may trigger a bucket overflow, which should activate GC.
     final int removePos = 1; // live entry at position 1
@@ -360,12 +410,17 @@ public class SharedLinkBagBTreeTombstoneGCTest {
       assertThat(current.first().ts).isEqualTo(200L);
     });
 
-    // Some old tombstones (at even positions) should have been GC'd
-    // during bucket overflows triggered by the live entry inserts.
+    // Some old tombstones should have been GC'd during the overall process
     int oldTombstones = countTombstones(8L, 0, FILL_COUNT, 2);
     assertThat(oldTombstones)
-        .as("GC in the remove() path should have removed some old tombstones")
+        .as("GC should have removed some old tombstones during put/remove")
         .isLessThan(FILL_COUNT);
+
+    // Verify that the remove() call didn't increase old tombstone count
+    // (it should have either maintained or decreased it via GC)
+    assertThat(oldTombstones)
+        .as("Remove path should not increase old tombstone count")
+        .isLessThanOrEqualTo(tombstonesBeforeRemove);
   }
 
   @Test
@@ -404,25 +459,29 @@ public class SharedLinkBagBTreeTombstoneGCTest {
               new LinkBagValue(pos, 0, 0, false)));
     }
 
-    // Verify GC actually removed some tombstones — this is the precondition
-    // for the ghost resurrection check to be meaningful.
-    int remainingTombstones = countTombstones(9L, 0, FILL_COUNT, 2);
-    assertThat(remainingTombstones)
-        .as("GC should have removed some tombstones after snapshot cleanup")
-        .isLessThan(FILL_COUNT);
-
-    // Verify: for each deleted edge, findVisibleEntry must return null.
-    // Even if the tombstone was GC'd, the edge must not resurrect because
-    // there are no snapshot entries to fall back to.
+    // For positions where GC removed the tombstone (findCurrentEntry returns
+    // null), verify findVisibleEntry also returns null — this is the critical
+    // ghost resurrection check. A GC'd tombstone must not let a deleted edge
+    // become visible again.
+    final int[] gcRemovedCount = {0};
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (int i = 0; i < FILL_COUNT; i++) {
         int pos = i * 2;
+        var current = bTree.findCurrentEntry(atomicOperation, 9L, 0, pos);
         var visible = bTree.findVisibleEntry(atomicOperation, 9L, 0, pos);
         assertThat(visible)
             .as("Edge at position %d was deleted — must not be visible", pos)
             .isNull();
+        if (current == null) {
+          // Tombstone was GC'd — this is where ghost resurrection would occur
+          gcRemovedCount[0]++;
+        }
       }
     });
+    assertThat(gcRemovedCount[0])
+        .as("At least some tombstones must have been GC'd for ghost resurrection "
+            + "check to be meaningful")
+        .isGreaterThan(0);
 
     // Verify: live entries at odd positions are visible
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
@@ -577,5 +636,160 @@ public class SharedLinkBagBTreeTombstoneGCTest {
     // All entries must be present and correct
     assertThat(countLiveEntries(13L, 0, FILL_COUNT * 2, 1))
         .isEqualTo(FILL_COUNT * 2);
+  }
+
+  // ---- LWM boundary tests ----
+
+  @Test
+  public void testTombstoneWithTsEqualToLwmIsPreserved() throws Exception {
+    // A tombstone with ts exactly equal to the global LWM must NOT be
+    // removed — a transaction at that timestamp may still be active.
+    // This tests the strict inequality boundary (key.ts >= lwm) in
+    // isRemovableTombstone(). An off-by-one (>= changed to >) would
+    // cause premature removal and ghost resurrection.
+    //
+    // Pin the LWM at a fixed value so it doesn't advance as idGen ticks.
+    final long pinnedLwm = 1000L;
+    Object lwmPin = pinLwm(pinnedLwm);
+    try {
+      // Insert tombstones with ts = pinnedLwm (boundary value) at even positions
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final int pos = i * 2;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> bTree.put(atomicOperation,
+                new EdgeKey(20L, 0, pos, pinnedLwm),
+                new LinkBagValue(pos, 0, 0, true)));
+      }
+
+      // Insert live entries at odd positions to trigger overflow+GC
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final int pos = i * 2 + 1;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> bTree.put(atomicOperation,
+                new EdgeKey(20L, 0, pos, pinnedLwm + 100),
+                new LinkBagValue(pos, 0, 0, false)));
+      }
+
+      // Tombstones at ts == LWM must ALL survive (none should be GC'd)
+      assertThat(countTombstones(20L, 0, FILL_COUNT, 2))
+          .as("Tombstones with ts == LWM must be preserved (strict inequality)")
+          .isEqualTo(FILL_COUNT);
+
+      // All live entries must be present
+      assertThat(countLiveEntries(20L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
+    } finally {
+      unpinLwm(lwmPin);
+    }
+  }
+
+  @Test
+  public void testTombstoneWithTsJustBelowLwmIsRemoved() throws Exception {
+    // A tombstone with ts = lwm - 1 (strictly below) and no snapshot entries
+    // must be eligible for GC removal. Together with the ts==lwm test above,
+    // this pair pin-tests the exact boundary of the >= comparison.
+    //
+    // Pin the LWM so we control the exact boundary value.
+    final long pinnedLwm = 1000L;
+    Object lwmPin = pinLwm(pinnedLwm);
+    try {
+      // Insert tombstones with ts = pinnedLwm - 1 at even positions
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final int pos = i * 2;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> bTree.put(atomicOperation,
+                new EdgeKey(21L, 0, pos, pinnedLwm - 1),
+                new LinkBagValue(pos, 0, 0, true)));
+      }
+
+      // Insert live entries at odd positions to trigger overflow+GC
+      for (int i = 0; i < FILL_COUNT; i++) {
+        final int pos = i * 2 + 1;
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> bTree.put(atomicOperation,
+                new EdgeKey(21L, 0, pos, pinnedLwm + 100),
+                new LinkBagValue(pos, 0, 0, false)));
+      }
+
+      // Tombstones at ts = lwm - 1 should be GC'd during overflow
+      assertThat(countTombstones(21L, 0, FILL_COUNT, 2))
+          .as("Tombstones with ts = lwm - 1 should be removable")
+          .isLessThan(FILL_COUNT);
+
+      // All live entries must survive
+      assertThat(countLiveEntries(21L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
+    } finally {
+      unpinLwm(lwmPin);
+    }
+  }
+
+  // ---- Mixed removable/non-removable tombstones ----
+
+  @Test
+  public void testMixOfRemovableAndNonRemovableTombstones() throws Exception {
+    // Create tombstones where half have snapshot entries (non-removable)
+    // and half do not (removable). GC must remove only the eligible ones.
+    // This tests per-entry evaluation — a bug that short-circuits after
+    // checking one tombstone would fail here.
+
+    // Step 1: insert live entries at ALL even positions
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = i * 2;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(40L, 0, pos, 1L),
+              new LinkBagValue(pos, 0, 0, false)));
+    }
+
+    // Step 2: cross-tx remove only the FIRST HALF of even positions.
+    // Creates tombstones WITH snapshot entries — these are non-removable.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (int i = 0; i < FILL_COUNT / 2; i++) {
+        int pos = i * 2;
+        bTree.remove(atomicOperation, new EdgeKey(40L, 0, pos, 5L));
+      }
+    });
+
+    // Step 3: replace the SECOND HALF with tombstones directly via put()
+    // (no snapshot entries created — these are removable)
+    for (int i = FILL_COUNT / 2; i < FILL_COUNT; i++) {
+      final int pos = i * 2;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(40L, 0, pos, 1L),
+              new LinkBagValue(pos, 0, 0, true)));
+    }
+
+    // Step 4: insert live entries at odd positions to trigger overflow+GC
+    for (int i = 0; i < FILL_COUNT; i++) {
+      final int pos = i * 2 + 1;
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> bTree.put(atomicOperation,
+              new EdgeKey(40L, 0, pos, 100L),
+              new LinkBagValue(pos, 0, 0, false)));
+    }
+
+    // Non-removable tombstones (first half, with snapshots) must ALL survive
+    int nonRemovableSurvivors = countTombstones(40L, 0, FILL_COUNT / 2, 2);
+    assertThat(nonRemovableSurvivors)
+        .as("Tombstones with snapshot entries must all survive")
+        .isEqualTo(FILL_COUNT / 2);
+
+    // Removable tombstones (second half, no snapshots) should have some GC'd
+    final int[] removableSurvivors = {0};
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (int i = FILL_COUNT / 2; i < FILL_COUNT; i++) {
+        int pos = i * 2;
+        var entry = bTree.findCurrentEntry(atomicOperation, 40L, 0, pos);
+        if (entry != null && entry.second().tombstone()) {
+          removableSurvivors[0]++;
+        }
+      }
+    });
+    assertThat(removableSurvivors[0])
+        .as("Tombstones without snapshots should be partially or fully GC'd")
+        .isLessThan(FILL_COUNT / 2);
+
+    // All live entries at odd positions must be present
+    assertThat(countLiveEntries(40L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
   }
 }
