@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -37,40 +37,16 @@
   > **Key files:** `RecordSerializerBinaryVersionDispatchTest.java` (modified),
   > `RecordSerializerBinaryV2PartialTest.java` (modified)
 
-- [ ] Step 2: JMH serialization benchmark — V1 vs V2 comparison
-  > Create a new JMH benchmark class in `core/src/test/` that measures
-  > serialize and deserializePartial throughput for V1 vs V2 at different
-  > property counts.
+- [x] Step 2: JMH serialization benchmark — V1 vs V2 comparison
+  > **What was done:** Created `RecordSerializerBenchmark.java` with 6 benchmark
+  > methods (serializeV1/V2, deserializeFullV1/V2, deserializePartialV1/V2)
+  > parameterized across 4 property counts (5 linear, 13 cuckoo boundary, 20
+  > cuckoo moderate, 50 cuckoo large). Uses mixed property types and targets
+  > worst-case V1 scan for partial deserialization.
   >
-  > **New file:** `RecordSerializerBenchmark.java` in
-  > `core/src/test/java/.../serialization/serializer/record/binary/`
+  > **What was discovered:** Dimensional review (10 agents) found 3 actionable items:
+  > open transaction causing unbounded entity accumulation across iterations (fixed
+  > with @Setup(Level.Iteration) reset), per-iteration String[] allocation noise
+  > (pre-allocated), and missing tier-boundary property count 13 (added to @Param).
   >
-  > **Benchmark scenarios (parameterized by property count):**
-  > - 5 properties (V2 linear mode, V1 comparison baseline)
-  > - 20 properties (V2 cuckoo mode, moderate)
-  > - 50 properties (V2 cuckoo mode, large entity)
-  >
-  > **Benchmark methods:**
-  > - `serializeV1(state)` — serialize entity with V1
-  > - `serializeV2(state)` — serialize entity with V2
-  > - `deserializePartialV1(state)` — V1 partial deserialize (single field)
-  > - `deserializePartialV2(state)` — V2 partial deserialize (single field)
-  > - `deserializeFullV1(state)` — V1 full deserialize
-  > - `deserializeFullV2(state)` — V2 full deserialize
-  >
-  > **State setup:** Pre-build `EntityImpl` with N string/int/double/boolean
-  > properties. Pre-serialize bytes for deserialization benchmarks. Use
-  > `BinarySerializerFactory` and `RecordSerializerBinaryV1`/`V2` directly
-  > (no DB session needed — pure serializer-level benchmark).
-  >
-  > **JMH configuration:** Follow existing benchmark patterns in core —
-  > `@BenchmarkMode(Mode.AverageTime)`, `@OutputTimeUnit(TimeUnit.NANOSECONDS)`,
-  > `@Fork(2)`, `@Warmup(iterations = 3)`, `@Measurement(iterations = 5)`.
-  > Include `main()` method for standalone execution.
-  >
-  > **Expected results:** V2 write path should be comparable to V1 (cuckoo
-  > construction is O(n), same as V1's linear serialization). V2 read path
-  > (partial deserialization) should be faster than V1 for 20+ properties
-  > (O(1) hash lookup vs O(n) linear scan).
-  >
-  > **Target files:** `RecordSerializerBenchmark.java` (new)
+  > **Key files:** `RecordSerializerBenchmark.java` (new)
