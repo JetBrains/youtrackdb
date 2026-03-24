@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -129,7 +129,7 @@
   > `RecordSerializerBinaryV2HashTableTest.java` (modified),
   > `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
-- [ ] Step 3: Hash table test suite updates
+- [x] Step 3: Hash table test suite updates
   > Replace perfect hash test methods with cuckoo equivalents. Update capacity
   > computation expectations for new bucket-count formula.
   >
@@ -147,6 +147,13 @@
   > - Verify determinism: same entity serialized twice produces identical bytes
   >
   > **Target files:** `RecordSerializerBinaryV2HashTableTest.java`
+  >
+  > **What was done:** Added threshold boundary tests (12-property linear mode, 13-property
+  > cuckoo mode) and serialization determinism test. Updated round-trip test class Javadoc for
+  > new threshold. Most of the originally planned Step 3 work (deleting perfect hash tests,
+  > updating capacity computation tests) was already absorbed by Step 2's atomic format swap.
+  >
+  > **Key files:** `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
 - [ ] Step 4: Cuckoo integration tests and coverage verification
   > Add tests verifying cuckoo-specific behavior in round-trip and partial
