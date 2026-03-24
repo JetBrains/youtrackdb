@@ -365,9 +365,9 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
   // --- Database lifecycle: persist → close → reopen → verify ---
 
   /**
-   * Full storage lifecycle: create entities with various V2 property types, commit,
-   * close the database, reopen it, and verify all properties read back correctly.
-   * This tests V2 through the full storage layer (WAL, page cache, etc).
+   * In-memory storage lifecycle: create entities with various V2 property types, commit,
+   * close the database session, reopen it, and verify all properties read back correctly.
+   * This tests V2 through the in-memory storage layer (session close/reopen cycle).
    */
   @Test
   public void dbLifecycle_persistCloseReopenVerify() {
@@ -408,6 +408,7 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
         assertThat((float) reloaded.getProperty("ratio")).isEqualTo(3.14f);
         assertThat((BigDecimal) reloaded.getProperty("amount"))
             .isEqualByComparingTo(new BigDecimal("999.99"));
+        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(7);
         db.rollback();
       }
 
@@ -456,6 +457,7 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
         assertThat((String) reloaded.getProperty("name")).isEqualTo("updated");
         assertThat((int) reloaded.getProperty("version")).isEqualTo(2);
         assertThat((String) reloaded.getProperty("newField")).isEqualTo("added_after_update");
+        assertThat((Iterable<String>) reloaded.getPropertyNames()).hasSize(3);
         db.rollback();
       }
 
@@ -545,9 +547,19 @@ public class RecordSerializerBinaryVersionDispatchTest extends DbTestBase {
 
     var comparator = new BinaryComparatorV0();
 
+    // "apple" != "banana"
     assertThat(comparator.isEqual(session, field1, field2)).isFalse();
+
+    // "apple" == "apple"
     assertThat(comparator.isEqual(session, field1, field3)).isTrue();
+
+    // "apple" < "banana" → negative
     assertThat(comparator.compare(session, field1, field2)).isLessThan(0);
+
+    // "banana" > "apple" → positive (reverse comparison symmetry)
+    assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
+
+    // "apple" == "apple" → zero
     assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
   }
 

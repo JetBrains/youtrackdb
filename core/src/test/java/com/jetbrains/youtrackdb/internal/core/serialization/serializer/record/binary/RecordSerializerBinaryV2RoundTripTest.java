@@ -15,7 +15,10 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -676,6 +679,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     entity.setString(name500, "val500");
 
     var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(3);
     assertThat((String) deserialized.getProperty(name200)).isEqualTo("val200");
     assertThat((String) deserialized.getProperty(name350)).isEqualTo("val350");
     assertThat((String) deserialized.getProperty(name500)).isEqualTo("val500");
@@ -767,13 +771,13 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
     var deserialized = serializeAndDeserialize(entity);
     @SuppressWarnings("unchecked")
-    var result = (java.util.Set<Identifiable>) deserialized.getProperty("members");
+    var result = (Set<Identifiable>) deserialized.getProperty("members");
     assertThat(result).hasSize(2);
-    var rids = new java.util.HashSet<RID>();
+    var rids = new HashSet<RID>();
     for (var item : result) {
       rids.add(item.getIdentity());
     }
-    assertThat(rids).contains(rid1, rid2);
+    assertThat(rids).containsExactlyInAnyOrder(rid1, rid2);
   }
 
   @Test
@@ -796,7 +800,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
     var deserialized = serializeAndDeserialize(entity);
     @SuppressWarnings("unchecked")
-    var result = (java.util.Map<String, Identifiable>) deserialized.getProperty("links");
+    var result = (Map<String, Identifiable>) deserialized.getProperty("links");
     assertThat(result).hasSize(1);
     assertThat(result.get("primary").getIdentity()).isEqualTo(rid1);
   }
