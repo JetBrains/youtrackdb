@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,77 +14,46 @@
 
 ## Steps
 
-- [ ] Step 1: Add tombstone GC helper methods to SharedLinkBagBTree
-  > Add three private helper methods to `SharedLinkBagBTree`:
+- [x] Step 1: Add tombstone GC helper methods to SharedLinkBagBTree
+  > **What was done:** Added three private helper methods:
+  > `hasEdgeSnapshotEntries()` (lazy iterator check on edge snapshot index),
+  > `isRemovableTombstone()` (3-condition check: tombstone flag, ts < LWM
+  > strict, no snapshot entries), and `filterAndRebuildBucket()` (iterate
+  > bucket, collect survivors, shrink(0)+addAll rebuild). Added defensive
+  > asserts: fileId assigned, bucket is leaf, partition invariant
+  > (removed + survivors == original size), post-rebuild size check.
   >
-  > 1. **`hasEdgeSnapshotEntries(int componentId, long ridBagId, int targetCollection,
-  >    long targetPosition, AtomicOperation atomicOp)`** — returns `boolean`.
-  >    Constructs `EdgeSnapshotKey` range (lowerKey with `Long.MIN_VALUE`, upperKey
-  >    with `Long.MAX_VALUE`) and calls
-  >    `atomicOp.edgeSnapshotSubMapDescending(lower, upper).iterator().hasNext()`.
-  >    Uses lazy `hasNext()` per T5. Add comment explaining why local+shared snapshot
-  >    check is safe (T8/R9).
+  > **What changed from the plan:** Steps 1-3 were implemented as a single
+  > commit because the helpers (Step 1) cannot be tested independently —
+  > they are private methods and the GC is only triggered through the
+  > put()/remove() integration (Steps 2-3). All three steps share one
+  > implementation commit and one test class.
   >
-  > 2. **`isRemovableTombstone(EdgeKey key, LinkBagValue value, long lwm,
-  >    int componentId, AtomicOperation atomicOp)`** — returns `boolean`.
-  >    Checks: (a) `value.isTombstone()`, (b) `key.ts < lwm` (strict `<`, not `<=`
-  >    per R2 — add comment explaining why), (c) `!hasEdgeSnapshotEntries(...)`.
-  >    All three conditions must be true.
-  >
-  > 3. **`filterAndRebuildBucket(Bucket keyBucket, long lwm, int componentId,
-  >    AtomicOperation atomicOp)`** — returns `int` (count of removed tombstones).
-  >    Iterates all entries in the bucket (index 0 to `size-1`), deserializes
-  >    key+value, calls `isRemovableTombstone()`. Collects survivors as raw byte
-  >    arrays (via `getRawEntry()`). If no tombstones found, returns 0 (no rebuild).
-  >    Otherwise: `keyBucket.shrink(0, serializerFactory)`, assert `size() == 0` (T3),
-  >    `keyBucket.addAll(survivors)`, return removed count.
-  >    Assert `fileId != 0` at entry (R5). Add comment referencing `splitRootBucket`
-  >    precedent for in-place rebuild under atomic operation (R3).
-  >
-  > **Tests**: Unit tests for `isRemovableTombstone` (tombstone below/above LWM,
-  > with/without snapshot entries, non-tombstone entry). Test for
-  > `hasEdgeSnapshotEntries` (empty index, populated index). Test for
-  > `filterAndRebuildBucket` on a bucket with mixed entries (requires test
-  > infrastructure from existing SI tests).
-  >
-  > **Key files**: `SharedLinkBagBTree.java`, new test class or additions to existing
-  > test class.
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreeTombstoneGCTest.java` (new)
 
-- [ ] Step 2: Integrate GC into `put()` with filter-rebuild-retry
-  > Modify the `put()` method's `while (!addLeafEntry)` loop (lines 442–464) to
-  > attempt tombstone GC before splitting:
+- [x] Step 2: Integrate GC into `put()` with filter-rebuild-retry
+  > **What was done:** Added gcAttempted flag and GC-before-split block
+  > in put()'s while loop. Computes LWM once (with positivity assert),
+  > calls filterAndRebuildBucket, updates tree size, re-derives insertion
+  > index via find() with runtime StorageException guard (not just assert),
+  > then retries via continue. Documented 4 tree size accounting cases.
   >
-  > 1. Add a `boolean gcAttempted = false` flag before the while loop.
-  > 2. Inside the loop, before `splitBucket()`: if `!gcAttempted`, compute LWM via
-  >    `storage.computeGlobalLowWaterMark()`, compute `componentId` via
-  >    `AbstractWriteCache.extractFileId(getFileId())`, call
-  >    `filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation)`.
-  >    Set `gcAttempted = true`.
-  > 3. If `removedCount > 0`: call `updateSize(-removedCount, atomicOperation)` once
-  >    (T6/R4). Re-derive `insertionIndex` via `keyBucket.find(key, serializerFactory)`
-  >    (T1/R1 fix). `continue` to retry the loop (re-evaluates `addLeafEntry`).
-  > 4. If `removedCount == 0`: fall through to existing `splitBucket()`.
-  > 5. Add comment documenting the 4 treeSize accounting cases (R4).
-  > 6. Add comment that LWM is computed once per GC attempt under exclusive lock (R6).
+  > **What was discovered:** The public iteration API (iterateEntriesMajor)
+  > filters tombstones via SI visibility — tests cannot use iteration to
+  > count tombstones. findCurrentEntry() returns raw B-tree entries and
+  > is the correct API for test verification. Also, tombstones inserted
+  > with low ts values get GC'd even during initial insertion (not just
+  > when live entries are added), because bucket overflows during tombstone
+  > insertion trigger GC on earlier tombstones in the same bucket.
   >
-  > **Tests**: Basic test forcing a split on a bucket containing removable tombstones,
-  > verifying: (a) tombstones removed, (b) insert succeeds without split when GC frees
-  > enough space, (c) tree size correct, (d) B-tree ordering preserved.
-  >
-  > **Key files**: `SharedLinkBagBTree.java`, test file.
+  > **Key files:** `SharedLinkBagBTree.java` (modified),
+  > `SharedLinkBagBTreeTombstoneGCTest.java` (new — 10 tests)
 
-- [ ] Step 3: Integrate GC into `remove()` cross-tx tombstone insertion path
-  > Apply the same filter-rebuild-retry pattern to the `remove()` method's cross-tx
-  > tombstone insertion `while (!addLeafEntry)` loop (lines 1148–1169):
+- [x] Step 3: Integrate GC into `remove()` cross-tx tombstone insertion path
+  > **What was done:** Applied same filter-rebuild-retry pattern to
+  > remove()'s cross-tx tombstone insertion while loop. Same guards:
+  > LWM positivity assert, runtime StorageException for key-exists check.
+  > Added test for GC during cross-tx remove path.
   >
-  > 1. Add `boolean gcAttempted = false` flag before the loop.
-  > 2. Inside the loop, before `splitBucket()`: same GC logic as `put()` — compute
-  >    LWM, componentId, call `filterAndRebuildBucket()`, set `gcAttempted = true`.
-  > 3. If `removedCount > 0`: `updateSize(-removedCount, atomicOperation)`,
-  >    re-derive `insertionIndex` via `keyBucket.find()`, `continue`.
-  > 4. If `removedCount == 0`: fall through to `splitBucket()`.
-  >
-  > **Tests**: Test that cross-tx tombstone insertion into a full bucket with
-  > removable tombstones avoids split. Verify tree size and B-tree ordering.
-  >
-  > **Key files**: `SharedLinkBagBTree.java`, test file.
+  > **Key files:** `SharedLinkBagBTree.java` (modified)
