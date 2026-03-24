@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -795,16 +796,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       case EMBEDDEDSET, EMBEDDEDLIST -> {
         if (value.getClass().isArray()) {
           return writeEmbeddedCollection(db, bytes,
-              java.util.Arrays.asList(
+              Arrays.asList(
                   MultiValue.array(value)),
               linkedType, schema, encryption);
         } else {
-          return writeEmbeddedCollection(db, bytes, (java.util.Collection<?>) value,
+          return writeEmbeddedCollection(db, bytes, (Collection<?>) value,
               linkedType, schema, encryption);
         }
       }
       case EMBEDDEDMAP -> {
-        return writeEmbeddedMap(db, bytes, (java.util.Map<Object, Object>) value,
+        return writeEmbeddedMap(db, bytes, (Map<Object, Object>) value,
             schema, encryption);
       }
       default -> {
@@ -873,7 +874,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   // ========================================================================================
 
   private int writeEmbeddedCollection(DatabaseSessionEmbedded session, BytesContainer bytes,
-      java.util.Collection<?> value, PropertyTypeInternal linkedType, ImmutableSchema schema,
+      Collection<?> value, PropertyTypeInternal linkedType, ImmutableSchema schema,
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
     writeOType(bytes, bytes.alloc(1),
@@ -902,7 +903,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   }
 
   private int writeEmbeddedMap(DatabaseSessionEmbedded session, BytesContainer bytes,
-      java.util.Map<Object, Object> map, ImmutableSchema schema,
+      Map<Object, Object> map, ImmutableSchema schema,
       PropertyEncryption encryption) {
     final var fullPos = VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
