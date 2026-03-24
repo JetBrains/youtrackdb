@@ -538,8 +538,8 @@ public class ConcurrentLongIntHashMap<V> {
 
     /**
      * Remove all entries with the given fileId. Sweeps the entire section linearly under write
-     * lock, collecting removed values into the provided list. After the sweep, if the tombstone
-     * ratio is too high, performs a same-capacity rehash to compact the section.
+     * lock, collecting removed values into the provided list. After the sweep, always performs a
+     * same-capacity rehash to compact the section and restore probe chain integrity.
      */
     void removeByFileId(long fileId, List<V> removedEntries) {
       long stamp = lock.writeLock();
@@ -561,10 +561,8 @@ public class ConcurrentLongIntHashMap<V> {
         size -= removed;
         usedBuckets -= removed;
 
-        // After bulk removal, compact if tombstone ratio exceeds threshold.
         // Since we used simple nullification (not backward-sweep per entry), there may be
-        // gaps in probe chains. A same-capacity rehash eliminates all gaps.
-        // Always rehash after removeByFileId to restore probe chain integrity.
+        // gaps in probe chains. A same-capacity rehash restores probe chain integrity.
         rehashSameCapacity();
       } finally {
         lock.unlockWrite(stamp);
