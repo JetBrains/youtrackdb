@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
-import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.bytesFromString;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getGlobalProperty;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getLinkedType;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.getTypeFromValueEmbedded;
@@ -488,11 +487,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   private void deserializePartialLinear(DatabaseSessionEmbedded db, EntityImpl entity,
       BytesContainer bytes, String[] iFields, int propertyCount) {
-    byte[][] fieldBytes = new byte[iFields.length][];
-    for (int i = 0; i < iFields.length; i++) {
-      fieldBytes[i] = bytesFromString(iFields[i]);
-    }
-
     int found = 0;
     for (int i = 0; i < propertyCount && found < iFields.length; i++) {
       var nameAndType = readNameAndType(db, entity, bytes);
@@ -552,16 +546,23 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
         continue; // Field not present
       }
 
+      // Hash8 fast-reject: detect corruption before navigating to KV entry
+      byte expectedHash8 = computeHash8(hash);
+      if (slotHash8 != expectedHash8) {
+        continue; // Hash prefix mismatch — corruption or field absence
+      }
+
       // Bounds check (corruption detection)
-      assert slotOffset >= 0 : "Negative slot offset: " + slotOffset;
+      assert kvRegionBase + slotOffset < bytes.bytes.length
+          : "Slot offset exceeds buffer: " + slotOffset;
 
       // Navigate to KV entry
       bytes.offset = kvRegionBase + slotOffset;
       var nameAndType = readNameAndType(db, entity, bytes);
 
-      // Verify key matches (defense against hash collision in corrupted data)
+      // Perfect hash guarantees no collisions; mismatch means corruption or field absence
       if (!fieldName.equals(nameAndType.name)) {
-        continue; // Key mismatch — field not present or data corrupted
+        continue;
       }
 
       int valueLength = VarIntSerializer.readAsInteger(bytes);
@@ -602,32 +603,18 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   @Nullable private BinaryField deserializeFieldLinear(BytesContainer bytes, SchemaClass iClass,
       String iFieldName, ImmutableSchema schema, int propertyCount) {
     for (int i = 0; i < propertyCount; i++) {
-      // Read name
-      int len = VarIntSerializer.readAsInteger(bytes);
-      String name;
-      if (len > 0) {
-        name = new String(bytes.bytes, bytes.offset, len, StandardCharsets.UTF_8);
-        bytes.skip(len);
-      } else {
-        var id = (len * -1) - 1;
-        var prop = schema.getGlobalPropertyById(id);
-        name = prop.getName();
-      }
-
-      // Read type byte
-      PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
-
-      // Read value length
+      var nameAndType = readFieldName(bytes, schema);
       int valueLength = VarIntSerializer.readAsInteger(bytes);
 
-      if (iFieldName.equals(name)) {
-        if (valueLength == 0 || !getComparator().isBinaryComparable(type)) {
+      if (iFieldName.equals(nameAndType.name)) {
+        if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
           return null;
         }
         // bytes is now positioned at the start of the value data
         var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
         return new BinaryField(
-            iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
+            iFieldName, nameAndType.type, bytes,
+            classProp != null ? classProp.getCollate() : null);
       }
 
       // Skip value bytes
@@ -664,39 +651,37 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return null;
     }
 
-    // Navigate to KV entry
-    bytes.offset = kvRegionBase + slotOffset;
-
-    // Read name
-    int len = VarIntSerializer.readAsInteger(bytes);
-    String name;
-    if (len > 0) {
-      name = new String(bytes.bytes, bytes.offset, len, StandardCharsets.UTF_8);
-      bytes.skip(len);
-    } else {
-      var id = (len * -1) - 1;
-      var prop = schema.getGlobalPropertyById(id);
-      name = prop.getName();
-    }
-
-    // Verify key matches
-    if (!iFieldName.equals(name)) {
+    // Hash8 fast-reject
+    byte expectedHash8 = computeHash8(hash);
+    if (slotHash8 != expectedHash8) {
       return null;
     }
 
-    // Read type byte
-    PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
+    // Bounds check (corruption detection)
+    assert kvRegionBase + slotOffset < bytes.bytes.length
+        : "Slot offset exceeds buffer: " + slotOffset;
+
+    // Navigate to KV entry
+    bytes.offset = kvRegionBase + slotOffset;
+
+    var nameAndType = readFieldName(bytes, schema);
+
+    // Perfect hash guarantees no collisions; mismatch means corruption or field absence
+    if (!iFieldName.equals(nameAndType.name)) {
+      return null;
+    }
 
     // Read value length
     int valueLength = VarIntSerializer.readAsInteger(bytes);
-    if (valueLength == 0 || !getComparator().isBinaryComparable(type)) {
+    if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
       return null;
     }
 
     // bytes is now positioned at the start of the value data
     var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
     return new BinaryField(
-        iFieldName, type, bytes, classProp != null ? classProp.getCollate() : null);
+        iFieldName, nameAndType.type, bytes,
+        classProp != null ? classProp.getCollate() : null);
   }
 
   @Override
@@ -1014,6 +999,26 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     // Type byte (always present in V2)
+    PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
+    return new NameAndType(fieldName, type);
+  }
+
+  /**
+   * Reads a property name and type without requiring a session or entity. Used by deserializeField
+   * methods that receive an ImmutableSchema instead. Schema-aware properties are resolved via the
+   * schema parameter.
+   */
+  private static NameAndType readFieldName(BytesContainer bytes, ImmutableSchema schema) {
+    int len = VarIntSerializer.readAsInteger(bytes);
+    String fieldName;
+    if (len > 0) {
+      fieldName = new String(bytes.bytes, bytes.offset, len, StandardCharsets.UTF_8);
+      bytes.skip(len);
+    } else {
+      var id = (len * -1) - 1;
+      var prop = schema.getGlobalPropertyById(id);
+      fieldName = prop.getName();
+    }
     PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
     return new NameAndType(fieldName, type);
   }
