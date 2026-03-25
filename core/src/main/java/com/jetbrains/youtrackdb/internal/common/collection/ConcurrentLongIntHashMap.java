@@ -287,6 +287,16 @@ public class ConcurrentLongIntHashMap<V> {
   // ---- Hashing ----
 
   /**
+   * Computes an int hash for the frequency sketch (TinyLFU admission filter). Uses
+   * {@code Long.hashCode(fileId) * 31 + pageIndex} — intentionally independent from the map's
+   * internal murmur hash to avoid correlation with bucket position (the murmur hash lower bits
+   * determine the bucket, so reusing them for frequency counting would cluster sketch counters).
+   */
+  public static int hashForFrequencySketch(long fileId, int pageIndex) {
+    return Long.hashCode(fileId) * 31 + pageIndex;
+  }
+
+  /**
    * Mixes both key fields into a 64-bit hash using a Murmur3-style finalizer.
    *
    * <p>The pageIndex is spread into the upper bits of a long before combining with fileId,

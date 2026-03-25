@@ -36,16 +36,13 @@ public class CacheEntryImpl implements CacheEntry {
   // @GuardedBy cannot resolve cross-class instance locks, so we suppress the
   // checker and keep the annotation as a documentation safeguard.
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry next;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry next;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry prev;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry prev;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private LRUList container;
+  @GuardedBy("LockFreeReadCache.evictionLock") private LRUList container;
 
   /**
    * Protected by page lock inside disk cache
@@ -54,6 +51,8 @@ public class CacheEntryImpl implements CacheEntry {
 
   private final boolean insideCache;
   private final ReadCache readCache;
+  private final long fileId;
+  private final int pageIndex;
   private final PageKey pageKey;
 
   public CacheEntryImpl(
@@ -74,6 +73,8 @@ public class CacheEntryImpl implements CacheEntry {
     this.dataPointer = dataPointer;
     this.insideCache = insideCache;
     this.readCache = readCache;
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
     this.pageKey = new PageKey(fileId, pageIndex);
   }
 
@@ -104,12 +105,12 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public long getFileId() {
-    return pageKey.fileId();
+    return fileId;
   }
 
   @Override
   public int getPageIndex() {
-    return pageKey.pageIndex();
+    return pageIndex;
   }
 
   @Override
@@ -157,8 +158,7 @@ public class CacheEntryImpl implements CacheEntry {
     USAGES_COUNT_UPDATER.decrementAndGet(this);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public WALChanges getChanges() {
     return null;
   }
@@ -316,12 +316,12 @@ public class CacheEntryImpl implements CacheEntry {
     if (!(o instanceof CacheEntryImpl that)) {
       return false;
     }
-    return this.pageKey.equals(that.pageKey);
+    return this.fileId == that.fileId && this.pageIndex == that.pageIndex;
   }
 
   @Override
   public int hashCode() {
-    return pageKey.hashCode();
+    return Long.hashCode(fileId) * 31 + pageIndex;
   }
 
   @Override
