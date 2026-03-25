@@ -265,7 +265,7 @@ flowchart LR
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: SQLBinaryCondition integration
+- [x] Track 2: SQLBinaryCondition integration
   > Wire the EntityImpl comparison methods into the modern SQL execution
   > engine:
   >
@@ -300,6 +300,21 @@ flowchart LR
   > operator dispatch, fallback logic, and SQL-level integration tests
   >
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Wired InPlaceComparator + EntityImpl comparison methods into
+  > SQLBinaryCondition's two evaluate() overloads. Both the Result-based
+  > path (SELECT, MATCH) and Identifiable-based path (CONTAINS) now detect
+  > optimizable `property <op> constant` patterns and attempt in-place
+  > comparison before falling back to the deserialization path. Extracted
+  > shared tryInPlaceComparison() method to eliminate duplication between
+  > overloads. Track-level review caught 5 should-fix items: cross-type
+  > test wasn't actually cross-type, missing collation bypass test, missing
+  > exact boundary test for <=/>= , non-entity projection test didn't
+  > exercise SQLBinaryCondition, MATCH traversal filter didn't actually
+  > filter. All fixed. 28 integration tests total.
+  >
+  > **Step file:** `tracks/track-2.md` (3 steps, 0 failed)
 
 ## Final Design Document
 - [ ] Phase 4: Final design document (`design-final.md`)
