@@ -274,6 +274,8 @@ graph TD
   > structure consumed by Track 2.
   >
   > **Step file:** `tracks/track-1.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: Integration into LockFreeReadCache and WTinyLFUPolicy
   > Replace `ConcurrentHashMap<PageKey, CacheEntry>` with
