@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.DDLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBeginStatement;
@@ -235,8 +236,14 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       throw new IllegalArgumentException("Command cannot be null or empty");
     }
 
-    var statement = getSqlStatement(sqlCommand);
     var tx = tx();
+
+    // When the transaction is open, use the cached parse path (statement cache +
+    // originalStatement set for execution plan cache). When no transaction is active
+    // (only possible for BEGIN), fall back to uncached parse.
+    var statement = tx.isOpen()
+        ? SQLEngine.parse(sqlCommand, tx.getDatabaseSession())
+        : parseSqlUncached(sqlCommand);
 
     if (statement instanceof SQLBeginStatement) {
       if (!tx.isOpen()) {
@@ -302,7 +309,11 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     }
   }
 
-  private static SQLStatement getSqlStatement(String command) {
+  /// Uncached SQL parse — used only when no database session is available (e.g., BEGIN
+  /// before a transaction is open). All other paths use [SQLEngine#parse] which goes
+  /// through [YqlStatementCache] and sets [SQLStatement#originalStatement] for
+  /// [YqlExecutionPlanCache].
+  private static SQLStatement parseSqlUncached(String command) {
     SQLStatement statement;
     try {
       var is = new ByteArrayInputStream(command.getBytes(StandardCharsets.UTF_8));
