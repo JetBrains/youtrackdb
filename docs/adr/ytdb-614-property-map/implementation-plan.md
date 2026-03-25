@@ -629,6 +629,10 @@ graph LR
   > 90.7% line / 82.8% branch. No cross-track impact.
   >
   > **Step file:** `tracks/track-9.md` (4 steps merged into 1 commit, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 9's linear probing replacement
+  > does not change allocation patterns. Track 10 GC optimization strategy
+  > remains valid; line numbers need re-discovery due to code shifts.
 
 - [ ] Track 10: Reduce GC pressure in V2 serialization path
   > Investigate and fix excessive object allocation in
