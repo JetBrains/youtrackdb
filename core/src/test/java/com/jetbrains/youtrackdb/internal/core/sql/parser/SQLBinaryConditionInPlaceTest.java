@@ -497,6 +497,60 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     session.commit();
   }
 
+  // ----- Identifiable overload (via CONTAINS with linked entities) -----
+
+  @Test
+  public void testContainsWithLinkedEntityCondition() {
+    // Verifies that the Identifiable-based evaluate() overload is exercised
+    // when using CONTAINS with a condition on linked entities.
+    // The CONTAINS (condition) syntax iterates collection items and calls
+    // evaluate(Identifiable, ctx) on the SQLBinaryCondition inside the
+    // condition.
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("ContTag");
+    var clazz = schema.createClass("ContParent");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("tags", PropertyType.LINKLIST);
+
+    session.begin();
+    // Create tag entities
+    session.execute(
+        "INSERT INTO ContTag SET label = 'important', priority = 1");
+    session.execute(
+        "INSERT INTO ContTag SET label = 'minor', priority = 5");
+    session.execute(
+        "INSERT INTO ContTag SET label = 'minor', priority = 3");
+    session.commit();
+
+    session.begin();
+    // Link tags to parents
+    session.execute(
+        "INSERT INTO ContParent SET name = 'first', tags = "
+            + "(SELECT FROM ContTag WHERE priority IN [1, 5])");
+    session.execute(
+        "INSERT INTO ContParent SET name = 'second', tags = "
+            + "(SELECT FROM ContTag WHERE priority = 3)");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "SELECT FROM ContParent WHERE tags CONTAINS (label = 'important')")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("first");
+    }
+
+    // Range comparison inside CONTAINS — exercises comparePropertyTo
+    // through the Identifiable overload
+    try (var rs = session.query(
+        "SELECT FROM ContParent WHERE tags CONTAINS (priority < 3)")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("first");
+    }
+    session.commit();
+  }
+
   // ----- No match -----
 
   @Test
