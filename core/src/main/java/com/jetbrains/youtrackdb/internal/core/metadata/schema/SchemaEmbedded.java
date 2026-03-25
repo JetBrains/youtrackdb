@@ -43,7 +43,7 @@ public class SchemaEmbedded extends SchemaShared {
         result = doCreateClass(session, className, collectionIds, retry, superClasses);
         break;
       } catch (CollectionIdsAreEmptyException ignore) {
-        classes.remove(className.toLowerCase(Locale.ENGLISH));
+        classes.remove(className);
         collectionIds = createCollections(session, className);
         retry++;
       }
@@ -84,8 +84,7 @@ public class SchemaEmbedded extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key)) {
+      if (classes.containsKey(className)) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' already exists in current database");
       }
@@ -104,17 +103,17 @@ public class SchemaEmbedded extends SchemaShared {
         collectionIds = createCollections(session, className, collections);
       } else {
         // ABSTRACT
-        collectionIds = new int[]{-1};
+        collectionIds = new int[] {-1};
       }
 
       doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classes.get(className);
       // WAKE UP DB LIFECYCLE LISTENER
       for (var it = YouTrackDBEnginesManager.instance()
           .getDbLifecycleListeners();
-          it.hasNext(); ) {
+          it.hasNext();) {
         //noinspection deprecation
         it.next().onCreateClass(session, result);
       }
@@ -170,16 +169,14 @@ public class SchemaEmbedded extends SchemaShared {
 
       session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_CREATE);
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-
-      if (classes.containsKey(key)) {
+      if (classes.containsKey(className)) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' already exists in current database");
       }
 
       var cls = createClassInstance(className, collectionIds);
 
-      classes.put(key, cls);
+      classes.put(className, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
         cls.setSuperClassesInternal(session, superClasses, true);
@@ -216,8 +213,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   @Override
-  @Nullable
-  public SchemaClassImpl getOrCreateClass(
+  @Nullable public SchemaClassImpl getOrCreateClass(
       DatabaseSessionEmbedded session, final String iClassName,
       final SchemaClassImpl... superClasses) {
     if (iClassName == null) {
@@ -226,7 +222,7 @@ public class SchemaEmbedded extends SchemaShared {
 
     acquireSchemaReadLock();
     try {
-      var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      var cls = classes.get(iClassName);
       if (cls != null) {
         return cls;
       }
@@ -243,7 +239,7 @@ public class SchemaEmbedded extends SchemaShared {
       try {
         acquireSchemaWriteLock(session);
         try {
-          cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+          cls = classes.get(iClassName);
           if (cls != null) {
             return cls;
           }
@@ -279,8 +275,7 @@ public class SchemaEmbedded extends SchemaShared {
     acquireSchemaWriteLock(session);
     try {
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-      if (classes.containsKey(key) && retry == 0) {
+      if (classes.containsKey(className) && retry == 0) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' already exists in current database");
       }
@@ -306,7 +301,7 @@ public class SchemaEmbedded extends SchemaShared {
       doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
-      result = classes.get(className.toLowerCase(Locale.ENGLISH));
+      result = classes.get(className);
       for (var oSessionListener : session.getListeners()) {
         oSessionListener.onCreateClass(session, new SchemaClassProxy(result, session));
       }
@@ -325,47 +320,20 @@ public class SchemaEmbedded extends SchemaShared {
 
   protected int[] createCollections(
       DatabaseSessionEmbedded session, String className, int minimumCollections) {
-    className = className.toLowerCase(Locale.ENGLISH);
+    var lowerName = className.toLowerCase(Locale.ENGLISH);
 
-    int[] collectionIds;
-
-    if (internalClasses.contains(className.toLowerCase(Locale.ENGLISH))) {
+    if (internalClasses.contains(lowerName)) {
       // INTERNAL CLASS, SET TO 1
       minimumCollections = 1;
     }
 
-    collectionIds = new int[minimumCollections];
-    collectionIds[0] = session.getCollectionIdByName(className);
-    if (collectionIds[0] > -1) {
-      // CHECK THE COLLECTION HAS NOT BEEN ALREADY ASSIGNED
-      final var cls = collectionsToClasses.get(collectionIds[0]);
-      if (cls != null) {
-        collectionIds[0] = session.addCollection(
-            getNextAvailableCollectionName(session, className));
-      }
-    } else
-    // JUST KEEP THE CLASS NAME. THIS IS FOR LEGACY REASONS
-    {
-      collectionIds[0] = session.addCollection(className);
-    }
-
-    for (var i = 1; i < minimumCollections; ++i) {
-      collectionIds[i] = session.addCollection(getNextAvailableCollectionName(session, className));
+    var collectionIds = new int[minimumCollections];
+    for (var i = 0; i < minimumCollections; i++) {
+      var collectionName = lowerName + "_" + nextCollectionIndex();
+      collectionIds[i] = session.addCollection(collectionName);
     }
 
     return collectionIds;
-  }
-
-  private static String getNextAvailableCollectionName(
-      DatabaseSessionEmbedded session, final String className) {
-    for (var i = 1; ; ++i) {
-      final var collectionName = className + "_" + i;
-      if (session.getCollectionIdByName(collectionName) < 0)
-      // FREE NAME
-      {
-        return collectionName;
-      }
-    }
   }
 
   protected void checkCollectionsAreAbsent(final int[] iCollectionIds) {
@@ -402,9 +370,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-
-      var cls = classes.get(key);
+      var cls = classes.get(className);
 
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
@@ -448,9 +414,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-      final var key = className.toLowerCase(Locale.ENGLISH);
-
-      final var cls = classes.get(key);
+      final var cls = classes.get(className);
       if (cls == null) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '" + className + "' was not found in current database");
@@ -479,14 +443,14 @@ public class SchemaEmbedded extends SchemaShared {
 
       dropClassIndexes(session, cls);
 
-      classes.remove(key);
+      classes.remove(className);
 
       removeCollectionClassMap(cls);
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (var it = YouTrackDBEnginesManager.instance()
           .getDbLifecycleListeners();
-          it.hasNext(); ) {
+          it.hasNext();) {
         //noinspection deprecation
         it.next().onDropClass(session, cls);
       }
@@ -503,7 +467,6 @@ public class SchemaEmbedded extends SchemaShared {
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassEmbedded(this, name);
   }
-
 
   private static void dropClassIndexes(DatabaseSessionEmbedded session, final SchemaClassImpl cls) {
     final var indexManager = session.getSharedContext().getIndexManager();
@@ -566,7 +529,6 @@ public class SchemaEmbedded extends SchemaShared {
       releaseSchemaWriteLock(session);
     }
   }
-
 
   void removeCollectionForClass(DatabaseSessionEmbedded session, int collectionId) {
     acquireSchemaWriteLock(session);

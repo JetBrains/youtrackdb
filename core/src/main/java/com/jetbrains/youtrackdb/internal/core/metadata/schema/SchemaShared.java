@@ -68,9 +68,18 @@ public abstract class SchemaShared implements CloseableInStorage {
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
   protected final Map<String, SchemaClassImpl> classes = new HashMap<>();
-  protected final Int2ObjectOpenHashMap<SchemaClassImpl> collectionsToClasses = new Int2ObjectOpenHashMap<>();
+  protected final Int2ObjectOpenHashMap<SchemaClassImpl> collectionsToClasses =
+      new Int2ObjectOpenHashMap<>();
 
-  private final CollectionSelectionFactory collectionSelectionFactory = new CollectionSelectionFactory();
+  /**
+   * Monotonically increasing counter for generating unique collection names.
+   * Each new collection gets a name like {@code <lowercase_classname>_<counter>}.
+   * Protected by the schema write lock.
+   */
+  protected int collectionCounter;
+
+  private final CollectionSelectionFactory collectionSelectionFactory =
+      new CollectionSelectionFactory();
 
   private final ModifiableInteger modificationCounter = new ModifiableInteger();
   private final List<GlobalPropertyImpl> properties = new ArrayList<>();
@@ -107,8 +116,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   public SchemaShared() {
   }
 
-  @Nullable
-  public static Character checkClassNameIfValid(String name) throws SchemaException {
+  @Nullable public static Character checkClassNameIfValid(String name) throws SchemaException {
     if (name == null) {
       throw new IllegalArgumentException("Name is null");
     }
@@ -133,8 +141,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   @SuppressWarnings("JavaExistingMethodCanBeUsed")
-  @Nullable
-  public static Character checkPropertyNameIfValid(String iName) {
+  @Nullable public static Character checkPropertyNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
     }
@@ -159,8 +166,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return null;
   }
 
-  @Nullable
-  public static Character checkIndexNameIfValid(String iName) {
+  @Nullable public static Character checkIndexNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
     }
@@ -237,7 +243,6 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-
   public SchemaClassImpl createClass(DatabaseSessionEmbedded sesion, final String className) {
     return createClass(sesion, className, null, (int[]) null);
   }
@@ -261,7 +266,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       DatabaseSessionEmbedded session, final String iClassName, final SchemaClassImpl superClass) {
     return getOrCreateClass(
         session, iClassName,
-        superClass == null ? new SchemaClassImpl[0] : new SchemaClassImpl[]{superClass});
+        superClass == null ? new SchemaClassImpl[0] : new SchemaClassImpl[] {superClass});
   }
 
   public abstract SchemaClassImpl getOrCreateClass(
@@ -270,17 +275,17 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public SchemaClassImpl createAbstractClass(DatabaseSessionEmbedded session,
       final String className) {
-    return createClass(session, className, null, new int[]{-1});
+    return createClass(session, className, null, new int[] {-1});
   }
 
   public SchemaClassImpl createAbstractClass(
       DatabaseSessionEmbedded session, final String className, final SchemaClassImpl superClass) {
-    return createClass(session, className, superClass, new int[]{-1});
+    return createClass(session, className, superClass, new int[] {-1});
   }
 
   public SchemaClassImpl createAbstractClass(
       DatabaseSessionEmbedded session, String iClassName, SchemaClassImpl... superClasses) {
-    return createClass(session, iClassName, new int[]{-1}, superClasses);
+    return createClass(session, iClassName, new int[] {-1}, superClasses);
   }
 
   public SchemaClassImpl createClass(
@@ -302,7 +307,6 @@ public abstract class SchemaShared implements CloseableInStorage {
       final String className,
       int collections,
       SchemaClassImpl... superClasses);
-
 
   public abstract void checkEmbedded(DatabaseSessionEmbedded session);
 
@@ -372,14 +376,13 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     acquireSchemaReadLock();
     try {
-      return classes.containsKey(iClassName.toLowerCase(Locale.ENGLISH));
+      return classes.containsKey(iClassName);
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  @Nullable
-  public SchemaClassImpl getClass(final Class<?> iClass) {
+  @Nullable public SchemaClassImpl getClass(final Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
@@ -387,15 +390,14 @@ public abstract class SchemaShared implements CloseableInStorage {
     return getClass(iClass.getSimpleName());
   }
 
-  @Nullable
-  public SchemaClassImpl getClass(final String iClassName) {
+  @Nullable public SchemaClassImpl getClass(final String iClassName) {
     if (iClassName == null) {
       return null;
     }
 
     acquireSchemaReadLock();
     try {
-      return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+      return classes.get(iClassName);
     } finally {
       releaseSchemaReadLock();
     }
@@ -453,7 +455,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       final String newName,
       final SchemaClassImpl cls) {
 
-    if (oldName != null && oldName.equalsIgnoreCase(newName)) {
+    if (oldName != null && oldName.equals(newName)) {
       throw new IllegalArgumentException(
           "Class '" + oldName + "' cannot be renamed with the same name");
     }
@@ -463,15 +465,15 @@ public abstract class SchemaShared implements CloseableInStorage {
       checkEmbedded(session);
 
       if (newName != null
-          && classes.containsKey(newName.toLowerCase(Locale.ENGLISH))) {
+          && classes.containsKey(newName)) {
         throw new IllegalArgumentException("Class '" + newName + "' is already present in schema");
       }
 
       if (oldName != null) {
-        classes.remove(oldName.toLowerCase(Locale.ENGLISH));
+        classes.remove(oldName);
       }
       if (newName != null) {
-        classes.put(newName.toLowerCase(Locale.ENGLISH), cls);
+        classes.put(newName, cls);
       }
 
     } finally {
@@ -530,15 +532,15 @@ public abstract class SchemaShared implements CloseableInStorage {
         String name = c.getProperty("name");
 
         SchemaClassImpl cls;
-        if (classes.containsKey(name.toLowerCase(Locale.ENGLISH))) {
-          cls = classes.get(name.toLowerCase(Locale.ENGLISH));
+        if (classes.containsKey(name)) {
+          cls = classes.get(name);
           cls.fromStream(c);
         } else {
           cls = createClassInstance(name);
           cls.fromStream(c);
         }
 
-        newClasses.put(cls.getName().toLowerCase(Locale.ENGLISH), cls);
+        newClasses.put(cls.getName(), cls);
         addCollectionClassMap(cls);
       }
 
@@ -564,25 +566,54 @@ public abstract class SchemaShared implements CloseableInStorage {
         if (!superClassNames.isEmpty()) {
           // HAS A SUPER CLASS or CLASSES
           var cls =
-              classes.get(((String) c.getProperty("name")).toLowerCase(Locale.ENGLISH));
+              classes.get((String) c.getProperty("name"));
           superClasses = new ArrayList<>(superClassNames.size());
           for (var superClassName : superClassNames) {
 
-            superClass = classes.get(superClassName.toLowerCase(Locale.ENGLISH));
+            superClass = classes.get(superClassName);
+
+            // Defensive fallback: legacy databases may have stored lowercased superclass
+            // names. If exact-match fails, try case-insensitive scan.
+            if (superClass == null) {
+              for (var candidate : classes.values()) {
+                if (candidate.getName().equalsIgnoreCase(superClassName)) {
+                  superClass = candidate;
+                  LogManager.instance()
+                      .warn(
+                          this,
+                          "Superclass name '%s' in class '%s' resolved via"
+                              + " case-insensitive fallback to '%s'. Consider updating the"
+                              + " schema record.",
+                          superClassName,
+                          cls.getName(),
+                          candidate.getName());
+                  break;
+                }
+              }
+            }
 
             if (superClass == null) {
               throw new ConfigurationException(
                   session.getDatabaseName(), "Super class '"
-                  + superClassName
-                  + "' was declared in class '"
-                  + cls.getName()
-                  + "' but was not found in schema. Remove the dependency or create the class"
-                  + " to continue.");
+                      + superClassName
+                      + "' was declared in class '"
+                      + cls.getName()
+                      + "' but was not found in schema. Remove the dependency or create the class"
+                      + " to continue.");
             }
             superClasses.add(superClass);
           }
           cls.setSuperClassesInternal(session, superClasses, false);
         }
+      }
+
+      // COLLECTION COUNTER
+      Integer persistedCounter = entity.getProperty("collectionCounter");
+      if (persistedCounter != null) {
+        collectionCounter = persistedCounter;
+      } else {
+        // Pre-migration schema: initialize counter safely above any existing _N suffixes.
+        collectionCounter = initCollectionCounterFromExisting(session);
       }
 
       // VIEWS
@@ -632,6 +663,8 @@ public abstract class SchemaShared implements CloseableInStorage {
         }
       }
       entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+      entity.setProperty("collectionCounter", collectionCounter);
+
       Object propertyValue = session.newEmbeddedSet(blobCollections);
       entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
       return entity;
@@ -722,8 +755,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  @Nullable
-  public GlobalPropertyImpl getGlobalPropertyById(int id) {
+  @Nullable public GlobalPropertyImpl getGlobalPropertyById(int id) {
     acquireSchemaReadLock();
     try {
       if (id >= properties.size()) {
@@ -794,6 +826,38 @@ public abstract class SchemaShared implements CloseableInStorage {
     session.executeInTx(transaction -> toStream(session));
 
     forceSnapshot();
+  }
+
+  /**
+   * Returns the next collection index and increments the counter.
+   * Must be called under the schema write lock.
+   */
+  protected int nextCollectionIndex() {
+    return collectionCounter++;
+  }
+
+  /**
+   * Initializes the collection counter from existing collection names for pre-migration schemas.
+   * Scans all collection names for the maximum {@code _N} suffix, then sets the counter to
+   * {@code max(classes.size(), maxExistingSuffix + 1)}.
+   */
+  private int initCollectionCounterFromExisting(DatabaseSessionEmbedded session) {
+    int maxSuffix = -1;
+    var collectionNames = session.getStorage().getCollectionNames();
+    for (var name : collectionNames) {
+      var underscoreIdx = name.lastIndexOf('_');
+      if (underscoreIdx >= 0 && underscoreIdx < name.length() - 1) {
+        try {
+          var suffix = Integer.parseInt(name.substring(underscoreIdx + 1));
+          if (suffix > maxSuffix) {
+            maxSuffix = suffix;
+          }
+        } catch (NumberFormatException ignore) {
+          // Not a numeric suffix — skip.
+        }
+      }
+    }
+    return Math.max(classes.size(), maxSuffix + 1);
   }
 
   protected void addCollectionClassMap(final SchemaClassImpl cls) {
