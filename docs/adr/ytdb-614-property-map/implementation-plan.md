@@ -668,13 +668,15 @@ graph LR
   >    API but could be mitigated by adding a `reset()` method to
   >    BytesContainer and reusing it across invocations.
   >
-  > **How**: Run the benchmark with `-prof gc` (JMH GC profiler) to get
-  > precise allocation rates per operation. Profile V1 as a baseline.
-  > Implement fixes starting from the highest-impact source (#1).
-  > After each fix, re-run `-prof gc` to verify reduction. Final
-  > verification: re-run the full benchmark suite comparing V1 vs V2
-  > allocation rates — V2 should not allocate significantly more than V1
-  > per operation.
+  > **How**: All profiling and benchmark runs must be performed on a
+  > Hetzner CCX33 node (8 dedicated vCPUs, 32 GB RAM) to get stable,
+  > reproducible results free of noisy-neighbor effects. Run the benchmark
+  > with `-prof gc` (JMH GC profiler) to get precise allocation rates per
+  > operation. Profile V1 as a baseline. Implement fixes starting from the
+  > highest-impact source (#1). After each fix, re-run `-prof gc` on CCX33
+  > to verify reduction. Final verification: re-run the full benchmark
+  > suite on CCX33 comparing V1 vs V2 allocation rates — V2 should not
+  > allocate significantly more than V1 per operation.
   >
   > **Constraints**: Fixes must not change the serialized binary format.
   > Must pass all existing V2 tests. Must not regress throughput (the
