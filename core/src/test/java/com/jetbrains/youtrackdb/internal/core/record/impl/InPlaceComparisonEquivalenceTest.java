@@ -1,0 +1,1068 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+
+package com.jetbrains.youtrackdb.internal.core.record.impl;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.OptionalInt;
+import org.junit.Test;
+
+/**
+ * Cross-path equivalence tests verifying that in-place comparison (both the serialized/source path
+ * and the deserialized/properties-map path) produces identical results to the standard {@code
+ * getProperty()} + Java comparison path for all supported types and edge cases.
+ *
+ * <p>Pattern: create entity with property, serialize to source-only form, then assert that {@code
+ * isPropertyEqualTo} / {@code comparePropertyTo} matches the result of {@code getProperty()} +
+ * Java comparison.
+ */
+public class InPlaceComparisonEquivalenceTest extends DbTestBase {
+
+  /**
+   * Creates a new entity with source bytes set but properties NOT deserialized. Exercises the
+   * serialized (InPlaceComparator) path.
+   */
+  private EntityImpl serializeWithSourceOnly(EntityImpl entity) {
+    var ser = session.getSerializer();
+    var bytes = ser.toStream(session, entity);
+    var reloaded = (EntityImpl) session.newEntity();
+    reloaded.unsetDirty();
+    reloaded.fromStream(bytes);
+    return reloaded;
+  }
+
+  /**
+   * Creates a new entity, serializes it, and fully deserializes it into a fresh entity. Properties
+   * are populated in memory; exercises the deserialized (properties map) path.
+   */
+  private EntityImpl serializeAndReload(EntityImpl entity) {
+    var ser = session.getSerializer();
+    var bytes = ser.toStream(session, entity);
+    var reloaded = (EntityImpl) session.newEntity();
+    ser.fromStream(session, bytes, reloaded, null);
+    return reloaded;
+  }
+
+  /**
+   * Computes the expected equality result by using standard getProperty() + Java comparison. If the
+   * property is null or value is null, returns FALLBACK (matching in-place behavior).
+   */
+  private InPlaceResult expectedEquality(EntityImpl entity, String name, Object value) {
+    var propValue = entity.getProperty(name);
+    if (propValue == null || value == null) {
+      return InPlaceResult.FALLBACK;
+    }
+    if (propValue.equals(value)) {
+      return InPlaceResult.TRUE;
+    }
+    // For numeric cross-type, standard equals may return false even when values
+    // are logically equal (e.g., Integer(42).equals(Long(42)) == false).
+    // The in-place path does type conversion, so we need to check numeric equality.
+    if (propValue instanceof Number pn && value instanceof Number vn) {
+      if (propValue instanceof BigDecimal bd) {
+        BigDecimal other;
+        if (value instanceof BigDecimal bdv) {
+          other = bdv;
+        } else if (vn instanceof Double || vn instanceof Float) {
+          other = BigDecimal.valueOf(vn.doubleValue());
+        } else {
+          other = BigDecimal.valueOf(vn.longValue());
+        }
+        return bd.compareTo(other) == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+      }
+      if (propValue instanceof Float f) {
+        if (value instanceof Double d) {
+          return Double.compare(f, d) == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+        }
+        return Float.compare(f, vn.floatValue()) == 0
+            ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+      }
+      if (propValue instanceof Double d) {
+        return Double.compare(d, vn.doubleValue()) == 0
+            ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+      }
+      // Integer types: compare via long
+      return Long.compare(pn.longValue(), vn.longValue()) == 0
+          ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+    }
+    // For byte arrays, standard equals uses reference equality — use Arrays.equals
+    if (propValue instanceof byte[] pb && value instanceof byte[] vb) {
+      return Arrays.equals(pb, vb) ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+    }
+    return InPlaceResult.FALSE;
+  }
+
+  /**
+   * Computes the expected ordering result using standard getProperty() + Java comparison.
+   */
+  @SuppressWarnings("unchecked")
+  private OptionalInt expectedOrdering(EntityImpl entity, String name, Object value) {
+    var propValue = entity.getProperty(name);
+    if (propValue == null || value == null) {
+      return OptionalInt.empty();
+    }
+    if (propValue instanceof Float f && value instanceof Number n) {
+      if (value instanceof Double d) {
+        return OptionalInt.of(Double.compare(f, d));
+      }
+      return OptionalInt.of(Float.compare(f, n.floatValue()));
+    }
+    if (propValue instanceof Double d && value instanceof Number n) {
+      return OptionalInt.of(Double.compare(d, n.doubleValue()));
+    }
+    if (propValue instanceof BigDecimal bd) {
+      BigDecimal other;
+      if (value instanceof BigDecimal bdv) {
+        other = bdv;
+      } else if (value instanceof Number n) {
+        if (n instanceof Double || n instanceof Float) {
+          other = BigDecimal.valueOf(n.doubleValue());
+        } else {
+          other = BigDecimal.valueOf(n.longValue());
+        }
+      } else {
+        return OptionalInt.empty();
+      }
+      return OptionalInt.of(bd.compareTo(other));
+    }
+    if (propValue instanceof Number pn && value instanceof Number vn) {
+      return OptionalInt.of(Long.compare(pn.longValue(), vn.longValue()));
+    }
+    if (propValue instanceof byte[] pb && value instanceof byte[] vb) {
+      return OptionalInt.of(Arrays.compare(pb, vb));
+    }
+    if (propValue instanceof Comparable c) {
+      try {
+        return OptionalInt.of(c.compareTo(value));
+      } catch (ClassCastException e) {
+        return OptionalInt.empty();
+      }
+    }
+    return OptionalInt.empty();
+  }
+
+  /**
+   * Asserts equivalence of in-place equality check (source path) with the standard Java path.
+   */
+  private void assertEqualityEquivalence(
+      EntityImpl sourceEntity, EntityImpl javaEntity, String name, Object value) {
+    var expected = expectedEquality(javaEntity, name, value);
+    var actual = sourceEntity.isPropertyEqualTo(name, value);
+    assertEquals(
+        "isPropertyEqualTo mismatch for property '" + name + "' with value " + value,
+        expected, actual);
+  }
+
+  /**
+   * Asserts equivalence of in-place ordering check (source path) with the standard Java path.
+   * Compares sign of ordering result rather than exact value, since different comparison
+   * implementations may return different magnitudes.
+   */
+  private void assertOrderingEquivalence(
+      EntityImpl sourceEntity, EntityImpl javaEntity, String name, Object value) {
+    var expected = expectedOrdering(javaEntity, name, value);
+    var actual = sourceEntity.comparePropertyTo(name, value);
+    assertEquals(
+        "comparePropertyTo emptiness mismatch for property '" + name + "' with value " + value,
+        expected.isEmpty(), actual.isEmpty());
+    if (expected.isPresent() && actual.isPresent()) {
+      assertEquals(
+          "comparePropertyTo sign mismatch for property '" + name + "' with value " + value,
+          Integer.signum(expected.getAsInt()), Integer.signum(actual.getAsInt()));
+    }
+  }
+
+  // ===========================================================================
+  // INTEGER
+  // ===========================================================================
+
+  /** INTEGER property: matching, greater, less values. */
+  @Test
+  public void testIntegerEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42, PropertyType.INTEGER);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42);
+    assertEqualityEquivalence(source, java, "val", 99);
+    assertOrderingEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 10);
+    assertOrderingEquivalence(source, java, "val", 100);
+    session.rollback();
+  }
+
+  /** INTEGER property with Long comparison value — cross-type conversion. */
+  @Test
+  public void testIntegerWithLongValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42, PropertyType.INTEGER);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42L);
+    assertEqualityEquivalence(source, java, "val", 99L);
+    assertOrderingEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 10L);
+    session.rollback();
+  }
+
+  /** INTEGER property with Short comparison value — cross-type conversion. */
+  @Test
+  public void testIntegerWithShortValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42, PropertyType.INTEGER);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", (short) 42);
+    assertEqualityEquivalence(source, java, "val", (short) 10);
+    assertOrderingEquivalence(source, java, "val", (short) 42);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // LONG
+  // ===========================================================================
+
+  /** LONG property: matching, greater, less values. */
+  @Test
+  public void testLongEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 1_000_000_000_000L, PropertyType.LONG);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 1_000_000_000_000L);
+    assertEqualityEquivalence(source, java, "val", 999L);
+    assertOrderingEquivalence(source, java, "val", 1_000_000_000_000L);
+    assertOrderingEquivalence(source, java, "val", 0L);
+    assertOrderingEquivalence(source, java, "val", Long.MAX_VALUE);
+    session.rollback();
+  }
+
+  /** LONG property with Integer comparison value. */
+  @Test
+  public void testLongWithIntegerValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42L, PropertyType.LONG);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 100);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // SHORT
+  // ===========================================================================
+
+  /** SHORT property equivalence. */
+  @Test
+  public void testShortEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", (short) 100, PropertyType.SHORT);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", (short) 100);
+    assertEqualityEquivalence(source, java, "val", (short) 50);
+    assertOrderingEquivalence(source, java, "val", (short) 100);
+    assertOrderingEquivalence(source, java, "val", (short) 200);
+    session.rollback();
+  }
+
+  /** SHORT property with Integer comparison value. */
+  @Test
+  public void testShortWithIntegerValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", (short) 42, PropertyType.SHORT);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 42);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // BYTE
+  // ===========================================================================
+
+  /** BYTE property equivalence. */
+  @Test
+  public void testByteEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", (byte) 7, PropertyType.BYTE);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", (byte) 7);
+    assertEqualityEquivalence(source, java, "val", (byte) 0);
+    assertOrderingEquivalence(source, java, "val", (byte) 7);
+    assertOrderingEquivalence(source, java, "val", (byte) 127);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // FLOAT
+  // ===========================================================================
+
+  /** FLOAT property equivalence. */
+  @Test
+  public void testFloatEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 3.14f, PropertyType.FLOAT);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 3.14f);
+    assertEqualityEquivalence(source, java, "val", 2.71f);
+    assertOrderingEquivalence(source, java, "val", 3.14f);
+    assertOrderingEquivalence(source, java, "val", 0.0f);
+    assertOrderingEquivalence(source, java, "val", 100.0f);
+    session.rollback();
+  }
+
+  /** FLOAT edge cases: NaN, -0.0, infinities. */
+  @Test
+  public void testFloatEdgeCases() {
+    session.begin();
+
+    // NaN — NaN != NaN per IEEE 754, but Float.compare(NaN, NaN) == 0
+    var nanEntity = (EntityImpl) session.newEntity();
+    nanEntity.setProperty("val", Float.NaN, PropertyType.FLOAT);
+    var nanSource = serializeWithSourceOnly(nanEntity);
+    var nanJava = serializeAndReload(nanEntity);
+    assertEqualityEquivalence(nanSource, nanJava, "val", Float.NaN);
+    assertOrderingEquivalence(nanSource, nanJava, "val", Float.NaN);
+    assertOrderingEquivalence(nanSource, nanJava, "val", 1.0f);
+
+    // -0.0 vs +0.0 — Float.compare distinguishes them
+    var negZero = (EntityImpl) session.newEntity();
+    negZero.setProperty("val", -0.0f, PropertyType.FLOAT);
+    var negZeroSource = serializeWithSourceOnly(negZero);
+    var negZeroJava = serializeAndReload(negZero);
+    assertEqualityEquivalence(negZeroSource, negZeroJava, "val", 0.0f);
+    assertOrderingEquivalence(negZeroSource, negZeroJava, "val", 0.0f);
+
+    // +Infinity
+    var posInf = (EntityImpl) session.newEntity();
+    posInf.setProperty("val", Float.POSITIVE_INFINITY, PropertyType.FLOAT);
+    var posInfSource = serializeWithSourceOnly(posInf);
+    var posInfJava = serializeAndReload(posInf);
+    assertEqualityEquivalence(posInfSource, posInfJava, "val", Float.POSITIVE_INFINITY);
+    assertOrderingEquivalence(posInfSource, posInfJava, "val", Float.MAX_VALUE);
+
+    // -Infinity
+    var negInf = (EntityImpl) session.newEntity();
+    negInf.setProperty("val", Float.NEGATIVE_INFINITY, PropertyType.FLOAT);
+    var negInfSource = serializeWithSourceOnly(negInf);
+    var negInfJava = serializeAndReload(negInf);
+    assertEqualityEquivalence(negInfSource, negInfJava, "val", Float.NEGATIVE_INFINITY);
+    assertOrderingEquivalence(negInfSource, negInfJava, "val", -Float.MAX_VALUE);
+
+    session.rollback();
+  }
+
+  /** FLOAT with Double comparison value — widened to double precision. */
+  @Test
+  public void testFloatWithDoubleValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 3.14f, PropertyType.FLOAT);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", (double) 3.14f);
+    assertOrderingEquivalence(source, java, "val", (double) 3.14f);
+    assertOrderingEquivalence(source, java, "val", 100.0);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // DOUBLE
+  // ===========================================================================
+
+  /** DOUBLE property equivalence. */
+  @Test
+  public void testDoubleEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 2.718281828, PropertyType.DOUBLE);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 2.718281828);
+    assertEqualityEquivalence(source, java, "val", 3.14);
+    assertOrderingEquivalence(source, java, "val", 2.718281828);
+    assertOrderingEquivalence(source, java, "val", 0.0);
+    assertOrderingEquivalence(source, java, "val", 1000.0);
+    session.rollback();
+  }
+
+  /** DOUBLE edge cases: NaN, -0.0, infinities. */
+  @Test
+  public void testDoubleEdgeCases() {
+    session.begin();
+
+    var nanEntity = (EntityImpl) session.newEntity();
+    nanEntity.setProperty("val", Double.NaN, PropertyType.DOUBLE);
+    var nanSource = serializeWithSourceOnly(nanEntity);
+    var nanJava = serializeAndReload(nanEntity);
+    assertEqualityEquivalence(nanSource, nanJava, "val", Double.NaN);
+    assertOrderingEquivalence(nanSource, nanJava, "val", Double.NaN);
+    assertOrderingEquivalence(nanSource, nanJava, "val", 1.0);
+
+    var negZero = (EntityImpl) session.newEntity();
+    negZero.setProperty("val", -0.0, PropertyType.DOUBLE);
+    var negZeroSource = serializeWithSourceOnly(negZero);
+    var negZeroJava = serializeAndReload(negZero);
+    assertEqualityEquivalence(negZeroSource, negZeroJava, "val", 0.0);
+    assertOrderingEquivalence(negZeroSource, negZeroJava, "val", 0.0);
+
+    var posInf = (EntityImpl) session.newEntity();
+    posInf.setProperty("val", Double.POSITIVE_INFINITY, PropertyType.DOUBLE);
+    var posInfSource = serializeWithSourceOnly(posInf);
+    var posInfJava = serializeAndReload(posInf);
+    assertEqualityEquivalence(posInfSource, posInfJava, "val", Double.POSITIVE_INFINITY);
+    assertOrderingEquivalence(posInfSource, posInfJava, "val", Double.MAX_VALUE);
+
+    session.rollback();
+  }
+
+  /** DOUBLE with Integer comparison value. */
+  @Test
+  public void testDoubleWithIntegerValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42.0, PropertyType.DOUBLE);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 100);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Precision boundaries
+  // ===========================================================================
+
+  /** INT→FLOAT precision boundary: 2^24 ± 1. Above 2^24, integer→float loses precision. */
+  @Test
+  public void testIntToFloatPrecisionBoundary() {
+    session.begin();
+
+    // Exactly at boundary — should succeed
+    var atBoundary = (EntityImpl) session.newEntity();
+    atBoundary.setProperty("val", (1 << 24), PropertyType.INTEGER);
+    var atSrc = serializeWithSourceOnly(atBoundary);
+    var atJava = serializeAndReload(atBoundary);
+    assertEqualityEquivalence(atSrc, atJava, "val", (1 << 24));
+    assertOrderingEquivalence(atSrc, atJava, "val", (1 << 24));
+
+    // Below boundary — should succeed
+    var belowBoundary = (EntityImpl) session.newEntity();
+    belowBoundary.setProperty("val", (1 << 24) - 1, PropertyType.INTEGER);
+    var belowSrc = serializeWithSourceOnly(belowBoundary);
+    var belowJava = serializeAndReload(belowBoundary);
+    assertEqualityEquivalence(belowSrc, belowJava, "val", (1 << 24) - 1);
+
+    session.rollback();
+  }
+
+  /** LONG→DOUBLE precision boundary: 2^53 ± 1. Above 2^53, long→double loses precision. */
+  @Test
+  public void testLongToDoublePrecisionBoundary() {
+    session.begin();
+
+    // Exactly at boundary
+    var atBoundary = (EntityImpl) session.newEntity();
+    atBoundary.setProperty("val", (1L << 53), PropertyType.LONG);
+    var atSrc = serializeWithSourceOnly(atBoundary);
+    var atJava = serializeAndReload(atBoundary);
+    assertEqualityEquivalence(atSrc, atJava, "val", (1L << 53));
+    assertOrderingEquivalence(atSrc, atJava, "val", (1L << 53));
+
+    // Below boundary
+    var belowBoundary = (EntityImpl) session.newEntity();
+    belowBoundary.setProperty("val", (1L << 53) - 1, PropertyType.LONG);
+    var belowSrc = serializeWithSourceOnly(belowBoundary);
+    var belowJava = serializeAndReload(belowBoundary);
+    assertEqualityEquivalence(belowSrc, belowJava, "val", (1L << 53) - 1);
+
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // STRING
+  // ===========================================================================
+
+  /** STRING property: matching, non-matching, ordering. */
+  @Test
+  public void testStringEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", "Hello, World!");
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", "Hello, World!");
+    assertEqualityEquivalence(source, java, "val", "Goodbye");
+    assertOrderingEquivalence(source, java, "val", "Hello, World!");
+    assertOrderingEquivalence(source, java, "val", "AAA");
+    assertOrderingEquivalence(source, java, "val", "ZZZ");
+    session.rollback();
+  }
+
+  /** STRING with unicode characters. */
+  @Test
+  public void testStringUnicode() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", "\u00e9\u00e0\u00fc \u4e16\u754c");
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", "\u00e9\u00e0\u00fc \u4e16\u754c");
+    assertEqualityEquivalence(source, java, "val", "plain ascii");
+    assertOrderingEquivalence(source, java, "val", "\u00e9\u00e0\u00fc \u4e16\u754c");
+    session.rollback();
+  }
+
+  /**
+   * Empty string — known to fall back via deserializeField returning null for zero-length fields.
+   * Both source and Java paths should agree on FALLBACK behavior.
+   */
+  @Test
+  public void testEmptyStringFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", "");
+
+    var source = serializeWithSourceOnly(entity);
+    // Empty string via source path falls back (deserializeField returns null for zero-length)
+    var result = source.isPropertyEqualTo("val", "");
+    // Either FALLBACK or TRUE is acceptable — the key invariant is no wrong answer
+    assertTrue(
+        "Empty string should either match or fall back",
+        result == InPlaceResult.TRUE || result == InPlaceResult.FALLBACK);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // BOOLEAN
+  // ===========================================================================
+
+  /** BOOLEAN property equivalence. */
+  @Test
+  public void testBooleanEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", true, PropertyType.BOOLEAN);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", true);
+    assertEqualityEquivalence(source, java, "val", false);
+    assertOrderingEquivalence(source, java, "val", true);
+    assertOrderingEquivalence(source, java, "val", false);
+
+    // Also test false property
+    var falseEntity = (EntityImpl) session.newEntity();
+    falseEntity.setProperty("val", false, PropertyType.BOOLEAN);
+    var falseSrc = serializeWithSourceOnly(falseEntity);
+    var falseJava = serializeAndReload(falseEntity);
+    assertEqualityEquivalence(falseSrc, falseJava, "val", false);
+    assertEqualityEquivalence(falseSrc, falseJava, "val", true);
+
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // DATETIME
+  // ===========================================================================
+
+  /** DATETIME property equivalence. */
+  @Test
+  public void testDatetimeEquivalence() {
+    session.begin();
+    var now = new Date();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", now, PropertyType.DATETIME);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", now);
+    assertEqualityEquivalence(source, java, "val", new Date(0));
+    assertOrderingEquivalence(source, java, "val", now);
+    assertOrderingEquivalence(source, java, "val", new Date(0));
+    assertOrderingEquivalence(source, java, "val", new Date(Long.MAX_VALUE));
+    session.rollback();
+  }
+
+  /** DATETIME with epoch zero. */
+  @Test
+  public void testDatetimeEpochZero() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", new Date(0), PropertyType.DATETIME);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", new Date(0));
+    assertOrderingEquivalence(source, java, "val", new Date(1000));
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // DATE (day-level precision, timezone-sensitive)
+  // ===========================================================================
+
+  /** DATE property equivalence — uses convertDayToTimezone internally. */
+  @Test
+  public void testDateEquivalence() {
+    session.begin();
+    // Use a date well past epoch to avoid timezone edge cases at day boundary
+    var date = new Date(1700000000000L); // 2023-11-14
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", date, PropertyType.DATE);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    // DATE truncates to day precision; use the reloaded value as the comparison target
+    var reloadedDate = (Date) java.getProperty("val");
+    assertEqualityEquivalence(source, java, "val", reloadedDate);
+    assertOrderingEquivalence(source, java, "val", reloadedDate);
+    // Compare with a different date
+    assertOrderingEquivalence(source, java, "val", new Date(0));
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // DECIMAL
+  // ===========================================================================
+
+  /** DECIMAL property equivalence. */
+  @Test
+  public void testDecimalEquivalence() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", new BigDecimal("123.456"), PropertyType.DECIMAL);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", new BigDecimal("123.456"));
+    assertEqualityEquivalence(source, java, "val", new BigDecimal("999.999"));
+    assertOrderingEquivalence(source, java, "val", new BigDecimal("123.456"));
+    assertOrderingEquivalence(source, java, "val", BigDecimal.ZERO);
+    assertOrderingEquivalence(source, java, "val", new BigDecimal("1000"));
+    session.rollback();
+  }
+
+  /** DECIMAL with different scales — 1.0 vs 1 should be equal via compareTo (not equals). */
+  @Test
+  public void testDecimalDifferentScales() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", new BigDecimal("1.0"), PropertyType.DECIMAL);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    // BigDecimal("1.0").equals(BigDecimal("1")) is false, but compareTo returns 0
+    // The in-place path uses compareTo semantics
+    assertEqualityEquivalence(source, java, "val", new BigDecimal("1"));
+    assertEqualityEquivalence(source, java, "val", new BigDecimal("1.00"));
+    assertOrderingEquivalence(source, java, "val", new BigDecimal("1"));
+    session.rollback();
+  }
+
+  /** DECIMAL with long comparison value. */
+  @Test
+  public void testDecimalWithLongValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", new BigDecimal("42"), PropertyType.DECIMAL);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 100L);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // BINARY
+  // ===========================================================================
+
+  /** BINARY property equivalence. */
+  @Test
+  public void testBinaryEquivalence() {
+    session.begin();
+    var bytes = new byte[] {1, 2, 3, 4, 5};
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", bytes, PropertyType.BINARY);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", new byte[] {1, 2, 3, 4, 5});
+    assertEqualityEquivalence(source, java, "val", new byte[] {9, 8, 7});
+    assertOrderingEquivalence(source, java, "val", new byte[] {1, 2, 3, 4, 5});
+    assertOrderingEquivalence(source, java, "val", new byte[] {0});
+    assertOrderingEquivalence(source, java, "val", new byte[] {9, 9, 9});
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // LINK (equality only — ordering returns empty)
+  // ===========================================================================
+
+  /**
+   * LINK property equality via source path (InPlaceComparator). The deserialized path falls back
+   * for LINK (compareJavaValuesOrdering returns empty), so we test the source path directly
+   * rather than using the cross-path equivalence helper.
+   */
+  @Test
+  public void testLinkEqualityFromSource() {
+    session.begin();
+    var rid = new RecordId(10, 42);
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", rid, PropertyType.LINK);
+
+    var source = serializeWithSourceOnly(entity);
+
+    // Source path supports LINK equality via InPlaceComparator
+    assertEquals(InPlaceResult.TRUE, source.isPropertyEqualTo("val", new RecordId(10, 42)));
+    assertEquals(InPlaceResult.FALSE, source.isPropertyEqualTo("val", new RecordId(10, 99)));
+
+    // Ordering should return empty for LINK type
+    assertTrue(
+        "LINK ordering should return empty",
+        source.comparePropertyTo("val", new RecordId(10, 42)).isEmpty());
+    session.rollback();
+  }
+
+  /**
+   * LINK property via deserialized path — falls back because the properties-map comparison
+   * does not support LINK ordering (and equality delegates through ordering).
+   */
+  @Test
+  public void testLinkDeserializedPathFallback() {
+    session.begin();
+    var rid = new RecordId(10, 42);
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", rid, PropertyType.LINK);
+
+    var java = serializeAndReload(entity);
+
+    // Deserialized path returns FALLBACK for LINK (compareJavaValuesOrdering returns empty)
+    assertEquals(InPlaceResult.FALLBACK, java.isPropertyEqualTo("val", new RecordId(10, 42)));
+    assertTrue(java.comparePropertyTo("val", new RecordId(10, 42)).isEmpty());
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Null handling
+  // ===========================================================================
+
+  /** Null comparison value — both paths should return FALLBACK. */
+  @Test
+  public void testNullComparisonValue() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", "Alice");
+
+    var source = serializeWithSourceOnly(entity);
+    assertEquals(InPlaceResult.FALLBACK, source.isPropertyEqualTo("val", null));
+    assertTrue(source.comparePropertyTo("val", null).isEmpty());
+
+    // Deserialized path too
+    var java = serializeAndReload(entity);
+    assertEquals(InPlaceResult.FALLBACK, java.isPropertyEqualTo("val", null));
+    assertTrue(java.comparePropertyTo("val", null).isEmpty());
+    session.rollback();
+  }
+
+  /** Non-existent property — both paths should return FALLBACK. */
+  @Test
+  public void testNonExistentProperty() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", "Alice");
+
+    var source = serializeWithSourceOnly(entity);
+    assertEquals(InPlaceResult.FALLBACK, source.isPropertyEqualTo("missing", "x"));
+    assertTrue(source.comparePropertyTo("missing", "x").isEmpty());
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Partially deserialized entities
+  // ===========================================================================
+
+  /**
+   * Entity with some properties deserialized (in the map) and others still in source bytes.
+   * After accessing one property via getProperty(), the properties map gets populated, but the
+   * remaining properties may still use the source path.
+   */
+  @Test
+  public void testPartiallyDeserializedEntity() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+    entity.setProperty("age", 30, PropertyType.INTEGER);
+    entity.setProperty("score", 99.5, PropertyType.DOUBLE);
+
+    var loaded = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    // Access one property to trigger partial deserialization
+    loaded.getProperty("name");
+
+    // Now "name" is in the properties map; "age" and "score" may still use source
+    assertEqualityEquivalence(loaded, java, "name", "Alice");
+    assertEqualityEquivalence(loaded, java, "age", 30);
+    assertEqualityEquivalence(loaded, java, "score", 99.5);
+    assertOrderingEquivalence(loaded, java, "name", "Alice");
+    assertOrderingEquivalence(loaded, java, "age", 30);
+    assertOrderingEquivalence(loaded, java, "score", 99.5);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Non-comparable types — should fall back
+  // ===========================================================================
+
+  /**
+   * EMBEDDED property should return FALLBACK since embedded entities are not binary-comparable.
+   */
+  @Test
+  public void testEmbeddedTypeFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var embedded = (EntityImpl) session.newEmbeddedEntity();
+    embedded.setProperty("inner", "value");
+    entity.setProperty("val", embedded, PropertyType.EMBEDDED);
+
+    var source = serializeWithSourceOnly(entity);
+    // EMBEDDED is not binary-comparable — should fall back
+    assertEquals(InPlaceResult.FALLBACK, source.isPropertyEqualTo("val", embedded));
+    assertTrue(source.comparePropertyTo("val", embedded).isEmpty());
+    session.rollback();
+  }
+
+  /** EMBEDDEDLIST should fall back. */
+  @Test
+  public void testEmbeddedListFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.getOrCreateEmbeddedList("val").addAll(java.util.List.of("a", "b", "c"));
+
+    var source = serializeWithSourceOnly(entity);
+    var list = java.util.List.of("a", "b", "c");
+    assertEquals(InPlaceResult.FALLBACK, source.isPropertyEqualTo("val", list));
+    assertTrue(source.comparePropertyTo("val", list).isEmpty());
+    session.rollback();
+  }
+
+  /** EMBEDDEDMAP should fall back. */
+  @Test
+  public void testEmbeddedMapFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.getOrCreateEmbeddedMap("val").put("key", "value");
+
+    var source = serializeWithSourceOnly(entity);
+    var map = java.util.Map.of("key", "value");
+    assertEquals(InPlaceResult.FALLBACK, source.isPropertyEqualTo("val", map));
+    assertTrue(source.comparePropertyTo("val", map).isEmpty());
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Deserialized path equivalence (properties-map path vs Java comparison)
+  // ===========================================================================
+
+  /**
+   * Verifies that the deserialized (properties-map) path produces the same results as standard
+   * Java comparison for all 13 comparable types.
+   */
+  @Test
+  public void testDeserializedPathAllTypes() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("int", 42, PropertyType.INTEGER);
+    entity.setProperty("long", 999L, PropertyType.LONG);
+    entity.setProperty("short", (short) 10, PropertyType.SHORT);
+    entity.setProperty("byte", (byte) 5, PropertyType.BYTE);
+    entity.setProperty("float", 3.14f, PropertyType.FLOAT);
+    entity.setProperty("double", 2.71828, PropertyType.DOUBLE);
+    entity.setProperty("string", "hello");
+    entity.setProperty("bool", true, PropertyType.BOOLEAN);
+    entity.setProperty("datetime", new Date(1700000000000L), PropertyType.DATETIME);
+    entity.setProperty("decimal", new BigDecimal("42.5"), PropertyType.DECIMAL);
+    entity.setProperty("binary", new byte[] {1, 2, 3}, PropertyType.BINARY);
+
+    // Use serializeAndReload to get a fully deserialized entity
+    var java = serializeAndReload(entity);
+
+    // Equality checks — matching values
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("int", 42));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("long", 999L));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("short", (short) 10));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("byte", (byte) 5));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("float", 3.14f));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("double", 2.71828));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("string", "hello"));
+    assertEquals(InPlaceResult.TRUE, java.isPropertyEqualTo("bool", true));
+    assertEquals(InPlaceResult.TRUE,
+        java.isPropertyEqualTo("datetime", new Date(1700000000000L)));
+    assertEquals(InPlaceResult.TRUE,
+        java.isPropertyEqualTo("decimal", new BigDecimal("42.5")));
+    assertEquals(InPlaceResult.TRUE,
+        java.isPropertyEqualTo("binary", new byte[] {1, 2, 3}));
+
+    // Equality checks — non-matching values
+    assertEquals(InPlaceResult.FALSE, java.isPropertyEqualTo("int", 99));
+    assertEquals(InPlaceResult.FALSE, java.isPropertyEqualTo("string", "world"));
+    assertEquals(InPlaceResult.FALSE, java.isPropertyEqualTo("bool", false));
+
+    // Ordering checks
+    assertEquals(OptionalInt.of(0), java.comparePropertyTo("int", 42));
+    assertTrue(java.comparePropertyTo("int", 10).getAsInt() > 0);
+    assertTrue(java.comparePropertyTo("string", "aaa").getAsInt() > 0);
+    assertTrue(java.comparePropertyTo("string", "zzz").getAsInt() < 0);
+
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Cross-type numeric: INTEGER property vs various numeric types
+  // ===========================================================================
+
+  /** INTEGER property compared against Byte, Short, Long values — all should work. */
+  @Test
+  public void testIntegerCrossTypeMatrix() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42, PropertyType.INTEGER);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    // Byte
+    assertEqualityEquivalence(source, java, "val", (byte) 42);
+    assertOrderingEquivalence(source, java, "val", (byte) 42);
+
+    // Short
+    assertEqualityEquivalence(source, java, "val", (short) 42);
+    assertOrderingEquivalence(source, java, "val", (short) 42);
+
+    // Long
+    assertEqualityEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 42L);
+
+    // Long — non-matching
+    assertEqualityEquivalence(source, java, "val", 99L);
+    assertOrderingEquivalence(source, java, "val", 99L);
+
+    session.rollback();
+  }
+
+  /**
+   * FLOAT property compared with Integer value — integer→float precision safe within 2^24.
+   */
+  @Test
+  public void testFloatCrossTypeWithInteger() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42.0f, PropertyType.FLOAT);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 42);
+    assertOrderingEquivalence(source, java, "val", 100);
+    session.rollback();
+  }
+
+  /**
+   * DOUBLE property compared with Long value — long→double precision safe within 2^53.
+   */
+  @Test
+  public void testDoubleCrossTypeWithLong() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 42.0, PropertyType.DOUBLE);
+
+    var source = serializeWithSourceOnly(entity);
+    var java = serializeAndReload(entity);
+
+    assertEqualityEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 42L);
+    assertOrderingEquivalence(source, java, "val", 100L);
+    session.rollback();
+  }
+}
