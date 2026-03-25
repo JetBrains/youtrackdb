@@ -857,6 +857,7 @@ public class EstimateEdgeCostTest {
   private SQLMethodCall mockMethodCallNoParams(String methodName) {
     var method = mock(SQLMethodCall.class);
     when(method.getMethodName()).thenReturn(new SQLIdentifier(methodName));
+    when(method.getMethodNameString()).thenReturn(methodName);
     when(method.getParams()).thenReturn(List.of());
     return method;
   }
@@ -864,6 +865,7 @@ public class EstimateEdgeCostTest {
   private SQLMethodCall mockMethodCall(String methodName, String paramString) {
     var method = mock(SQLMethodCall.class);
     when(method.getMethodName()).thenReturn(new SQLIdentifier(methodName));
+    when(method.getMethodNameString()).thenReturn(methodName);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(paramString);
