@@ -24,6 +24,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.math.BigDecimal;
@@ -137,6 +138,14 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
     // For byte arrays, standard equals uses reference equality — use Arrays.equals
     if (propValue instanceof byte[] pb && value instanceof byte[] vb) {
       return Arrays.equals(pb, vb) ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+    }
+    // LINK equality: compare RID components
+    if (propValue instanceof Identifiable entryId && value instanceof Identifiable valueId) {
+      var entryRid = entryId.getIdentity();
+      var valueRid = valueId.getIdentity();
+      return (entryRid.getCollectionId() == valueRid.getCollectionId()
+          && entryRid.getCollectionPosition() == valueRid.getCollectionPosition())
+              ? InPlaceResult.TRUE : InPlaceResult.FALSE;
     }
     return InPlaceResult.FALSE;
   }
@@ -899,9 +908,13 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * LINK property equality via source path (InPlaceComparator). The deserialized path falls back
-   * for LINK (compareJavaValuesOrdering returns empty), so we test the source path directly
-   * rather than using the cross-path equivalence helper.
+   * LINK property equality — both source and deserialized paths support equality. Source path
+   * uses InPlaceComparator.compareLinkEquality; deserialized path uses compareLinkJavaValues.
+   * Ordering returns empty for LINK (not supported).
+   *
+   * <p>Note: cannot use assertEqualityEquivalence for LINK because getProperty() on the
+   * deserialized entity may return null (the linked RID doesn't exist in the test DB),
+   * while the in-place methods work directly on the raw entry value.
    */
   @Test
   public void testLinkEqualityFromSource() {
@@ -912,25 +925,24 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
 
     var source = serializeWithSourceOnly(entity);
 
-    // Source path supports LINK equality via InPlaceComparator
+    // Source path supports LINK equality
     assertEquals(InPlaceResult.TRUE, source.isPropertyEqualTo("val", new RecordId(10, 42)));
     assertEquals(InPlaceResult.FALSE, source.isPropertyEqualTo("val", new RecordId(10, 99)));
-    // Different cluster ID, same position
     assertEquals(InPlaceResult.FALSE, source.isPropertyEqualTo("val", new RecordId(11, 42)));
 
-    // Ordering should return empty for LINK type
+    // Ordering returns empty for LINK type
     assertTrue(
-        "LINK ordering should return empty",
+        "LINK ordering should return empty (source path)",
         source.comparePropertyTo("val", new RecordId(10, 42)).isEmpty());
     session.rollback();
   }
 
   /**
-   * LINK property via deserialized path — falls back because the properties-map comparison
-   * does not support LINK ordering (and equality delegates through ordering).
+   * LINK property equality via deserialized path — returns TRUE/FALSE (not FALLBACK),
+   * matching the source path behavior. Both paths agree on equality results.
    */
   @Test
-  public void testLinkDeserializedPathFallback() {
+  public void testLinkDeserializedPathEquality() {
     session.begin();
     var rid = new RecordId(10, 42);
     var entity = (EntityImpl) session.newEntity();
@@ -938,9 +950,14 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
 
     var deserialized = serializeAndReload(entity);
 
-    // Deserialized path returns FALLBACK for LINK (compareJavaValuesOrdering returns empty)
-    assertEquals(InPlaceResult.FALLBACK,
+    // Deserialized path supports LINK equality via compareLinkJavaValues
+    assertEquals(InPlaceResult.TRUE,
         deserialized.isPropertyEqualTo("val", new RecordId(10, 42)));
+    assertEquals(InPlaceResult.FALSE,
+        deserialized.isPropertyEqualTo("val", new RecordId(10, 99)));
+    assertEquals(InPlaceResult.FALSE,
+        deserialized.isPropertyEqualTo("val", new RecordId(11, 42)));
+    // Ordering still returns empty
     assertTrue(deserialized.comparePropertyTo("val", new RecordId(10, 42)).isEmpty());
     session.rollback();
   }
