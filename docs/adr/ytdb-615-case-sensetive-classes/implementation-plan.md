@@ -210,6 +210,11 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > impact — Track 2 and Track 3 proceed as planned.
   >
   > **Step file:** `tracks/track-1.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** ADJUST — Track 3 scope reduced because Track 1
+  > Step 3 already fixed 15 core-module test files. Track 3 now covers only
+  > remaining test fixes (tests module, HookReadTest, StorageBackupMTStateTest)
+  > plus any tests broken by Track 2's index changes.
 
 - [ ] Track 2: Index name and IndexManager — case-sensitive names
   > Remove `toLowerCase()` from index-name map keys in `ImmutableSchema` and
