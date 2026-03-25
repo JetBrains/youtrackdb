@@ -20,6 +20,8 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
+import java.util.Arrays;
+
 public class BytesContainer {
 
   public byte[] bytes;
@@ -48,7 +50,7 @@ public class BytesContainer {
    * from a previous use).
    */
   public void reset() {
-    java.util.Arrays.fill(bytes, 0, offset, (byte) 0);
+    Arrays.fill(bytes, 0, offset, (byte) 0);
     offset = 0;
   }
 
