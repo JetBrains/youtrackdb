@@ -756,11 +756,15 @@ public class ConcurrentLongIntHashMap<V> {
         }
       }
 
-      // Swap all at once — section remains consistent even if OOM occurred above
-      capacity = newCapacity;
+      // Swap arrays BEFORE capacity — an optimistic reader that snapshots the new capacity
+      // but old arrays would use a mask larger than the array length, causing AIOOBE.
+      // By writing arrays first, a reader that sees the old capacity uses a smaller mask
+      // against larger arrays (safe), while a reader that sees the new capacity uses the
+      // correct mask against the new arrays (also safe).
       fileIds = newFileIds;
       pageIndices = newPageIndices;
       values = newValues;
+      capacity = newCapacity;
       resizeThreshold = (int) (newCapacity * FILL_FACTOR);
       usedBuckets = size;
 
