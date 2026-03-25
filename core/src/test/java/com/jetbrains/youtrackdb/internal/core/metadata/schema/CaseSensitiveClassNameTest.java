@@ -132,22 +132,48 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     assertNotNull(cls1);
     assertEquals("MyGetOrCreate", cls1.getName());
 
-    // Different case should NOT find the existing class
-    assertNull("Different-case lookup should return null",
-        schema.getClass("mygetorcreate"));
+    // Different case should create a NEW class, not return the existing one
+    var cls2 = schema.getOrCreateClass("mygetorcreate");
+    assertNotNull(cls2);
+    assertEquals("mygetorcreate", cls2.getName());
+
+    // They should be distinct classes with different collection IDs
+    assertTrue("getOrCreateClass with different case should create a separate class",
+        cls1.getCollectionIds()[0] != cls2.getCollectionIds()[0]);
   }
 
   /**
-   * Verifies that class creation rejects duplicate exact-case names but allows
-   * names that differ only in case.
+   * Verifies that two classes with the same name in different cases can coexist
+   * independently, each with its own collections and data isolation.
    */
   @Test
   public void testCreateClassAllowsDifferentCase() {
     Schema schema = session.getMetadata().getSchema();
 
     schema.createClass("Animal");
+    schema.createClass("animal");
 
-    // Creating with different case should succeed (these are different classes)
-    assertFalse("'animal' should not exist yet", schema.existsClass("animal"));
+    var cls1 = schema.getClass("Animal");
+    var cls2 = schema.getClass("animal");
+    assertNotNull("'Animal' should exist", cls1);
+    assertNotNull("'animal' should exist", cls2);
+
+    // Each class must have distinct collection IDs
+    assertTrue("Case-variant classes must have different collection IDs",
+        cls1.getCollectionIds()[0] != cls2.getCollectionIds()[0]);
+  }
+
+  /**
+   * Verifies that isSubClassOf uses exact-case matching after the migration.
+   */
+  @Test
+  public void testIsSubClassOfIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+    var child = schema.createClass("MyVertex", schema.getClass("V"));
+
+    assertTrue("Exact-case isSubClassOf should match",
+        child.isSubClassOf("V"));
+    assertFalse("Different-case isSubClassOf should not match",
+        child.isSubClassOf("v"));
   }
 }

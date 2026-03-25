@@ -43,8 +43,13 @@ public class SchemaEmbedded extends SchemaShared {
         result = doCreateClass(session, className, collectionIds, retry, superClasses);
         break;
       } catch (CollectionIdsAreEmptyException ignore) {
-        classes.remove(className);
-        collectionIds = createCollections(session, className);
+        acquireSchemaWriteLock(session);
+        try {
+          classes.remove(className);
+          collectionIds = createCollections(session, className);
+        } finally {
+          releaseSchemaWriteLock(session, false);
+        }
         retry++;
       }
     }
@@ -251,7 +256,12 @@ public class SchemaEmbedded extends SchemaShared {
         }
         break;
       } catch (CollectionIdsAreEmptyException ignore) {
-        collectionIds = createCollections(session, iClassName);
+        acquireSchemaWriteLock(session);
+        try {
+          collectionIds = createCollections(session, iClassName);
+        } finally {
+          releaseSchemaWriteLock(session, false);
+        }
         retry++;
       }
     }

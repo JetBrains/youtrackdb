@@ -833,6 +833,8 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Must be called under the schema write lock.
    */
   protected int nextCollectionIndex() {
+    assert lock.isWriteLockedByCurrentThread()
+        : "nextCollectionIndex() must be called under the schema write lock";
     return collectionCounter++;
   }
 
