@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -77,25 +77,24 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMapConcurrentTest.java` (modified)
 
-- [ ] Step 3: Integrated LockFreeReadCache concurrent stress test
-  > **Scope**: Create `LockFreeReadCacheConcurrentTestIT.java` in
-  > `core/src/test/.../internal/core/storage/cache/chm/` with
-  > `@Category(SequentialTest.class)`. Two test methods:
+- [x] Step 3: Integrated LockFreeReadCache concurrent stress test
+  > **What was done:** Created `LockFreeReadCacheConcurrentTestIT.java` with two test
+  > methods: (1) concurrent reads + writes with eviction — 4 readers + 4 writers,
+  > 50K ops/thread, 4MB cache; (2) deleteFile after concurrent load — 8 readers
+  > then sequential deleteFile for each file, verifying empty + consistent state.
   >
-  > 1. **Concurrent reads + writes with eviction**: Multiple threads call
-  >    `loadForRead`/`loadForWrite` on a small cache (forces eviction). Verify:
-  >    no exceptions, no data corruption, returned `CachePointer` values are valid.
-  >    Scale: 4MB cache, ~50K operations, 4 reader + 4 writer threads. Follow
-  >    `AsyncReadCacheTestIT` pattern with `MockedWriteCache`.
+  > **What was discovered:** **Found a real concurrency bug in ConcurrentLongIntHashMap!**
+  > `rehashTo()` wrote `capacity` before the new arrays, allowing an optimistic reader
+  > to snapshot the new (larger) capacity with old (smaller) arrays → AIOOBE. Fix:
+  > write arrays first, capacity last. This is exactly the BOOKKEEPER-4317 class of
+  > bug this track was designed to catch.
   >
-  > 2. **deleteStorage under concurrent load**: Pre-populate cache with entries from
-  >    multiple files. Start reader threads on all files. Call `deleteStorage` (clears
-  >    all). After readers stop, verify cache is empty. This tests the public API path
-  >    through `clearFile` → `removeByFileId`. Note: readers may re-populate entries
-  >    during deletion (documented race R2) — verify that after readers stop + a final
-  >    clear, the cache is empty.
+  > **What changed from the plan:** Used `deleteFile` per file instead of
+  > `deleteStorage` (which requires `writeCache.files()` to return real data).
+  > deleteFile cannot run while readers hold entries, so the test stops readers
+  > first then deletes — different from the original plan's concurrent deletion
+  > design. Review led to adding fileId/pageIndex assertions on CacheEntry, wrapping
+  > clear() in finally blocks, and asserting non-empty before deletion.
   >
-  > Pattern: raw `ExecutorService` + `Future.get(30, SECONDS)`, `MockedWriteCache`,
-  > `ByteBufferPool`. JUnit 4 with `@Category(SequentialTest.class)`.
-  >
-  > **Key files**: `LockFreeReadCacheConcurrentTestIT.java` (new)
+  > **Key files:** `LockFreeReadCacheConcurrentTestIT.java` (new),
+  > `ConcurrentLongIntHashMap.java` (modified — bug fix in rehashTo)
