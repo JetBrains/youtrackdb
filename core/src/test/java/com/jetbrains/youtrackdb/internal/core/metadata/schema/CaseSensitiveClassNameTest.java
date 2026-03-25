@@ -651,14 +651,22 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     // Creating a composite index on (filtered, other) should throw because
     // the wildcard rule matches ANY class including "SecWild"
+    IndexException thrown = null;
     try {
       cls.createIndex("SecWild.compositeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
           "filtered", "other");
       Assert.fail("Expected IndexException for composite index on"
           + " wildcard-filtered property");
     } catch (IndexException e) {
-      // Expected: wildcard security rule blocks composite index creation
+      thrown = e;
     }
+    assertNotNull(thrown);
+    assertTrue("Exception should mention the class name",
+        thrown.getMessage().contains("SecWild"));
+    assertTrue("Exception should mention the filtered property",
+        thrown.getMessage().contains("filtered"));
+    assertTrue("Exception should mention security rules",
+        thrown.getMessage().contains("column security rules"));
   }
 
   /**
@@ -739,6 +747,13 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
         snap.indexExists("ExpImpTest.ValueIdx"));
     assertFalse("Wrong-case index name should not exist after import",
         snap.indexExists("expimptest.valueidx"));
+
+    // Verify IndexDefinition preserves both index name and class name case
+    var def = snap.getIndexDefinition("ExpImpTest.ValueIdx");
+    assertEquals("Index name should be preserved after import",
+        "ExpImpTest.ValueIdx", def.name());
+    assertEquals("Class name in IndexDefinition should be preserved after import",
+        "ExpImpTest", def.className());
 
     // Clean up the import database
     session.close();
