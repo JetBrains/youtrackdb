@@ -564,14 +564,6 @@ public class EstimateEdgeCostTest {
   }
 
   @Test
-  public void extractEdgeClassName_singleCharString_returnsRaw() {
-    // When the raw toString is a single character (length < 2), the
-    // quote-stripping branch must NOT be entered — returns as-is.
-    // Kills boundary mutation on "raw.length() >= 2".
-    var method = mock(SQLMethodCall.class);
-    var outId = new SQLIdentifier("out");
-    when(method.getMethodName()).thenReturn(outId);
-
   public void targetSelectivityReturnBaseCostWhenNoEstimate() {
     mockSchemaClass("Tag", 1000);
     when(schema.existsClass("Tag")).thenReturn(true);
@@ -586,11 +578,6 @@ public class EstimateEdgeCostTest {
   }
 
   @Test
-  public void extractEdgeClassName_emptyString_returnsEmpty() {
-    var method = mock(SQLMethodCall.class);
-    var outId = new SQLIdentifier("out");
-    when(method.getMethodName()).thenReturn(outId);
-
   public void targetSelectivityDifferentiatesSameEdgeType() {
     mockSchemaClass("Tag", 1000);
     when(schema.existsClass("Tag")).thenReturn(true);
@@ -618,11 +605,6 @@ public class EstimateEdgeCostTest {
   }
 
   @Test
-  public void extractEdgeClassName_mismatchedQuotes_returnsRaw() {
-    var method = mock(SQLMethodCall.class);
-    var outId = new SQLIdentifier("out");
-    when(method.getMethodName()).thenReturn(outId);
-
   public void targetSelectivityInfersClassFromEdgeSchema() {
     mockSchemaClass("Tag", 1000);
     when(schema.existsClass("Tag")).thenReturn(true);
@@ -653,28 +635,6 @@ public class EstimateEdgeCostTest {
   }
 
   @Test
-  public void extractEdgeClassName_nullRaw_returnsNull() {
-    var method = mock(SQLMethodCall.class);
-    var outId = new SQLIdentifier("out");
-    when(method.getMethodName()).thenReturn(outId);
-
-    var base = mock(SQLBaseExpression.class);
-    when(base.toString()).thenReturn(null);
-
-    var param = mock(SQLExpression.class);
-    when(param.getMathExpression()).thenReturn(base);
-
-    when(method.getParams()).thenReturn(List.of(param));
-
-    assertNull(MatchExecutionPlanner.extractEdgeClassName(method));
-  }
-
-  @Test
-  public void extractEdgeClassName_twoCharQuoted_returnsEmpty() {
-    var method = mock(SQLMethodCall.class);
-    var outId = new SQLIdentifier("out");
-    when(method.getMethodName()).thenReturn(outId);
-
   public void filterSelectivityInequalityWithoutIndex() {
     var filter = makeWhereWithOperator(new SQLNeOperator(-1));
     double sel = MatchExecutionPlanner.estimateFilterSelectivity(
@@ -891,14 +851,14 @@ public class EstimateEdgeCostTest {
 
   private SQLMethodCall mockMethodCallNoParams(String methodName) {
     var method = mock(SQLMethodCall.class);
-    stubMethodName(method, methodName);
+    when(method.getMethodName()).thenReturn(methodName);
     when(method.getParams()).thenReturn(List.of());
     return method;
   }
 
   private SQLMethodCall mockMethodCall(String methodName, String paramString) {
     var method = mock(SQLMethodCall.class);
-    stubMethodName(method, methodName);
+    when(method.getMethodName()).thenReturn(methodName);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(paramString);
@@ -909,10 +869,6 @@ public class EstimateEdgeCostTest {
     when(method.getParams()).thenReturn(List.of(param));
     return method;
   }
-
-  private void stubMethodName(SQLMethodCall method, String name) {
-    when(method.getMethodName()).thenReturn(new SQLIdentifier(name));
-    when(method.getMethodNameString()).thenReturn(name);
 
   private SQLWhereClause makeWhereWithClassAttribute(String className) {
     var recAttr = new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute(-1);
