@@ -1267,7 +1267,7 @@ public class AtomicOperationSnapshotProxyTest {
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
@@ -1293,7 +1293,7 @@ public class AtomicOperationSnapshotProxyTest {
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
@@ -1329,7 +1329,7 @@ public class AtomicOperationSnapshotProxyTest {
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
@@ -1356,7 +1356,7 @@ public class AtomicOperationSnapshotProxyTest {
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
@@ -1379,7 +1379,7 @@ public class AtomicOperationSnapshotProxyTest {
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet()),
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
