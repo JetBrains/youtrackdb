@@ -697,4 +697,38 @@ public class InPlaceComparatorNonNumericTest {
     var result = InPlaceComparator.compare(datetimeField(5000L), 5000);
     assertEquals(OptionalInt.of(0), result);
   }
+
+  // ===========================================================================
+  // DECIMAL with Double.NaN and Infinity — must fall back, not throw
+  // ===========================================================================
+
+  /** DECIMAL compared with Double.NaN must return empty (fallback), not throw. */
+  @Test
+  public void testDecimalWithDoubleNaN() {
+    var result = InPlaceComparator.compare(decimalField(new BigDecimal("42")), Double.NaN);
+    assertTrue("DECIMAL vs Double.NaN should fall back", result.isEmpty());
+  }
+
+  /** DECIMAL compared with Double.POSITIVE_INFINITY must return empty (fallback), not throw. */
+  @Test
+  public void testDecimalWithDoublePositiveInfinity() {
+    var result = InPlaceComparator.compare(
+        decimalField(new BigDecimal("42")), Double.POSITIVE_INFINITY);
+    assertTrue("DECIMAL vs +Infinity should fall back", result.isEmpty());
+  }
+
+  /** DECIMAL compared with Double.NEGATIVE_INFINITY must return empty (fallback), not throw. */
+  @Test
+  public void testDecimalWithDoubleNegativeInfinity() {
+    var result = InPlaceComparator.compare(
+        decimalField(new BigDecimal("42")), Double.NEGATIVE_INFINITY);
+    assertTrue("DECIMAL vs -Infinity should fall back", result.isEmpty());
+  }
+
+  /** DECIMAL compared with Float.NaN must return empty (fallback), not throw. */
+  @Test
+  public void testDecimalWithFloatNaN() {
+    var result = InPlaceComparator.compare(decimalField(new BigDecimal("42")), Float.NaN);
+    assertTrue("DECIMAL vs Float.NaN should fall back", result.isEmpty());
+  }
 }

@@ -113,6 +113,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public static final byte RECORD_TYPE = 'd';
 
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
+
+  // Precision boundaries for safe integer-to-floating-point conversion (matching InPlaceComparator)
+  private static final int FLOAT_EXACT_INT_MAX = 1 << 24; // 2^24 = 16_777_216
+  private static final long DOUBLE_EXACT_LONG_MAX = 1L << 53; // 2^53
   private int propertiesCount;
 
   private Map<String, EntityEntry> properties;
@@ -677,11 +681,27 @@ public class EntityImpl extends RecordAbstract implements Entity {
           if (value instanceof Double d) {
             yield OptionalInt.of(Double.compare(f, d));
           }
+          // Guard: integer values beyond float's exact range must fall back
+          // to match InPlaceComparator.convertToFloat precision boundaries
+          if (!(n instanceof Float)) {
+            long lv = n.longValue();
+            if (lv > FLOAT_EXACT_INT_MAX || lv < -FLOAT_EXACT_INT_MAX) {
+              yield OptionalInt.empty();
+            }
+          }
           yield OptionalInt.of(Float.compare(f, n.floatValue()));
         }
         case DOUBLE -> {
           if (!(entryValue instanceof Double d) || !(value instanceof Number n)) {
             yield OptionalInt.empty();
+          }
+          // Guard: long values beyond double's exact range must fall back
+          // to match InPlaceComparator.convertToDouble precision boundaries
+          if (n instanceof Long || n instanceof Integer) {
+            long lv = n.longValue();
+            if (lv > DOUBLE_EXACT_LONG_MAX || lv < -DOUBLE_EXACT_LONG_MAX) {
+              yield OptionalInt.empty();
+            }
           }
           yield OptionalInt.of(Double.compare(d, n.doubleValue()));
         }
@@ -694,7 +714,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
             converted = bdv;
           } else if (value instanceof Number n) {
             if (n instanceof Double || n instanceof Float) {
-              converted = BigDecimal.valueOf(n.doubleValue());
+              double dv = n.doubleValue();
+              if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+                yield OptionalInt.empty();
+              }
+              converted = BigDecimal.valueOf(dv);
             } else {
               converted = BigDecimal.valueOf(n.longValue());
             }

@@ -91,7 +91,11 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
         if (value instanceof BigDecimal bdv) {
           other = bdv;
         } else if (vn instanceof Double || vn instanceof Float) {
-          other = BigDecimal.valueOf(vn.doubleValue());
+          double dv = vn.doubleValue();
+          if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+            return InPlaceResult.FALLBACK;
+          }
+          other = BigDecimal.valueOf(dv);
         } else {
           other = BigDecimal.valueOf(vn.longValue());
         }
@@ -101,10 +105,24 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
         if (value instanceof Double d) {
           return Double.compare(f, d) == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
         }
+        // Guard: integer values beyond float's exact range must fall back
+        if (!(vn instanceof Float)) {
+          long lv = vn.longValue();
+          if (lv > (1 << 24) || lv < -(1 << 24)) {
+            return InPlaceResult.FALLBACK;
+          }
+        }
         return Float.compare(f, vn.floatValue()) == 0
             ? InPlaceResult.TRUE : InPlaceResult.FALSE;
       }
       if (propValue instanceof Double d) {
+        // Guard: long values beyond double's exact range must fall back
+        if (vn instanceof Long || vn instanceof Integer) {
+          long lv = vn.longValue();
+          if (lv > (1L << 53) || lv < -(1L << 53)) {
+            return InPlaceResult.FALLBACK;
+          }
+        }
         return Double.compare(d, vn.doubleValue()) == 0
             ? InPlaceResult.TRUE : InPlaceResult.FALSE;
       }
@@ -136,9 +154,23 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
       if (value instanceof Double d) {
         return OptionalInt.of(Double.compare(f, d));
       }
+      // Guard: integer values beyond float's exact range must fall back
+      if (!(n instanceof Float)) {
+        long lv = n.longValue();
+        if (lv > (1 << 24) || lv < -(1 << 24)) {
+          return OptionalInt.empty();
+        }
+      }
       return OptionalInt.of(Float.compare(f, n.floatValue()));
     }
     if (propValue instanceof Double d && value instanceof Number n) {
+      // Guard: long values beyond double's exact range must fall back
+      if (n instanceof Long || n instanceof Integer) {
+        long lv = n.longValue();
+        if (lv > (1L << 53) || lv < -(1L << 53)) {
+          return OptionalInt.empty();
+        }
+      }
       return OptionalInt.of(Double.compare(d, n.doubleValue()));
     }
     if (propValue instanceof BigDecimal bd) {
@@ -147,7 +179,11 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
         other = bdv;
       } else if (value instanceof Number n) {
         if (n instanceof Double || n instanceof Float) {
-          other = BigDecimal.valueOf(n.doubleValue());
+          double dv = n.doubleValue();
+          if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+            return OptionalInt.empty();
+          }
+          other = BigDecimal.valueOf(dv);
         } else {
           other = BigDecimal.valueOf(n.longValue());
         }
@@ -577,6 +613,50 @@ public class InPlaceComparisonEquivalenceTest extends DbTestBase {
     assertEqualityEquivalence(aboveSrc, aboveDeserialized, "val", (1L << 53) + 1);
     assertOrderingEquivalence(aboveSrc, aboveDeserialized, "val", (1L << 53) + 1);
 
+    session.rollback();
+  }
+
+  /**
+   * FLOAT property compared with Integer above 2^24 — must fall back because float cannot
+   * represent the integer exactly. Both source and deserialized paths must agree.
+   */
+  @Test
+  public void testFloatPropertyWithIntegerAbovePrecisionBoundary() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 16_777_216.0f, PropertyType.FLOAT);
+
+    var source = serializeWithSourceOnly(entity);
+    var deserialized = serializeAndReload(entity);
+
+    // 16_777_217 > 2^24, cannot be exactly represented as float → FALLBACK
+    assertEqualityEquivalence(source, deserialized, "val", 16_777_217);
+    assertOrderingEquivalence(source, deserialized, "val", 16_777_217);
+    // At boundary — should succeed
+    assertEqualityEquivalence(source, deserialized, "val", 16_777_216);
+    assertOrderingEquivalence(source, deserialized, "val", 16_777_216);
+    session.rollback();
+  }
+
+  /**
+   * DOUBLE property compared with Long above 2^53 — must fall back because double cannot
+   * represent the long exactly. Both source and deserialized paths must agree.
+   */
+  @Test
+  public void testDoublePropertyWithLongAbovePrecisionBoundary() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("val", 9_007_199_254_740_992.0, PropertyType.DOUBLE);
+
+    var source = serializeWithSourceOnly(entity);
+    var deserialized = serializeAndReload(entity);
+
+    // 2^53 + 1, cannot be exactly represented as double → FALLBACK
+    assertEqualityEquivalence(source, deserialized, "val", 9_007_199_254_740_993L);
+    assertOrderingEquivalence(source, deserialized, "val", 9_007_199_254_740_993L);
+    // At boundary — should succeed
+    assertEqualityEquivalence(source, deserialized, "val", 9_007_199_254_740_992L);
+    assertOrderingEquivalence(source, deserialized, "val", 9_007_199_254_740_992L);
     session.rollback();
   }
 
