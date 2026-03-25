@@ -82,7 +82,8 @@ public abstract class SchemaClassImpl {
   protected boolean strictMode = false; // @SINCE v1.0rc8
   protected boolean abstractClass = false; // @SINCE v1.2.0
   protected Map<String, String> customFields;
-  protected final CollectionSelectionStrategy collectionSelection = new RoundRobinCollectionSelectionStrategy();
+  protected final CollectionSelectionStrategy collectionSelection =
+      new RoundRobinCollectionSelectionStrategy();
   protected volatile int hashCode;
 
   protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
@@ -144,7 +145,6 @@ public abstract class SchemaClassImpl {
     return readableCollectionIds;
   }
 
-
   public CollectionSelectionStrategy getCollectionSelection() {
     acquireSchemaReadLock();
     try {
@@ -154,8 +154,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  @Nullable
-  public String getCustom(final String iName) {
+  @Nullable public String getCustom(final String iName) {
     acquireSchemaReadLock();
     try {
       if (customFields == null) {
@@ -168,8 +167,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  @Nullable
-  public Map<String, String> getCustomInternal() {
+  @Nullable public Map<String, String> getCustomInternal() {
     acquireSchemaReadLock();
     try {
       if (customFields != null) {
@@ -229,7 +227,6 @@ public abstract class SchemaClassImpl {
     }
   }
 
-
   public List<SchemaClassImpl> getSuperClasses() {
     acquireSchemaReadLock();
     try {
@@ -281,7 +278,6 @@ public abstract class SchemaClassImpl {
       DatabaseSessionEmbedded session,
       final List<SchemaClassImpl> classes,
       boolean validateIndexes);
-
 
   public String getDescription() {
     acquireSchemaReadLock();
@@ -393,7 +389,6 @@ public abstract class SchemaClassImpl {
         false);
   }
 
-
   public SchemaPropertyImpl createProperty(
       DatabaseSessionEmbedded session, final String iPropertyName, final PropertyTypeInternal iType,
       final SchemaClassImpl iLinkedClass) {
@@ -435,7 +430,6 @@ public abstract class SchemaClassImpl {
         PropertyTypeInternal.convertFromPublicType(iType));
   }
 
-
   public SchemaPropertyImpl createProperty(
       DatabaseSessionEmbedded session, final String iPropertyName, final PropertyType iType,
       final SchemaClassImpl iLinkedClass) {
@@ -470,7 +464,6 @@ public abstract class SchemaClassImpl {
         PropertyTypeInternal.convertFromPublicType(iType),
         PropertyTypeInternal.convertFromPublicType(iLinkedType), unsafe);
   }
-
 
   public boolean existsProperty(String propertyName) {
     acquireSchemaReadLock();
@@ -612,7 +605,6 @@ public abstract class SchemaClassImpl {
 
     return entity;
   }
-
 
   public int[] getCollectionIds() {
     acquireSchemaReadLock();
@@ -784,7 +776,7 @@ public abstract class SchemaClassImpl {
         return false;
       }
 
-      if (iClassName.equalsIgnoreCase(getName())) {
+      if (iClassName.equals(getName())) {
         return true;
       }
       for (var superClass : superClasses) {
@@ -843,7 +835,6 @@ public abstract class SchemaClassImpl {
     return clazz.isSuperClassOf(this);
   }
 
-
   public Object get(DatabaseSessionEmbedded db, final ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -872,8 +863,8 @@ public abstract class SchemaClassImpl {
     switch (attribute) {
       case NAME -> setName(session, decodeClassName(stringValue));
       case SUPERCLASSES ->
-          setSuperClassesByNames(session
-              , stringValue != null ? Arrays.asList(PATTERN.split(stringValue)) : null);
+          setSuperClassesByNames(session,
+              stringValue != null ? Arrays.asList(PATTERN.split(stringValue)) : null);
       case STRICT_MODE -> setStrictMode(session, Boolean.parseBoolean(stringValue));
       case ABSTRACT -> setAbstract(session, Boolean.parseBoolean(stringValue));
       case CUSTOM -> {
@@ -912,7 +903,6 @@ public abstract class SchemaClassImpl {
   public abstract void setStrictMode(DatabaseSessionEmbedded session, boolean iMode);
 
   public abstract void setAbstract(DatabaseSessionEmbedded session, boolean iAbstract);
-
 
   private static String removeQuotes(String s) {
     s = s.trim();
@@ -998,8 +988,7 @@ public abstract class SchemaClassImpl {
     final var indexDefinition =
         IndexDefinitionFactory.createIndexDefinition(
             oClass, Arrays.asList(fields),
-            oClass.extractFieldTypes(fields), null, type
-        );
+            oClass.extractFieldTypes(fields), null, type);
 
     final var localPolymorphicCollectionIds = polymorphicCollectionIds;
     session
@@ -1144,7 +1133,6 @@ public abstract class SchemaClassImpl {
   public boolean isVertexType() {
     return isSubClassOf(VERTEX_CLASS_NAME);
   }
-
 
   public void getIndexesInternal(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     acquireSchemaReadLock();
@@ -1378,7 +1366,7 @@ public abstract class SchemaClassImpl {
       return false;
     }
     return !(x instanceof EntityImpl)
-        || linkedClass.getName().equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
+        || linkedClass.getName().equals(((EntityImpl) x).getSchemaClassName());
   }
 
   protected static String getEscapedName(final String iName) {
@@ -1442,8 +1430,7 @@ public abstract class SchemaClassImpl {
   protected abstract void addCollectionIdToIndexes(
       DatabaseSessionEmbedded session,
       int iId,
-      boolean requireEmpty
-  );
+      boolean requireEmpty);
 
   /**
    * Adds a base class to the current one. It adds also the base class collection ids to the
@@ -1586,8 +1573,7 @@ public abstract class SchemaClassImpl {
   protected void addPolymorphicCollectionIds(
       DatabaseSessionEmbedded session,
       final SchemaClassImpl iBaseClass,
-      boolean validateIndexes
-  ) {
+      boolean validateIndexes) {
     var collections = new IntRBTreeSet(polymorphicCollectionIds);
 
     for (var collectionId : iBaseClass.polymorphicCollectionIds) {
@@ -1625,8 +1611,7 @@ public abstract class SchemaClassImpl {
     Arrays.sort(collectionIds);
   }
 
-  @Nullable
-  public static String decodeClassName(String s) {
+  @Nullable public static String decodeClassName(String s) {
     if (s == null) {
       return null;
     }

@@ -440,7 +440,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       String... classNames) {
     if (classNames != null
         && classNames.length == 1
-        && classNames[0].equalsIgnoreCase(EdgeInternal.CLASS_NAME))
+        && classNames[0].equals(EdgeInternal.CLASS_NAME))
     // DEFAULT CLASS, TREAT IT AS NO CLASS/LABEL
     {
       classNames = null;
