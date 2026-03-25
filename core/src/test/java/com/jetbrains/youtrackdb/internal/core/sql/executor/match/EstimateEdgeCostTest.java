@@ -193,7 +193,8 @@ public class EstimateEdgeCostTest {
     // When the raw toString is a single character (length < 2), the
     // quote-stripping branch must NOT be entered — returns as-is.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("X");
@@ -210,7 +211,8 @@ public class EstimateEdgeCostTest {
   public void extractEdgeClassName_emptyString_returnsEmpty() {
     // Empty raw string (length 0 < 2) — returns as-is without stripping.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("");
@@ -228,7 +230,8 @@ public class EstimateEdgeCostTest {
     // When first and last quotes don't match (e.g., "'Knows\""),
     // the quote-stripping condition fails — returns raw string.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("'Knows\"");
@@ -246,7 +249,8 @@ public class EstimateEdgeCostTest {
   public void extractEdgeClassName_nullRaw_returnsNull() {
     // When base.toString() returns null, the null check on raw prevents NPE.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(null);
@@ -264,7 +268,8 @@ public class EstimateEdgeCostTest {
     // Exactly 2 chars with matching quotes: "''" → empty string after strip.
     // This is the boundary: length == 2 satisfies >= 2.
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn("out");
+    var outId = new SQLIdentifier("out");
+    when(method.getMethodName()).thenReturn(outId);
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn("''");
@@ -851,14 +856,14 @@ public class EstimateEdgeCostTest {
 
   private SQLMethodCall mockMethodCallNoParams(String methodName) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(methodName);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier(methodName));
     when(method.getParams()).thenReturn(List.of());
     return method;
   }
 
   private SQLMethodCall mockMethodCall(String methodName, String paramString) {
     var method = mock(SQLMethodCall.class);
-    when(method.getMethodName()).thenReturn(methodName);
+    when(method.getMethodName()).thenReturn(new SQLIdentifier(methodName));
 
     var base = mock(SQLBaseExpression.class);
     when(base.toString()).thenReturn(paramString);
