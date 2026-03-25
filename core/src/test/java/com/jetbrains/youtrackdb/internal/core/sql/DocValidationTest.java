@@ -2252,4 +2252,81 @@ public class DocValidationTest {
       tearDownMatchSampleData();
     }
   }
+
+  // === YQL-Create-Class.md ===
+
+  // Line 24-26: CREATE CLASS Account extends V
+  @Test
+  public void testCreateClassAccount() {
+    g.command("CREATE CLASS CCAccount IF NOT EXISTS EXTENDS V");
+
+    // Verify the class exists by inserting and querying a vertex
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCAccount SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCAccount").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCAccount").iterate();
+    });
+  }
+
+  // Line 30-32: CREATE CLASS Car EXTENDS Vehicle (extends another class)
+  @Test
+  public void testCreateClassExtendsAnotherClass() {
+    g.command("CREATE CLASS CCVehicle IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCCar IF NOT EXISTS EXTENDS CCVehicle");
+
+    // Verify CCCar is a subclass of CCVehicle by inserting into CCCar and querying CCVehicle
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCCar SET model = 'Sedan'").iterate();
+    });
+
+    var resultsFromParent =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCVehicle").toList());
+    assertThat(resultsFromParent).hasSize(1);
+
+    var resultsFromChild =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCCar").toList());
+    assertThat(resultsFromChild).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCCar").iterate();
+    });
+  }
+
+  // Line 37-39: CREATE CLASS Person ABSTRACT — abstract classes cannot be instantiated
+  @Test
+  public void testCreateAbstractClass() {
+    g.command("CREATE CLASS CCPerson IF NOT EXISTS EXTENDS V ABSTRACT");
+
+    // Attempting to create a vertex of an abstract class should fail
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCPerson SET name = 'John'").iterate();
+    }));
+  }
+
+  // Line 9/14: IF NOT EXISTS — class creation is ignored if the class already exists
+  @Test
+  public void testCreateClassIfNotExists() {
+    g.command("CREATE CLASS CCDuplicate IF NOT EXISTS EXTENDS V");
+    // Second call should not throw
+    g.command("CREATE CLASS CCDuplicate IF NOT EXISTS EXTENDS V");
+
+    // Verify the class still works
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCDuplicate SET val = 1").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCDuplicate").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCDuplicate").iterate();
+    });
+  }
 }
