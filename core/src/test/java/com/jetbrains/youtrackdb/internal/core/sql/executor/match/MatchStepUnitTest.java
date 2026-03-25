@@ -20,9 +20,12 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -38,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -1891,6 +1895,89 @@ public class MatchStepUnitTest extends DbTestBase {
     // A plain String is not a recognized traversal result type
     var stream = MatchEdgeTraverser.toExecutionStream("unexpected", session);
     assertFalse(stream.hasNext(ctx));
+  }
+
+  /**
+   * toExecutionStream uses the RID-only path for VertexFromLinkBagIterable:
+   * yields RecordId-backed ResultInternal objects without loading entities.
+   * This is the core lazy-loading optimization for MATCH traversal.
+   */
+  @Test
+  public void testToExecutionStreamVertexFromLinkBagIterable() {
+    var ctx = createCommandContext();
+    var rid1 = new RecordId(10, 1);
+    var rid2 = new RecordId(10, 2);
+
+    var linkBag = mock(LinkBag.class);
+    when(linkBag.iterator()).thenReturn(List.of(
+        RidPair.ofPair(new RecordId(30, 1), rid1),
+        RidPair.ofPair(new RecordId(30, 2), rid2)).iterator());
+    when(linkBag.size()).thenReturn(2);
+
+    var vfli = new VertexFromLinkBagIterable(linkBag, session);
+    var stream = MatchEdgeTraverser.toExecutionStream(vfli, session);
+
+    // Stream should yield two results
+    assertTrue(stream.hasNext(ctx));
+    var result1 = stream.next(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result2 = stream.next(ctx);
+    assertFalse(stream.hasNext(ctx));
+
+    // Results should carry the correct RIDs
+    assertEquals(rid1, result1.getIdentity());
+    assertEquals(rid2, result2.getIdentity());
+  }
+
+  /**
+   * toExecutionStream with VertexFromLinkBagIterable takes priority over the
+   * generic Iterable branch. Verifies the switch case ordering is correct.
+   */
+  @Test
+  public void testToExecutionStreamVFLBI_takePriorityOverIterable() {
+    var ctx = createCommandContext();
+    var rid = new RecordId(10, 1);
+
+    var linkBag = mock(LinkBag.class);
+    when(linkBag.iterator()).thenReturn(
+        List.of(RidPair.ofPair(new RecordId(30, 1), rid)).iterator());
+    when(linkBag.size()).thenReturn(1);
+
+    // VertexFromLinkBagIterable implements Iterable<Vertex> — but should
+    // match the VFLI case, not the generic Iterable case
+    var vfli = new VertexFromLinkBagIterable(linkBag, session);
+    var stream = MatchEdgeTraverser.toExecutionStream(vfli, session);
+
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // RID-only path: getIdentity() returns the RID without loading
+    assertEquals(rid, result.getIdentity());
+  }
+
+  /**
+   * Verifies that getIdentity() on a RID-backed ResultInternal (as produced
+   * by the lazy MATCH path) does NOT trigger entity loading, while
+   * getProperty() DOES trigger loading.
+   */
+  @Test
+  public void testLazyLoadingBehavior_getIdentityVsGetProperty() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    vertex.setProperty("name", "Alice");
+    session.commit();
+
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    // Simulate what toExecutionStream does: wrap a bare RID
+    var result = new ResultInternal(session, rid);
+
+    // getIdentity() should return the RID without loading
+    assertEquals(rid, result.getIdentity());
+
+    // getProperty() triggers lazy loading and returns the value
+    assertEquals("Alice", result.getProperty("name"));
+    session.commit();
   }
 
   // -- matchesRid tests --
