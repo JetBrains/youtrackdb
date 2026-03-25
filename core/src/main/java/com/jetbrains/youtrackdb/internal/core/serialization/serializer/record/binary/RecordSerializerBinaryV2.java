@@ -374,8 +374,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
   /**
    * Serializes a single property entry: [name-encoding][type byte][value-size varint][value-bytes].
-   */
-  /**
+   *
    * @param preEncodedName pre-computed UTF-8 bytes for the field name (from hash table
    *     construction), or null if not available (linear mode). When non-null and the property
    *     is schema-less, the name bytes are written directly, avoiding a second getBytes(UTF_8).
