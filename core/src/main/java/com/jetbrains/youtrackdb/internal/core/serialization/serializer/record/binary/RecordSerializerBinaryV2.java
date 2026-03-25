@@ -144,13 +144,21 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // Seed is fixed at 0; field preserved in wire format for future extensibility.
     int seed = 0;
 
-    // Allocate slot tracking arrays
-    byte[] slotHash8 = new byte[capacity];
+    // Allocate slot array and property index in one pass.
+    // slotArray stores [hash8, offsetLo, offsetHi] per slot — initialized to empty sentinels.
+    // slotPropertyIndex maps each slot to the property index (-1 if empty).
+    byte[] slotArray = new byte[capacity * SLOT_SIZE];
     int[] slotPropertyIndex = new int[capacity];
-    Arrays.fill(slotHash8, EMPTY_HASH8);
+    // Fill slot array with empty sentinels (0xFF for hash8, 0xFFFF for offset)
+    for (int s = 0; s < capacity; s++) {
+      int base = s * SLOT_SIZE;
+      slotArray[base] = EMPTY_HASH8;
+      slotArray[base + 1] = (byte) (EMPTY_OFFSET & 0xFF);
+      slotArray[base + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
+    }
     Arrays.fill(slotPropertyIndex, -1);
 
-    // Insert each property via linear probing
+    // Insert each property via linear probing — write hash8 directly into slotArray
     for (int i = 0; i < n; i++) {
       byte[] nameBytes = propertyNameBytes[i];
       int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
@@ -162,7 +170,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       for (int probe = 0; probe < capacity; probe++) {
         int slot = (startSlot + probe) & (capacity - 1);
         if (slotPropertyIndex[slot] == -1) {
-          slotHash8[slot] = hash8;
+          slotArray[slot * SLOT_SIZE] = hash8;
           slotPropertyIndex[slot] = i;
           placed = true;
           break;
@@ -173,16 +181,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
             "Failed to place property " + i + " in " + capacity
                 + " slots — table should have empty slots at load factor 0.625");
       }
-    }
-
-    // Build the byte array: for each slot, write hash8 + offset sentinel.
-    // Offsets are backpatched during serializeHashTableMode with actual KV region offsets.
-    byte[] slotArray = new byte[capacity * SLOT_SIZE];
-    for (int s = 0; s < capacity; s++) {
-      int byteOffset = s * SLOT_SIZE;
-      slotArray[byteOffset] = slotHash8[s];
-      slotArray[byteOffset + 1] = (byte) (EMPTY_OFFSET & 0xFF);
-      slotArray[byteOffset + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
     }
 
     assert slotArray.length == capacity * SLOT_SIZE
