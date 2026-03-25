@@ -1277,6 +1277,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
               final var tombstoneValue = new LinkBagValue(
                   oldValue.counter(), oldValue.secondaryCollectionId(),
                   oldValue.secondaryPosition(), true);
+              assert tombstoneValue.tombstone()
+                  : "Constructed tombstone value must have tombstone flag set";
 
               // Insert tombstone with new ts. removeEntryByKey decremented size
               // by 1; the insert below increments it back — net zero.
