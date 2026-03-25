@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [x] Step implementation (3/3 complete)
+- [x] Step implementation (3/3 complete + 1 additional fix from Phase C)
 - [x] Track-level code review (1/3 iterations — all findings resolved)
 
 ## Base commit
@@ -55,3 +55,21 @@
   > try/finally for safe import DB cleanup, closed export/import resources.
   >
   > **Key files:** CaseSensitiveClassNameTest.java (modified)
+
+- [x] Phase C fix: Fix wrong-case class names in SQL test queries
+  - [x] Context: safe
+  > **What was done:** Investigation during Phase C confirmed that SQL schema
+  > resolution IS case-sensitive (ImmutableSchema.getClassInternal is a direct
+  > HashMap.get — no fallback). The Step 1 episode claim that "SQL queries with
+  > wrong-case class names don't fail" was incorrect — EntityTreeTest actually
+  > does fail (returns 0 results). Fixed 15 SQL query strings across 6 test
+  > files: ouser→OUser (SecurityTest, SQLCommandsTest, SQLInsertTest),
+  > orole→ORole (SQLSelectTest), profile→Profile (EntityTreeTest),
+  > v→V and e→E and user→User (SQLCommandsTest, CommandExecutorSQLDeleteVertexTest).
+  >
+  > **What was discovered:** Step 1 episode's claim was wrong. The SQL path has
+  > NO case-insensitive fallback. No `toLowerCase()` allocations exist in the
+  > SQL class resolution path.
+  >
+  > **Key files:** EntityTreeTest.java, SecurityTest.java, SQLSelectTest.java,
+  > SQLCommandsTest.java, SQLInsertTest.java, CommandExecutorSQLDeleteVertexTest.java
