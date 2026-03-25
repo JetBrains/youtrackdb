@@ -500,9 +500,9 @@ public class ConcurrentLongIntHashMapTest {
     map.put(2L, 2, "b");
     assertThat(map.capacity()).isEqualTo(4);
 
-    // Third insert triggers resize
+    // Third insert triggers resize: 4 → 8
     map.put(3L, 3, "c");
-    assertThat(map.capacity()).isGreaterThan(4);
+    assertThat(map.capacity()).isEqualTo(8);
 
     assertThat(map.get(1L, 1)).isEqualTo("a");
     assertThat(map.get(2L, 2)).isEqualTo("b");
@@ -556,7 +556,8 @@ public class ConcurrentLongIntHashMapTest {
             (fid, pid) -> {
               throw new RuntimeException("computation failed");
             }))
-        .isInstanceOf(RuntimeException.class);
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("computation failed");
 
     // Map should still be usable and the failed key should not be present
     assertThat(map.get(1L, 1)).isEqualTo("existing");
@@ -853,11 +854,10 @@ public class ConcurrentLongIntHashMapTest {
   }
 
   @Test
-  public void computeLeavesMapConsistentWhenFunctionThrows() {
+  public void computeLeavesMapConsistentWhenFunctionThrowsOnPresentKey() {
     var map = new ConcurrentLongIntHashMap<String>();
     map.put(1L, 10, "existing");
 
-    // Function throws on present key
     assertThatThrownBy(
         () -> map.compute(
             1L,
@@ -865,11 +865,17 @@ public class ConcurrentLongIntHashMapTest {
             (fid, pid, current) -> {
               throw new RuntimeException("remapping failed");
             }))
-        .isInstanceOf(RuntimeException.class);
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("remapping failed");
     assertThat(map.get(1L, 10)).isEqualTo("existing");
     assertThat(map.size()).isEqualTo(1);
+  }
 
-    // Function throws on absent key
+  @Test
+  public void computeLeavesMapConsistentWhenFunctionThrowsOnAbsentKey() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    map.put(1L, 10, "existing");
+
     assertThatThrownBy(
         () -> map.compute(
             2L,
@@ -877,7 +883,8 @@ public class ConcurrentLongIntHashMapTest {
             (fid, pid, current) -> {
               throw new RuntimeException("remapping failed");
             }))
-        .isInstanceOf(RuntimeException.class);
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("remapping failed");
     assertThat(map.get(2L, 20)).isNull();
     assertThat(map.size()).isEqualTo(1);
   }
@@ -1239,9 +1246,8 @@ public class ConcurrentLongIntHashMapTest {
     map.put(3L, 3, "c");
 
     map.shrink();
-    // Capacity should be smaller than 1024 but still hold the 3 entries
-    assertThat(map.capacity()).isLessThan(1024);
-    assertThat(map.capacity()).isGreaterThanOrEqualTo(3);
+    // ceil(3 / 0.66) = 5, alignToPowerOfTwo(5) = 8
+    assertThat(map.capacity()).isEqualTo(8);
 
     // All entries must survive shrink
     assertThat(map.get(1L, 1)).isEqualTo("a");
@@ -1344,7 +1350,8 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(map.capacity()).isEqualTo(capacityBeforeRemoval);
 
     map.shrink();
-    assertThat(map.capacity()).isLessThan(capacityBeforeRemoval);
+    // ceil(10 / 0.66) = 16, alignToPowerOfTwo(16) = 16
+    assertThat(map.capacity()).isEqualTo(16);
 
     for (int i = 0; i < 10; i++) {
       assertThat(map.get((long) i, i))
@@ -1408,5 +1415,221 @@ public class ConcurrentLongIntHashMapTest {
     for (int i = 0; i < 200; i++) {
       assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
     }
+  }
+
+  // ---- Backward-sweep compaction wraparound tests (TC1) ----
+
+  @Test
+  public void removeAtWraparoundBoundaryPreservesProbeChain() {
+    // Single section, capacity=8 so entries can wrap around the array boundary.
+    // Insert 5 entries — with linear probing some will probe-chain across the 7→0 boundary.
+    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+    assertThat(map.capacity()).isEqualTo(8);
+
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+
+    // Remove entries one by one in forward order, verifying all remaining entries
+    // are still findable after each removal. This exercises backward-sweep compaction
+    // including the wraparound case when entries span the array boundary.
+    for (int removed = 0; removed < 5; removed++) {
+      map.remove(1L, removed);
+      for (int remaining = removed + 1; remaining < 5; remaining++) {
+        assertThat(map.get(1L, remaining))
+            .as("Entry (1, %d) must be findable after removing (1, %d)", remaining, removed)
+            .isEqualTo("val-" + remaining);
+      }
+    }
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void removeAtWraparoundWithReverseRemovalOrder() {
+    // Same setup but remove in reverse order — stresses different compaction patterns
+    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+
+    for (int removed = 4; removed >= 0; removed--) {
+      map.remove(1L, removed);
+      for (int remaining = 0; remaining < removed; remaining++) {
+        assertThat(map.get(1L, remaining))
+            .as("Entry (1, %d) must be findable after removing (1, %d)", remaining, removed)
+            .isEqualTo("val-" + remaining);
+      }
+    }
+    assertThat(map.size()).isEqualTo(0);
+  }
+
+  @Test
+  public void removeAtWraparoundWithInterleavedFiles() {
+    // Two files interleaved in a small single-section map — removal of one file's entries
+    // must not break probe chains for the other file's entries that may span the boundary.
+    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+
+    for (int i = 0; i < 5; i++) {
+      map.put(1L, i, "f1-" + i);
+      if (i < 3) {
+        map.put(2L, i, "f2-" + i);
+      }
+    }
+    // 5 + 3 = 8 entries would trigger resize, but 5 entries leaves room
+
+    // Remove all file-1 entries one by one
+    for (int i = 0; i < 5; i++) {
+      map.remove(1L, i);
+    }
+
+    // All file-2 entries must survive
+    for (int i = 0; i < 3; i++) {
+      assertThat(map.get(2L, i))
+          .as("File-2 entry (2, %d) must survive file-1 removals", i)
+          .isEqualTo("f2-" + i);
+    }
+    assertThat(map.size()).isEqualTo(3);
+  }
+
+  // ---- removeByFileId boundary tests (TC2) ----
+
+  @Test
+  public void removeByFileIdWithHighLoadFactorPreservesAllSurvivors() {
+    // Single section, fill close to the resize threshold to maximize probe chain collisions.
+    // capacity=32, threshold=(int)(32*0.66)=21
+    var map = new ConcurrentLongIntHashMap<String>(32, 1);
+    assertThat(map.capacity()).isEqualTo(32);
+
+    // Insert 10 entries for fileId=1 and 10 for fileId=2 = 20 entries (just under threshold)
+    for (int p = 0; p < 10; p++) {
+      map.put(1L, p, "f1-" + p);
+      map.put(2L, p, "f2-" + p);
+    }
+    assertThat(map.size()).isEqualTo(20);
+    assertThat(map.capacity()).isEqualTo(32);
+
+    var removed = map.removeByFileId(1L);
+    assertThat(removed).hasSize(10);
+    assertThat(map.size()).isEqualTo(10);
+
+    // Every file-2 entry must survive the same-capacity rehash
+    for (int p = 0; p < 10; p++) {
+      assertThat(map.get(2L, p))
+          .as("Entry (2, %d) must survive removeByFileId rehash", p)
+          .isEqualTo("f2-" + p);
+    }
+  }
+
+  // ---- putIfAbsent resize test (TC3) ----
+
+  @Test
+  public void putIfAbsentTriggersResizeCorrectly() {
+    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    long initialCapacity = map.capacity();
+
+    for (int i = 0; i < 20; i++) {
+      map.putIfAbsent((long) i, i, "val-" + i);
+    }
+
+    assertThat(map.size()).isEqualTo(20);
+    assertThat(map.capacity()).isGreaterThan(initialCapacity);
+    for (int i = 0; i < 20; i++) {
+      assertThat(map.get((long) i, i)).isEqualTo("val-" + i);
+    }
+  }
+
+  // ---- compute remove then reinsert (TC4) ----
+
+  @Test
+  public void computeRemoveThenReinsertSameKey() {
+    // Verifies that backward-sweep compaction after compute-removal leaves the table
+    // in a state where the same key can be correctly re-inserted via compute.
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    for (int i = 0; i < 6; i++) {
+      map.put(1L, i, "val-" + i);
+    }
+
+    // Remove via compute returning null
+    map.compute(1L, 3, (fid, pid, cur) -> null);
+    assertThat(map.get(1L, 3)).isNull();
+    assertThat(map.size()).isEqualTo(5);
+
+    // Re-insert same key via compute
+    map.compute(
+        1L,
+        3,
+        (fid, pid, cur) -> {
+          assertThat(cur).as("Key was removed, current should be null").isNull();
+          return "reinserted";
+        });
+    assertThat(map.get(1L, 3)).isEqualTo("reinserted");
+    assertThat(map.size()).isEqualTo(6);
+
+    // All other entries must be intact
+    for (int i = 0; i < 6; i++) {
+      if (i == 3) {
+        assertThat(map.get(1L, i)).isEqualTo("reinserted");
+      } else {
+        assertThat(map.get(1L, i)).isEqualTo("val-" + i);
+      }
+    }
+  }
+
+  // ---- Extreme pageIndex values with same fileId (TC5) ----
+
+  @Test
+  public void putDistinguishesExtremePageIndexValues() {
+    // Verifies that the hash function correctly separates extreme pageIndex values
+    // when the fileId is identical.
+    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    map.put(1L, Integer.MAX_VALUE, "max");
+    map.put(1L, Integer.MIN_VALUE, "min");
+    map.put(1L, 0, "zero");
+    map.put(1L, -1, "neg-one");
+    map.put(1L, 1, "one");
+
+    assertThat(map.get(1L, Integer.MAX_VALUE)).isEqualTo("max");
+    assertThat(map.get(1L, Integer.MIN_VALUE)).isEqualTo("min");
+    assertThat(map.get(1L, 0)).isEqualTo("zero");
+    assertThat(map.get(1L, -1)).isEqualTo("neg-one");
+    assertThat(map.get(1L, 1)).isEqualTo("one");
+    assertThat(map.size()).isEqualTo(5);
+  }
+
+  // ---- removeByFileId with fileId=0 at high occupancy (TC6) ----
+
+  @Test
+  public void removeByFileIdZeroWithHighOccupancyOnlyRemovesActualEntries() {
+    // At high occupancy, many empty slots have fileIds[i] == 0L (Java default).
+    // The val != null guard in removeByFileId is essential — verify it works at scale.
+    var map = new ConcurrentLongIntHashMap<String>(64, 1);
+    for (int p = 0; p < 20; p++) {
+      map.put(0L, p, "f0-" + p);
+      map.put(1L, p, "f1-" + p);
+    }
+    assertThat(map.size()).isEqualTo(40);
+
+    var removed = map.removeByFileId(0L);
+    assertThat(removed).hasSize(20);
+    assertThat(map.size()).isEqualTo(20);
+
+    // All fileId=1 entries must survive
+    for (int p = 0; p < 20; p++) {
+      assertThat(map.get(1L, p)).isEqualTo("f1-" + p);
+    }
+    // All fileId=0 entries must be gone
+    for (int p = 0; p < 20; p++) {
+      assertThat(map.get(0L, p)).isNull();
+    }
+  }
+
+  // ---- forEachValue on empty map (TC7) ----
+
+  @Test
+  public void forEachValueOnEmptyMapVisitsNothing() {
+    var map = new ConcurrentLongIntHashMap<String>();
+    int[] count = {0};
+    map.forEachValue(val -> count[0]++);
+    assertThat(count[0]).isEqualTo(0);
   }
 }
