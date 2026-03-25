@@ -91,7 +91,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.begin();
     for (var i = 0; i < 100; i++) {
       session.execute(
-          "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT"
+          "CREATE EDGE IndexedEdge FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT"
               + " FROM IndexedVertex WHERE uid > "
               + (i * nodes / 100)
               + " and uid <"
@@ -102,7 +102,7 @@ public class MatchStatementExecutionTest extends DbTestBase {
 
     for (var i = 0; i < 100; i++) {
       session.execute(
-          "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid > "
+          "CREATE EDGE IndexedEdge FROM (SELECT FROM IndexedVertex WHERE uid > "
               + ((i * nodes / 100) + 1)
               + " and uid < "
               + (((i + 1) * nodes / 100) + 1)

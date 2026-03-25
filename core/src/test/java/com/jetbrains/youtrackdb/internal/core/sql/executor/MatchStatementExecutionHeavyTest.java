@@ -43,7 +43,7 @@ public class MatchStatementExecutionHeavyTest extends DbTestBase {
 
     for (var i = 0; i < 100; i++) {
       var cmd =
-          "CREATE EDGE IndexedEDGE FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT FROM"
+          "CREATE EDGE IndexedEdge FROM (SELECT FROM IndexedVertex WHERE uid = 0) TO (SELECT FROM"
               + " IndexedVertex WHERE uid > "
               + (i * nodes / 100)
               + " and uid <"

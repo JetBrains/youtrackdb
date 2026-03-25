@@ -1159,7 +1159,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     Map<String, String> map = new HashMap<>();
     map.put("two", "value");
     doc.newEmbeddedMap("map").putAll(map);
-    Identifiable link = session.newEntity("testClass");
+    Identifiable link = session.newEntity("TestClass");
     doc.newLinkList("linkList").add(link);
     doc.newLinkSet("linkSet").add(link);
 
@@ -1195,8 +1195,8 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     session.begin();
     var doc = (EntityImpl) session.newEntity(claz);
-    Identifiable link = session.newEntity("testClass");
-    var link1 = (DBRecord) session.newEntity("testClass");
+    Identifiable link = session.newEntity("TestClass");
+    var link1 = (DBRecord) session.newEntity("TestClass");
     doc.newLinkList("linkList").addAll(Arrays.asList(link, link1, link1));
     doc.newLinkSet("linkSet").addAll(new HashSet<>(Arrays.asList(link, link1)));
 
@@ -1205,7 +1205,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     linkMap.put("two", link1);
     linkMap.put("three", link1);
 
-    var link2 = session.newEntity("testClass");
+    var link2 = session.newEntity("TestClass");
     session.commit();
 
     session.begin();
@@ -1875,7 +1875,6 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     assertTrue("not found record in the set after serilize", ok);
     session.rollback();
   }
-
 
   @Test
   public void testFieldNames() {

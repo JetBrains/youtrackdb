@@ -150,7 +150,7 @@ public class SchedulerTest {
       var func = createFunction(db);
       db.begin();
       db.execute(
-          "insert into oschedule set name = 'test',"
+          "insert into OSchedule set name = 'test',"
               + " function = ?, rule = \"0/1 * * * * ?\", arguments = {\"note\": \"test\"}",
           func.getIdentity())
           .close();
@@ -171,7 +171,7 @@ public class SchedulerTest {
         try {
           db.begin();
           db.execute(
-              "update oschedule set rule = \"0/2 * * * * ?\", function = ? where name = 'test'",
+              "update OSchedule set rule = \"0/2 * * * * ?\", function = ? where name = 'test'",
               func.getIdentity())
               .close();
           db.commit();
@@ -199,7 +199,7 @@ public class SchedulerTest {
         try {
           // DELETE
           db.begin();
-          db.execute("delete from oschedule where name = 'test'", func.getIdentity()).close();
+          db.execute("delete from OSchedule where name = 'test'", func.getIdentity()).close();
           db.commit();
           break;
         } catch (NeedRetryException e) {

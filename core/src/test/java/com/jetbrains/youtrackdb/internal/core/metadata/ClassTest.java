@@ -15,6 +15,10 @@ public class ClassTest extends BaseMemoryInternalDatabase {
 
   public static final String SHORTNAME_CLASS_NAME = "TestShortName";
 
+  /**
+   * Verifies that renaming a class renames its underlying collection file.
+   * Collection names use counter-based format (e.g., classname_0).
+   */
   @Test
   public void testRename() {
     Schema schema = session.getMetadata().getSchema();
@@ -23,17 +27,23 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     final var storage = session.getStorage();
     final var paginatedStorage = (AbstractStorage) storage;
     final var writeCache = paginatedStorage.getWriteCache();
-    Assert.assertTrue(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
+
+    // Get the actual collection name assigned to this class
+    var collectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
+    Assert.assertTrue(writeCache.exists(collectionName + PaginatedCollection.DEF_EXTENSION));
 
     oClass.setName("ClassNameNew");
 
-    assertFalse(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists("classnamenew" + PaginatedCollection.DEF_EXTENSION));
+    // After rename, the collection file is renamed too
+    var newCollectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
+    assertFalse(writeCache.exists(collectionName + PaginatedCollection.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists(newCollectionName + PaginatedCollection.DEF_EXTENSION));
 
     oClass.setName("ClassName");
 
-    assertFalse(writeCache.exists("classnamenew" + PaginatedCollection.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists("classname" + PaginatedCollection.DEF_EXTENSION));
+    var finalCollectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
+    assertFalse(writeCache.exists(newCollectionName + PaginatedCollection.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists(finalCollectionName + PaginatedCollection.DEF_EXTENSION));
   }
 
   @Test

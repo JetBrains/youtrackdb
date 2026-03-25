@@ -131,7 +131,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     edges =
         session.execute(
-            "create edge e1 from "
+            "create edge E1 from "
                 + v3.getIdentity()
                 + " to "
                 + v5.getIdentity()
@@ -158,7 +158,7 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
 
     var cmd = "begin;\n";
     cmd += "let a = create vertex set script = true;\n";
-    cmd += "let b = select from v limit 1;\n";
+    cmd += "let b = select from V limit 1;\n";
     cmd += "let e = create edge from $a to $b;\n";
     cmd += "commit retry 100;\n";
     cmd += "return $e";
@@ -218,9 +218,9 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
     session.execute("create vertex V set name = 'testSqlScriptThatDeletesEdge1'").close();
     session.execute("create vertex V set name = 'testSqlScriptThatDeletesEdge2'").close();
     session.execute(
-            "create edge E from (select from V where name = 'testSqlScriptThatDeletesEdge1') to"
-                + " (select from V where name = 'testSqlScriptThatDeletesEdge2') set name ="
-                + " 'testSqlScriptThatDeletesEdge'")
+        "create edge E from (select from V where name = 'testSqlScriptThatDeletesEdge1') to"
+            + " (select from V where name = 'testSqlScriptThatDeletesEdge2') set name ="
+            + " 'testSqlScriptThatDeletesEdge'")
         .close();
     session.commit();
 

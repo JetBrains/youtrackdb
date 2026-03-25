@@ -97,8 +97,8 @@ public class IndexCollectionEmptinessCheckTest extends BaseMemoryInternalDatabas
       }
     });
 
-    // The default collection name is the lowercase class name.
-    var defaultCollectionName = className.toLowerCase();
+    // Get the actual collection name from the class's first collection ID.
+    var defaultCollectionName = session.getCollectionNameById(clazz.getCollectionIds()[0]);
 
     // Verify the default-named collection is non-empty.
     var browseResult = session.computeInTx(tx -> {

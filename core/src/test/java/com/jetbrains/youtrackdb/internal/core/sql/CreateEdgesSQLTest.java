@@ -38,15 +38,15 @@ public class CreateEdgesSQLTest {
     session.getSchema().createEdgeClass("lightweight");
 
     var tx = session.begin();
-    tx.command("create vertex v set name='a' ");
-    tx.command("create vertex v set name='b' ");
+    tx.command("create vertex V set name='a' ");
+    tx.command("create vertex V set name='b' ");
     tx.command(
-        "create edge lightweight from (select from v where name='a') to (select from v where name='a') ");
+        "create edge lightweight from (select from V where name='a') to (select from V where name='a') ");
     tx.commit();
 
     tx = session.begin();
     try (var res = tx.query(
-        "select expand(out('lightweight')) from v where name='a' ")) {
+        "select expand(out('lightweight')) from V where name='a' ")) {
       assertEquals(1, res.stream().count());
     }
     tx.commit();
@@ -66,8 +66,8 @@ public class CreateEdgesSQLTest {
     session.getSchema().createEdgeClass("lightweight");
 
     var tx = session.begin();
-    tx.command("create vertex v set id = 1 ");
-    tx.command("create vertex v set id = 2 ");
+    tx.command("create vertex V set id = 1 ");
+    tx.command("create vertex V set id = 2 ");
     tx.commit();
 
     session.close();
@@ -84,7 +84,7 @@ public class CreateEdgesSQLTest {
                       try {
                         var tx1 = session1.begin();
                         tx1.command(
-                            "create edge lightweight from (select from v where id=1) to (select from v"
+                            "create edge lightweight from (select from V where id=1) to (select from V"
                                 + " where id=2) ");
                         tx1.commit();
                       } catch (ConcurrentModificationException e) {

@@ -1383,25 +1383,44 @@ public abstract class SchemaClassImpl {
     hashCode = result;
   }
 
+  /**
+   * Renames collections belonging to this class when the class is renamed.
+   * For each collection, replaces the old lowercase class name prefix with
+   * the new one, preserving any counter suffix (e.g., {@code oldname_3}
+   * becomes {@code newname_3}).
+   */
   protected void renameCollection(DatabaseSessionEmbedded session, String oldName, String newName) {
-    oldName = oldName.toLowerCase(Locale.ENGLISH);
-    newName = newName.toLowerCase(Locale.ENGLISH);
+    var oldPrefix = oldName.toLowerCase(Locale.ENGLISH);
+    var newPrefix = newName.toLowerCase(Locale.ENGLISH);
 
-    if (session.getCollectionIdByName(newName) != -1) {
-      return;
+    for (var collectionId : getCollectionIds()) {
+      if (collectionId < 0) {
+        continue;
+      }
+      var currentName = session.getCollectionNameById(collectionId);
+      if (currentName == null) {
+        continue;
+      }
+
+      String renamedName;
+      if (currentName.equals(oldPrefix)) {
+        // Legacy collection name (no counter suffix)
+        renamedName = newPrefix;
+      } else if (currentName.startsWith(oldPrefix + "_")) {
+        // Counter-based collection name — replace prefix, keep suffix
+        renamedName = newPrefix + currentName.substring(oldPrefix.length());
+      } else {
+        continue;
+      }
+
+      // Skip if a collection with the target name already exists
+      if (session.getCollectionIdByName(renamedName) != -1) {
+        continue;
+      }
+
+      session.getStorage()
+          .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, renamedName);
     }
-
-    final var collectionId = session.getCollectionIdByName(oldName);
-    if (collectionId == -1) {
-      return;
-    }
-
-    if (!hasCollectionId(collectionId)) {
-      return;
-    }
-
-    session.getStorage()
-        .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
   }
 
   protected abstract SchemaPropertyImpl addProperty(
