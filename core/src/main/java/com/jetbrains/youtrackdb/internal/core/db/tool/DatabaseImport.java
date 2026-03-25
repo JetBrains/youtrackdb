@@ -1383,7 +1383,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
 
     // drop automatically created indexes
-    if (!indexName.equalsIgnoreCase(EXPORT_IMPORT_INDEX_NAME)) {
+    if (!indexName.equals(EXPORT_IMPORT_INDEX_NAME)) {
       listener.onMessage("\n- Index '" + indexName + "'...");
 
       indexManager.dropIndex(session, indexName);
