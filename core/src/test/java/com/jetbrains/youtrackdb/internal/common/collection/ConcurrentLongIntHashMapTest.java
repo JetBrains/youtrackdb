@@ -1668,16 +1668,21 @@ public class ConcurrentLongIntHashMapTest {
   }
 
   /**
-   * Verify hashForFrequencySketch matches the documented formula
-   * (Long.hashCode(fileId) * 31 + pageIndex) and differs from the map's internal
-   * murmur hash truncated to int.
+   * Verify hashForFrequencySketch returns pre-computed known values — guards against
+   * accidental formula changes (a tautological re-derivation would not catch that).
    */
   @Test
-  public void hashForFrequencySketchMatchesDocumentedFormula() {
-    long fileId = 123456789L;
-    int pageIndex = 42;
-    int expected = Long.hashCode(fileId) * 31 + pageIndex;
-    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(fileId, pageIndex))
-        .isEqualTo(expected);
+  public void hashForFrequencySketchMatchesPrecomputedValues() {
+    // Long.hashCode(1L) = 1, so 1 * 31 + 0 = 31
+    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 0)).isEqualTo(31);
+    // Long.hashCode(1L) = 1, so 1 * 31 + 5 = 36
+    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 5)).isEqualTo(36);
+    // Long.hashCode(123456789L) = 123456789, so 123456789 * 31 + 42 = -467806795
+    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(123456789L, 42))
+        .isEqualTo(-467806795);
+    // Long.hashCode(Long.MAX_VALUE) = (int)(MAX ^ (MAX >>> 32)) = -2147483648 (Integer.MIN_VALUE)
+    // Integer.MIN_VALUE * 31 overflows and wraps to Integer.MIN_VALUE in int arithmetic
+    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(Long.MAX_VALUE, 0))
+        .isEqualTo(-2147483648);
   }
 }
