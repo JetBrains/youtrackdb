@@ -201,7 +201,7 @@ iterations per level.
 covered the identical diff. See `track-code-review.md` §Single-Step Track.
 
 - **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
-- **Track-level:** see `track-code-review.md`
+- **Track-level:** see `track-code-review.md` (includes track completion)
 
 ---
 

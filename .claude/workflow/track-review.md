@@ -8,11 +8,11 @@ each executed in a **separate session**:
 1. **Phase A: Review + Decomposition** — this document (current session)
 2. **Phase B: Step Implementation** — see
    [`step-implementation.md`](step-implementation.md) (next session)
-3. **Phase C: Track-Level Code Review** — see
+3. **Phase C: Code Review + Track Completion** — see
    [`track-code-review.md`](track-code-review.md) (session after Phase B)
 
-After Phase C, the next session runs the Track Completion Protocol
-(see workflow.md) for user review.
+Phase C includes both the track-level code review and track completion
+(episode compilation, plan corrections, user approval) in a single session.
 
 ---
 

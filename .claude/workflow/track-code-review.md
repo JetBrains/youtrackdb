@@ -1,8 +1,16 @@
-# Track Execution — Phase C: Track-Level Code Review
+# Track Execution — Phase C: Code Review + Track Completion
 
 After all steps are committed, review the full track diff using sub-agents.
 These are deliberately sub-agents — fresh eyes catch systematic issues that
 you (as the implementer) are blind to.
+
+After the review loop completes and any deferred findings are processed,
+this phase continues directly into track completion: compiling the track
+episode, presenting results to the user, and marking the track `[x]` upon
+approval. Merging code review and track completion into a single session
+ensures the agent has full context of which findings were fixed, which were
+deferred (and where), and what plan corrections were made — all of which
+feed into an accurate track episode.
 
 ---
 
@@ -158,7 +166,7 @@ Iterate on the synthesized findings:
    The iteration count is shared across all review dimensions (not
    independent counters).
 3. If blockers persist after 3 iterations, note them — they'll be presented
-   to the user during track review (workflow.md §Track Completion Protocol)
+   to the user during track completion (below).
 4. When all reviews pass (or max iterations reached), mark
    `Track-level code review` as `[x]` in the step file's Progress section.
    Commit this update.
@@ -191,20 +199,60 @@ If no findings were deferred, skip this section.
 
 ---
 
-## Phase C Completion
+## Track Completion
 
-After all track-level reviews pass (or max iterations reached):
+After the review loop completes and any plan corrections are committed,
+proceed directly to track completion **in the same session**.
 
-1. **Verify `Track-level code review` is marked `[x]`** and committed.
-2. **Inform the user** that Phase C is complete:
-   - Review outcomes across all code and test quality dimensions
-     (passed / passed with noted findings)
-   - Any unresolved findings to present during track completion
-   - Instruct: "Clear session and re-run `/execute-tracks` to complete
-     the track (write track episode, present results)."
-3. **End the session.** Do not proceed to track completion in the same
-   session.
+1. **Compile the track episode** from all step episodes in the step file.
+   The track episode is a strategic summary — what was built, key
+   discoveries, plan deviations with cross-track impact. If findings were
+   deferred to other tracks, mention the plan corrections and which
+   tracks were affected.
 
-The next session detects all phases `[x]` and enters the Track Completion
-Protocol (workflow.md): compiles the track episode, writes it to the plan
-file, marks the track `[x]`, and presents results to the user for approval.
+2. **Present track results to the user** (do NOT write to plan file yet):
+   - Track episode (compiled but not yet persisted)
+   - All step episodes from the step file
+   - Git log of track commits
+   - Any unresolved track-level code review findings
+   - Plan corrections made (if any) — which findings were deferred and
+     where
+
+3. **Wait for user response:**
+   - **Approved** — proceed to step 4.
+   - **Fixes needed** — apply the user's specific fixes as additional
+     commits. Re-run track-level code review if fixes are substantial.
+     Re-compile the track episode if fixes changed outcomes.
+     Present updated results and wait again.
+   - **Fundamental rework** — trigger ESCALATE (see workflow.md
+     §Inline Replanning).
+
+4. **Write the track episode and mark `[x]`** in the plan file (single
+   commit, only after user approval):
+
+   ```markdown
+   - [x] Track N: <title>
+     > <description>
+     >
+     > **Track episode:**
+     > <strategic summary — length proportional to cross-track impact>
+     >
+     > **Step file:** `tracks/track-N.md` (M steps, K failed)
+   ```
+
+5. **Session ends.** Strategy refresh happens next session.
+
+**Why deferred write:** Writing the track episode and marking `[x]` before
+user approval creates a state that cannot be reliably resumed — if the
+session ends between marking `[x]` and receiving approval, the next session
+detects the track as complete (State A: strategy refresh needed) and skips
+user review entirely. By deferring the plan file write, an interrupted
+session simply re-enters track completion on resume (all phases `[x]` in
+the step file, track still `[ ]` in the plan file).
+
+**Why merge with code review:** Phase C's code review and track completion
+have no perspective conflict — unlike Phase B→C (where implementation
+context biases code review), here the reviewer mindset naturally feeds into
+the track episode. More importantly, Phase C may produce plan corrections
+(deferred findings → new or updated tracks), and the track episode must
+accurately reflect these. A separate session would lose this context.
