@@ -300,44 +300,19 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 3: Concurrent Stress Testing
+- [x] Track 3: Concurrent Stress Testing
   > Validate concurrency correctness of the full integrated system under
   > realistic contention patterns.
   >
-  > **What**: Multi-threaded stress tests that exercise the
-  > `ConcurrentLongIntHashMap` and `LockFreeReadCache` under concurrent
-  > read/write/remove/removeByFileId workloads to catch races, deadlocks,
-  > and data corruption.
+  > **Track episode:**
+  > Validated concurrency correctness of `ConcurrentLongIntHashMap` and
+  > `LockFreeReadCache` under multi-threaded stress. Found and fixed a real
+  > concurrency bug: `rehashTo()` wrote `capacity` before the new arrays,
+  > allowing optimistic readers to see the new (larger) capacity with old
+  > (smaller) arrays (AIOOBE). This is exactly the BOOKKEEPER-4317 class of
+  > bug the track was designed to catch. Fix: write arrays first, capacity last.
+  > No cross-track impact — this is the final track.
   >
-  > **How**:
-  > - **Map-level concurrent tests**: multiple threads performing interleaved
-  >   `get/put/remove/computeIfAbsent` on overlapping keys, verifying that
-  >   no entries are lost or duplicated. Include a specific test for concurrent
-  >   `removeByFileId` + `get/put` on the same and different files.
-  > - **clearFile under concurrent load**: simulate file close while other
-  >   threads are reading/writing pages from the same and different files.
-  >   Verify that all pages for the closed file are removed, no pages from
-  >   other files are affected, and no deadlock occurs.
-  > - **Optimistic read validation**: stress the optimistic-read-to-read-lock
-  >   fallback path by running high-frequency writes alongside reads, verifying
-  >   that get() never returns stale or corrupt data.
-  > - **Rehash under concurrent access**: trigger rehash (via many inserts) while
-  >   other threads read and remove, verifying correctness through the resize.
-  >
-  > **Constraints**:
-  > - Tests must be deterministic enough to reproduce failures (use
-  >   `ConcurrentTestHelper` from test-commons, controlled thread counts)
-  > - Run with `-ea` (assertions enabled) so map and policy invariants are
-  >   checked during stress runs
-  > - Tests should run in reasonable time (<30s each) for CI
-  > - Map-level tests go in `core/src/test/java/.../internal/common/collection/`
-  > - Integrated cache-level tests go in
-  >   `core/src/test/java/.../internal/core/storage/cache/chm/`
-  >
-  > **Interactions**: depends on Track 1 for the map class and Track 2 for the
-  > integrated `LockFreeReadCache` with the new map.
-  >
-  > **Scope:** ~3 steps covering map-level concurrent correctness tests,
-  > removeByFileId + concurrent access tests, integrated clearFile stress test
+  > **Step file:** `tracks/track-3.md` (3 steps, 0 failed)
   >
   > **Depends on:** Track 1, Track 2
