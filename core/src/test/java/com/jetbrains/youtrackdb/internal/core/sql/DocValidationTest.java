@@ -2329,4 +2329,165 @@ public class DocValidationTest {
       tx.yql("DELETE VERTEX CCDuplicate").iterate();
     });
   }
+
+  // === YQL-Alter-Class.md ===
+
+  // Line 20: ALTER CLASS Employee SUPERCLASSES Person — define superclasses (replaces all)
+  @Test
+  public void testAlterClassDefineSuperclass() {
+    g.command("CREATE CLASS AcPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcEmployee IF NOT EXISTS EXTENDS V");
+    // SUPERCLASSES replaces the full list; V must be kept or the class ceases to be a vertex
+    g.command("ALTER CLASS AcEmployee SUPERCLASSES AcPerson, V");
+
+    // Verify the class still works after superclass change
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcEmployee SET name = 'Alice'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcEmployee").toList());
+    assertThat(results).hasSize(1);
+
+    // Employee records should also be visible from AcPerson
+    var fromPerson =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcPerson").toList());
+    assertThat(fromPerson).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcEmployee").iterate();
+    });
+  }
+
+  // Line 26: SUPERCLASSES supports multiple inheritance via comma-separated list
+  @Test
+  public void testAlterClassMultipleSuperclasses() {
+    g.command("CREATE CLASS AcBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcBase2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcChild IF NOT EXISTS EXTENDS AcBase1");
+    // Add AcBase2 by providing the full list (V must be kept for vertex classes)
+    g.command("ALTER CLASS AcChild SUPERCLASSES AcBase1, AcBase2, V");
+
+    // Verify the class works with multiple superclasses
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcChild SET name = 'Bob'").iterate();
+    });
+
+    // Records should be visible from both parent classes
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcBase1").toList());
+    var fromBase2 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcBase2").toList());
+    assertThat(fromBase1).isNotEmpty();
+    assertThat(fromBase2).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcChild").iterate();
+    });
+  }
+
+  // Line 33: SUPERCLASSES can remove a superclass by omitting it from the replacement list
+  @Test
+  public void testAlterClassRemoveSuperclass() {
+    g.command("CREATE CLASS AcRemBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS AcRemBase2 IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE CLASS AcRemChild IF NOT EXISTS EXTENDS AcRemBase1, AcRemBase2");
+    // Remove AcRemBase2 by providing the list without it (V must be kept)
+    g.command("ALTER CLASS AcRemChild SUPERCLASSES AcRemBase1, V");
+
+    // Verify the class still works after removing a superclass
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcRemChild SET name = 'Charlie'").iterate();
+    });
+
+    // Record should still be visible from AcRemBase1
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcRemBase1").toList());
+    assertThat(fromBase1).isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcRemChild").iterate();
+    });
+  }
+
+  // Line 39: ALTER CLASS Account NAME Seller — rename a class
+  @Test
+  public void testAlterClassRename() {
+    g.command("CREATE CLASS AcAccount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcAccount SET balance = 100").iterate();
+    });
+
+    g.command("ALTER CLASS AcAccount NAME AcSeller");
+
+    // Verify the class is accessible under the new name
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcSeller").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((int) v.value("balance")).isEqualTo(100);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcSeller").iterate();
+    });
+  }
+
+  // Line 45: ALTER CLASS TheClass ABSTRACT true — convert to abstract class
+  @Test
+  public void testAlterClassAbstract() {
+    g.command("CREATE CLASS AcTheClass IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcTheClass ABSTRACT true");
+
+    // Verify that creating a vertex of an abstract class fails
+    assertThatThrownBy(() -> g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcTheClass SET name = 'test'").iterate();
+    }));
+  }
+
+  // Line 59: STRICT_MODE — verify the ALTER CLASS STRICT_MODE command is accepted
+  @Test
+  public void testAlterClassStrictMode() {
+    g.command("CREATE CLASS AcStrict IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY AcStrict.name STRING");
+    // Verify that STRICT_MODE (with underscore) is the correct syntax
+    g.command("ALTER CLASS AcStrict STRICT_MODE true");
+
+    // Adding a property that IS in the schema should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcStrict SET name = 'valid'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcStrict").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcStrict").iterate();
+    });
+  }
+
+  // Line 60: CUSTOM — define custom properties with key=value syntax
+  @Test
+  public void testAlterClassCustomProperty() {
+    g.command("CREATE CLASS AcCustom IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcCustom CUSTOM myProp='hello'");
+
+    // Verify the class still works after setting a custom property
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcCustom SET name = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcCustom").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcCustom").iterate();
+    });
+  }
 }
