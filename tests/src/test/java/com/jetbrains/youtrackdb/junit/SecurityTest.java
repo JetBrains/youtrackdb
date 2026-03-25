@@ -110,7 +110,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.begin();
     Long updated =
         session
-            .execute("update ouser set password = 'test' where name = 'reader'")
+            .execute("update OUser set password = 'test' where name = 'reader'")
             .next()
             .getProperty("count");
     session.commit();
@@ -118,7 +118,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
     assertEquals(1, updated.intValue());
 
     session.begin();
-    var result = session.query("select from ouser where name = 'reader'");
+    var result = session.query("select from OUser where name = 'reader'");
     assertNotEquals("test", result.next().getProperty("password"));
     session.commit();
 
@@ -126,14 +126,14 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.begin();
     updated =
         session
-            .execute("update ouser set password = 'reader' where name = 'reader'")
+            .execute("update OUser set password = 'reader' where name = 'reader'")
             .next()
             .getProperty("count");
     session.commit();
     assertEquals(1, updated.intValue());
 
     session.begin();
-    result = session.query("select from ouser where name = 'reader'");
+    result = session.query("select from OUser where name = 'reader'");
     assertNotEquals("reader", result.next().getProperty("password"));
     session.commit();
 
@@ -263,7 +263,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
 
     session.begin();
     var result =
-        session.execute("select from ouser").stream().collect(Collectors.toList());
+        session.execute("select from OUser").stream().collect(Collectors.toList());
     assertFalse(result.isEmpty());
     session.commit();
 
@@ -282,7 +282,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session = createSessionInstance("reader", "reader");
 
     try {
-      session.query("select from ouser").close();
+      session.query("select from OUser").close();
     } catch (SecurityException e) {
     }
 

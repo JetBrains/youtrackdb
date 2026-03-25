@@ -640,7 +640,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   @Test
   @Order(19)
   void queryInAsParameter() {
-    var roles = executeQuery("select from orole limit 1", session);
+    var roles = executeQuery("select from ORole limit 1", session);
 
     var result = executeQuery("select * from OUser where roles in ?", session,
         roles);

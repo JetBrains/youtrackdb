@@ -64,7 +64,7 @@ public class EntityTreeTest extends BaseDBJUnit5Test {
   void testCityEquality() {
     session.begin();
     var resultSet =
-        executeQuery("select from profile where location.city.name = 'Rome'");
+        executeQuery("select from Profile where location.city.name = 'Rome'");
     assertEquals(2, resultSet.size());
 
     var p1 = resultSet.get(0);

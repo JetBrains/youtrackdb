@@ -420,7 +420,7 @@ class SQLInsertTest extends BaseDBJUnit5Test {
     session.begin();
     var inserted =
         session
-            .execute("INSERT INTO UserCopy FROM select from ouser where name <> 'admin' limit 2")
+            .execute("INSERT INTO UserCopy FROM select from OUser where name <> 'admin' limit 2")
             .stream()
             .count();
     session.commit();
