@@ -439,73 +439,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
               sizeDiff = 1;
             }
 
-            // GC flag: attempt tombstone filtering at most once per insert.
-            // If GC frees enough space, the retry succeeds without splitting.
-            // If not, the normal split proceeds on the already-filtered bucket.
-            boolean gcAttempted = false;
-
-            while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
-              // Attempt tombstone GC before splitting — removes tombstones
-              // below the global LWM that have no lingering snapshot entries.
-              // The LWM is computed once per GC attempt; this is safe because
-              // we hold the exclusive lock — no concurrent modifications.
-              if (!gcAttempted) {
-                gcAttempted = true;
-                final long lwm = storage.computeGlobalLowWaterMark();
-                assert lwm > 0 : "Global LWM must be positive, got " + lwm;
-                final int componentId = AbstractWriteCache.extractFileId(getFileId());
-                final int removedCount =
-                    filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
-                if (removedCount > 0) {
-                  // Tree size accounting: 4 cases depending on sizeDiff and GC.
-                  // (a) sizeDiff=1 (new insert) + GC removed N → net = 1-N
-                  // (b) sizeDiff=0 (re-insert after size-change remove) + GC removed N → net = -N
-                  // (c) GC removed 0 → no adjustment (fall through to split)
-                  // (d) cross-tx replacement: sizeDiff=1 but removeEntryByKey
-                  //     already decremented → net for replacement is 0, GC is -N
-                  // In all cases, updateSize(-removedCount) is correct for GC,
-                  // and the existing sizeDiff adjustment after the loop handles
-                  // the insert itself.
-                  updateSize(-removedCount, atomicOperation);
-
-                  // Re-derive insertion index — bucket contents changed.
-                  insertionIndex = keyBucket.find(key, serializerFactory);
-                  if (insertionIndex >= 0) {
-                    throw new StorageException(storage.getName(),
-                        "Key exists in bucket after GC rebuild in ["
-                            + getName() + "]; index=" + insertionIndex);
-                  }
-                  insertionIndex = -insertionIndex - 1;
-
-                  // Retry the insert on the filtered bucket.
-                  continue;
-                }
-              }
-
-              bucketSearchResult =
-                  splitBucket(
-                      keyBucket,
-                      keyBucketCacheEntry,
-                      bucketSearchResult.getPath(),
-                      bucketSearchResult.getInsertionIndexes(),
-                      insertionIndex,
-                      atomicOperation);
-
-              insertionIndex = bucketSearchResult.getItemIndex();
-
-              final var pageIndex = bucketSearchResult.getLastPathItem();
-
-              if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
-                keyBucketCacheEntry.close();
-
-                keyBucketCacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-              }
-
-              //noinspection ObjectAllocationInLoop
-              keyBucket = new Bucket(keyBucketCacheEntry);
-            }
-
-            keyBucketCacheEntry.close();
+            insertLeafWithGCAndSplit(
+                key, serializedKey, serializedValue,
+                bucketSearchResult, keyBucketCacheEntry, keyBucket,
+                insertionIndex, atomicOperation);
 
             if (sizeDiff != 0) {
               updateSize(sizeDiff, atomicOperation);
@@ -1035,6 +972,105 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  // ---- Tombstone GC + split insert helpers ----
+
+  /**
+   * Inserts a serialized leaf entry into the B-tree, attempting tombstone GC
+   * before splitting if the target bucket is full. This is the shared
+   * implementation used by both {@code put()} and {@code remove()} (for
+   * cross-tx tombstone insertion).
+   *
+   * <p>The method attempts GC at most once per call. If GC frees space, the
+   * insert is retried on the filtered bucket. If the bucket is still full
+   * (either GC found nothing to remove, or the freed space is insufficient),
+   * the normal split path proceeds.
+   *
+   * <p>The {@code keyBucketCacheEntry} is closed before this method returns.
+   *
+   * @param key the edge key being inserted (used for re-deriving insertion
+   *     index after GC rebuild)
+   * @param serializedKey pre-serialized key bytes
+   * @param serializedValue pre-serialized value bytes
+   * @param bucketSearchResult the search result pointing to the target bucket
+   * @param keyBucketCacheEntry the cache entry for the target bucket page
+   * @param keyBucket the bucket wrapper
+   * @param insertionIndex the initial insertion index within the bucket
+   * @param atomicOperation the enclosing atomic operation
+   */
+  private void insertLeafWithGCAndSplit(
+      final EdgeKey key,
+      final byte[] serializedKey,
+      final byte[] serializedValue,
+      UpdateBucketSearchResult bucketSearchResult,
+      CacheEntry keyBucketCacheEntry,
+      Bucket keyBucket,
+      int insertionIndex,
+      final AtomicOperation atomicOperation) throws IOException {
+
+    // GC flag: attempt tombstone filtering at most once per insert.
+    // If GC frees enough space, the retry succeeds without splitting.
+    // If not, the normal split proceeds on the already-filtered bucket.
+    boolean gcAttempted = false;
+
+    while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
+      // Attempt tombstone GC before splitting — removes tombstones
+      // below the global LWM that have no lingering snapshot entries.
+      // The LWM is computed once per GC attempt; this is safe because
+      // we hold the exclusive lock — no concurrent modifications.
+      if (!gcAttempted) {
+        gcAttempted = true;
+        final long lwm = storage.computeGlobalLowWaterMark();
+        assert lwm > 0 : "Global LWM must be positive, got " + lwm;
+        final int componentId = AbstractWriteCache.extractFileId(getFileId());
+        final int removedCount =
+            filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
+        if (removedCount > 0) {
+          // Tree size accounting: updateSize(-removedCount) is correct for
+          // all callers — see put() and remove() for the full case analysis.
+          // The caller's own size adjustment (sizeDiff for put, +1 for
+          // cross-tx remove) is applied separately after this method returns.
+          updateSize(-removedCount, atomicOperation);
+
+          // Re-derive insertion index — bucket contents changed.
+          insertionIndex = keyBucket.find(key, serializerFactory);
+          if (insertionIndex >= 0) {
+            throw new StorageException(storage.getName(),
+                "Key exists in bucket after GC rebuild in ["
+                    + getName() + "]; index=" + insertionIndex);
+          }
+          insertionIndex = -insertionIndex - 1;
+
+          // Retry the insert on the filtered bucket.
+          continue;
+        }
+      }
+
+      bucketSearchResult =
+          splitBucket(
+              keyBucket,
+              keyBucketCacheEntry,
+              bucketSearchResult.getPath(),
+              bucketSearchResult.getInsertionIndexes(),
+              insertionIndex,
+              atomicOperation);
+
+      insertionIndex = bucketSearchResult.getItemIndex();
+
+      final var pageIndex = bucketSearchResult.getLastPathItem();
+
+      if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
+        keyBucketCacheEntry.close();
+
+        keyBucketCacheEntry = loadPageForWrite(atomicOperation, fileId, pageIndex, true);
+      }
+
+      //noinspection ObjectAllocationInLoop
+      keyBucket = new Bucket(keyBucketCacheEntry);
+    }
+
+    keyBucketCacheEntry.close();
+  }
+
   // ---- Tombstone GC helpers (used during leaf page split) ----
 
   /**
@@ -1301,55 +1337,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
               int insertionIndex = -bucketSearchResult.getItemIndex() - 1;
 
-              // Same GC-before-split pattern as put() — see comments there.
-              boolean gcAttempted = false;
-
-              while (!keyBucket.addLeafEntry(insertionIndex, serializedKey, serializedValue)) {
-                if (!gcAttempted) {
-                  gcAttempted = true;
-                  final long lwm = storage.computeGlobalLowWaterMark();
-                  assert lwm > 0 : "Global LWM must be positive, got " + lwm;
-                  final int componentId = AbstractWriteCache.extractFileId(getFileId());
-                  final int removedCount =
-                      filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
-                  if (removedCount > 0) {
-                    updateSize(-removedCount, atomicOperation);
-
-                    insertionIndex = keyBucket.find(key, serializerFactory);
-                    if (insertionIndex >= 0) {
-                      throw new StorageException(storage.getName(),
-                          "Key exists in bucket after GC rebuild in ["
-                              + getName() + "]; index=" + insertionIndex);
-                    }
-                    insertionIndex = -insertionIndex - 1;
-
-                    continue;
-                  }
-                }
-
-                bucketSearchResult =
-                    splitBucket(
-                        keyBucket,
-                        keyBucketCacheEntry,
-                        bucketSearchResult.getPath(),
-                        bucketSearchResult.getInsertionIndexes(),
-                        insertionIndex,
-                        atomicOperation);
-
-                insertionIndex = bucketSearchResult.getItemIndex();
-
-                final var pageIndex = bucketSearchResult.getLastPathItem();
-                if (pageIndex != keyBucketCacheEntry.getPageIndex()) {
-                  keyBucketCacheEntry.close();
-                  keyBucketCacheEntry =
-                      loadPageForWrite(atomicOperation, fileId, pageIndex, true);
-                }
-
-                //noinspection ObjectAllocationInLoop
-                keyBucket = new Bucket(keyBucketCacheEntry);
-              }
-
-              keyBucketCacheEntry.close();
+              insertLeafWithGCAndSplit(
+                  key, serializedKey, serializedValue,
+                  bucketSearchResult, keyBucketCacheEntry, keyBucket,
+                  insertionIndex, atomicOperation);
               updateSize(1, atomicOperation);
             } else {
               // Same-transaction remove: physically delete the entry. The caller

@@ -792,4 +792,5 @@ public class SharedLinkBagBTreeTombstoneGCTest {
     // All live entries at odd positions must be present
     assertThat(countLiveEntries(40L, 1, FILL_COUNT, 2)).isEqualTo(FILL_COUNT);
   }
+
 }
