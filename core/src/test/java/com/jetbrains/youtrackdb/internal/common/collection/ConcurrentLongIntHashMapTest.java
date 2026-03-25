@@ -1659,25 +1659,21 @@ public class ConcurrentLongIntHashMapTest {
     assertThat(h1).isNotEqualTo(h2);
   }
 
-  /** Verify hashForFrequencySketch handles zero keys correctly. */
+  /** Verify hashForFrequencySketch computes a known value for zero keys. */
   @Test
   public void hashForFrequencySketchWithZeroKeys() {
-    // Should not throw and should produce a valid hash
+    // Long.hashCode(0) == 0, so result is 0 * 31 + 0 == 0
     int h = ConcurrentLongIntHashMap.hashForFrequencySketch(0L, 0);
-    // Just verify it runs — any int is valid
-    assertThat(h).isNotNull();
+    assertThat(h).isEqualTo(0);
   }
 
   /**
-   * Verify hashForFrequencySketch is independent from the map's internal hash.
-   * The internal murmur hash determines bucket placement; the frequency sketch hash
-   * must use a different algorithm to avoid correlation.
+   * Verify hashForFrequencySketch matches the documented formula
+   * (Long.hashCode(fileId) * 31 + pageIndex) and differs from the map's internal
+   * murmur hash truncated to int.
    */
   @Test
-  public void hashForFrequencySketchIsIndependentFromInternalHash() {
-    // hashForFrequencySketch uses Long.hashCode(fileId) * 31 + pageIndex
-    // The map's internal hash uses murmur3 finalizer.
-    // Verify the formula matches the documented algorithm.
+  public void hashForFrequencySketchMatchesDocumentedFormula() {
     long fileId = 123456789L;
     int pageIndex = 42;
     int expected = Long.hashCode(fileId) * 31 + pageIndex;
