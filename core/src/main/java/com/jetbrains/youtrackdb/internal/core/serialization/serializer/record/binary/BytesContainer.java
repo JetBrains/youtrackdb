@@ -42,6 +42,16 @@ public class BytesContainer {
     return new BytesContainer(bytes, offset);
   }
 
+  /**
+   * Resets the offset to zero, keeping the backing array for reuse. Zeroes the used region
+   * so that code which allocates space without filling every byte sees zeros (not stale data
+   * from a previous use).
+   */
+  public void reset() {
+    java.util.Arrays.fill(bytes, 0, offset, (byte) 0);
+    offset = 0;
+  }
+
   public int alloc(final int toAlloc) {
     final var cur = offset;
     offset += toAlloc;

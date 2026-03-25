@@ -271,11 +271,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
+    // Reusable scratch buffer for measuring serialized value lengths.
+    // Each nesting level (embedded entities) creates its own tempBuffer,
+    // so nested entities do not interfere with the parent's buffer.
+    var tempBuffer = new BytesContainer();
+
     if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      serializeLinearMode(session, bytes, fields, props, clazz, schema, encryption);
+      serializeLinearMode(session, bytes, fields, props, clazz, schema, encryption, tempBuffer);
     } else {
       serializeHashTableMode(session, bytes, fields, props, clazz, schema, encryption,
-          propertyCount);
+          propertyCount, tempBuffer);
     }
   }
 
@@ -285,12 +290,13 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   private void serializeLinearMode(DatabaseSessionEmbedded session, BytesContainer bytes,
       Set<Entry<String, EntityEntry>> fields, Map<String, SchemaProperty> props,
-      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption) {
+      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
+      BytesContainer tempBuffer) {
     for (var field : fields) {
       if (!field.getValue().exists()) {
         continue;
       }
-      serializePropertyEntry(session, bytes, field, props, oClass, schema, encryption);
+      serializePropertyEntry(session, bytes, field, props, oClass, schema, encryption, tempBuffer);
     }
   }
 
@@ -302,7 +308,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   private void serializeHashTableMode(DatabaseSessionEmbedded session, BytesContainer bytes,
       Set<Entry<String, EntityEntry>> fields, Map<String, SchemaProperty> props,
       SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
-      int propertyCount) {
+      int propertyCount, BytesContainer tempBuffer) {
 
     // Collect property names as UTF-8 bytes for hash table construction
     byte[][] nameBytes = new byte[propertyCount][];
@@ -354,7 +360,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       }
 
       propertyKvOffsets[i] = entryOffset;
-      serializePropertyEntry(session, bytes, orderedFields[i], props, oClass, schema, encryption);
+      serializePropertyEntry(session, bytes, orderedFields[i], props, oClass, schema, encryption,
+          tempBuffer);
     }
 
     // Backpatch slot offsets using slotPropertyIndex mapping
@@ -375,7 +382,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
    */
   private void serializePropertyEntry(DatabaseSessionEmbedded session, BytesContainer bytes,
       Entry<String, EntityEntry> field, Map<String, SchemaProperty> props,
-      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption) {
+      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
+      BytesContainer tempBuffer) {
     var docEntry = field.getValue();
 
     // Resolve schema property if needed
@@ -417,17 +425,16 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     // Write value-size varint + value-bytes.
-    // Uses a temporary buffer to measure the serialized value length before writing the
-    // varint size prefix. A reserve-and-backpatch approach could avoid this allocation
-    // but would require adding writeAt/signedSize methods to VarIntSerializer.
+    // Reuses the shared tempBuffer to measure the serialized value length before writing
+    // the varint size prefix. reset() keeps the backing array, avoiding per-property allocation.
     if (value != null) {
-      var valuesBuffer = new BytesContainer();
-      serializeValue(session, valuesBuffer, value, type,
+      tempBuffer.reset();
+      serializeValue(session, tempBuffer, value, type,
           getLinkedType(session, oClass, type, field.getKey()), schema, encryption);
-      int valueLength = valuesBuffer.offset;
+      int valueLength = tempBuffer.offset;
       VarIntSerializer.write(bytes, valueLength);
       int dest = bytes.alloc(valueLength);
-      System.arraycopy(valuesBuffer.bytes, 0, bytes.bytes, dest, valueLength);
+      System.arraycopy(tempBuffer.bytes, 0, bytes.bytes, dest, valueLength);
     } else {
       VarIntSerializer.write(bytes, 0);
     }
