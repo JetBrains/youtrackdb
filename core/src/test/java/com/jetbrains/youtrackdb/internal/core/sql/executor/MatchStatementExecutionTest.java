@@ -3601,4 +3601,934 @@ public class MatchStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ====================================================================
+  // Back-reference intersection tests (MATCH adjacency list intersection)
+  // ====================================================================
+
+  /**
+   * Tests the core back-reference intersection optimization using a single
+   * connected pattern:
+   * {person}.in('HasCreator'){post}.in('ContainerOf'){forum}
+   *   .out('ContainerOf'){post2}.out('HasCreator'){creator,
+   *     where: (@rid = $matched.person.@rid)}
+   *
+   * Setup: Forum1 contains Post1, Post2, Post3.
+   * Post1 created by PersonA, Post2 by PersonB, Post3 by PersonA.
+   * The optimization pre-loads PersonA.in(HasCreator) and intersects it
+   * with Forum1.out(ContainerOf), so only posts by PersonA are loaded.
+   */
+  @Test
+  public void testMatchBackReferenceIntersection() {
+    session.execute("CREATE class MPersonV extends V").close();
+    session.execute("CREATE class MPostV extends V").close();
+    session.execute("CREATE class MForumV extends V").close();
+    session.execute("CREATE class MContainerOf extends E").close();
+    session.execute("CREATE class MHasCreator extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post1'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post2'").close();
+    session.execute("CREATE VERTEX MPostV set title = 'Post3'").close();
+    session.execute("CREATE VERTEX MPersonV set name = 'PersonA'").close();
+    session.execute("CREATE VERTEX MPersonV set name = 'PersonB'").close();
+
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post2')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOf from"
+            + " (SELECT FROM MForumV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostV WHERE title = 'Post3')")
+        .close();
+
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post1') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonA')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post2') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonB')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreator from"
+            + " (SELECT FROM MPostV WHERE title = 'Post3') to"
+            + " (SELECT FROM MPersonV WHERE name = 'PersonA')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // Single connected pattern: person → posts → forum → all posts → creator = person
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonV, as: person, where: (name = 'PersonA')}"
+            + "   .in('MHasCreator'){as: post}"
+            + "   .in('MContainerOf'){as: forum}"
+            + "   .out('MContainerOf'){as: post2}"
+            + "   .out('MHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title as title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    // PersonA authored Post1 and Post3 in Forum1.
+    assertTrue("Should find Post1", titles.contains("Post1"));
+    assertTrue("Should find Post3", titles.contains("Post3"));
+    assertFalse("Should NOT find Post2", titles.contains("Post2"));
+
+    // Verify EXPLAIN shows the intersection optimization on the creator edge
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonV, as: person, where: (name = 'PersonA')}"
+            + "   .in('MHasCreator'){as: post}"
+            + "   .in('MContainerOf'){as: forum}"
+            + "   .out('MContainerOf'){as: post2}"
+            + "   .out('MHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title as title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Tests that the back-reference intersection returns zero results when
+   * no posts in the forum belong to the target person. Uses a single
+   * connected pattern through a Knows edge.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionNoMatch() {
+    session.execute("CREATE class MPersonBV extends V").close();
+    session.execute("CREATE class MPostBV extends V").close();
+    session.execute("CREATE class MForumBV extends V").close();
+    session.execute("CREATE class MContainerOfB extends E").close();
+    session.execute("CREATE class MHasCreatorB extends E").close();
+    session.execute("CREATE class MKnowsB extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumBV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MPostBV set title = 'Post1'").close();
+    session.execute("CREATE VERTEX MPostBV set title = 'Post2'").close();
+    session.execute("CREATE VERTEX MPersonBV set name = 'PersonA'").close();
+    session.execute("CREATE VERTEX MPersonBV set name = 'PersonB'").close();
+
+    // PersonA knows PersonB
+    session.execute(
+        "CREATE EDGE MKnowsB from"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonB')")
+        .close();
+
+    // Forum1 contains Post1, Post2 — both by PersonA
+    session.execute(
+        "CREATE EDGE MContainerOfB from"
+            + " (SELECT FROM MForumBV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostBV WHERE title = 'Post1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfB from"
+            + " (SELECT FROM MForumBV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostBV WHERE title = 'Post2')")
+        .close();
+
+    session.execute(
+        "CREATE EDGE MHasCreatorB from"
+            + " (SELECT FROM MPostBV WHERE title = 'Post1') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorB from"
+            + " (SELECT FROM MPostBV WHERE title = 'Post2') to"
+            + " (SELECT FROM MPersonBV WHERE name = 'PersonA')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // PersonA → knows → PersonB. PersonB has no posts.
+    // Find PersonB's posts in Forum1 — none exist.
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonBV, as: starter, where: (name = 'PersonA')}"
+            + "   .out('MKnowsB'){as: friend}"
+            + "   .in('MHasCreatorB'){as: friendPost}"
+            + "   .in('MContainerOfB'){as: forum}"
+            + "   .out('MContainerOfB'){as: post}"
+            + "   .out('MHasCreatorB'){as: creator,"
+            + "     where: (@rid = $matched.friend.@rid)}"
+            + " RETURN post.title as title")
+        .toList();
+
+    // PersonB has no posts, so friendPost step yields nothing
+    assertEquals(0, result.size());
+
+    // Verify EXPLAIN shows intersection optimization on the creator edge
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonBV, as: starter, where: (name = 'PersonA')}"
+            + "   .out('MKnowsB'){as: friend}"
+            + "   .in('MHasCreatorB'){as: friendPost}"
+            + "   .in('MContainerOfB'){as: forum}"
+            + "   .out('MContainerOfB'){as: post}"
+            + "   .out('MHasCreatorB'){as: creator,"
+            + "     where: (@rid = $matched.friend.@rid)}"
+            + " RETURN post.title as title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Tests back-reference intersection with multiple forums in a single
+   * connected pattern, verifying that each forum independently intersects
+   * its posts with the person's authored posts.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionMultipleForums() {
+    session.execute("CREATE class MPersonCV extends V").close();
+    session.execute("CREATE class MPostCV extends V").close();
+    session.execute("CREATE class MForumCV extends V").close();
+    session.execute("CREATE class MContainerOfC extends E").close();
+    session.execute("CREATE class MHasCreatorC extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MForumCV set name = 'Forum1'").close();
+    session.execute("CREATE VERTEX MForumCV set name = 'Forum2'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P1'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P2'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P3'").close();
+    session.execute("CREATE VERTEX MPostCV set title = 'P4'").close();
+    session.execute("CREATE VERTEX MPersonCV set name = 'Alice'").close();
+    session.execute("CREATE VERTEX MPersonCV set name = 'Bob'").close();
+
+    // Forum1 contains P1, P2; Forum2 contains P3, P4
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum1') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P2')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum2') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P3')")
+        .close();
+    session.execute(
+        "CREATE EDGE MContainerOfC from"
+            + " (SELECT FROM MForumCV WHERE name = 'Forum2') to"
+            + " (SELECT FROM MPostCV WHERE title = 'P4')")
+        .close();
+
+    // P1 by Alice, P2 by Bob, P3 by Alice, P4 by Bob
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P1') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P2') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P3') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Alice')")
+        .close();
+    session.execute(
+        "CREATE EDGE MHasCreatorC from"
+            + " (SELECT FROM MPostCV WHERE title = 'P4') to"
+            + " (SELECT FROM MPersonCV WHERE name = 'Bob')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // person → posts → forums → all posts in forum → filter by person
+    var result = session.query(
+        "MATCH"
+            + " {class: MPersonCV, as: person, where: (name = 'Alice')}"
+            + "   .in('MHasCreatorC'){as: myPost}"
+            + "   .in('MContainerOfC'){as: forum}"
+            + "   .out('MContainerOfC'){as: post}"
+            + "   .out('MHasCreatorC'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN forum.name as forumName, post.title as title"
+            + " ORDER BY title")
+        .toList();
+
+    // Alice authored P1 (Forum1) and P3 (Forum2).
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    assertTrue("Should find P1", titles.contains("P1"));
+    assertTrue("Should find P3", titles.contains("P3"));
+    assertFalse("Should NOT find P2", titles.contains("P2"));
+    assertFalse("Should NOT find P4", titles.contains("P4"));
+
+    // Verify EXPLAIN shows intersection optimization
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MPersonCV, as: person, where: (name = 'Alice')}"
+            + "   .in('MHasCreatorC'){as: myPost}"
+            + "   .in('MContainerOfC'){as: forum}"
+            + "   .out('MContainerOfC'){as: post}"
+            + "   .out('MHasCreatorC'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN forum.name as forumName, post.title as title"
+            + " ORDER BY title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Tests that back-reference intersection works with in() traversal
+   * direction on the intermediate edge.
+   */
+  @Test
+  public void testMatchBackReferenceIntersectionReverseDirection() {
+    session.execute("CREATE class MNodeDV extends V").close();
+    session.execute("CREATE class MLinkD extends E").close();
+    session.execute("CREATE class MCreatedByD extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Container1'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Item1'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Item2'").close();
+    session.execute("CREATE VERTEX MNodeDV set name = 'Owner1'").close();
+
+    // Item1 -> Container1, Item2 -> Container1
+    session.execute(
+        "CREATE EDGE MLinkD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item1') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Container1')")
+        .close();
+    session.execute(
+        "CREATE EDGE MLinkD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item2') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Container1')")
+        .close();
+
+    // Item1 created by Owner1
+    session.execute(
+        "CREATE EDGE MCreatedByD from"
+            + " (SELECT FROM MNodeDV WHERE name = 'Item1') to"
+            + " (SELECT FROM MNodeDV WHERE name = 'Owner1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // owner → in(CreatedByD) → items → out(LinkD) → container
+    // → in(LinkD) → all items → out(CreatedByD) → filter by owner
+    var result = session.query(
+        "MATCH"
+            + " {class: MNodeDV, as: owner, where: (name = 'Owner1')}"
+            + "   .in('MCreatedByD'){as: myItem}"
+            + "   .out('MLinkD'){as: container}"
+            + "   .in('MLinkD'){as: item}"
+            + "   .out('MCreatedByD'){as: creator,"
+            + "     where: (@rid = $matched.owner.@rid)}"
+            + " RETURN item.name as itemName")
+        .toList();
+
+    // Owner1 created Item1. Item1 → Container1. Container1 ← Item1, Item2.
+    // Filter: creator must be Owner1. Only Item1 has CreatedByD → Owner1.
+    Set<String> names = new HashSet<>();
+    for (var r : result) {
+      names.add(r.getProperty("itemName"));
+    }
+    assertTrue("Should find Item1", names.contains("Item1"));
+    assertFalse("Should NOT find Item2", names.contains("Item2"));
+
+    // Verify EXPLAIN shows intersection optimization
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: MNodeDV, as: owner, where: (name = 'Owner1')}"
+            + "   .in('MCreatedByD'){as: myItem}"
+            + "   .out('MLinkD'){as: container}"
+            + "   .in('MLinkD'){as: item}"
+            + "   .out('MCreatedByD'){as: creator,"
+            + "     where: (@rid = $matched.owner.@rid)}"
+            + " RETURN item.name as itemName")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ── Edge LINK schema inference + back-reference intersection tests ──
+
+  /**
+   * Tests that the MATCH planner infers the target vertex class from edge
+   * LINK declarations and uses the inferred class to enable adjacency list
+   * intersection via back-reference filters.
+   *
+   * <p>Schema: Author -[WROTE{out LINK Author, in LINK Article}]-> Article
+   *                    -[PUBLISHED_IN{out LINK Article, in LINK Journal}]-> Journal
+   *
+   * <p>Query pattern:
+   *   {Author} .out('WROTE'){Article} .out('PUBLISHED_IN'){Journal}
+   *            .in('PUBLISHED_IN'){otherArticle} .in('WROTE'){otherAuthor,
+   *              where: (@rid = $matched.Author.@rid)}
+   *
+   * <p>This pattern finds all articles in the same journal as the author's
+   * articles, then filters to only those written by the same author.
+   * Without the OrBlock unwrapping fix and edge class inference, the
+   * back-reference filter would not be detected and the intersection
+   * would not activate, causing all articles to be loaded and filtered
+   * post-hoc.
+   */
+  @Test
+  public void testMatchBackReferenceWithEdgeLinkInference() {
+    // Create schema with LINK declarations on edge endpoints
+    session.execute("CREATE CLASS Author EXTENDS V").close();
+    session.execute("CREATE CLASS Article EXTENDS V").close();
+    session.execute("CREATE CLASS Journal EXTENDS V").close();
+
+    session.execute("CREATE CLASS WROTE EXTENDS E").close();
+    session.execute("CREATE PROPERTY WROTE.out LINK Author").close();
+    session.execute("CREATE PROPERTY WROTE.in LINK Article").close();
+
+    session.execute("CREATE CLASS PUBLISHED_IN EXTENDS E").close();
+    session.execute("CREATE PROPERTY PUBLISHED_IN.out LINK Article").close();
+    session.execute("CREATE PROPERTY PUBLISHED_IN.in LINK Journal").close();
+
+    session.begin();
+    // Author1 wrote Article1 and Article2, both in Journal1
+    session.execute("CREATE VERTEX Author SET name = 'Author1'").close();
+    session.execute("CREATE VERTEX Author SET name = 'Author2'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A1'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A2'").close();
+    session.execute("CREATE VERTEX Article SET title = 'A3'").close();
+    session.execute("CREATE VERTEX Journal SET name = 'J1'").close();
+
+    // Author1 wrote A1, A2
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author1')"
+            + " TO (SELECT FROM Article WHERE title='A1')")
+        .close();
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author1')"
+            + " TO (SELECT FROM Article WHERE title='A2')")
+        .close();
+    // Author2 wrote A3
+    session.execute(
+        "CREATE EDGE WROTE FROM (SELECT FROM Author WHERE name='Author2')"
+            + " TO (SELECT FROM Article WHERE title='A3')")
+        .close();
+
+    // All articles in J1
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A1')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A2')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.execute(
+        "CREATE EDGE PUBLISHED_IN FROM (SELECT FROM Article WHERE title='A3')"
+            + " TO (SELECT FROM Journal WHERE name='J1')")
+        .close();
+    session.commit();
+
+    // Find articles by Author1 in the same journal as Author1's other articles.
+    // The back-reference @rid = $matched.author.@rid should be detected and
+    // used for adjacency list intersection on the in('WROTE') edge.
+    session.begin();
+    var result = session.query(
+        "MATCH"
+            + " {class: Author, as: author, where: (name = 'Author1')}"
+            + "   .out('WROTE'){as: article}"
+            + "   .out('PUBLISHED_IN'){as: journal}"
+            + "   .in('PUBLISHED_IN'){as: otherArticle}"
+            + "   .in('WROTE'){as: otherAuthor,"
+            + "     where: (@rid = $matched.author.@rid)}"
+            + " RETURN DISTINCT otherArticle.title AS title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    // Author1's articles in J1: A1, A2. The back-reference filter should
+    // ensure only Author1's articles are returned (not A3 by Author2).
+    assertEquals("Should find exactly 2 distinct articles", 2, titles.size());
+    assertTrue("Should find A1", titles.contains("A1"));
+    assertTrue("Should find A2", titles.contains("A2"));
+
+    // Verify EXPLAIN shows intersection optimization using edge LINK inference
+    var explain = session.query(
+        "EXPLAIN MATCH"
+            + " {class: Author, as: author, where: (name = 'Author1')}"
+            + "   .out('WROTE'){as: article}"
+            + "   .out('PUBLISHED_IN'){as: journal}"
+            + "   .in('PUBLISHED_IN'){as: otherArticle}"
+            + "   .in('WROTE'){as: otherAuthor,"
+            + "     where: (@rid = $matched.author.@rid)}"
+            + " RETURN DISTINCT otherArticle.title AS title")
+        .toList();
+    assertEquals(1, explain.size());
+    String plan = explain.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    assertTrue("Plan should show intersection optimization for back-reference",
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Tests that edge class inference works correctly for a MATCH pattern where
+   * the target class is not explicitly specified but can be inferred from the
+   * edge schema LINK declarations. Verifies the result correctness — the
+   * inference enables the planner to use proper class-based filtering.
+   */
+  @Test
+  public void testMatchEdgeClassInferenceResultCorrectness() {
+    // Create a schema where the edge LINK declarations enable class inference
+    session.execute("CREATE CLASS Scientist EXTENDS V").close();
+    session.execute("CREATE CLASS Paper EXTENDS V").close();
+    session.execute("CREATE CLASS AUTHORED EXTENDS E").close();
+    session.execute("CREATE PROPERTY AUTHORED.out LINK Scientist").close();
+    session.execute("CREATE PROPERTY AUTHORED.in LINK Paper").close();
+
+    // Also add an index on Paper.year to test potential index-assisted filtering
+    session.execute("CREATE PROPERTY Paper.year INTEGER").close();
+    session.execute("CREATE INDEX Paper.year ON Paper(year) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Scientist SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX Scientist SET name = 'Bob'").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P1', year = 2020").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P2', year = 2021").close();
+    session.execute("CREATE VERTEX Paper SET title = 'P3', year = 2022").close();
+
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Alice')"
+            + " TO (SELECT FROM Paper WHERE title='P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Alice')"
+            + " TO (SELECT FROM Paper WHERE title='P2')")
+        .close();
+    session.execute(
+        "CREATE EDGE AUTHORED FROM (SELECT FROM Scientist WHERE name='Bob')"
+            + " TO (SELECT FROM Paper WHERE title='P3')")
+        .close();
+    session.commit();
+
+    // Query without explicit class constraint on the 'paper' alias.
+    // The planner should infer class 'Paper' from AUTHORED.in LINK Paper.
+    session.begin();
+    var result = session.query(
+        "MATCH"
+            + " {class: Scientist, as: s, where: (name = 'Alice')}"
+            + "   .out('AUTHORED'){as: paper}"
+            + " RETURN paper.title AS title")
+        .toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    assertEquals("Alice should have exactly 2 papers", 2, titles.size());
+    assertTrue("Should find P1", titles.contains("P1"));
+    assertTrue("Should find P2", titles.contains("P2"));
+    session.commit();
+  }
+
+  /**
+   * Tests that a MATCH pattern with a back-reference ($matched.person.@rid)
+   * triggers the reverse edge lookup path in TraversalPreFilterHelper.
+   * The query finds friends-of-friends, filtering by the back-reference.
+   */
+  @Test
+  public void testBackReferenceReverseEdgeLookup() {
+    session.execute("CREATE CLASS BRPerson EXTENDS V").close();
+    session.execute("CREATE CLASS BRKnows EXTENDS E").close();
+    session.execute("CREATE PROPERTY BRKnows.out LINK BRPerson").close();
+    session.execute("CREATE PROPERTY BRKnows.in LINK BRPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX BRPerson SET name='Alice'").close();
+    session.execute("CREATE VERTEX BRPerson SET name='Bob'").close();
+    session.execute("CREATE VERTEX BRPerson SET name='Carol'").close();
+    session.execute(
+        "CREATE EDGE BRKnows FROM"
+            + " (SELECT FROM BRPerson WHERE name='Alice')"
+            + " TO (SELECT FROM BRPerson WHERE name='Bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE BRKnows FROM"
+            + " (SELECT FROM BRPerson WHERE name='Bob')"
+            + " TO (SELECT FROM BRPerson WHERE name='Carol')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // This pattern triggers the back-reference intersection path:
+    // $matched.person is bound when processing the second edge.
+    var result = session.query(
+        "MATCH"
+            + " {class: BRPerson, as: person, where: (name='Alice')}"
+            + "   .out('BRKnows'){as: friend}"
+            + "   .out('BRKnows'){as: fof}"
+            + " RETURN person.name, friend.name, fof.name")
+        .toList();
+
+    assertFalse("Should find friend-of-friend", result.isEmpty());
+    assertEquals("Alice", result.getFirst().getProperty("person.name"));
+    assertEquals("Bob", result.getFirst().getProperty("friend.name"));
+    assertEquals("Carol", result.getFirst().getProperty("fof.name"));
+    session.commit();
+  }
+
+  /**
+   * Tests EXPLAIN output for a LET subquery, which exercises
+   * LetQueryStep.getPreviewPlan() and prettyPrint().
+   */
+  @Test
+  public void testExplainWithLetSubquery() {
+    session.execute("CREATE CLASS LetTestV EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LetTestV SET name='A'").close();
+    session.execute("CREATE VERTEX LetTestV SET name='B'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "EXPLAIN SELECT *, $cnt"
+            + " FROM LetTestV"
+            + " LET $cnt = (SELECT count(*) FROM LetTestV)")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // The plan should contain the LET step with the preview sub-plan
+    assertTrue("EXPLAIN should show LET step", plan.contains("LET"));
+    session.commit();
+  }
+
+  /**
+   * Tests that a MATCH query with an indexed WHERE condition on the target
+   * node exercises the index pre-filter path (resolveIndexToRidSet).
+   */
+  @Test
+  public void testMatchWithIndexedTargetFilter() {
+    session.execute("CREATE CLASS IdxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IdxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IdxCreated EXTENDS E").close();
+    session.execute("CREATE PROPERTY IdxCreated.out LINK IdxPerson").close();
+    session.execute("CREATE PROPERTY IdxCreated.in LINK IdxPost").close();
+    session.execute("CREATE PROPERTY IdxPost.score INTEGER").close();
+    session.execute("CREATE INDEX IdxPost.score ON IdxPost (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IdxPerson SET name='Author'").close();
+    for (int i = 0; i < 20; i++) {
+      session.execute("CREATE VERTEX IdxPost SET title='post" + i + "', score=" + i)
+          .close();
+      session.execute(
+          "CREATE EDGE IdxCreated FROM"
+              + " (SELECT FROM IdxPerson WHERE name='Author')"
+              + " TO (SELECT FROM IdxPost WHERE title='post" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // This MATCH pattern has an indexed filter on the target node (score > 15),
+    // which should trigger the index pre-filter path.
+    var result = session.query(
+        "MATCH"
+            + " {class: IdxPerson, as: author, where: (name='Author')}"
+            + "   .out('IdxCreated'){class: IdxPost, as: post,"
+            + "     where: (score > 15)}"
+            + " RETURN post.title")
+        .toList();
+
+    assertEquals("Should find posts with score > 15", 4, result.size());
+    session.commit();
+  }
+
+  /**
+   * Verifies EXPLAIN output shows the specific intersection descriptor type
+   * (EdgeRidLookup) when a back-reference $matched.X.@rid is used.
+   * The plan should contain "intersection: in('MHasCreator')" indicating
+   * the reverse edge lookup was chosen.
+   */
+  @Test
+  public void testExplainShowsEdgeRidLookupIntersection() {
+    session.execute("CREATE CLASS EPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EPost EXTENDS V").close();
+    session.execute("CREATE CLASS EForum EXTENDS V").close();
+    session.execute("CREATE CLASS EContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS EHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY EContainerOf.out LINK EForum").close();
+    session.execute("CREATE PROPERTY EContainerOf.in LINK EPost").close();
+    session.execute("CREATE PROPERTY EHasCreator.out LINK EPost").close();
+    session.execute("CREATE PROPERTY EHasCreator.in LINK EPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EForum SET name = 'F1'").close();
+    session.execute("CREATE VERTEX EPost SET title = 'P1'").close();
+    session.execute("CREATE VERTEX EPerson SET name = 'Alice'").close();
+    session.execute(
+        "CREATE EDGE EContainerOf FROM"
+            + " (SELECT FROM EForum WHERE name='F1') TO"
+            + " (SELECT FROM EPost WHERE title='P1')")
+        .close();
+    session.execute(
+        "CREATE EDGE EHasCreator FROM"
+            + " (SELECT FROM EPost WHERE title='P1') TO"
+            + " (SELECT FROM EPerson WHERE name='Alice')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var matchQuery =
+        "MATCH"
+            + " {class: EPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('EHasCreator'){as: post}"
+            + "   .in('EContainerOf'){as: forum}"
+            + "   .out('EContainerOf'){as: post2}"
+            + "   .out('EHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    // Verify correctness
+    var result = session.query(matchQuery).toList();
+    assertFalse("Should return results", result.isEmpty());
+
+    // Verify EXPLAIN shows specific intersection type
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show EdgeRidLookup intersection with in('EHasCreator'),"
+            + " plan was:\n" + plan,
+        plan.contains("intersection:") && plan.contains("EHasCreator"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that a MATCH query with an indexed equality filter on the
+   * target node shows "intersection: index" in the EXPLAIN output,
+   * confirming the index pre-filter was pushed down to the MATCH engine.
+   */
+  @Test
+  public void testExplainShowsIndexIntersectionInMatch() {
+    session.execute("CREATE CLASS IxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IxPost EXTENDS V").close();
+    session.execute("CREATE CLASS IxCreated EXTENDS E").close();
+    session.execute("CREATE PROPERTY IxCreated.out LINK IxPerson").close();
+    session.execute("CREATE PROPERTY IxCreated.in LINK IxPost").close();
+    session.execute("CREATE PROPERTY IxPost.lang STRING").close();
+    session.execute(
+        "CREATE INDEX IxPost.lang ON IxPost (lang) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IxPerson SET name = 'Author'").close();
+    for (int i = 0; i < 10; i++) {
+      var lang = (i % 2 == 0) ? "en" : "de";
+      session.execute(
+          "CREATE VERTEX IxPost SET title = 'p" + i + "', lang = '" + lang + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE IxCreated FROM"
+              + " (SELECT FROM IxPerson WHERE name='Author') TO"
+              + " (SELECT FROM IxPost WHERE title='p" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Equality on indexed property → should trigger index intersection
+    var matchQuery =
+        "MATCH"
+            + " {class: IxPerson, as: author, where: (name = 'Author')}"
+            + "   .out('IxCreated'){class: IxPost, as: post,"
+            + "     where: (lang = 'en')}"
+            + " RETURN post.title";
+
+    var result = session.query(matchQuery).toList();
+    assertEquals("Should find 5 English posts", 5, result.size());
+
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show index intersection for lang filter,"
+            + " plan was:\n" + plan,
+        plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  /**
+   * Verifies that a MATCH pattern with a back-reference uses the correct
+   * descriptor type by checking the EXPLAIN output shows the edge class name
+   * in the intersection annotation. This confirms the planner chose
+   * EdgeRidLookup (not a fallback).
+   */
+  @Test
+  public void testExplainIntersectionShowsEdgeClassName() {
+    session.execute("CREATE CLASS CxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS CxPost EXTENDS V").close();
+    session.execute("CREATE CLASS CxForum EXTENDS V").close();
+    session.execute("CREATE CLASS CxContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS CxHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY CxContainerOf.out LINK CxForum").close();
+    session.execute("CREATE PROPERTY CxContainerOf.in LINK CxPost").close();
+    session.execute("CREATE PROPERTY CxHasCreator.out LINK CxPost").close();
+    session.execute("CREATE PROPERTY CxHasCreator.in LINK CxPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CxForum SET name = 'F1'").close();
+    session.execute("CREATE VERTEX CxPerson SET name = 'Alice'").close();
+    for (int i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX CxPost SET title = 'p" + i + "'").close();
+      session.execute(
+          "CREATE EDGE CxContainerOf FROM"
+              + " (SELECT FROM CxForum WHERE name='F1') TO"
+              + " (SELECT FROM CxPost WHERE title='p" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE CxHasCreator FROM"
+              + " (SELECT FROM CxPost WHERE title='p" + i + "') TO"
+              + " (SELECT FROM CxPerson WHERE name='Alice')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var matchQuery =
+        "MATCH"
+            + " {class: CxPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('CxHasCreator'){as: post}"
+            + "   .in('CxContainerOf'){as: forum}"
+            + "   .out('CxContainerOf'){as: post2}"
+            + "   .out('CxHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    var result = session.query(matchQuery).toList();
+    assertFalse("Should return results", result.isEmpty());
+
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    // Plan should show "intersection: in('CxHasCreator')" — confirming
+    // EdgeRidLookup descriptor was used with the correct edge class.
+    assertTrue(
+        "Plan should show CxHasCreator in intersection annotation,"
+            + " plan was:\n" + plan,
+        plan.contains("CxHasCreator") && plan.contains("intersection"));
+    session.commit();
+  }
+
+  /**
+   * Tests back-reference intersection with a large enough link bag
+   * to trigger the resolveReverseEdgeLookup path in
+   * TraversalPreFilterHelper (link bag size > minLinkBagSize = 50).
+   * Creates a forum with 80 posts by two authors, then uses a MATCH
+   * pattern with $matched.person.@rid back-reference. The intersection
+   * pre-filter should fire and be visible in EXPLAIN.
+   */
+  @Test
+  public void testBackReferenceIntersection_largeLinkBag() {
+    session.execute("CREATE CLASS LgPerson EXTENDS V").close();
+    session.execute("CREATE CLASS LgPost EXTENDS V").close();
+    session.execute("CREATE CLASS LgForum EXTENDS V").close();
+    session.execute("CREATE CLASS LgContainerOf EXTENDS E").close();
+    session.execute("CREATE CLASS LgHasCreator EXTENDS E").close();
+    session.execute("CREATE PROPERTY LgContainerOf.out LINK LgForum").close();
+    session.execute("CREATE PROPERTY LgContainerOf.in LINK LgPost").close();
+    session.execute("CREATE PROPERTY LgHasCreator.out LINK LgPost").close();
+    session.execute("CREATE PROPERTY LgHasCreator.in LINK LgPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LgForum SET name = 'Forum1'").close();
+    session.execute("CREATE VERTEX LgPerson SET name = 'Alice'").close();
+    session.execute("CREATE VERTEX LgPerson SET name = 'Bob'").close();
+
+    // 80 posts: 40 by Alice, 40 by Bob → link bags > 50
+    for (int i = 0; i < 80; i++) {
+      var creator = (i % 2 == 0) ? "Alice" : "Bob";
+      session.execute(
+          "CREATE VERTEX LgPost SET title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE LgContainerOf FROM"
+              + " (SELECT FROM LgForum WHERE name='Forum1') TO"
+              + " (SELECT FROM LgPost WHERE title='post" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE LgHasCreator FROM"
+              + " (SELECT FROM LgPost WHERE title='post" + i + "') TO"
+              + " (SELECT FROM LgPerson WHERE name='" + creator + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Pattern: person → posts → forum → all posts in forum → creator must
+    // be same person. The large link bag (80 posts in forum) should trigger
+    // the intersection pre-filter on the last edge.
+    var matchQuery =
+        "MATCH"
+            + " {class: LgPerson, as: person, where: (name = 'Alice')}"
+            + "   .in('LgHasCreator'){as: post}"
+            + "   .in('LgContainerOf'){as: forum}"
+            + "   .out('LgContainerOf'){as: post2}"
+            + "   .out('LgHasCreator'){as: creator,"
+            + "     where: (@rid = $matched.person.@rid)}"
+            + " RETURN post2.title";
+
+    var result = session.query(matchQuery).toList();
+    // Only posts by Alice should appear as post2 (40 posts × 40 post
+    // combinations from the cross product)
+    assertFalse("Should return results", result.isEmpty());
+
+    // Verify correctness: returned results should have post2.title set
+    for (var r : result) {
+      assertNotNull(r.getProperty("post2.title"));
+    }
+
+    // Verify intersection optimization is active
+    var explain = session.query("EXPLAIN " + matchQuery).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Plan should show intersection pre-filter for large link bag,"
+            + " plan was:\n" + plan,
+        plan.contains("intersection"));
+    session.commit();
+  }
 }

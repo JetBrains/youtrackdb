@@ -272,6 +272,25 @@ public class SQLMethodCall extends SimpleNode {
     throw new UnsupportedOperationException("Invalid reverse traversal: " + methodName);
   }
 
+  public SQLIdentifier getMethodName() {
+    return methodName;
+  }
+
+  /**
+   * Convenience method that returns the method name as a plain string,
+   * or {@code null} if the identifier or its string value is absent.
+   * Avoids the verbose {@code getMethodName().getStringValue()} pattern
+   * and the associated NPE risk.
+   */
+  @Nullable public String getMethodNameString() {
+    var id = getMethodName();
+    return id != null ? id.getStringValue() : null;
+  }
+
+  public List<SQLExpression> getParams() {
+    return params;
+  }
+
   public boolean needsAliases(Set<String> aliases) {
     for (var param : params) {
       if (param.needsAliases(aliases)) {
@@ -362,14 +381,6 @@ public class SQLMethodCall extends SimpleNode {
 
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     return resolveIsGraphFunction(session); // TODO
-  }
-
-  public String getMethodName() {
-    return methodName != null ? methodName.getStringValue() : null;
-  }
-
-  public List<SQLExpression> getParams() {
-    return params;
   }
 
   public void addParam(SQLExpression param) {

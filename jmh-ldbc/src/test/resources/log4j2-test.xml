@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Log4j2 configuration for jmh-ldbc tests.
+     Log4j2 auto-discovers log4j2-test.xml on the test classpath,
+     giving it priority over the main log4j2.xml.
+     Enable DEBUG on the MATCH planner to trace intersection optimization. -->
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"/>
+    </Console>
+  </Appenders>
+  <Loggers>
+    <Logger name="com.jetbrains.youtrackdb.benchmarks" level="INFO"/>
+    <Logger name="com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner"
+            level="DEBUG"/>
+    <Logger name="com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner"
+            level="DEBUG"/>
+    <Root level="WARN">
+      <AppenderRef ref="Console"/>
+    </Root>
+  </Loggers>
+</Configuration>

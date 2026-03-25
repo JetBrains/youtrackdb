@@ -1,7 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.HashMap;
+import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * A scheduled traversal of a single {@link PatternEdge} in a specific direction.
@@ -54,6 +62,31 @@ public class EdgeTraversal {
   private SQLWhereClause leftFilter;
 
   /**
+   * Pre-filter descriptor for adjacency list intersection. When set, the
+   * traverser resolves this descriptor at runtime to produce a {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet} that is
+   * applied to the edge traversal results, skipping vertices not in the set.
+   */
+  @Nullable private RidFilterDescriptor intersectionDescriptor;
+
+  /**
+   * Fixed-capacity cache of resolved RidSets, keyed by
+   * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
+   * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
+   * on first cache miss to avoid wasting memory on edges that have
+   * no intersection descriptor.
+   */
+  private static final int CACHE_CAPACITY = 64;
+  @Nullable private HashMap<Object, RidSet> cache;
+
+  /**
+   * Collection IDs for the target node's class constraint. When set,
+   * the traverser applies a zero-I/O class filter to the link bag,
+   * skipping vertices whose collection ID does not match.
+   */
+  @Nullable private IntSet acceptedCollectionIds;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -87,6 +120,114 @@ public class EdgeTraversal {
     return leftFilter;
   }
 
+  @Nullable public RidFilterDescriptor getIntersectionDescriptor() {
+    return intersectionDescriptor;
+  }
+
+  public void setIntersectionDescriptor(
+      @Nullable RidFilterDescriptor intersectionDescriptor) {
+    this.intersectionDescriptor = intersectionDescriptor;
+  }
+
+  /**
+   * Adds a descriptor to this edge. If a descriptor is already set,
+   * wraps both in a {@link RidFilterDescriptor.Composite} that intersects
+   * their results at the bitmap level.
+   */
+  public void addIntersectionDescriptor(RidFilterDescriptor descriptor) {
+    if (intersectionDescriptor == null) {
+      intersectionDescriptor = descriptor;
+    } else {
+      intersectionDescriptor = new RidFilterDescriptor.Composite(
+          List.of(intersectionDescriptor, descriptor));
+    }
+  }
+
+  @Nullable public IntSet getAcceptedCollectionIds() {
+    return acceptedCollectionIds;
+  }
+
+  public void setAcceptedCollectionIds(@Nullable IntSet acceptedCollectionIds) {
+    this.acceptedCollectionIds = acceptedCollectionIds;
+  }
+
+  /**
+   * Resolves the intersection descriptor with lazy resolution and a
+   * fixed-capacity cache. Uses a three-way decision based on a cheap
+   * size estimate to avoid wasted materialization:
+   *
+   * <ol>
+   *   <li><b>Cache hit</b> — return immediately. The caller performs
+   *       a per-vertex ratio check in {@code applyPreFilter()}.</li>
+   *   <li><b>Absolute cap exceeded</b> (estimate &gt; maxRidSetSize) —
+   *       cache {@code null} permanently. No vertex of any link bag
+   *       size would benefit from a RidSet this large.</li>
+   *   <li><b>Per-vertex ratio check against estimate</b> — if this
+   *       vertex's link bag is too small relative to the estimated
+   *       RidSet size, return {@code null} without caching (a later
+   *       vertex with a larger link bag may trigger resolution).</li>
+   *   <li><b>First big-enough hit</b> — resolve (materialize) and
+   *       cache. The cached RidSet is a pure function of descriptor
+   *       parameters.</li>
+   * </ol>
+   *
+   * @param ctx         command context
+   * @param linkBagSize the forward link bag size for the current vertex
+   * @return the cached or freshly built RidSet, or {@code null} if the
+   *     descriptor is too large or the current vertex's link bag is
+   *     too small to benefit
+   */
+  @Nullable public RidSet resolveWithCache(CommandContext ctx, int linkBagSize) {
+    var desc = intersectionDescriptor;
+    if (desc == null) {
+      return null;
+    }
+    var key = desc.cacheKey(ctx);
+
+    // 1. Cache hit — return immediately.
+    //    Caller does per-vertex ratio check in applyPreFilter().
+    if (key != null) {
+      if (cache == null) {
+        cache = new HashMap<>();
+      }
+      if (cache.containsKey(key)) {
+        return cache.get(key);
+      }
+    }
+
+    // 2. Cheap size estimate — no full materialization.
+    //    Pass the cache key so EdgeRidLookup can reuse the pre-computed
+    //    target RID instead of re-evaluating the expression.
+    int estimatedSize = desc.estimatedSize(ctx, key);
+
+    // 3. Absolute cap exceeded — safe to cache null permanently.
+    //    No vertex of any link bag size would benefit from a RidSet
+    //    this large (exceeds maxRidSetSize).
+    if (estimatedSize > TraversalPreFilterHelper.maxRidSetSize()) {
+      if (key != null && cache.size() < CACHE_CAPACITY) {
+        cache.put(key, null);
+      }
+      return null;
+    }
+
+    // 4. Per-vertex ratio check against estimate — DON'T cache null.
+    //    This vertex's link bag is too small relative to the estimated
+    //    RidSet size. A later vertex with a larger link bag may benefit,
+    //    so we leave the cache empty for this key.
+    if (estimatedSize >= 0
+        && !TraversalPreFilterHelper.passesRatioCheck(estimatedSize, linkBagSize)) {
+      return null;
+    }
+
+    // 5. First big-enough hit — resolve (materialize) and cache.
+    //    Pass the cache key so EdgeRidLookup reuses the target RID.
+    var ridSet = desc.resolve(ctx, key);
+    if (key != null && cache.size() < CACHE_CAPACITY) {
+      cache.put(key, ridSet);
+    }
+    return ridSet;
+  }
+
   @Override
   public String toString() {
     return edge.toString();
@@ -105,6 +246,10 @@ public class EdgeTraversal {
     if (leftRid != null) {
       copy.leftRid = leftRid.copy();
     }
+    copy.intersectionDescriptor = intersectionDescriptor;
+    copy.acceptedCollectionIds = acceptedCollectionIds;
+    // Cache is intentionally not copied — stale data from a previous
+    // execution must not leak into a new plan instance.
     return copy;
   }
 }

@@ -19,9 +19,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.UnwindStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -695,6 +697,12 @@ public class MatchExecutionPlanner {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
         }
+      }
+
+      optimizeScheduleWithIntersections(sortedEdges, context);
+      attachCollectionIdFilters(sortedEdges, context);
+
+      for (var edge : sortedEdges) {
         addStepsFor(plan, edge, context, first, profilingEnabled);
         first = false;
       }
@@ -1125,7 +1133,7 @@ public class MatchExecutionPlanner {
     }
 
     // Extract direction from the method name (out/in/both).
-    Direction direction = parseDirection(method.getMethodName());
+    Direction direction = parseDirection(method.getMethodNameString());
     if (direction == null) {
       return Double.MAX_VALUE;
     }
@@ -1223,6 +1231,186 @@ public class MatchExecutionPlanner {
       return raw;
     }
     return null;
+  }
+
+  /**
+   * Post-scheduling optimization pass: detects back-reference and index-based
+   * pre-filter opportunities and attaches {@link RidFilterDescriptor}s
+   * to the appropriate edges.
+   *
+   * <p><b>Back-reference detection</b>: when edge_j's target filter contains
+   * {@code @rid = $matched.X.@rid}, the intermediate node (edge_j's source)
+   * must be in {@code X.reverse(edge_j)}. A {@link
+   * RidFilterDescriptor.EdgeRidLookup} is attached to the preceding edge
+   * (edge_i) that produces the intermediate node, so that edge_i's traversal
+   * results are intersected with the pre-computed RidSet.
+   *
+   * <p><b>Index pre-filter detection</b>: when an edge's target node has an
+   * indexable condition that does not reference {@code $matched}, a {@link
+   * RidFilterDescriptor.IndexLookup} is attached to the edge.
+   */
+  private void optimizeScheduleWithIntersections(
+      List<EdgeTraversal> schedule, CommandContext ctx) {
+    // Build a map: target alias → edge index, so we can find the producing edge
+    Map<String, Integer> targetAliasToEdgeIndex = new HashMap<>();
+    for (var i = 0; i < schedule.size(); i++) {
+      var et = schedule.get(i);
+      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (targetAlias != null) {
+        targetAliasToEdgeIndex.put(targetAlias, i);
+      }
+    }
+
+    for (var j = 0; j < schedule.size(); j++) {
+      var edgeJ = schedule.get(j);
+      var targetAliasJ = edgeJ.out ? edgeJ.edge.in.alias : edgeJ.edge.out.alias;
+      if (targetAliasJ == null) {
+        continue;
+      }
+
+      var targetFilter = aliasFilters.get(targetAliasJ);
+      if (targetFilter == null) {
+        continue;
+      }
+
+      // --- Back-reference detection ---
+      // Check if target filter contains @rid = $matched.X.@rid
+      // Uses findRidEquality() (non-destructive) instead of
+      // extractAndRemoveRidEquality() to avoid mutating the filter.
+      var ridExpr = targetFilter.findRidEquality();
+      if (ridExpr != null) {
+        var involvedAliases = ridExpr.getMatchPatternInvolvedAliases();
+        if (involvedAliases != null && !involvedAliases.isEmpty()) {
+          var edgeClass = getEdgeClassName(edgeJ);
+          var edgeDirection = getEdgeDirection(edgeJ);
+
+          if (edgeClass != null && edgeDirection != null) {
+            var sourceAliasJ = edgeJ.out
+                ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
+            var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
+            if (producingEdgeIdx != null) {
+              var edgeI = schedule.get(producingEdgeIdx);
+              edgeI.addIntersectionDescriptor(
+                  new RidFilterDescriptor.EdgeRidLookup(
+                      edgeClass, edgeDirection, ridExpr));
+              logger.debug(
+                  "MATCH pre-filter: EdgeRidLookup on edge[{}] "
+                      + "({}({}) back-ref from alias '{}')",
+                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
+            }
+          }
+        }
+      }
+
+      // --- Index pre-filter detection ---
+      var targetClass = aliasClasses.get(targetAliasJ);
+      if (targetClass == null) {
+        continue;
+      }
+
+      // Split the filter: only the non-$matched part can use an index.
+      SQLWhereClause indexableFilter = targetFilter;
+      var matchedSplit = targetFilter.splitByMatchedReference();
+      if (matchedSplit != null) {
+        indexableFilter = matchedSplit.nonMatchedReferencing();
+      }
+      if (indexableFilter == null) {
+        continue;
+      }
+
+      var indexDesc = TraversalPreFilterHelper.findIndexForFilter(
+          indexableFilter, targetClass, ctx);
+      if (indexDesc != null) {
+        edgeJ.addIntersectionDescriptor(
+            new RidFilterDescriptor.IndexLookup(indexDesc));
+        logger.debug(
+            "MATCH pre-filter: IndexLookup on edge[{}] "
+                + "(class '{}' for alias '{}')",
+            j, targetClass, targetAliasJ);
+      }
+    }
+  }
+
+  /**
+   * Resolves each edge's target class constraint to collection IDs at plan
+   * time. The traverser applies this as a zero-I/O class filter on the link
+   * bag, skipping vertices whose collection ID does not match.
+   */
+  private void attachCollectionIdFilters(
+      List<EdgeTraversal> schedule, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    if (session == null) {
+      return;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    for (var et : schedule) {
+      var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (targetAlias == null) {
+        continue;
+      }
+      var className = aliasClasses.get(targetAlias);
+      if (className == null) {
+        continue;
+      }
+      var schemaClass = schema.getClassInternal(className);
+      if (schemaClass == null) {
+        continue;
+      }
+      et.setAcceptedCollectionIds(
+          TraversalPreFilterHelper.collectionIdsForClass(schemaClass));
+    }
+  }
+
+  /**
+   * Returns the edge class name from an {@link EdgeTraversal}'s path item
+   * method, or {@code null} if none is specified.
+   */
+  @Nullable static String getEdgeClassName(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null) {
+      return null;
+    }
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      return null;
+    }
+    var expr = params.getFirst();
+    if (!(expr.getMathExpression() instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    if (base.getModifier() != null) {
+      return null;
+    }
+    var value = base.execute((Result) null, new BasicCommandContext());
+    if (value instanceof String s && !s.isEmpty()) {
+      return s;
+    }
+    return null;
+  }
+
+  /**
+   * Returns the traversal direction ({@code "out"} or {@code "in"}) for the
+   * given edge traversal, considering the scheduled direction.
+   */
+  @Nullable static String getEdgeDirection(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null) {
+      return null;
+    }
+    var nameStr = method.getMethodNameString();
+    if (nameStr == null) {
+      return null;
+    }
+    var syntacticDirection = nameStr.toLowerCase(Locale.ROOT);
+    if (et.out) {
+      return syntacticDirection;
+    }
+    // Reverse: flip out↔in
+    return switch (syntacticDirection) {
+      case "out" -> "in";
+      case "in" -> "out";
+      default -> syntacticDirection;
+    };
   }
 
   /**
@@ -1404,8 +1592,16 @@ public class MatchExecutionPlanner {
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
+    // Collect aliases from patterns that contain a while condition.
+    // Class inference on these (and patterns sharing aliases with them)
+    // must be skipped — inferred classes change cost estimates which can
+    // reorder the schedule, causing while/where recursive steps to be
+    // traversed in the wrong direction.
+    var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
     for (var expr : this.matchExpressions) {
-      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids, ctx);
+      boolean skipInference = sharesAliases(expr, whileAliases);
+      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
+          ctx, skipInference);
     }
 
     this.aliasFilters = aliasFilters;
@@ -1433,6 +1629,61 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Collects all aliases that appear in patterns containing a {@code while}
+   * condition. Used to determine which patterns must skip class inference.
+   */
+  private static Set<String> collectAliasesFromWhilePatterns(
+      List<SQLMatchExpression> expressions) {
+    var result = new HashSet<String>();
+    for (var expr : expressions) {
+      boolean hasWhile = false;
+      for (var item : expr.getItems()) {
+        if (item.getFilter() != null
+            && item.getFilter().getWhileCondition() != null) {
+          hasWhile = true;
+          break;
+        }
+      }
+      if (hasWhile) {
+        // Collect origin alias
+        if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
+          result.add(expr.getOrigin().getAlias());
+        }
+        // Collect all item aliases
+        for (var item : expr.getItems()) {
+          if (item.getFilter() != null && item.getFilter().getAlias() != null) {
+            result.add(item.getFilter().getAlias());
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Returns true if the expression shares any alias with the given set.
+   * Used to detect patterns connected to while-containing patterns via
+   * shared aliases (e.g. {@code {as: post}} appearing in both patterns).
+   */
+  private static boolean sharesAliases(
+      SQLMatchExpression expr, Set<String> aliases) {
+    if (aliases.isEmpty()) {
+      return false;
+    }
+    if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null
+        && aliases.contains(expr.getOrigin().getAlias())) {
+      return true;
+    }
+    for (var item : expr.getItems()) {
+      if (item.getFilter() != null && item.getFilter().getAlias() != null
+          && aliases.contains(item.getFilter().getAlias())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Extracts alias metadata (filters, class, collection, RID) from a single match
    * expression and merges them into the accumulation maps.
    */
@@ -1442,14 +1693,88 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasClasses,
       Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
-      CommandContext context) {
+      CommandContext context,
+      boolean skipClassInference) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
+        if (!skipClassInference) {
+          // Infer target class from edge LINK schema when no explicit class
+          // is set. For out('CONTAINER_OF'), the target vertices are the "in"
+          // endpoint of the CONTAINER_OF edge class; if that endpoint declares
+          // LINK Message, the target class is Message.
+          var alias = item.getFilter().getAlias();
+          if (alias != null && !aliasClasses.containsKey(alias)) {
+            var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
+            if (inferred != null) {
+              aliasClasses.put(alias, inferred);
+              logger.debug(
+                  "MATCH class inference: alias '{}' -> class '{}' "
+                      + "(from edge LINK schema)",
+                  alias, inferred);
+            }
+          }
+        }
       }
     }
+  }
+
+  /**
+   * Infers the target vertex class from the edge schema LINK declarations.
+   * For {@code out('X')}, the target is the "in" endpoint of edge class X;
+   * for {@code in('X')}, the target is the "out" endpoint.
+   *
+   * @return the linked class name, or {@code null} if it cannot be inferred
+   */
+  @Nullable static String inferClassFromEdgeSchema(
+      @Nullable SQLMethodCall method, CommandContext context) {
+    if (method == null) {
+      return null;
+    }
+    var dirName = method.getMethodNameString();
+    if (dirName == null) {
+      return null;
+    }
+    dirName = dirName.toLowerCase(Locale.ROOT);
+    if (!"in".equals(dirName) && !"out".equals(dirName)) {
+      return null;
+    }
+
+    if (method.getParams() == null || method.getParams().isEmpty()) {
+      return null;
+    }
+    String edgeClassName;
+    try {
+      var value = method.getParams().getFirst()
+          .execute((Result) null, new BasicCommandContext());
+      if (!(value instanceof String s) || s.isEmpty()) {
+        return null;
+      }
+      edgeClassName = s;
+    } catch (RuntimeException e) {
+      return null;
+    }
+
+    var session = context.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var edgeClass = schema.getClassInternal(edgeClassName);
+    if (edgeClass == null) {
+      return null;
+    }
+    // out('X') targets the "in" side; in('X') targets the "out" side
+    var targetPropName = "out".equals(dirName) ? "in" : "out";
+    var prop = edgeClass.getPropertyInternal(targetPropName);
+    if (prop == null || prop.getLinkedClass() == null) {
+      return null;
+    }
+    assert prop.getLinkedClass().getName() != null
+        && !prop.getLinkedClass().getName().isEmpty()
+        : "inferClassFromEdgeSchema: linked class has null/empty name for edge "
+            + edgeClassName;
+    return prop.getLinkedClass().getName();
   }
 
   /**

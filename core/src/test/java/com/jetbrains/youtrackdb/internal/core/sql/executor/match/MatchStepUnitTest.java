@@ -7,6 +7,8 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -24,9 +26,11 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -204,6 +208,119 @@ public class MatchStepUnitTest extends DbTestBase {
     var result = step.prettyPrint(0, 2);
     assertNotNull(result);
     assertTrue(result.contains("<----"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows no intersection info when descriptor is null.
+   */
+  @Test
+  public void testMatchStepPrettyPrintNoIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    assertNull("Precondition: no descriptor", edge.getIntersectionDescriptor());
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertFalse("Should not contain intersection", result.contains("intersection"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows "(intersection: direct-rid)" when
+   * the edge has a DirectRid descriptor.
+   */
+  @Test
+  public void testMatchStepPrettyPrintDirectRidIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.DirectRid(new SQLExpression(-1)));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain direct-rid intersection",
+        result.contains("(intersection: direct-rid)"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows "(intersection: out('Knows'))" when
+   * the edge has an EdgeRidLookup descriptor.
+   */
+  @Test
+  public void testMatchStepPrettyPrintEdgeRidLookupIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup("Knows", "out", new SQLExpression(-1)));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain EdgeRidLookup intersection",
+        result.contains("(intersection: out('Knows'))"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows "(intersection: index ...)" when
+   * the edge has an IndexLookup descriptor.
+   */
+  @Test
+  public void testMatchStepPrettyPrintIndexLookupIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+
+    var index = mock(com.jetbrains.youtrackdb.internal.core.index.Index.class);
+    when(index.getName()).thenReturn("Post.creationDate");
+    var indexDesc = mock(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor.class);
+    when(indexDesc.getIndex()).thenReturn(index);
+
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.IndexLookup(indexDesc));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain IndexLookup intersection",
+        result.contains("(intersection: index Post.creationDate)"));
+  }
+
+  /**
+   * Verifies MatchStep.prettyPrint() shows both descriptors for Composite.
+   */
+  @Test
+  public void testMatchStepPrettyPrintCompositeIntersection() {
+    var ctx = createCommandContext();
+    var edge = createTestEdgeTraversal();
+
+    var edgeDesc = new RidFilterDescriptor.EdgeRidLookup(
+        "Knows", "out", new SQLExpression(-1));
+    var directDesc = new RidFilterDescriptor.DirectRid(new SQLExpression(-1));
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.Composite(java.util.List.of(edgeDesc, directDesc)));
+
+    var step = new MatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain EdgeRidLookup in composite",
+        result.contains("(intersection: out('Knows'))"));
+    assertTrue("Should contain direct-rid in composite",
+        result.contains("(intersection: direct-rid)"));
+  }
+
+  /**
+   * Verifies OptionalMatchStep.prettyPrint() also shows intersection descriptor.
+   */
+  @Test
+  public void testOptionalMatchStepPrettyPrintEdgeRidLookupIntersection() {
+    var ctx = createCommandContext();
+    var patternEdge = createTestPatternEdge();
+    var edge = new EdgeTraversal(patternEdge, true);
+    edge.setIntersectionDescriptor(
+        new RidFilterDescriptor.EdgeRidLookup("HasCreator", "in",
+            new SQLExpression(-1)));
+
+    var step = new OptionalMatchStep(ctx, edge, false);
+    var result = step.prettyPrint(0, 2);
+    assertTrue("Should contain OPTIONAL MATCH", result.contains("OPTIONAL MATCH"));
+    assertTrue("Should contain EdgeRidLookup intersection",
+        result.contains("(intersection: in('HasCreator'))"));
   }
 
   // -- MatchFirstStep tests --

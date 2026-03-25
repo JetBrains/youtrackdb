@@ -1,0 +1,344 @@
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import org.junit.After;
+import org.junit.Test;
+
+/**
+ * Unit tests for the adaptive abort guards in {@link TraversalPreFilterHelper}.
+ *
+ * <p>The guard methods ({@code shouldAbort}, {@code passesRatioCheck}) are
+ * pure functions that depend only on integer/double arithmetic, so they can
+ * be tested without a database context.
+ */
+public class TraversalPreFilterHelperTest {
+
+  @After
+  public void restoreDefaults() {
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
+  }
+
+  // =========================================================================
+  // shouldAbort — absolute maxRidSetSize cap
+  // =========================================================================
+
+  /**
+   * When the accumulated count exceeds {@link TraversalPreFilterHelper#maxRidSetSize()},
+   * the build must abort.
+   */
+  @Test
+  public void shouldAbort_exceedsAbsoluteCap_aborts() {
+    int count = TraversalPreFilterHelper.maxRidSetSize() + 1;
+    assertThat(TraversalPreFilterHelper.shouldAbort(count)).isTrue();
+  }
+
+  /**
+   * When the accumulated count is below the absolute cap, the build
+   * should continue.
+   */
+  @Test
+  public void shouldAbort_belowAbsoluteCap_continues() {
+    assertThat(TraversalPreFilterHelper.shouldAbort(50_000)).isFalse();
+  }
+
+  /**
+   * At the exact maxRidSetSize boundary, the count is not yet exceeded
+   * (guard uses strict {@code >}).
+   */
+  @Test
+  public void shouldAbort_exactlyAtAbsoluteCap_doesNotAbort() {
+    assertThat(TraversalPreFilterHelper.shouldAbort(
+        TraversalPreFilterHelper.maxRidSetSize())).isFalse();
+  }
+
+  // =========================================================================
+  // passesRatioCheck — selectivity ratio
+  // =========================================================================
+
+  /**
+   * A RidSet that is small relative to the link bag passes the ratio
+   * check (the filter is highly selective).
+   */
+  @Test
+  public void passesRatioCheck_smallRidSetVsLargeLinkBag_passes() {
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(100, 10_000)).isTrue();
+  }
+
+  /**
+   * A RidSet that covers more than {@link TraversalPreFilterHelper#maxSelectivityRatio()}
+   * of the link bag fails — the filter rejects too few elements.
+   */
+  @Test
+  public void passesRatioCheck_ridSetTooLargeRelativeToLinkBag_fails() {
+    int linkBag = 1000;
+    int ridSetSize =
+        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio()) + 1;
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
+        .isFalse();
+  }
+
+  /**
+   * When the link bag size is zero, the ratio check passes (avoids
+   * division by zero; zero-size link bag means no records anyway).
+   */
+  @Test
+  public void passesRatioCheck_zeroLinkBag_passes() {
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(0, 0)).isTrue();
+  }
+
+  /**
+   * A RidSet exactly at the ratio boundary passes (guard uses {@code <=}).
+   */
+  @Test
+  public void passesRatioCheck_exactlyAtBoundary_passes() {
+    int linkBag = 1000;
+    int ridSetSize =
+        (int) (linkBag * TraversalPreFilterHelper.maxSelectivityRatio());
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(ridSetSize, linkBag))
+        .isTrue();
+  }
+
+  /**
+   * An empty RidSet always passes the ratio check.
+   */
+  @Test
+  public void passesRatioCheck_emptyRidSet_passes() {
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(0, 10_000)).isTrue();
+  }
+
+  // =========================================================================
+  // Defaults sanity
+  // =========================================================================
+
+  /**
+   * The three adaptive-abort defaults must have their documented values.
+   */
+  @Test
+  public void defaults_haveExpectedValues() {
+    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(100_000);
+    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.8);
+    assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(50);
+  }
+
+  // =========================================================================
+  // Runtime override via GlobalConfiguration
+  // =========================================================================
+
+  /**
+   * Verifies that changing configuration at runtime is immediately
+   * reflected by the getter methods and affects guard behaviour.
+   */
+  @Test
+  public void runtimeOverride_affectsGuardBehaviour() {
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(500);
+    assertThat(TraversalPreFilterHelper.maxRidSetSize()).isEqualTo(500);
+    assertThat(TraversalPreFilterHelper.shouldAbort(501)).isTrue();
+    assertThat(TraversalPreFilterHelper.shouldAbort(499)).isFalse();
+
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.5);
+    assertThat(TraversalPreFilterHelper.maxSelectivityRatio()).isEqualTo(0.5);
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(600, 1000)).isFalse();
+    assertThat(TraversalPreFilterHelper.passesRatioCheck(500, 1000)).isTrue();
+
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(200);
+    assertThat(TraversalPreFilterHelper.minLinkBagSize()).isEqualTo(200);
+  }
+
+  // =========================================================================
+  // toRid — type-based RID extraction
+  // =========================================================================
+
+  /** Null input returns null. */
+  @Test
+  public void toRid_nullInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid(null)).isNull();
+  }
+
+  /** A RecordId (which implements RID) is returned directly. */
+  @Test
+  public void toRid_ridInput_returnsSameInstance() {
+    RID rid = new RecordId(10, 5);
+    assertThat(TraversalPreFilterHelper.toRid(rid)).isSameAs(rid);
+  }
+
+  /** An Identifiable returns its identity. */
+  @Test
+  public void toRid_identifiableInput_returnsIdentity() {
+    var rid = new RecordId(7, 3);
+    var identifiable = mock(Identifiable.class);
+    when(identifiable.getIdentity()).thenReturn(rid);
+
+    assertThat(TraversalPreFilterHelper.toRid(identifiable)).isSameAs(rid);
+  }
+
+  /** A non-RID, non-Identifiable object returns null. */
+  @Test
+  public void toRid_stringInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid("not-a-rid")).isNull();
+  }
+
+  /** An integer returns null. */
+  @Test
+  public void toRid_integerInput_returnsNull() {
+    assertThat(TraversalPreFilterHelper.toRid(42)).isNull();
+  }
+
+  // =========================================================================
+  // intersect — delegation to RidSet.intersect
+  // =========================================================================
+
+  /** Both null returns null. */
+  @Test
+  public void intersect_bothNull_returnsNull() {
+    assertThat(TraversalPreFilterHelper.intersect(null, null)).isNull();
+  }
+
+  /** One null returns the other. */
+  @Test
+  public void intersect_oneNull_returnsOther() {
+    var set = new RidSet();
+    set.add(new RecordId(1, 1));
+    assertThat(TraversalPreFilterHelper.intersect(set, null)).isSameAs(set);
+    assertThat(TraversalPreFilterHelper.intersect(null, set)).isSameAs(set);
+  }
+
+  /** Two overlapping sets return the intersection. */
+  @Test
+  public void intersect_overlappingSets_returnsIntersection() {
+    var a = new RidSet();
+    a.add(new RecordId(10, 1));
+    a.add(new RecordId(10, 2));
+
+    var b = new RidSet();
+    b.add(new RecordId(10, 2));
+    b.add(new RecordId(10, 3));
+
+    var result = TraversalPreFilterHelper.intersect(a, b);
+    assertThat(result).isNotNull();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.contains(new RecordId(10, 2))).isTrue();
+  }
+
+  // =========================================================================
+  // findIndexForFilter — null guards
+  // =========================================================================
+
+  @Test
+  public void findIndexForFilter_nullContext_returnsNull() {
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "SomeClass", null))
+        .isNull();
+  }
+
+  /** findIndexForFilter returns null when the context has no database session. */
+  @Test
+  public void findIndexForFilter_nullSession_returnsNull() {
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(null);
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "SomeClass", ctx))
+        .isNull();
+  }
+
+  /** findIndexForFilter returns null when the class does not exist in schema. */
+  @Test
+  public void findIndexForFilter_nonExistentClass_returnsNull() {
+    var session =
+        mock(DatabaseSessionEmbedded.class);
+    var metadata =
+        mock(MetadataDefault.class);
+    var schema =
+        mock(ImmutableSchema.class);
+    when(session.getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClassInternal("NoSuchClass")).thenReturn(null);
+
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(session);
+
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(
+        where, "NoSuchClass", ctx)).isNull();
+  }
+
+  // =========================================================================
+  // collectionIdsForClass — polymorphic collection ID extraction
+  // =========================================================================
+
+  /** Converts a class with multiple collection IDs into an IntSet. */
+  @Test
+  public void collectionIdsForClass_multipleIds() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[] {10, 20, 30});
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).hasSize(3);
+    assertThat(result.contains(10)).isTrue();
+    assertThat(result.contains(20)).isTrue();
+    assertThat(result.contains(30)).isTrue();
+  }
+
+  /** An empty array produces an empty IntSet. */
+  @Test
+  public void collectionIdsForClass_emptyArray() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[0]);
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).isEmpty();
+  }
+
+  /** A single collection ID produces a singleton IntSet. */
+  @Test
+  public void collectionIdsForClass_singleId() {
+    var clazz = mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.class);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[] {42});
+
+    var result = TraversalPreFilterHelper.collectionIdsForClass(clazz);
+    assertThat(result).hasSize(1);
+    assertThat(result.contains(42)).isTrue();
+  }
+
+  /** findIndexForFilter returns null when the class has no indexes. */
+  @Test
+  public void findIndexForFilter_noIndexes_returnsNull() {
+    var session =
+        mock(DatabaseSessionEmbedded.class);
+    var metadata =
+        mock(MetadataDefault.class);
+    var schema =
+        mock(ImmutableSchema.class);
+    var schemaClass =
+        mock(SchemaClassInternal.class);
+    when(session.getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.getClassInternal("EmptyClass")).thenReturn(schemaClass);
+    when(schemaClass.getIndexesInternal())
+        .thenReturn(java.util.Collections.emptySet());
+
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(session);
+
+    var where = new SQLWhereClause(-1);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(
+        where, "EmptyClass", ctx)).isNull();
+  }
+}

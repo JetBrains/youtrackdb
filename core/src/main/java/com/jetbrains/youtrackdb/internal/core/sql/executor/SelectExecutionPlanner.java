@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
@@ -53,6 +54,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -259,6 +261,9 @@ public class SelectExecutionPlanner {
     handleLet(result, info, ctx, enableProfiling); // per-record LET
 
     handleWhere(result, info, ctx, enableProfiling); // WHERE filtering
+
+    // --- 5b. Predicate push-down: move outer WHERE into expand() ---
+    tryPushDownFilterIntoExpand(result, info);
 
     handleProjectionsBlock(result, info, ctx, enableProfiling);// projections, ORDER BY, etc.
 
@@ -2669,7 +2674,7 @@ public class SelectExecutionPlanner {
    * @param clazz   the target schema class
    * @return the best index descriptor, or {@code null} if no index can be used
    */
-  @Nullable private static IndexSearchDescriptor findBestIndexFor(
+  @Nullable static IndexSearchDescriptor findBestIndexFor(
       CommandContext ctx, Set<Index> indexes, SQLAndBlock block, SchemaClass clazz) {
     // get all valid index descriptors
     var descriptors =
@@ -3107,6 +3112,349 @@ public class SelectExecutionPlanner {
     var subExecutionPlan =
         subQuery.createExecutionPlan(subCtx, profilingEnabled);
     plan.chain(new SubQueryStep(subExecutionPlan, ctx, subCtx, profilingEnabled));
+  }
+
+  /**
+   * Attempts to push the outer WHERE filter down into a subquery's expand() step.
+   *
+   * <p>Detects the pattern:
+   * <pre>
+   *   SELECT FROM (SELECT expand(...) FROM ...) WHERE &lt;predicate&gt;
+   * </pre>
+   * and moves the predicate into the ExpandStep so it filters during iteration
+   * rather than after all elements are materialized. This avoids loading records
+   * that would be discarded by the outer WHERE.
+   *
+   * <p>The push-down is only applied when:
+   * <ul>
+   *   <li>The plan chain is: SubQueryStep → FilterStep</li>
+   *   <li>The subquery plan contains an ExpandStep as its last step</li>
+   *   <li>The WHERE clause does not reference parent scope ({@code $parent})</li>
+   * </ul>
+   */
+  private void tryPushDownFilterIntoExpand(
+      SelectExecutionPlan plan, QueryPlanningInfo info) {
+    var steps = plan.steps;
+    if (steps.size() < 2 || info.whereClause == null) {
+      return;
+    }
+
+    for (var i = 0; i < steps.size() - 1; i++) {
+      if (!(steps.get(i) instanceof SubQueryStep subQueryStep)) {
+        continue;
+      }
+      if (!(steps.get(i + 1) instanceof FilterStep filterStep)) {
+        continue;
+      }
+
+      if (!(subQueryStep.subExecutionPlan instanceof SelectExecutionPlan innerPlan)) {
+        continue;
+      }
+
+      ExpandStep expandStep = null;
+      int expandIndex = -1;
+      for (var j = 0; j < innerPlan.steps.size(); j++) {
+        if (innerPlan.steps.get(j) instanceof ExpandStep es) {
+          expandStep = es;
+          expandIndex = j;
+        }
+      }
+      if (expandStep == null) {
+        continue;
+      }
+
+      // Step 1: Extract @class = 'X' from the WHERE
+      it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
+      String className = null;
+      SQLWhereClause remainingWhere = info.whereClause;
+      var classExtraction = info.whereClause.extractAndRemoveClassEquality();
+      if (classExtraction != null) {
+        classFilter = resolveClassToCollectionIds(classExtraction.className(), plan);
+        if (classFilter != null) {
+          className = classExtraction.className();
+          remainingWhere = classExtraction.remainingWhere();
+        }
+      }
+
+      // Step 2: Extract out/in('EdgeClass').@rid = <expr>
+      RidFilterDescriptor ridFilter = null;
+      if (remainingWhere != null) {
+        var edgeExtraction = remainingWhere.extractAndRemoveEdgeRidLookup();
+        if (edgeExtraction != null) {
+          ridFilter = new RidFilterDescriptor.EdgeRidLookup(
+              edgeExtraction.edgeClassName(),
+              edgeExtraction.traversalDirection(),
+              edgeExtraction.targetRidExpression());
+          remainingWhere = edgeExtraction.remainingWhere();
+        }
+      }
+
+      // Step 3: Extract @rid = <expr>
+      if (ridFilter == null && remainingWhere != null) {
+        var ridExtraction = remainingWhere.extractAndRemoveRidEquality();
+        if (ridExtraction != null) {
+          ridFilter = new RidFilterDescriptor.DirectRid(ridExtraction.ridExpression());
+          remainingWhere = ridExtraction.remainingWhere();
+        }
+      }
+
+      // Step 4: Split remaining by $parent reference
+      SQLWhereClause pushDownWhere = null;
+      SQLWhereClause outerWhere = null;
+      if (remainingWhere != null) {
+        var parentSplit = remainingWhere.splitByParentReference();
+        if (parentSplit != null) {
+          outerWhere = parentSplit.parentReferencing();
+          pushDownWhere = parentSplit.nonParentReferencing();
+        } else {
+          pushDownWhere = remainingWhere;
+        }
+      }
+
+      // Step 4b: Infer target class from edge schema if not found via @class.
+      // Only needed when there is a push-down filter — without a filter there
+      // is no index to look up, so the schema traversal is unnecessary.
+      if (className == null && pushDownWhere != null) {
+        className = inferTargetClassFromExpandEdgeSchema(info, plan);
+      }
+
+      // Step 5: Try to find an index for the push-down filter
+      IndexSearchDescriptor indexDescriptor = null;
+      if (pushDownWhere != null && className != null) {
+        indexDescriptor = tryBuildExpandIndexDescriptor(
+            pushDownWhere, className, plan.getContext());
+      }
+
+      if (classFilter == null && ridFilter == null
+          && pushDownWhere == null && indexDescriptor == null) {
+        continue;
+      }
+
+      var pushedDown = new ExpandStep(
+          innerPlan.getContext(), expandStep.isProfilingEnabled(),
+          expandStep.expandAlias, pushDownWhere, classFilter,
+          ridFilter, indexDescriptor);
+      pushedDown.setPrevious(expandStep.prev);
+      innerPlan.steps.set(expandIndex, pushedDown);
+
+      if (outerWhere != null) {
+        var newFilter = new FilterStep(
+            outerWhere, plan.getContext(), 0, filterStep.isProfilingEnabled());
+        newFilter.setPrevious(filterStep.prev);
+        steps.set(i + 1, newFilter);
+        if (i + 2 < steps.size()) {
+          steps.get(i + 2).setPrevious(newFilter);
+        }
+      } else {
+        steps.remove(i + 1);
+        if (i + 1 < steps.size()) {
+          steps.get(i + 1).setPrevious(subQueryStep);
+        }
+      }
+
+      return;
+    }
+  }
+
+  /**
+   * Attempts to build an {@link IndexSearchDescriptor} for the push-down filter
+   * by looking up indexes on the target class.
+   *
+   * <p>First tries the full WHERE clause. If that fails because the WHERE
+   * flattens to multiple OR branches (e.g. due to graph-navigation CONTAINS
+   * conditions), falls back to extracting only the "indexable" subset of
+   * AND conditions — those that flatten to a single branch — and attempts
+   * the index lookup on that subset. The full WHERE is still applied as a
+   * post-filter on the ExpandStep, so correctness is preserved.
+   *
+   * @param pushDownWhere the WHERE clause to analyze (must not reference $parent)
+   * @param className     the target class name (from @class or edge schema)
+   * @param ctx           command context
+   * @return an index descriptor, or {@code null} if no suitable index exists
+   */
+  @Nullable private IndexSearchDescriptor tryBuildExpandIndexDescriptor(
+      SQLWhereClause pushDownWhere, String className, CommandContext ctx) {
+    var result = TraversalPreFilterHelper.findIndexForFilter(
+        pushDownWhere, className, ctx);
+    if (result != null) {
+      return result;
+    }
+
+    // The full WHERE could not be used (likely multi-branch flatten from
+    // graph navigation conditions). Try the indexable subset only.
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = schema.getClassInternal(className);
+    if (schemaClass == null) {
+      return null;
+    }
+    var indexablePart = pushDownWhere.extractIndexablePart(ctx, schemaClass);
+    if (indexablePart == null) {
+      return null;
+    }
+    return TraversalPreFilterHelper.findIndexForFilter(
+        indexablePart, className, ctx);
+  }
+
+  /**
+   * Infers the target vertex class from the edge schema when the outer WHERE does
+   * not contain an explicit {@code @class = 'X'} filter.
+   *
+   * <p>For a subquery like {@code SELECT expand(in('HAS_CREATOR')) FROM Person},
+   * the edge class {@code HAS_CREATOR} may declare linked classes on its {@code out}
+   * and {@code in} properties. The target class of the expansion is the endpoint
+   * opposite to the traversal direction:
+   * <ul>
+   *   <li>{@code in('X')} follows incoming edges → targets are the {@code out}
+   *       endpoint → {@code edgeClass.getPropertyInternal("out").getLinkedClass()}</li>
+   *   <li>{@code out('X')} follows outgoing edges → targets are the {@code in}
+   *       endpoint → {@code edgeClass.getPropertyInternal("in").getLinkedClass()}</li>
+   * </ul>
+   *
+   * @return the inferred class name, or {@code null} if inference is not possible
+   */
+  @Nullable private static String inferTargetClassFromExpandEdgeSchema(
+      QueryPlanningInfo info, SelectExecutionPlan plan) {
+    var funcCall = extractExpandTraversalFunction(info);
+    if (funcCall == null) {
+      return null;
+    }
+
+    var directionName = extractTraversalDirection(funcCall);
+    if (directionName == null) {
+      return null;
+    }
+
+    var edgeClassName = extractEdgeClassName(funcCall);
+    if (edgeClassName == null) {
+      return null;
+    }
+
+    return lookupLinkedClassName(edgeClassName, directionName, plan);
+  }
+
+  /**
+   * Extracts the {@code in(...)} or {@code out(...)} function call from the inner
+   * subquery's expand projection. Returns {@code null} if the query structure does
+   * not match the expected {@code SELECT expand(in/out('EdgeClass')) FROM ...} pattern.
+   */
+  @Nullable private static SQLFunctionCall extractExpandTraversalFunction(
+      QueryPlanningInfo info) {
+    if (info.target == null) {
+      return null;
+    }
+    var fromItem = info.target.getItem();
+    if (fromItem == null || fromItem.getStatement() == null) {
+      return null;
+    }
+    if (!(fromItem.getStatement() instanceof SQLSelectStatement selectStmt)) {
+      return null;
+    }
+    var projection = selectStmt.getProjection();
+    if (projection == null || !projection.isExpand()) {
+      return null;
+    }
+
+    var expandExpr = projection.getExpandContent();
+    if (expandExpr == null
+        || expandExpr.getItems() == null
+        || expandExpr.getItems().isEmpty()) {
+      return null;
+    }
+    var contentExpr = expandExpr.getItems().getFirst().getExpression();
+    if (contentExpr == null) {
+      return null;
+    }
+    if (!(contentExpr.getMathExpression() instanceof SQLBaseExpression base)) {
+      return null;
+    }
+    var identifier = base.getIdentifier();
+    if (identifier == null || identifier.getLevelZero() == null) {
+      return null;
+    }
+    return identifier.getLevelZero().getFunctionCall();
+  }
+
+  /**
+   * Returns the traversal direction ({@code "in"} or {@code "out"}) from the
+   * function call, or {@code null} if the function is not a recognized traversal.
+   */
+  @Nullable private static String extractTraversalDirection(
+      SQLFunctionCall funcCall) {
+    if (funcCall.getName() == null) {
+      return null;
+    }
+    var name = funcCall.getName().getStringValue();
+    if (name == null) {
+      return null;
+    }
+    name = name.toLowerCase(Locale.ROOT);
+    if ("in".equals(name) || "out".equals(name)) {
+      return name;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts the edge class name string from the first parameter of the traversal
+   * function call (e.g. {@code 'HAS_CREATOR'} from {@code in('HAS_CREATOR')}).
+   * Returns {@code null} if the parameter cannot be evaluated to a string.
+   */
+  @Nullable private static String extractEdgeClassName(SQLFunctionCall funcCall) {
+    if (funcCall.getParams() == null || funcCall.getParams().isEmpty()) {
+      return null;
+    }
+    try {
+      var value = funcCall.getParams().getFirst()
+          .execute((Result) null, new BasicCommandContext());
+      return value instanceof String s ? s : null;
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  /**
+   * Looks up the linked class name from the edge schema. For {@code in('X')},
+   * the targets are the {@code out} endpoint; for {@code out('X')}, the targets
+   * are the {@code in} endpoint.
+   */
+  @Nullable private static String lookupLinkedClassName(
+      String edgeClassName, String direction, SelectExecutionPlan plan) {
+    var ctx = plan.getContext();
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return null;
+    }
+    var edgeClass = schema.getClassInternal(edgeClassName);
+    if (edgeClass == null) {
+      return null;
+    }
+    var targetPropName = "in".equals(direction) ? "out" : "in";
+    var prop = edgeClass.getPropertyInternal(targetPropName);
+    if (prop == null || prop.getLinkedClass() == null) {
+      return null;
+    }
+    return prop.getLinkedClass().getName();
+  }
+
+  /**
+   * Resolves a class name to the set of collection (cluster) IDs for that class
+   * and all its subclasses. Returns {@code null} if the class is not found.
+   */
+  @Nullable private static it.unimi.dsi.fastutil.ints.IntSet resolveClassToCollectionIds(
+      String className, SelectExecutionPlan plan) {
+    var ctx = plan.getContext();
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = schema.getClass(className);
+    if (schemaClass == null) {
+      return null;
+    }
+    return TraversalPreFilterHelper.collectionIdsForClass(schemaClass);
   }
 
   /** Returns {@code true} if the ORDER BY is exactly {@code ORDER BY @rid DESC}. */

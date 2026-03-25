@@ -166,7 +166,7 @@ public class SQLGetInternalPropertyExpression extends SQLExpression {
 
   @Override
   @Nullable
-  List<String> getMatchPatternInvolvedAliases() {
+  public List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
 

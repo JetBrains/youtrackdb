@@ -320,7 +320,52 @@ public class IndexSearchDescriptor {
     return getSubBlocks().size();
   }
 
-  protected Index getIndex() {
+  /**
+   * Estimates the number of matching rows using persistent index statistics
+   * and the histogram. Returns {@code -1} if estimation is not possible
+   * (no key condition, no statistics, non-constant values, or unsupported
+   * operators).
+   *
+   * <p>Used by the plan-time histogram gate to reject index pre-filters
+   * whose estimated result size exceeds the adaptive threshold.
+   */
+  public long estimateHits(CommandContext ctx) {
+    if (keyCondition == null) {
+      return -1;
+    }
+    var session = ctx.getDatabaseSession();
+    var indexStats = index.getStatistics(session);
+    if (indexStats == null || indexStats.totalCount() == 0) {
+      return -1;
+    }
+    var histogram = index.getHistogram(session);
+
+    var subBlocks = getSubBlocks();
+    var leadingField = index.getDefinition().getProperties().getFirst();
+
+    double selectivity = estimateBlockSelectivity(
+        subBlocks.getFirst(), leadingField, indexStats, histogram, ctx);
+    if (selectivity < 0) {
+      return -1;
+    }
+
+    if (additionalRangeCondition != null && subBlocks.size() == 1) {
+      double rangeSel = estimateCombinedRange(
+          subBlocks.getFirst(), additionalRangeCondition,
+          indexStats, histogram, ctx);
+      if (rangeSel >= 0) {
+        selectivity = rangeSel;
+      }
+    }
+
+    for (int i = 1; i < subBlocks.size(); i++) {
+      selectivity *= SelectivityEstimator.defaultSelectivity();
+    }
+
+    return Math.max(1, (long) (indexStats.totalCount() * selectivity));
+  }
+
+  public Index getIndex() {
     return index;
   }
 

@@ -59,6 +59,7 @@ public class OptionalMatchStep extends MatchStep {
     result.append("{").append(edge.edge.out.alias).append("}");
     result.append(edge.edge.item.getMethod());
     result.append("{").append(edge.edge.in.alias).append("}");
+    appendIntersectionDescriptor(result);
     return result.toString();
   }
 }

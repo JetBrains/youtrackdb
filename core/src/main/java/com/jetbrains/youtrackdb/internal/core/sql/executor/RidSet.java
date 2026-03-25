@@ -27,6 +27,7 @@ public class RidSet implements Set<RID> {
 
   protected final Int2ObjectOpenHashMap<Roaring64Bitmap> content;
   protected final Set<RID> negatives;
+  private int cachedSize;
 
   public RidSet() {
     content = new Int2ObjectOpenHashMap<>();
@@ -42,11 +43,7 @@ public class RidSet implements Set<RID> {
 
   @Override
   public int size() {
-    long total = negatives.size();
-    for (var bitmap : content.values()) {
-      total += bitmap.getLongCardinality();
-    }
-    return total <= Integer.MAX_VALUE ? (int) total : Integer.MAX_VALUE;
+    return cachedSize;
   }
 
   @Override
@@ -115,7 +112,11 @@ public class RidSet implements Set<RID> {
     var collection = identifiable.getCollectionId();
     var position = identifiable.getCollectionPosition();
     if (collection < 0 || position < 0) {
-      return negatives.add(identifiable);
+      if (negatives.add(identifiable)) {
+        cachedSize++;
+        return true;
+      }
+      return false;
     }
 
     var bitmap = content.get(collection);
@@ -127,6 +128,7 @@ public class RidSet implements Set<RID> {
     var existed = bitmap.contains(position);
     if (!existed) {
       bitmap.addLong(position);
+      cachedSize++;
     }
     return !existed;
   }
@@ -139,7 +141,11 @@ public class RidSet implements Set<RID> {
     var collection = identifiable.getCollectionId();
     var position = identifiable.getCollectionPosition();
     if (collection < 0 || position < 0) {
-      return negatives.remove(o);
+      if (negatives.remove(o)) {
+        cachedSize--;
+        return true;
+      }
+      return false;
     }
 
     var bitmap = content.get(collection);
@@ -150,6 +156,7 @@ public class RidSet implements Set<RID> {
     var existed = bitmap.contains(position);
     if (existed) {
       bitmap.removeLong(position);
+      cachedSize--;
       if (bitmap.isEmpty()) {
         content.remove(collection);
       }
@@ -198,5 +205,55 @@ public class RidSet implements Set<RID> {
   public void clear() {
     content.clear();
     negatives.clear();
+    cachedSize = 0;
+  }
+
+  /**
+   * Computes the intersection of two {@link RidSet}s directly at the bitmap
+   * level, avoiding per-element iteration and intermediate {@link RID}
+   * object allocation. Uses {@link Roaring64Bitmap#and} for each shared
+   * collection ID.
+   *
+   * @return intersection result, or {@code null} if both inputs are {@code null}
+   */
+  @Nullable public static RidSet intersect(@Nullable RidSet a, @Nullable RidSet b) {
+    if (a == null) {
+      return b;
+    }
+    if (b == null) {
+      return a;
+    }
+
+    var result = new RidSet();
+
+    // Bitmap-level intersection per collection ID
+    var smaller = a.content.size() <= b.content.size() ? a : b;
+    var larger = a.content.size() <= b.content.size() ? b : a;
+    for (var entry : smaller.content.int2ObjectEntrySet()) {
+      var collectionId = entry.getIntKey();
+      var otherBitmap = larger.content.get(collectionId);
+      if (otherBitmap != null) {
+        var intersection = Roaring64Bitmap.and(entry.getValue(), otherBitmap);
+        if (!intersection.isEmpty()) {
+          result.content.put(collectionId, intersection);
+        }
+      }
+    }
+
+    // Intersect negative RIDs (fallback to HashSet intersection)
+    for (var rid : a.negatives) {
+      if (b.negatives.contains(rid)) {
+        result.negatives.add(rid);
+      }
+    }
+
+    // Compute cached size from the freshly built bitmaps (done once).
+    long total = result.negatives.size();
+    for (var bitmap : result.content.values()) {
+      total += bitmap.getLongCardinality();
+    }
+    result.cachedSize = total <= Integer.MAX_VALUE ? (int) total : Integer.MAX_VALUE;
+
+    return result;
   }
 }
