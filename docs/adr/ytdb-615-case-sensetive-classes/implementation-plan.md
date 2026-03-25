@@ -216,7 +216,7 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > remaining test fixes (tests module, HookReadTest, StorageBackupMTStateTest)
   > plus any tests broken by Track 2's index changes.
 
-- [ ] Track 2: Index name and IndexManager — case-sensitive names
+- [x] Track 2: Index name and IndexManager — case-sensitive names
   > Remove `toLowerCase()` from index-name map keys in `ImmutableSchema` and
   > from class-name keys in the `classPropertyIndex` map in
   > `IndexManagerAbstract` / `IndexManagerEmbedded`.
@@ -242,6 +242,20 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   >
   > **Scope:** ~3 steps covering ImmutableSchema index changes,
   > IndexManagerAbstract/Embedded changes, and verification
+  >
+  > **Track episode:**
+  > Removed all `toLowerCase(Locale.ROOT)` from index-name map keys in
+  > ImmutableSchema and class-name keys in classPropertyIndex across
+  > IndexManagerAbstract and IndexManagerEmbedded (7 call sites, 3 files).
+  > Switched 3 `equalsIgnoreCase()` calls to `equals()` in index-layer
+  > security filters and DatabaseImport. Key discovery:
+  > `SecurityResourceProperty.getClassName()` returns null when allClasses is
+  > true — added `isAllClasses()` guard to both security filter sites (latent
+  > NPE fix). Three test gap findings (TC2/TC3/TC4) deferred to Track 3:
+  > security filter wildcard tests, DatabaseImport equals test, index name
+  > round-trip persistence test. No cross-track impact on remaining tracks.
+  >
+  > **Step file:** `tracks/track-2.md` (2 steps, 0 failed)
 
 - [ ] Track 3: Test fixes
   > Update all tests that rely on case-insensitive class or index name
