@@ -149,13 +149,9 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // slotPropertyIndex maps each slot to the property index (-1 if empty).
     byte[] slotArray = new byte[capacity * SLOT_SIZE];
     int[] slotPropertyIndex = new int[capacity];
-    // Fill slot array with empty sentinels (0xFF for hash8, 0xFFFF for offset)
-    for (int s = 0; s < capacity; s++) {
-      int base = s * SLOT_SIZE;
-      slotArray[base] = EMPTY_HASH8;
-      slotArray[base + 1] = (byte) (EMPTY_OFFSET & 0xFF);
-      slotArray[base + 2] = (byte) ((EMPTY_OFFSET >>> 8) & 0xFF);
-    }
+    // All sentinel bytes are 0xFF (EMPTY_HASH8 = 0xFF, EMPTY_OFFSET = 0xFFFF),
+    // so a single fill covers hash8 + offset fields for every slot.
+    Arrays.fill(slotArray, (byte) 0xFF);
     Arrays.fill(slotPropertyIndex, -1);
 
     // Insert each property via linear probing — write hash8 directly into slotArray
