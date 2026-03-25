@@ -319,4 +319,4 @@ flowchart LR
   > **Strategy refresh:** CONTINUE — all tracks complete, no downstream impact.
 
 ## Final Design Document
-- [ ] Phase 4: Final design document (`design-final.md`)
+- [>] Phase 4: Final design document (`design-final.md`)
