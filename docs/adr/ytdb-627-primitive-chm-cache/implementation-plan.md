@@ -277,75 +277,24 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
-- [ ] Track 2: Integration into LockFreeReadCache and WTinyLFUPolicy
+- [x] Track 2: Integration into LockFreeReadCache and WTinyLFUPolicy
   > Replace `ConcurrentHashMap<PageKey, CacheEntry>` with
   > `ConcurrentLongIntHashMap<CacheEntry>` in `LockFreeReadCache` and update
   > all dependent code.
   >
-  > **What**: Swap the map type, eliminate all `PageKey` allocations on the hot
-  > path, update `WTinyLFUPolicy` and `CacheEntry` interface, replace
-  > `clearFile()` loop with `removeByFileId()`.
+  > **Track episode:**
+  > Replaced `ConcurrentHashMap<PageKey, CacheEntry>` with
+  > `ConcurrentLongIntHashMap<CacheEntry>` in `LockFreeReadCache` and
+  > `WTinyLFUPolicy`, eliminating all `PageKey` allocations on the hot read
+  > path. Key discoveries: (1) `N_CPU << 1` is not guaranteed power-of-two —
+  > fixed by wrapping with `ceilingPowerOfTwo()` (plan incorrectly stated map
+  > constructor aligns section count internally); (2) removing `filledUpTo`
+  > parameter from `clearFile()` was a natural consequence of
+  > `removeByFileId()` — simplified `deleteStorage`/`closeStorage` callers.
+  > No cross-track impact — Track 3 (stress tests) can proceed as planned
+  > against the integrated system.
   >
-  > **How**:
-  > - Replace `data` field type in `LockFreeReadCache`
-  > - Update `doLoad()` and `silentLoadForRead()`: pass `(fileId, pageIndex)`
-  >   directly instead of constructing `PageKey`
-  > - Update `addNewPagePointerToTheCache()`: use
-  >   `data.putIfAbsent(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry)`
-  >   instead of `data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry)`
-  > - Update `releaseFromWrite()`: use `data.compute(fileId, pageIndex, fn)`
-  >   instead of `data.compute(entry.getPageKey(), fn)`
-  > - Update `clearFile()`: replace the per-page loop with
-  >   `data.removeByFileId(fileId)` which returns removed entries as a list
-  >   (collected during the sweep, consumer invoked *after* the segment write
-  >   lock is released — see Lock Ordering below). Then iterate the returned
-  >   entries under the eviction lock to perform per-entry: `freeze()` (throwing
-  >   `StorageException` if entry is in use — preserving current failure mode),
-  >   `policy.onRemove()`, `cacheSize.decrementAndGet()`, and
-  >   `writeCache.checkCacheOverflow()`.
-  > - **Lock ordering and reentrancy for removeByFileId**: the consumer callback
-  >   (`freeze`, `onRemove`, `checkCacheOverflow`) must NOT run under a segment
-  >   write lock because `StampedLock` is not reentrant — `checkCacheOverflow()`
-  >   or `onRemove()` could re-enter the map, causing deadlock. The current
-  >   `clearFile()` calls `data.remove()` which acquires/releases the segment
-  >   lock per entry, then does freeze/onRemove/checkCacheOverflow outside the
-  >   lock. The new design preserves this by having `removeByFileId` collect
-  >   entries and return them, with the caller processing entries after the
-  >   segment lock is released. Two API options: (a) return a `List<V>`, or
-  >   (b) accept a consumer but invoke it after `writeUnlock()` per segment.
-  > - Update `WTinyLFUPolicy`: change constructor to accept
-  >   `ConcurrentLongIntHashMap<CacheEntry>`, update `purgeEden()` eviction
-  >   calls, update `assertConsistency()` iteration
-  > - Update `CacheEntryImpl`: store `long fileId` and `int pageIndex` directly,
-  >   remove `PageKey` field
-  > - Remove `getPageKey()` from `CacheEntry` interface and all implementors
-  >   (`CacheEntryImpl`, `CacheEntryChanges`)
-  > - Delete `chm.PageKey` record class
-  > - Update frequency sketch keying in `WTinyLFUPolicy.onAccess/onAdd` to use
-  >   the static hash utility
-  >
-  > **Constraints**:
-  > - `clearFile()` must still call `freeze()` (with `StorageException` on
-  >   failure), `policy.onRemove()`, and `writeCache.checkCacheOverflow()` per
-  >   entry under eviction lock — only the map removal pattern changes
-  > - `releaseFromWrite()` compute must hold segment lock during
-  >   `writeCache.store()` — same virtual-lock pattern as before
-  > - `silentLoadForRead()` uses `compute()` returning null as a lock-only
-  >   mechanism — the entry is NOT inserted into the map. The new
-  >   `ConcurrentLongIntHashMap.compute()` must support the remapping function
-  >   returning null (meaning "do not insert / keep slot empty")
-  > - `CacheEntryChanges.getPageKey()` delegation must also be removed
-  > - All existing tests must pass without modification (apart from test code
-  >   that directly references `PageKey`)
-  >
-  > **Interactions**: depends on Track 1 for the `ConcurrentLongIntHashMap`
-  > class and its full API.
-  >
-  > **Scope:** ~5-6 steps covering data field replacement + constructor,
-  > hot-path methods (doLoad/silentLoadForRead), write-path methods
-  > (addNewPage/releaseFromWrite), WTinyLFUPolicy update,
-  > clearFile + removeByFileId integration, CacheEntry interface cleanup +
-  > PageKey deletion
+  > **Step file:** `tracks/track-2.md` (4 steps, 0 failed)
   >
   > **Depends on:** Track 1
 
