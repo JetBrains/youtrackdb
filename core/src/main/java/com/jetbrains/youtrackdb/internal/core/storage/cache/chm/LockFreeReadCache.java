@@ -597,7 +597,7 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      var entries = new ArrayList<CacheEntry>();
+      var entries = new ArrayList<CacheEntry>(cacheSize.get());
       data.forEachValue(entries::add);
 
       for (final var entry : entries) {
