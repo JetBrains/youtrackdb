@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation
 - [ ] Track-level code review
 
 ## Base commit
@@ -140,7 +140,8 @@
   > **Key files:** `SQLBinaryCondition.java` (modified),
   > `SQLBinaryConditionInPlaceTest.java` (modified)
 
-- [ ] Step 3: MATCH and edge case integration tests
+- [x] Step 3: MATCH and edge case integration tests
+  - [x] Context: info
   Comprehensive SQL-level integration tests ensuring end-to-end correctness
   across both query engines (SELECT and MATCH) and edge cases.
 
@@ -160,3 +161,10 @@
 
   **Files**: test class only (no production code changes)
   **Tests**: focused on breadth of coverage across query patterns and data types
+
+  > **What was done:** Added 7 integration tests: 3 MATCH queries (equality,
+  > range, not-equal), 1 MATCH with graph traversal + WHERE, 1 MATCH with
+  > multiple WHERE conditions, 1 non-entity projection (verifies pass-through),
+  > 1 schema-less property test. 25 total tests across all 3 steps.
+  >
+  > **Key files:** `SQLBinaryConditionInPlaceTest.java` (modified)
