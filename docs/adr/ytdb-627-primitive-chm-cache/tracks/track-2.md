@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -82,25 +82,22 @@ Key decisions from reviews that affect step implementation:
   > **Key files:** `LockFreeReadCache.java` (modified), `WTinyLFUPolicy.java` (modified),
   > `WTinyLFUPolicyTest.java` (modified)
 
-- [ ] Step 3: clearFile → removeByFileId integration
-  > **Files:** `LockFreeReadCache.java`
+- [x] Step 3: clearFile → removeByFileId integration
+  > **What was done:** Replaced clearFile() per-page loop with
+  > `data.removeByFileId(fileId)` bulk sweep. Post-removal processing (freeze,
+  > onRemove, checkCacheOverflow) runs after segment locks released. Removed
+  > `filledUpTo` parameter from clearFile and all callers (truncateFile,
+  > closeFile, deleteFile, deleteStorage, closeStorage). Simplified deleteStorage
+  > and closeStorage — no longer pre-collect filledUpTo into RawPairLongInteger
+  > lists. Removed unused RawPairLongInteger and List imports.
   >
-  > Replace the per-page loop in `clearFile()` with `data.removeByFileId(fileId)`.
-  > Process returned `List<CacheEntry>` entries under eviction lock: for each entry,
-  > call `freeze()` (throws `StorageException` if in use — preserving current failure
-  > mode), `policy.onRemove()`, `cacheSize.decrementAndGet()`, and
-  > `writeCache.checkCacheOverflow()`.
+  > **What was discovered:** Removing the `filledUpTo` parameter was a natural
+  > consequence — removeByFileId finds all entries by file regardless of page
+  > count. The semantic change (remove ALL vs only 0..filledUpTo) is safe because
+  > the cache only contains entries for pages that exist. Review confirmed no
+  > new bugs; partial failure behavior during post-removal freeze is pre-existing.
   >
-  > This changes the removal pattern from O(filledUpTo) hash probes (most misses) to
-  > O(segment-capacity) linear sweep per segment. All entries removed in bulk, then
-  > processed sequentially (review decision #8 — overflow check timing change is
-  > acceptable).
-  >
-  > Add code comment documenting: (a) entries processed after segment lock release
-  > to avoid StampedLock reentrancy deadlock, (b) concurrent re-insertion precondition
-  > — clearFile assumes no concurrent doLoad for the same fileId (review decision #9).
-  >
-  > **Compiles, all tests pass.** Focused single-method optimization.
+  > **Key files:** `LockFreeReadCache.java` (modified)
 
 - [ ] Step 4: CacheEntry interface cleanup + PageKey deletion
   > **Files:** `CacheEntry.java`, `CacheEntryImpl.java`,
