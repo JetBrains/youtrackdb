@@ -72,6 +72,7 @@ import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.InPlaceComparator;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
@@ -582,29 +583,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * Compare against the serialized bytes in source using InPlaceComparator (equality check).
    */
   private InPlaceResult compareFromSource(String name, Object value) {
-    if (value == null) {
-      return InPlaceResult.FALLBACK;
-    }
-    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
-      return InPlaceResult.FALLBACK;
-    }
-
-    var schemaClass = getImmutableSchemaClass(session);
-    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(source[0]);
-    var bytes = new BytesContainer(source, 1);
-    var encryption = propertyEncryption;
-    var field = serializer.deserializeField(
-        session, bytes, schemaClass, name, isEmbedded(),
-        session.getMetadata().getImmutableSchemaSnapshot(), encryption);
-
+    var field = deserializeFieldForComparison(name, value);
     if (field == null) {
       return InPlaceResult.FALLBACK;
     }
-    if (field.collate != null && !(field.collate instanceof DefaultCollate)) {
-      return InPlaceResult.FALLBACK;
-    }
-
     var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+    // InPlaceComparator.isEqual returns 1 for equal, 0 for not equal
     var result = InPlaceComparator.isEqual(field, value, dbTimeZone);
     if (result.isEmpty()) {
       return InPlaceResult.FALLBACK;
@@ -616,105 +600,60 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * Compare against the serialized bytes in source using InPlaceComparator (ordering).
    */
   private OptionalInt compareFromSourceOrdering(String name, Object value) {
-    if (value == null) {
-      return OptionalInt.empty();
-    }
-    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
-      return OptionalInt.empty();
-    }
-
-    var schemaClass = getImmutableSchemaClass(session);
-    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(source[0]);
-    var bytes = new BytesContainer(source, 1);
-    var encryption = propertyEncryption;
-    var field = serializer.deserializeField(
-        session, bytes, schemaClass, name, isEmbedded(),
-        session.getMetadata().getImmutableSchemaSnapshot(), encryption);
-
+    var field = deserializeFieldForComparison(name, value);
     if (field == null) {
       return OptionalInt.empty();
     }
-    if (field.collate != null && !(field.collate instanceof DefaultCollate)) {
-      return OptionalInt.empty();
-    }
-
     var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
     return InPlaceComparator.compare(field, value, dbTimeZone);
   }
 
   /**
-   * Type-aware equality comparison of two Java values, using the same semantics as
-   * InPlaceComparator (Float.compare, BigDecimal.compareTo, etc.).
+   * Shared setup for source-bytes comparison: validates preconditions, locates the field
+   * in the serialized record, and checks collation. Returns null if any guard fails.
    */
-  @SuppressWarnings("unchecked")
-  private static InPlaceResult compareJavaValues(
-      PropertyTypeInternal type, Object entryValue, Object value) {
-    try {
-      return switch (type) {
-        case INTEGER, LONG, SHORT, BYTE -> {
-          if (!(entryValue instanceof Number entryNum) || !(value instanceof Number valNum)) {
-            yield InPlaceResult.FALLBACK;
-          }
-          // Compare as longs to handle cross-type (Integer vs Long, etc.)
-          yield Long.compare(entryNum.longValue(), valNum.longValue()) == 0
-              ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-        }
-        case FLOAT -> {
-          if (!(entryValue instanceof Float f) || !(value instanceof Number n)) {
-            yield InPlaceResult.FALLBACK;
-          }
-          if (value instanceof Double d) {
-            yield Double.compare(f, d) == 0
-                ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-          }
-          yield Float.compare(f, n.floatValue()) == 0
-              ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-        }
-        case DOUBLE -> {
-          if (!(entryValue instanceof Double d) || !(value instanceof Number n)) {
-            yield InPlaceResult.FALLBACK;
-          }
-          yield Double.compare(d, n.doubleValue()) == 0
-              ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-        }
-        case DECIMAL -> {
-          if (!(entryValue instanceof BigDecimal bd)) {
-            yield InPlaceResult.FALLBACK;
-          }
-          BigDecimal converted;
-          if (value instanceof BigDecimal bdv) {
-            converted = bdv;
-          } else if (value instanceof Number n) {
-            if (n instanceof Double || n instanceof Float) {
-              converted = BigDecimal.valueOf(n.doubleValue());
-            } else {
-              converted = BigDecimal.valueOf(n.longValue());
-            }
-          } else {
-            yield InPlaceResult.FALLBACK;
-          }
-          yield bd.compareTo(converted) == 0
-              ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-        }
-        default -> {
-          if (entryValue instanceof Comparable c) {
-            try {
-              yield c.compareTo(value) == 0
-                  ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-            } catch (ClassCastException e) {
-              yield InPlaceResult.FALLBACK;
-            }
-          }
-          yield entryValue.equals(value) ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-        }
-      };
-    } catch (Exception e) {
-      return InPlaceResult.FALLBACK;
+  @Nullable private BinaryField deserializeFieldForComparison(String name, Object value) {
+    if (value == null) {
+      return null;
     }
+    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
+      return null;
+    }
+
+    var schemaClass = getImmutableSchemaClass(session);
+    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(source[0]);
+    var bytes = new BytesContainer(source, 1);
+    var field = serializer.deserializeField(
+        session, bytes, schemaClass, name, isEmbedded(),
+        session.getMetadata().getImmutableSchemaSnapshot(), propertyEncryption);
+
+    if (field == null) {
+      return null;
+    }
+    if (field.collate != null && !(field.collate instanceof DefaultCollate)) {
+      return null;
+    }
+    return field;
   }
 
   /**
-   * Type-aware ordering comparison of two Java values.
+   * Type-aware equality comparison of two Java values. Delegates to
+   * {@link #compareJavaValuesOrdering} and maps the result.
+   */
+  private static InPlaceResult compareJavaValues(
+      PropertyTypeInternal type, Object entryValue, Object value) {
+    var cmp = compareJavaValuesOrdering(type, entryValue, value);
+    if (cmp.isEmpty()) {
+      return InPlaceResult.FALLBACK;
+    }
+    return cmp.getAsInt() == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+  }
+
+  /**
+   * Type-aware ordering comparison of two Java values, using the same semantics as
+   * InPlaceComparator (Float.compare, BigDecimal.compareTo, etc.). Float/Double values
+   * are rejected for integer types to match InPlaceComparator's fallback behavior.
+   * byte[] uses Arrays.compare since byte[] does not implement Comparable.
    */
   @SuppressWarnings("unchecked")
   private static OptionalInt compareJavaValuesOrdering(
@@ -723,6 +662,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return switch (type) {
         case INTEGER, LONG, SHORT, BYTE -> {
           if (!(entryValue instanceof Number entryNum) || !(value instanceof Number valNum)) {
+            yield OptionalInt.empty();
+          }
+          // Float/Double -> integer: fall back to match InPlaceComparator behavior
+          if (valNum instanceof Float || valNum instanceof Double) {
             yield OptionalInt.empty();
           }
           yield OptionalInt.of(Long.compare(entryNum.longValue(), valNum.longValue()));
@@ -760,12 +703,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
           }
           yield OptionalInt.of(bd.compareTo(converted));
         }
+        case BINARY -> {
+          // byte[] does not implement Comparable; use Arrays.compare
+          if (entryValue instanceof byte[] entryBytes && value instanceof byte[] valBytes) {
+            yield OptionalInt.of(java.util.Arrays.compare(entryBytes, valBytes));
+          }
+          yield OptionalInt.empty();
+        }
         case LINK -> OptionalInt.empty(); // ordering not supported for LINKs
         default -> {
           if (entryValue instanceof Comparable c) {
             try {
               yield OptionalInt.of(c.compareTo(value));
             } catch (ClassCastException e) {
+              // compareTo type mismatch — fall back
               yield OptionalInt.empty();
             }
           }
