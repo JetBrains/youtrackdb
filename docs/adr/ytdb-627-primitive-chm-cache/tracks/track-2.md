@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -64,61 +64,23 @@ Key decisions from reviews that affect step implementation:
   > **Key files:** `CacheEntryImpl.java` (modified), `ConcurrentLongIntHashMap.java`
   > (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
-- [ ] Step 2: Core swap — data field type + LockFreeReadCache + WTinyLFUPolicy + tests
-  > **Files:** `LockFreeReadCache.java`, `WTinyLFUPolicy.java`,
-  > `WTinyLFUPolicyTest.java`
+- [x] Step 2: Core swap — data field type + LockFreeReadCache + WTinyLFUPolicy + tests
+  > **What was done:** Atomic big-bang swap of `ConcurrentHashMap<PageKey, CacheEntry>`
+  > to `ConcurrentLongIntHashMap<CacheEntry>` in LockFreeReadCache and WTinyLFUPolicy.
+  > All call sites updated: doLoad(), silentLoadForRead(), addNewPagePointerToTheCache(),
+  > releaseFromWrite(), clear(), clearFile(). WTinyLFUPolicy: constructor, onAccess(),
+  > onAdd(), purgeEden(), assertConsistency() all migrated. WTinyLFUPolicyTest: all 12
+  > test methods updated (PageKey → primitive API, mock stubs use hashForFrequencySketch).
+  > clearFile() still uses per-page loop — removeByFileId deferred to Step 3.
   >
-  > This is the atomic big-bang swap — changing `data` type breaks all call sites
-  > simultaneously, so all must be updated in one commit.
+  > **What was discovered:** Review found critical bug: `N_CPU << 1` is not guaranteed
+  > to be a power of two (e.g., 6 CPUs → 12), but `ConcurrentLongIntHashMap` requires
+  > power-of-two section count. Fixed by wrapping with `ceilingPowerOfTwo()`. The plan's
+  > review decision #5 incorrectly stated "constructor aligns to power of two internally"
+  > — it only aligns per-section capacity, not section count.
   >
-  > **LockFreeReadCache changes:**
-  > - Replace `data` field: `ConcurrentHashMap<PageKey, CacheEntry>` →
-  >   `ConcurrentLongIntHashMap<CacheEntry>`
-  > - Update constructor: `new ConcurrentLongIntHashMap<>(maxCacheSize, N_CPU << 1)`
-  >   (review decision #5 — match CHM concurrency level)
-  > - `doLoad()` (line 217): remove `new PageKey(...)`, use `data.get(fileId, pageIndex)`
-  >   and `data.compute(fileId, pageIndex, fn)`. In compute lambda, use outer-scope
-  >   captured variables consistently (review decision #3). Add comment explaining
-  >   lambda parameters are identical to captured variables.
-  > - `silentLoadForRead()` (line 159): same pattern as doLoad
-  > - `addNewPagePointerToTheCache()` (line 307): use
-  >   `data.putIfAbsent(entry.getFileId(), entry.getPageIndex(), entry)`
-  > - `releaseFromWrite()` (line 349): use
-  >   `data.compute(entry.getFileId(), entry.getPageIndex(), fn)`. Add comment
-  >   documenting virtual-lock pattern (review decision #10).
-  > - `clear()` (line 540): collect entries via `data.forEachValue()` into a list,
-  >   then iterate for freeze/onRemove/clear. `StorageException` is unchecked and
-  >   propagates through Consumer (review decision #1).
-  > - `clearFile()` (line 625): temporarily keep per-page loop pattern using
-  >   `data.remove(fileId, pageIndex)` — removeByFileId deferred to step 3.
-  >   Remove `new PageKey(...)` allocation.
-  > - `size()` returns `long` from new map — auto-widens safely (review decision T4).
-  >
-  > **WTinyLFUPolicy changes:**
-  > - Constructor: accept `ConcurrentLongIntHashMap<CacheEntry>` instead of
-  >   `ConcurrentHashMap<PageKey, CacheEntry>`
-  > - `onAccess()` (line 58): replace `cacheEntry.getPageKey().hashCode()` with
-  >   `ConcurrentLongIntHashMap.hashForFrequencySketch(cacheEntry.getFileId(), cacheEntry.getPageIndex())`
-  > - `onAdd()` (line 83): same hash replacement
-  > - `purgeEden()` (lines 110-111, 121, 137): replace `getPageKey().hashCode()` for
-  >   frequency comparisons, replace `data.remove(victim.getPageKey(), victim)` with
-  >   `data.remove(victim.getFileId(), victim.getPageIndex(), victim)`
-  > - `assertConsistency()` (line 201): replace `data.values()` iteration with
-  >   `forEachValue` collection pattern. Replace `data.get(cacheEntry.getPageKey())`
-  >   with `data.get(cacheEntry.getFileId(), cacheEntry.getPageIndex())`
-  > - `assertSize()` (line 197): `data.size()` returns `long` — comparison auto-widens
-  >
-  > **WTinyLFUPolicyTest changes:**
-  > - Replace all `ConcurrentHashMap<PageKey, CacheEntry>` with
-  >   `ConcurrentLongIntHashMap<CacheEntry>`
-  > - Replace all `data.put(new PageKey(f, p), entry)` with `data.put(f, p, entry)`
-  > - Replace all `data.remove(new PageKey(f, p), entry)` with
-  >   `data.remove(f, p, entry)`
-  > - Replace all mock stubs `admittor.frequency(new PageKey(f, p).hashCode())` with
-  >   `admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(f, p))`
-  > - Remove PageKey import
-  >
-  > **Compiles, all tests pass.** Every changed call site updated atomically.
+  > **Key files:** `LockFreeReadCache.java` (modified), `WTinyLFUPolicy.java` (modified),
+  > `WTinyLFUPolicyTest.java` (modified)
 
 - [ ] Step 3: clearFile → removeByFileId integration
   > **Files:** `LockFreeReadCache.java`
