@@ -5,9 +5,13 @@
 This document covers Phase 1 of the development workflow — iteratively
 developing an implementation plan. This is a single-session conversation
 with no agent teams — the user interacts directly with a single Claude Code
-session.
+session. Phase 1 is preceded by Phase 0 (Research) in the same session.
 
-- **Phase 1 (Planning):** Iteratively develop a plan with Claude's help.
+- **Phase 0 (Research):** See [`research.md`](research.md) — interactive
+  research and exploration. The agent answers questions, explores code, and
+  does internet research. Completes only when the user explicitly asks to
+  create the plan.
+- **Phase 1 (Planning):** Develop a plan informed by Phase 0 findings.
   Produce tracks with architecture notes, scope indicators, and design document.
 - **Phase 2 (Implementation Review):** See
   [`implementation-review.md`](implementation-review.md) — two-step review:
@@ -18,12 +22,14 @@ session.
 
 ```mermaid
 flowchart TD
-    P1["/create-plan\nPhase 1: Planning\nTracks + architecture notes\n+ design document"]
+    P0["/create-plan\nPhase 0: Research\nInteractive exploration\n+ code & internet research"]
+    P1["Phase 1: Planning\nTracks + architecture notes\n+ design document"]
     P2["/review-plan\nPhase 2: Implementation Review\n1. Consistency review (interactive)\n2. Structural review (automatic)"]
     P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
     P4["Phase 4: Final Design Document\nPost-implementation design\nCompare planned vs actual"]
     DONE((Done))
 
+    P0 -->|"user: create the plan"| P1
     P1 --> P2
     P2 -->|PASS| P3
     P2 -->|blockers persist| P1
@@ -54,9 +60,14 @@ prior tracks.
 
 Start a new Claude Code session and run `/create-plan` (optionally pass a
 branch name; if omitted, the current git branch is used). The command prompt
-is at `.claude/commands/create-plan.md`. Iterate with Claude until the plan
-is complete — ask for research, decomposition, risk analysis, dependency
-ordering, etc.
+is at `.claude/commands/create-plan.md`.
+
+The session begins with **Phase 0 (Research)** — an interactive exploration
+where you ask questions, request code investigation, and discuss trade-offs.
+The agent stays in research mode until you explicitly ask to create the plan
+(e.g., "create the plan", "let's plan this"). At that point, the agent
+transitions to Phase 1 (Planning) and produces the plan and design document,
+incorporating all findings and decisions from the research phase.
 
 ## Plan file structure
 
