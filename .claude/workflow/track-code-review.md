@@ -1,28 +1,44 @@
-# Track Execution — Phase C: Track-Level Code Review
+# Track Execution — Phase C: Code Review + Track Completion
 
-After all steps are committed, spawn **ten sub-agents in parallel** to review
-the full track diff. These are deliberately sub-agents — fresh eyes catch
-systematic issues that you (as the implementer) are blind to.
+After all steps are committed, review the full track diff using sub-agents.
+These are deliberately sub-agents — fresh eyes catch systematic issues that
+you (as the implementer) are blind to.
 
-**Five dimensional code review agents** (each reviews code from its own
-perspective):
-1. `review-code-quality` — code quality, conventions, readability
-2. `review-bugs-concurrency` — bugs, logic errors, concurrency, resource leaks
-3. `review-crash-safety` — WAL correctness, durability, crash recovery
-4. `review-security` — injection, auth, data exposure, dependencies
-5. `review-performance` — algorithmic complexity, allocations, lock contention
+After the review loop completes and any deferred findings are processed,
+this phase continues directly into track completion: compiling the track
+episode, presenting results to the user, and marking the track `[x]` upon
+approval. Merging code review and track completion into a single session
+ensures the agent has full context of which findings were fixed, which were
+deferred (and where), and what plan corrections were made — all of which
+feed into an accurate track episode.
 
-**Five dimensional test quality agents** (each reviews tests from its own
-perspective):
-6. `review-test-behavior` — behavior-driven quality, assertion precision, exception testing
-7. `review-test-completeness` — corner cases, boundary conditions, test data quality
-8. `review-test-structure` — isolation, independence, readability, documentation
-9. `review-test-concurrency` — concurrent behavior testing quality
-10. `review-test-crash-safety` — crash/recovery test quality, production assert statements
+---
 
-All ten reviews run against the same diff (`git diff {base_commit}..HEAD`)
-and produce independent findings. Launching them in parallel saves
-wall-clock time since they examine different aspects of the changes.
+## Single-Step Track: Skip Code Review, Proceed to Track Completion
+
+If the track has exactly **1 step**, the code review portion of Phase C is
+skipped — the step-level review in Phase B already covered the identical
+diff. There is no cross-step interaction to catch.
+
+1. Mark `Track-level code review` as `[x]` in the step file's Progress
+   section with a note: `(skipped — single-step track, fully reviewed
+   in Phase B)`.
+2. Commit the step file update.
+3. Skip directly to **Track Completion** (below) in the same session.
+
+---
+
+## Multi-Step Tracks
+
+Select review agents based on code characteristics (see
+[`review-agent-selection.md`](review-agent-selection.md)), then spawn them
+in parallel. Baseline agents (4) always run; conditional agents are added
+based on the track description and changed files across the full diff.
+
+All selected reviews run against the same diff
+(`git diff {base_commit}..HEAD`) and produce independent findings. Launching
+them in parallel saves wall-clock time since they examine different aspects
+of the changes.
 
 ---
 
@@ -73,29 +89,11 @@ Reviewing commit range: {base_commit}..HEAD
 {output of git diff {base_commit}..HEAD}
 ```
 
-### Five dimensional code review agents
+### Agent selection and launching
 
-Launch all five using the Agent tool with the respective `subagent_type`:
-
-| Agent | `subagent_type` | Finding prefix |
-|---|---|---|
-| Code quality | `review-code-quality` | `CQ1, CQ2, ...` |
-| Bugs & concurrency | `review-bugs-concurrency` | `BC1, BC2, ...` |
-| Crash safety | `review-crash-safety` | `CS1, CS2, ...` |
-| Security | `review-security` | `SE1, SE2, ...` |
-| Performance | `review-performance` | `PF1, PF2, ...` |
-
-### Five dimensional test quality agents
-
-Launch all five using the Agent tool with the respective `subagent_type`:
-
-| Agent | `subagent_type` | Finding prefix |
-|---|---|---|
-| Test behavior | `review-test-behavior` | `TB1, TB2, ...` |
-| Test completeness | `review-test-completeness` | `TC1, TC2, ...` |
-| Test structure | `review-test-structure` | `TS1, TS2, ...` |
-| Test concurrency | `review-test-concurrency` | `TX1, TX2, ...` |
-| Test crash safety | `review-test-crash-safety` | `TY1, TY2, ...` |
+Select agents per [`review-agent-selection.md`](review-agent-selection.md).
+Use the track description and `git diff {base_commit}..HEAD --name-only` to
+determine which conditional agents to include alongside the baseline.
 
 Each agent's prompt is:
 
@@ -105,17 +103,15 @@ Review the following code changes from your specialized perspective.
 {context block from above}
 ```
 
-### Launching all sub-agents
-
-**Launch all ten sub-agents in a single message** (parallel tool calls) to
-maximize efficiency. Wait for all to complete before proceeding to
+**Launch all selected sub-agents in a single message** (parallel tool calls)
+to maximize efficiency. Wait for all to complete before proceeding to
 synthesis.
 
 ---
 
 ## Synthesis
 
-After all ten sub-agents complete, produce a unified findings list:
+After all selected sub-agents complete, produce a unified findings list:
 
 1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a
    missing crash-recovery test flagged by both `review-test-crash-safety`
@@ -153,40 +149,109 @@ Iterate on the synthesized findings:
      review dimension(s) that had open findings. For example, if only
      crash-safety code findings and test-completeness findings remain,
      spawn only `review-crash-safety` and `review-test-completeness`.
-     If findings span all dimensions, re-run all ten.
-   - **Context consumption check** (after each iteration, except the
-     last): run `cat /tmp/claude-code-context-usage-$PPID.txt`. If the
-     level is `warning` (≥25%) or `critical` (≥40%), do NOT start the
-     next iteration. Save all work (update Progress section with current
+     If findings span all dimensions, re-run all originally selected agents.
+   - **Context consumption check** (mandatory after each iteration,
+     except the last): run
+     `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
+     `warning` (≥25%) or `critical` (≥40%), do NOT start the next
+     iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
-     (see workflow.md §Context Consumption Check). If the file does not
-     exist or the level is `safe`/`info`, continue to the next iteration.
+     (see workflow.md §Context Consumption Check). If the level is
+     `safe`/`info`, continue to the next iteration. If the file does
+     not exist or the command fails, this is **not an error** — treat
+     as `safe` and continue.
 2. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across all review dimensions (not
    independent counters).
 3. If blockers persist after 3 iterations, note them — they'll be presented
-   to the user during track review (workflow.md §Track Completion Protocol)
+   to the user during track completion (below).
 4. When all reviews pass (or max iterations reached), mark
    `Track-level code review` as `[x]` in the step file's Progress section.
    Commit this update.
 
 ---
 
-## Phase C Completion
+## Plan Corrections from Deferred Findings
 
-After all track-level reviews pass (or max iterations reached):
+During synthesis and the review loop, some findings may be **out of scope
+for the current track** — the issue is real but fixing it here would expand
+the track beyond its goals. After all in-scope fixes are applied and the
+review loop completes, process any deferred findings by updating the
+implementation plan:
 
-1. **Verify `Track-level code review` is marked `[x]`** and committed.
-2. **Inform the user** that Phase C is complete:
-   - Review outcomes across all code and test quality dimensions
-     (passed / passed with noted findings)
-   - Any unresolved findings to present during track completion
-   - Instruct: "Clear session and re-run `/execute-tracks` to complete
-     the track (write track episode, present results)."
-3. **End the session.** Do not proceed to track completion in the same
-   session.
+1. **Categorize** — for each finding you chose not to fix in the current
+   track, decide where the work belongs:
+   - An **existing future track** — if it fits that track's purpose, add
+     the item to that track's description. Update the scope indicator if
+     the addition meaningfully changes the expected step count.
+   - A **new separate track** — if no existing track covers the work, add
+     a new track to the plan's checklist with a description, scope
+     indicator, and dependency notation (typically depends on the current
+     track). Follow the same format as other tracks in the plan.
 
-The next session detects all phases `[x]` and enters the Track Completion
-Protocol (workflow.md): compiles the track episode, writes it to the plan
-file, marks the track `[x]`, and presents results to the user for approval.
+2. **Commit plan changes** — commit the updated `implementation-plan.md`
+   as a separate commit. Reference the finding IDs in the commit message
+   so the plan correction is traceable to the review that motivated it.
+
+If no findings were deferred, skip this section.
+
+---
+
+## Track Completion
+
+After the review loop completes and any plan corrections are committed,
+proceed directly to track completion **in the same session**.
+
+1. **Compile the track episode** from all step episodes in the step file.
+   The track episode is a strategic summary — what was built, key
+   discoveries, plan deviations with cross-track impact. If findings were
+   deferred to other tracks, mention the plan corrections and which
+   tracks were affected.
+
+2. **Present track results to the user** (do NOT write to plan file yet):
+   - Track episode (compiled but not yet persisted)
+   - All step episodes from the step file
+   - Git log of track commits
+   - Any unresolved track-level code review findings
+   - Plan corrections made (if any) — which findings were deferred and
+     where
+
+3. **Wait for user response:**
+   - **Approved** — proceed to step 4.
+   - **Fixes needed** — apply the user's specific fixes as additional
+     commits. Re-run track-level code review if fixes are substantial.
+     Re-compile the track episode if fixes changed outcomes.
+     Present updated results and wait again.
+   - **Fundamental rework** — trigger ESCALATE (see workflow.md
+     §Inline Replanning).
+
+4. **Write the track episode and mark `[x]`** in the plan file (single
+   commit, only after user approval):
+
+   ```markdown
+   - [x] Track N: <title>
+     > <description>
+     >
+     > **Track episode:**
+     > <strategic summary — length proportional to cross-track impact>
+     >
+     > **Step file:** `tracks/track-N.md` (M steps, K failed)
+   ```
+
+5. **Session ends.** Strategy refresh happens next session.
+
+**Why deferred write:** Writing the track episode and marking `[x]` before
+user approval creates a state that cannot be reliably resumed — if the
+session ends between marking `[x]` and receiving approval, the next session
+detects the track as complete (State A: strategy refresh needed) and skips
+user review entirely. By deferring the plan file write, an interrupted
+session simply re-enters track completion on resume (all phases `[x]` in
+the step file, track still `[ ]` in the plan file).
+
+**Why merge with code review:** Phase C's code review and track completion
+have no perspective conflict — unlike Phase B→C (where implementation
+context biases code review), here the reviewer mindset naturally feeds into
+the track episode. More importantly, Phase C may produce plan corrections
+(deferred findings → new or updated tracks), and the track episode must
+accurately reflect these. A separate session would lose this context.

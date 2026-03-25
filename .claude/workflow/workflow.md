@@ -24,13 +24,19 @@ The overall workflow has four stages:
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
 - **Phase B**: Step Implementation (`step-implementation.md`)
-- **Phase C**: Track-Level Code Review (`track-code-review.md`)
+- **Phase C**: Code Review + Track Completion (`track-code-review.md`)
 
 **Each session handles exactly one sub-phase of one track.** After completing
 a sub-phase, the session ends and the user re-runs `/execute-tracks` to
 start the next sub-phase with fresh context. This prevents context
 dilution — review context doesn't clutter implementation, and implementation
 context doesn't bias the code review.
+
+Phase C includes both the track-level code review and track completion
+(episode compilation, user approval, plan file update) in a single session.
+This ensures the agent retains full context of which findings were fixed,
+which were deferred to other tracks, and what plan corrections were made —
+all of which feed into an accurate track episode.
 
 Between sessions, the step file's **Progress** section and step episodes
 bridge context. The user clears the session and re-runs `/execute-tracks`
@@ -50,8 +56,7 @@ flowchart TD
     READ -->|"Track just completed\n(no strategy refresh yet)"| SR["Strategy Refresh\n(CONTINUE / ADJUST / ESCALATE)"]
     READ -->|"Fresh start"| PA["Phase A: Review +\nDecomposition"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
-    READ -->|"All steps done,\ncode review incomplete"| PC["Phase C: Track-Level\nCode Review"]
-    READ -->|"All phases done,\nplan not updated"| TC["Track Completion\nProtocol"]
+    READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
     READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nDesign Document"]
 
     SR -->|CONTINUE / ADJUST| PA
@@ -62,9 +67,9 @@ flowchart TD
 
     PA --> END_A["Session ends\n(Phase A complete)"]
     PB --> END_B["Session ends\n(Phase B complete)"]
-    PC --> END_C["Session ends\n(Phase C complete)"]
 
-    TC --> PRESENT["Present track results\nUser reviews"]
+    PC --> REVIEW["Code review\n+ plan corrections"]
+    REVIEW --> PRESENT["Present track results\nUser reviews"]
     PRESENT -->|Approved| END_TRACK["Session ends\n(track complete)"]
     PRESENT -->|"Fixes needed"| FIX["Apply fixes"] --> PRESENT
     PRESENT -->|"Fundamental rework"| REPLAN
@@ -73,7 +78,6 @@ flowchart TD
 
     END_A -->|"Next session"| START
     END_B -->|"Next session"| START
-    END_C -->|"Next session"| START
     END_TRACK -->|"Next session"| START
     END_P4 -->|"All done"| DONE["Workflow complete"]
 ```
@@ -103,8 +107,8 @@ perspective on cross-track impact.
 
    | Plan file state | Step file state | Session state |
    |---|---|---|
-   | Last `[x]` track has episode but no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
-   | All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
+   | Last completed/skipped track (`[x]` or `[~]`) has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
+   | All `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
    | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final design document) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
@@ -116,8 +120,8 @@ perspective on cross-track impact.
    | `Review + decomposition` is `[ ]` | Re-run only missing reviews, then decompose |
    | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
-   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration |
-   | All phases `[x]` | Track completion — compile episode, present to user for approval |
+   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
+   | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
 
    Each resume handles exactly **one phase** — end session after that phase.
 
@@ -172,7 +176,9 @@ Alert the user immediately with:
 - What assumption is weakened or invalidated
 - What the step discovered that triggered this alert
 - Recommended action:
-  - **Continue** (minor impact — note it, address during that track's review)
+  - **Continue** (minor impact — record in the step episode's **What was
+    discovered** field so strategy refresh and future track reviews can
+    see it; no user notification needed)
   - **Pause and ADJUST** (remaining steps in current track need revision)
   - **ESCALATE** (the discovery fundamentally changes the plan)
 
@@ -197,15 +203,13 @@ exactly one phase:
   tested, committed, and have episodes. `Step implementation` is marked
   `[x]`. Session ends. Next session starts Phase C.
 
-- **After Phase C (track-level code review)** — review is complete,
-  `Track-level code review` is marked `[x]`. Session ends. Next session
-  writes the track episode and presents results to the user.
-
-- **After track completion** — user approved, track episode written and
-  track marked `[x]` (single commit after approval). Session ends. Strategy
-  refresh happens in the next session. If session is interrupted before
-  user approval, the next session re-enters the Track Completion Protocol
-  (all phases `[x]` in step file, track still `[ ]` in plan file).
+- **After Phase C (code review + track completion)** — review is complete,
+  plan corrections committed (if any), user approved track results, track
+  episode written and track marked `[x]` (single commit after approval).
+  Session ends. Strategy refresh happens in the next session. If session
+  is interrupted before user approval, the next session re-enters Phase C
+  at the track completion stage (all phases `[x]` in step file, track
+  still `[ ]` in plan file).
 
 - **Mid-Phase B checkpoint** — if you've completed 5+ steps and the track
   has more steps remaining, suggest ending the session. The step file with
@@ -291,9 +295,9 @@ User interaction points:
 |---|---|---|
 | **Session start** | Auto-resume decision (which track, which phase) | Confirm or override |
 | **Strategy refresh** | Assessment report (CONTINUE / ADJUST / ESCALATE) | Accept or override |
-| **Phase complete** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
+| **Phase A/B complete** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
-| **Track complete** | Track episode, step episodes, git log of commits | Approve, request fixes, or rework |
+| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Approve, request fixes, or rework |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
 
@@ -341,50 +345,23 @@ propose → review → iterate cycle.
 
 ---
 
+## Track Skip (`[~]`)
+
+Triggered when a Phase A review sub-agent returns a `skip` severity finding
+or the user requests skipping a track at session start / during strategy
+refresh. Requires user confirmation — tracks are never skipped autonomously.
+
+**Full protocol:** [`track-skip.md`](track-skip.md)
+
+---
+
 ## Track Completion Protocol
 
-After track-level code review passes (or max iterations):
+Track completion is part of Phase C — it runs in the same session as the
+track-level code review, after the review loop and any plan corrections.
 
-1. **Compile the track episode** from all step episodes in the step file.
-   The track episode is a strategic summary — what was built, key
-   discoveries, plan deviations with cross-track impact.
-
-2. **Present track results to the user** (do NOT write to plan file yet):
-   - Track episode (compiled but not yet persisted)
-   - All step episodes from the step file
-   - Git log of track commits
-   - Any unresolved track-level code review findings
-
-3. **Wait for user response:**
-   - **Approved** — proceed to step 4.
-   - **Fixes needed** — apply the user's specific fixes as additional
-     commits. Re-run track-level code review if fixes are substantial.
-     Re-compile the track episode if fixes changed outcomes.
-     Present updated results and wait again.
-   - **Fundamental rework** — trigger ESCALATE.
-
-4. **Write the track episode and mark `[x]`** in the plan file (single
-   commit, only after user approval):
-
-   ```markdown
-   - [x] Track N: <title>
-     > <description>
-     >
-     > **Track episode:**
-     > <strategic summary — length proportional to cross-track impact>
-     >
-     > **Step file:** `tracks/track-N.md` (M steps, K failed)
-   ```
-
-5. **Session ends.** Strategy refresh happens next session.
-
-**Why deferred write:** Writing the track episode and marking `[x]` before
-user approval creates a state that cannot be reliably resumed — if the
-session ends between marking `[x]` and receiving approval, the next session
-detects the track as complete (State A: strategy refresh needed) and skips
-user review entirely. By deferring the plan file write, an interrupted
-session simply re-enters the Track Completion Protocol on resume (all
-phases `[x]` in the step file, track still `[ ]` in the plan file).
+**Full protocol:** [`track-code-review.md`](track-code-review.md) §Track
+Completion.
 
 ---
 
@@ -425,7 +402,7 @@ For other workflow components, see:
   resume (review fix, episode, step file updates)
 - **`track-review.md`** — Phase A: review + decomposition
 - **`step-implementation.md`** — Phase B: step implementation
-- **`track-code-review.md`** — Phase C: track-level code review
+- **`track-code-review.md`** — Phase C: code review + track completion
 - **`planning.md`** — Phase 1 (planning)
 - **`implementation-review.md`** — Phase 2 (implementation review: consistency + structural)
 - **`prompts/create-final-design.md`** — Phase 4 (final design document)
@@ -437,3 +414,5 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
+- **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
+- **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)

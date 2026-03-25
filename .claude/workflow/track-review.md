@@ -8,11 +8,11 @@ each executed in a **separate session**:
 1. **Phase A: Review + Decomposition** — this document (current session)
 2. **Phase B: Step Implementation** — see
    [`step-implementation.md`](step-implementation.md) (next session)
-3. **Phase C: Track-Level Code Review** — see
+3. **Phase C: Code Review + Track Completion** — see
    [`track-code-review.md`](track-code-review.md) (session after Phase B)
 
-After Phase C, the next session runs the Track Completion Protocol
-(see workflow.md) for user review.
+Phase C includes both the track-level code review and track completion
+(episode compilation, plan corrections, user approval) in a single session.
 
 ---
 
@@ -36,13 +36,15 @@ After Phase C, the next session runs the Track Completion Protocol
    - **Commit the review file and step file update together.** This ensures
      partial review progress survives session interruptions — the next
      session can skip completed reviews and only re-run missing ones.
-   - **Context consumption check** (after each review, except after the
-     last action of the phase): run
+   - **Context consumption check** (mandatory after each review, except
+     after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
      `warning` (≥25%) or `critical` (≥40%), do NOT start the next review
      or decomposition. Save all work and ask the user for a session
-     refresh (see workflow.md §Context Consumption Check). If the file
-     does not exist or the level is `safe`/`info`, continue.
+     refresh (see workflow.md §Context Consumption Check). If the level
+     is `safe`/`info`, continue. If the file does not exist or the
+     command fails, this is **not an error** — treat as `safe` and
+     continue.
 3. **Decompose scope indicators** into concrete steps
 4. **Write the step file** to `docs/adr/<dir-name>/tracks/track-N.md` with
    all steps as `[ ]` items. Mark `Review + decomposition` as `[x]` in the
