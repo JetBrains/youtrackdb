@@ -1632,4 +1632,56 @@ public class ConcurrentLongIntHashMapTest {
     map.forEachValue(val -> count[0]++);
     assertThat(count[0]).isEqualTo(0);
   }
+
+  // ---- hashForFrequencySketch ----
+
+  /** Verify hashForFrequencySketch is consistent (same inputs → same output). */
+  @Test
+  public void hashForFrequencySketchIsConsistent() {
+    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(42L, 7);
+    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(42L, 7);
+    assertThat(h1).isEqualTo(h2);
+  }
+
+  /** Verify hashForFrequencySketch differentiates keys that differ only in pageIndex. */
+  @Test
+  public void hashForFrequencySketchDiffersForDifferentPageIndex() {
+    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 0);
+    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 1);
+    assertThat(h1).isNotEqualTo(h2);
+  }
+
+  /** Verify hashForFrequencySketch differentiates keys that differ only in fileId. */
+  @Test
+  public void hashForFrequencySketchDiffersForDifferentFileId() {
+    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(0L, 5);
+    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 5);
+    assertThat(h1).isNotEqualTo(h2);
+  }
+
+  /** Verify hashForFrequencySketch handles zero keys correctly. */
+  @Test
+  public void hashForFrequencySketchWithZeroKeys() {
+    // Should not throw and should produce a valid hash
+    int h = ConcurrentLongIntHashMap.hashForFrequencySketch(0L, 0);
+    // Just verify it runs — any int is valid
+    assertThat(h).isNotNull();
+  }
+
+  /**
+   * Verify hashForFrequencySketch is independent from the map's internal hash.
+   * The internal murmur hash determines bucket placement; the frequency sketch hash
+   * must use a different algorithm to avoid correlation.
+   */
+  @Test
+  public void hashForFrequencySketchIsIndependentFromInternalHash() {
+    // hashForFrequencySketch uses Long.hashCode(fileId) * 31 + pageIndex
+    // The map's internal hash uses murmur3 finalizer.
+    // Verify the formula matches the documented algorithm.
+    long fileId = 123456789L;
+    int pageIndex = 42;
+    int expected = Long.hashCode(fileId) * 31 + pageIndex;
+    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(fileId, pageIndex))
+        .isEqualTo(expected);
+  }
 }

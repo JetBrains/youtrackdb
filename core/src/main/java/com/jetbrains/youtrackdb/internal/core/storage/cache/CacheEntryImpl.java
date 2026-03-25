@@ -58,6 +58,8 @@ public class CacheEntryImpl implements CacheEntry {
 
   private final boolean insideCache;
   private final ReadCache readCache;
+  private final long fileId;
+  private final int pageIndex;
   private final PageKey pageKey;
 
   public CacheEntryImpl(
@@ -78,6 +80,8 @@ public class CacheEntryImpl implements CacheEntry {
     this.dataPointer = dataPointer;
     this.insideCache = insideCache;
     this.readCache = readCache;
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
     this.pageKey = new PageKey(fileId, pageIndex);
   }
 
@@ -108,12 +112,12 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public long getFileId() {
-    return pageKey.fileId();
+    return fileId;
   }
 
   @Override
   public int getPageIndex() {
-    return pageKey.pageIndex();
+    return pageIndex;
   }
 
   @Override
@@ -313,12 +317,12 @@ public class CacheEntryImpl implements CacheEntry {
     if (!(o instanceof CacheEntryImpl that)) {
       return false;
     }
-    return this.pageKey.equals(that.pageKey);
+    return this.fileId == that.fileId && this.pageIndex == that.pageIndex;
   }
 
   @Override
   public int hashCode() {
-    return pageKey.hashCode();
+    return Long.hashCode(fileId) * 31 + pageIndex;
   }
 
   @Override
