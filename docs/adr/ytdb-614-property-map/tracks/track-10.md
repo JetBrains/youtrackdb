@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,30 +14,24 @@
 
 ## Steps
 
-- [ ] Step 1: Eliminate per-property BytesContainer allocation in serializePropertyEntry
-  Reuse a single temp BytesContainer per `serializeEntity()` call instead of
-  allocating `new BytesContainer()` for each property (line 424). This is the
-  highest-impact optimization: 50 properties = 50 object + 50 array allocations
-  eliminated, replaced by 1 allocation + offset reset.
-
-  **What to do**:
-  1. Add a `reset()` method to `BytesContainer` that sets `offset = 0` (keeps
-     the backing `byte[]` for reuse).
-  2. In `serializeEntity()`, create one `BytesContainer tempBuffer = new BytesContainer()`
-     before the linear/hash-table branch.
-  3. Pass `tempBuffer` as a parameter to `serializeLinearMode()`,
-     `serializeHashTableMode()`, and `serializePropertyEntry()`.
-  4. In `serializePropertyEntry()`, call `tempBuffer.reset()` instead of
-     `new BytesContainer()` at line 424. Use `tempBuffer` for `serializeValue()`.
-  5. For EMBEDDED recursion: `serializeValue()` → `serializeWithClassName()` →
-     `serializeEntity()` creates its own `tempBuffer` at each nesting level,
-     so nested entities get independent temp buffers. No interference.
-  6. Add a byte-level identity test (per R4): serialize the same entity before
-     and after the change, assert identical output bytes.
-  7. Run all existing V2 tests to verify no behavioral change.
-
-  **Key files**: `RecordSerializerBinaryV2.java`, `BytesContainer.java`,
-  `RecordSerializerBinaryV2Test.java`
+- [x] Step 1: Eliminate per-property BytesContainer allocation in serializePropertyEntry
+  > **What was done:** Added `BytesContainer.reset()` method that zeroes the used
+  > region and resets offset. Modified `serializeEntity()` to create one scratch
+  > `BytesContainer tempBuffer` and pass it through `serializeLinearMode()`,
+  > `serializeHashTableMode()`, and `serializePropertyEntry()`. Each property
+  > call does `tempBuffer.reset()` instead of `new BytesContainer()`. Added
+  > `testReset_keepsBackingArrayResetsOffsetAndZeros` and
+  > `testReset_multipleReuseCycles_noStaleDataLeaks` to BytesContainerTest.
+  >
+  > **What was discovered:** V1 delegate serializers (via `serializeValue`)
+  > allocate space in BytesContainer without filling every byte, relying on
+  > zero-initialized memory. A naive `reset()` that only sets `offset = 0`
+  > causes "Invalid version of link map" corruption during database creation
+  > because stale bytes from a previous property's serialization leak through.
+  > Fix: `reset()` must zero `[0, offset)` before resetting.
+  >
+  > **Key files:** `BytesContainer.java` (modified), `RecordSerializerBinaryV2.java`
+  > (modified), `BytesContainerTest.java` (modified)
 
 - [ ] Step 2: Merge intermediate arrays in buildHashTable
   Eliminate the `slotHash8[]` and `slotPropertyIndex[]` intermediate arrays
