@@ -52,8 +52,7 @@ public interface CommandContext {
   List<SQLBooleanExpression> getParentWhereExpressions();
 
   enum TIMEOUT_STRATEGY {
-    RETURN,
-    EXCEPTION
+    RETURN, EXCEPTION
   }
 
   Object getVariable(String iName);
@@ -118,14 +117,23 @@ public interface CommandContext {
    */
   void merge(CommandContext iContext);
 
-  @Nullable
-  DatabaseSessionEmbedded getDatabaseSession();
+  @Nullable DatabaseSessionEmbedded getDatabaseSession();
 
   void setDatabaseSession(DatabaseSessionEmbedded session);
 
   void declareScriptVariable(String varName);
 
   boolean isScriptVariableDeclared(String varName);
+
+  /**
+   * Returns {@code true} if predicate push-down into ExpandStep should be
+   * skipped during plan compilation. Used by materialized LET groups to
+   * preserve the outer FilterStep when replacing SubQueryStep with
+   * ListSourceStep.
+   */
+  boolean isSkipExpandPushDown();
+
+  void setSkipExpandPushDown(boolean skip);
 
   void startProfiling(ExecutionStep step);
 

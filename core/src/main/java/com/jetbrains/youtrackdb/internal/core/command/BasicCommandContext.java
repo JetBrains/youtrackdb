@@ -68,6 +68,8 @@ public class BasicCommandContext implements CommandContext {
   private final LinkedList<StepStats> currentStepStats = new LinkedList<>();
   private final List<SQLBooleanExpression> parentWhereExpressions = new LinkedList<>();
 
+  private boolean skipExpandPushDown;
+
   public BasicCommandContext() {
   }
 
@@ -101,8 +103,7 @@ public class BasicCommandContext implements CommandContext {
   // Invariant: system variables must never be set to null. The get/has methods use
   // null-return from Int2ObjectOpenHashMap.get() to distinguish "not present" from
   // "present". If this invariant changes, switch to containsKey() guards.
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T> T getSystemVariable(int id) {
     var value = systemVariables.get(id);
@@ -230,8 +231,7 @@ public class BasicCommandContext implements CommandContext {
    * the value, or {@code null} if the name is not a known system variable
    * or the variable is not set.
    */
-  @Nullable
-  private Object resolveNamedSystemVariable(String name) {
+  @Nullable private Object resolveNamedSystemVariable(String name) {
     return switch (name) {
       case "current" -> getSystemVariable(VAR_CURRENT);
       case "currentMatch" -> getSystemVariable(VAR_CURRENT_MATCH);
@@ -248,8 +248,7 @@ public class BasicCommandContext implements CommandContext {
     return value;
   }
 
-  @Nullable
-  protected Object getVariableFromParentHierarchy(String varName) {
+  @Nullable protected Object getVariableFromParentHierarchy(String varName) {
     if (this.variables != null && variables.containsKey(varName)) {
       return variables.get(varName);
     }
@@ -264,8 +263,7 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Override
-  @Nullable
-  public CommandContext setVariable(String iName, final Object iValue) {
+  @Nullable public CommandContext setVariable(String iName, final Object iValue) {
     if (iName == null) {
       return null;
     }
@@ -511,8 +509,7 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Override
-  @Nullable
-  public Map<Object, Object> getInputParameters() {
+  @Nullable public Map<Object, Object> getInputParameters() {
     if (inputParameters != null) {
       return inputParameters;
     }
@@ -541,7 +538,6 @@ public class BasicCommandContext implements CommandContext {
 
     return session;
   }
-
 
   @Override
   public void setDatabaseSession(DatabaseSessionEmbedded session) {
@@ -602,6 +598,16 @@ public class BasicCommandContext implements CommandContext {
   @Override
   public StepStats getStats(ExecutionStep step) {
     return stepStats.get(step);
+  }
+
+  @Override
+  public boolean isSkipExpandPushDown() {
+    return skipExpandPushDown;
+  }
+
+  @Override
+  public void setSkipExpandPushDown(boolean skip) {
+    this.skipExpandPushDown = skip;
   }
 
   @Override

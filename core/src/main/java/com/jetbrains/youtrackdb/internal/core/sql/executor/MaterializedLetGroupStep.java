@@ -10,16 +10,28 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Per-record LET step that handles a group of correlated LET subqueries sharing
  * the same inner FROM subquery. The shared inner subquery is executed once per
  * outer row, and each LET entry's outer query is evaluated against the
  * materialized results.
+ *
+ * <p>When entries share common WHERE conditions (e.g., {@code @class = 'Post'}),
+ * a wrapper query pushes the common filter into the materialization traversal
+ * via the planner's predicate push-down, so non-matching records are skipped
+ * with zero I/O. Per-entry conditions are preserved intact in each entry's
+ * FilterStep by setting {@link CommandContext#setSkipExpandPushDown(boolean)}
+ * during plan creation.
  *
  * <p>For IC10's pattern:
  * <pre>
@@ -33,10 +45,10 @@ import java.util.List;
  *      ) WHERE @class = 'Post' AND NOT &lt;tag condition&gt;)
  * </pre>
  *
- * <p>The shared inner subquery ({@code SELECT expand(in('HAS_CREATOR')) ...}) is
- * executed once. Each LET entry's full query plan is then built normally, but
- * its {@link SubQueryStep} is replaced with a {@link ListSourceStep} that streams
- * from the materialized results.
+ * <p>The common filter {@code @class = 'Post'} is pushed into the
+ * materialization query's ExpandStep (collection ID check — zero I/O for
+ * Comments). The per-entry filters ({@code hasTag} / {@code NOT hasTag}) are
+ * evaluated from the materialized list via each entry's preserved FilterStep.
  *
  * <p>If the materialized results exceed
  * {@link GlobalConfiguration#QUERY_LET_MATERIALIZATION_MAX_SIZE}, falls back to
@@ -48,21 +60,26 @@ import java.util.List;
 public class MaterializedLetGroupStep extends AbstractExecutionStep {
 
   private final SQLStatement sharedInnerQuery;
+  private final @Nullable SQLWhereClause commonFilter;
   private final List<LetEntry> entries;
   /** Cached per-entry plan-cache flags — computed once on first use. */
   private boolean[] entryPlanCacheFlags;
 
   /**
    * @param sharedInnerQuery the common inner FROM subquery shared by all entries
+   * @param commonFilter     the common WHERE conditions shared by all entries,
+   *                         or {@code null} if there are no common conditions
    * @param entries          the LET items in this group (varName + full query)
    */
   public MaterializedLetGroupStep(
       SQLStatement sharedInnerQuery,
+      @Nullable SQLWhereClause commonFilter,
       List<LetEntry> entries,
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.sharedInnerQuery = sharedInnerQuery;
+    this.commonFilter = commonFilter;
     this.entries = entries;
   }
 
@@ -90,7 +107,13 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(currentRowCtx);
 
-    var materializedBase = executeAndMaterialize(sharedInnerQuery, subCtx);
+    // Build materialization query with common filter. Push-down is NOT
+    // skipped here — we want the planner to push the common filter into
+    // ExpandStep (e.g., @class='Post' becomes a collection ID check,
+    // skipping non-matching records with zero I/O).
+    var materializationQuery = buildMaterializationQuery(
+        sharedInnerQuery, commonFilter);
+    var materializedBase = executeAndMaterialize(materializationQuery, subCtx);
 
     int maxSize = GlobalConfiguration.QUERY_LET_MATERIALIZATION_MAX_SIZE
         .getValueAsInteger();
@@ -114,6 +137,30 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     return result;
   }
 
+  /**
+   * Wraps the inner query with the common filter so the planner can push it
+   * into the ExpandStep. Returns the bare inner query when there is no common
+   * filter.
+   */
+  private static SQLStatement buildMaterializationQuery(
+      SQLStatement innerQuery, @Nullable SQLWhereClause commonFilter) {
+    if (commonFilter == null || commonFilter.refersToParent()) {
+      return innerQuery;
+    }
+
+    // Build: SELECT * FROM (<innerQuery>) WHERE <commonFilter>
+    var wrapper = new SQLSelectStatement(-1);
+
+    var fromItem = new SQLFromItem(-1);
+    fromItem.setStatement(innerQuery);
+    var fromClause = new SQLFromClause(-1);
+    fromClause.setItem(fromItem);
+    wrapper.setTarget(fromClause);
+
+    wrapper.setWhereClause(commonFilter);
+    return wrapper;
+  }
+
   private List<Result> executeAndMaterialize(
       SQLStatement query, BasicCommandContext subCtx) {
     // Same caching strategy as LetQueryStep: use cached plans unless the query
@@ -126,8 +173,14 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
 
   /**
    * Executes a single LET entry against the materialized base results by
-   * building the full query plan and replacing its {@link SubQueryStep} with
-   * a {@link ListSourceStep} sourced from the materialized list.
+   * building the full query plan with expand push-down disabled and replacing
+   * its {@link SubQueryStep} with a {@link ListSourceStep} sourced from the
+   * materialized list.
+   *
+   * <p>The {@link CommandContext#setSkipExpandPushDown(boolean)} flag is set
+   * before plan creation so the planner preserves the outer FilterStep (which
+   * contains per-entry conditions). The flag is also included in the plan
+   * cache key, so plans with and without push-down are cached separately.
    */
   private void executeWithMaterialized(
       ResultInternal result, LetEntry entry,
@@ -135,32 +188,25 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       BasicCommandContext subCtx,
       DatabaseSessionEmbedded session,
       boolean usePlanCache) {
+    // Set the flag BEFORE plan creation so the planner skips push-down
+    // and the cache key includes the flag.
+    subCtx.setSkipExpandPushDown(true);
     var outerPlan = usePlanCache
         ? entry.fullQuery.createExecutionPlan(subCtx, profilingEnabled)
         : entry.fullQuery.createExecutionPlanNoCache(subCtx, profilingEnabled);
+    subCtx.setSkipExpandPushDown(false);
 
-    // Replace the SubQueryStep (which would re-execute the shared inner subquery)
-    // with a ListSourceStep that streams from the already-materialized results.
-    //
-    // Guard: only replace if the plan structure allows safe substitution.
-    // The planner may push the outer WHERE filter down into the SubQueryStep's
-    // inner ExpandStep (tryPushDownFilterIntoExpand). When this happens, the
-    // outer FilterStep is removed and the filter lives inside the inner plan.
-    // Replacing SubQueryStep with ListSourceStep would lose that pushed-down
-    // filter, producing wrong results. Detect this by checking whether a
-    // FilterStep follows the SubQueryStep — if not, the filter was pushed
-    // down and we must fall back to independent execution.
+    // Replace the SubQueryStep (which would re-execute the shared inner
+    // subquery) with a ListSourceStep that streams from the already-
+    // materialized results. With skipExpandPushDown, the FilterStep is
+    // preserved intact — no filter is lost.
     if (outerPlan instanceof SelectExecutionPlan selectPlan
         && !selectPlan.getSteps().isEmpty()
-        && selectPlan.getSteps().getFirst() instanceof SubQueryStep
-        && hasFilterAfterSubQuery(selectPlan)) {
+        && selectPlan.getSteps().getFirst() instanceof SubQueryStep) {
       var listSource = new ListSourceStep(
           materializedBase, subCtx, profilingEnabled);
       selectPlan.replaceFirstStep(listSource);
     }
-    // If the plan structure doesn't match or the filter was pushed down,
-    // the full query executes normally without materialization — correct
-    // but slower.
 
     result.setMetadata(entry.varName.getStringValue(),
         toList(new LocalResultSet(session, outerPlan)));
@@ -182,17 +228,6 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       result.setMetadata(entry.varName.getStringValue(),
           toList(new LocalResultSet(session, plan)));
     }
-  }
-
-  /**
-   * Returns {@code true} if the plan has a FilterStep immediately after the
-   * SubQueryStep. When the planner pushes the outer WHERE into the inner
-   * ExpandStep, it removes the outer FilterStep — in that case, replacing
-   * SubQueryStep with ListSourceStep would lose the filter.
-   */
-  private static boolean hasFilterAfterSubQuery(SelectExecutionPlan plan) {
-    var steps = plan.getSteps();
-    return steps.size() >= 2 && steps.get(1) instanceof FilterStep;
   }
 
   /**
@@ -221,6 +256,9 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
     var sb = new StringBuilder();
     sb.append(spaces).append("+ MATERIALIZED LET GROUP (shared base)\n");
     sb.append(spaces).append("  shared: (").append(sharedInnerQuery).append(")\n");
+    if (commonFilter != null) {
+      sb.append(spaces).append("  common filter: ").append(commonFilter).append("\n");
+    }
     for (var entry : entries) {
       sb.append(spaces).append("  ").append(entry.varName)
           .append(" = (").append(entry.fullQuery).append(")\n");
@@ -240,7 +278,9 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       copiedEntries.add(new LetEntry(entry.varName.copy(), entry.fullQuery.copy()));
     }
     return new MaterializedLetGroupStep(
-        sharedInnerQuery.copy(), copiedEntries, ctx, profilingEnabled);
+        sharedInnerQuery.copy(),
+        commonFilter != null ? commonFilter.copy() : null,
+        copiedEntries, ctx, profilingEnabled);
   }
 
   /**
