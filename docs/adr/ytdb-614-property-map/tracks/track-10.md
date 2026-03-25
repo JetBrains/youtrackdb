@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -33,31 +33,21 @@
   > **Key files:** `BytesContainer.java` (modified), `RecordSerializerBinaryV2.java`
   > (modified), `BytesContainerTest.java` (modified)
 
-- [ ] Step 2: Merge intermediate arrays in buildHashTable
-  Eliminate the `slotHash8[]` and `slotPropertyIndex[]` intermediate arrays
-  by writing directly into the `slotArray[]` during linear probing insertion.
-  Also inline `buildHashTable()` into `serializeHashTableMode()` to eliminate
-  the `HashTableResult` wrapper object and the separate `propertyKvOffsets[]`
-  array.
-
-  **What to do**:
-  1. Inline `buildHashTable()` logic into `serializeHashTableMode()`:
-     - After collecting `nameBytes[]` and `orderedFields[]`, allocate `slotArray`
-       directly as `byte[capacity * SLOT_SIZE]` (filled with empty sentinels).
-     - During linear probing insertion, write `hash8` directly into
-       `slotArray[slot * SLOT_SIZE]` and store the property index in a
-       local `slotPropertyIndex[]` (still needed for backpatch, but merged
-       into the same loop instead of a separate method).
-     - Remove `HashTableResult` class.
-  2. Keep `buildHashTable()` as a package-private static method for unit tests
-     but simplify its return: just `slotArray` + `slotPropertyIndex` without
-     the wrapper object. Alternatively, test via round-trip serialization tests
-     and remove the standalone method. Choose based on test coverage impact.
-  3. Remove the redundant `slotHash8[]` array entirely — its values are written
-     directly into `slotArray` positions.
-  4. Run all existing V2 tests.
-
-  **Key files**: `RecordSerializerBinaryV2.java`, `RecordSerializerBinaryV2Test.java`
+- [x] Step 2: Merge intermediate arrays in buildHashTable
+  > **What was done:** Eliminated `slotHash8[]` intermediate array by writing
+  > hash8 directly into `slotArray[slot * SLOT_SIZE]` during linear probing.
+  > Sentinel initialization simplified to `Arrays.fill(slotArray, (byte) 0xFF)`
+  > since all sentinel bytes (EMPTY_HASH8=0xFF, EMPTY_OFFSET=0xFFFF) are 0xFF.
+  > Kept `buildHashTable()` and `HashTableResult` for testability (20+ unit
+  > tests depend on the public API). `propertyKvOffsets[]` retained — needed
+  > for slot offset backpatching.
+  >
+  > **What changed from the plan:** Did not inline `buildHashTable()` into
+  > `serializeHashTableMode()` or remove `HashTableResult` — preserving 20+
+  > existing unit tests outweighs the allocation cost of one small wrapper
+  > object per entity. Focus shifted to eliminating `slotHash8[]` array.
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified)
 
 - [ ] Step 3: Eliminate double UTF-8 encoding for schema-less properties
   In hash table mode, schema-less property names are UTF-8 encoded twice:
