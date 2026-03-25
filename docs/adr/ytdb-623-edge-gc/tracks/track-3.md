@@ -6,7 +6,7 @@
 - [ ] Track-level code review
 
 ## Base commit
-_(to be filled at Phase B start)_
+`347b4bef05`
 
 ## Reviews completed
 - [x] Technical (track-3-technical.md — 1 blocker resolved, 2 should-fix resolved, 2 suggestions accepted)
