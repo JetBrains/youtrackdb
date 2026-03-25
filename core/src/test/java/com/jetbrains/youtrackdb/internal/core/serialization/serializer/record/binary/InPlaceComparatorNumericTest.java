@@ -26,6 +26,8 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.OptionalInt;
 import org.junit.Test;
 
@@ -446,11 +448,10 @@ public class InPlaceComparatorNumericTest {
    */
   @Test
   public void testFloatWithDoubleWidening() {
-    // 3.14f cast to double is 3.140000104904175, not 3.14
+    // 3.14f cast to double is ~3.14000010..., which is greater than 3.14d
     var result = InPlaceComparator.compare(floatField(3.14f), 3.14);
     assertTrue(result.isPresent());
-    // They should NOT be equal due to float precision
-    assertTrue(result.getAsInt() != 0);
+    assertTrue(result.getAsInt() > 0);
   }
 
   /** FLOAT compared with Double where both are exactly representable. */
@@ -758,5 +759,219 @@ public class InPlaceComparatorNumericTest {
     long belowBoundary = -(1L << 53) - 1;
     var result = InPlaceComparator.compare(doubleField(42.0), belowBoundary);
     assertTrue(result.isEmpty());
+  }
+
+  // ===========================================================================
+  // BigDecimal / BigInteger fallback tests (BC1/TC1 — must not silently truncate)
+  // ===========================================================================
+
+  /** BigDecimal passed to INTEGER comparison — should fall back. */
+  @Test
+  public void testIntegerWithBigDecimalFallback() {
+    var result = InPlaceComparator.compare(intField(42), new BigDecimal("42"));
+    assertTrue(result.isEmpty());
+  }
+
+  /** BigInteger passed to LONG comparison — should fall back. */
+  @Test
+  public void testLongWithBigIntegerFallback() {
+    var result = InPlaceComparator.compare(longField(42L), BigInteger.valueOf(42));
+    assertTrue(result.isEmpty());
+  }
+
+  /** BigDecimal passed to FLOAT comparison — must NOT silently convert via longValue(). */
+  @Test
+  public void testFloatWithBigDecimalFallback() {
+    var result = InPlaceComparator.compare(floatField(42.0f), new BigDecimal("42.0"));
+    assertTrue(result.isEmpty());
+  }
+
+  /** BigDecimal passed to DOUBLE comparison — must fall back. */
+  @Test
+  public void testDoubleWithBigDecimalFallback() {
+    var result = InPlaceComparator.compare(doubleField(42.0), new BigDecimal("42.0"));
+    assertTrue(result.isEmpty());
+  }
+
+  /** BigInteger passed to SHORT comparison — should fall back. */
+  @Test
+  public void testShortWithBigIntegerFallback() {
+    var result = InPlaceComparator.compare(shortField((short) 42), BigInteger.valueOf(42));
+    assertTrue(result.isEmpty());
+  }
+
+  /** BigDecimal passed to BYTE comparison — should fall back. */
+  @Test
+  public void testByteWithBigDecimalFallback() {
+    var result = InPlaceComparator.compare(byteField((byte) 42), new BigDecimal("42"));
+    assertTrue(result.isEmpty());
+  }
+
+  // ===========================================================================
+  // Missing cross-type conversion tests
+  // ===========================================================================
+
+  /** INTEGER compared with Long below Integer.MIN_VALUE — should fall back. */
+  @Test
+  public void testIntegerWithLongBelowMinValue() {
+    var result = InPlaceComparator.compare(intField(-100), (long) Integer.MIN_VALUE - 1);
+    assertTrue(result.isEmpty());
+  }
+
+  /** LONG compared with Byte — should widen to long. */
+  @Test
+  public void testLongWithByte() {
+    var result = InPlaceComparator.compare(longField(7L), (byte) 7);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** FLOAT compared with Long within safe range — should convert long to float. */
+  @Test
+  public void testFloatWithLongInSafeRange() {
+    var result = InPlaceComparator.compare(floatField(1000.0f), 1000L);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** FLOAT compared with Long above precision boundary — should fall back. */
+  @Test
+  public void testFloatWithLongAbovePrecisionBoundary() {
+    long aboveBoundary = (1L << 24) + 1;
+    var result = InPlaceComparator.compare(floatField(42.0f), aboveBoundary);
+    assertTrue(result.isEmpty());
+  }
+
+  /** FLOAT compared with Short — should convert to float (always within safe range). */
+  @Test
+  public void testFloatWithShort() {
+    var result = InPlaceComparator.compare(floatField(42.0f), (short) 42);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** FLOAT compared with Byte — should convert to float. */
+  @Test
+  public void testFloatWithByte() {
+    var result = InPlaceComparator.compare(floatField(7.0f), (byte) 7);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DOUBLE compared with Short — should convert to double. */
+  @Test
+  public void testDoubleWithShort() {
+    var result = InPlaceComparator.compare(doubleField(42.0), (short) 42);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DOUBLE compared with Byte — should convert to double. */
+  @Test
+  public void testDoubleWithByte() {
+    var result = InPlaceComparator.compare(doubleField(7.0), (byte) 7);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** SHORT with Double — should fall back. */
+  @Test
+  public void testShortWithDoubleFallback() {
+    var result = InPlaceComparator.compare(shortField((short) 42), 42.0);
+    assertTrue(result.isEmpty());
+  }
+
+  /** BYTE with Double — should fall back. */
+  @Test
+  public void testByteWithDoubleFallback() {
+    var result = InPlaceComparator.compare(byteField((byte) 42), 42.0);
+    assertTrue(result.isEmpty());
+  }
+
+  // ===========================================================================
+  // Boundary ordering tests (TB2)
+  // ===========================================================================
+
+  /** INTEGER at MAX_VALUE should compare greater than MAX_VALUE - 1. */
+  @Test
+  public void testIntegerMaxValueOrdering() {
+    var result = InPlaceComparator.compare(intField(Integer.MAX_VALUE), Integer.MAX_VALUE - 1);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  /** INTEGER at MIN_VALUE should compare less than MIN_VALUE + 1. */
+  @Test
+  public void testIntegerMinValueOrdering() {
+    var result = InPlaceComparator.compare(intField(Integer.MIN_VALUE), Integer.MIN_VALUE + 1);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() < 0);
+  }
+
+  /** LONG at MAX_VALUE should compare greater than MAX_VALUE - 1. */
+  @Test
+  public void testLongMaxValueOrdering() {
+    var result = InPlaceComparator.compare(longField(Long.MAX_VALUE), Long.MAX_VALUE - 1);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  /** LONG at MIN_VALUE should compare less than MIN_VALUE + 1. */
+  @Test
+  public void testLongMinValueOrdering() {
+    var result = InPlaceComparator.compare(longField(Long.MIN_VALUE), Long.MIN_VALUE + 1);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() < 0);
+  }
+
+  // ===========================================================================
+  // NaN ordering tests (TB3)
+  // ===========================================================================
+
+  /** FLOAT NaN should compare as greater than any finite value per Float.compare contract. */
+  @Test
+  public void testFloatNaNGreaterThanFinite() {
+    var result = InPlaceComparator.compare(floatField(Float.NaN), 1.0f);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  /** FLOAT NaN should compare as greater than positive infinity per Float.compare contract. */
+  @Test
+  public void testFloatNaNGreaterThanPositiveInfinity() {
+    var result = InPlaceComparator.compare(floatField(Float.NaN), Float.POSITIVE_INFINITY);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  /** DOUBLE NaN should compare as greater than any finite value per Double.compare contract. */
+  @Test
+  public void testDoubleNaNGreaterThanFinite() {
+    var result = InPlaceComparator.compare(doubleField(Double.NaN), 1.0);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  /** DOUBLE NaN should compare as greater than positive infinity per Double.compare contract. */
+  @Test
+  public void testDoubleNaNGreaterThanPositiveInfinity() {
+    var result = InPlaceComparator.compare(doubleField(Double.NaN), Double.POSITIVE_INFINITY);
+    assertTrue(result.isPresent());
+    assertTrue(result.getAsInt() > 0);
+  }
+
+  // ===========================================================================
+  // Additional precision / isEqual tests
+  // ===========================================================================
+
+  /** DOUBLE compared with Float where widening reveals precision difference. */
+  @Test
+  public void testDoubleWithFloatPrecisionDifference() {
+    // 3.14f widened to double is ~3.14000010..., which differs from 3.14d
+    var result = InPlaceComparator.compare(doubleField(3.14), 3.14f);
+    assertTrue(result.isPresent());
+    // 3.14d < 3.14f widened to double
+    assertTrue(result.getAsInt() < 0);
+  }
+
+  /** isEqual returns 0 (not-equal, not fallback) for float-vs-double precision mismatch. */
+  @Test
+  public void testIsEqualFloatVsDoublePrecisionMismatch() {
+    var result = InPlaceComparator.isEqual(floatField(3.14f), 3.14);
+    assertEquals(OptionalInt.of(0), result);
   }
 }

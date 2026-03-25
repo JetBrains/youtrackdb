@@ -24,6 +24,7 @@ import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.re
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.readLong;
 
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 /**
  * Compares a serialized property value (in a {@link BinaryField}) against a Java object without
@@ -70,7 +71,7 @@ public final class InPlaceComparator {
    * #compare} for numeric types — specialized equality checks for non-numeric types will be added
    * in a follow-up step.
    *
-   * @return true/false if comparison succeeded, or empty if fallback is needed
+   * @return 1 (equal) or 0 (not equal) if comparison succeeded, or empty if fallback is needed
    */
   public static OptionalInt isEqual(BinaryField field, Object value) {
     // For numeric types, equality is derived from compare() == 0.
@@ -227,15 +228,15 @@ public final class InPlaceComparator {
   /**
    * Converts a Number to long. Falls back for float/double types.
    */
-  private static java.util.OptionalLong convertToLong(Number number) {
+  private static OptionalLong convertToLong(Number number) {
     if (number instanceof Long) {
-      return java.util.OptionalLong.of(number.longValue());
+      return OptionalLong.of(number.longValue());
     }
     if (number instanceof Integer || number instanceof Short || number instanceof Byte) {
-      return java.util.OptionalLong.of(number.longValue());
+      return OptionalLong.of(number.longValue());
     }
     // Float, Double -> long: always fall back
-    return java.util.OptionalLong.empty();
+    return OptionalLong.empty();
   }
 
   /**
@@ -305,6 +306,11 @@ public final class InPlaceComparator {
     if (number instanceof Double) {
       return OptionalInt.empty();
     }
+    // Only standard integer boxed types — reject BigDecimal, BigInteger, etc.
+    if (!(number instanceof Integer || number instanceof Long
+        || number instanceof Short || number instanceof Byte)) {
+      return OptionalInt.empty();
+    }
     // Integer types -> float: safe only if |value| <= 2^24
     long longValue = number.longValue();
     if (longValue > FLOAT_EXACT_INT_MAX || longValue < -FLOAT_EXACT_INT_MAX) {
@@ -317,18 +323,23 @@ public final class InPlaceComparator {
    * Converts a Number to double bits (as long). Falls back for long values outside the exact
    * representable range (|value| > 2^53).
    */
-  private static java.util.OptionalLong convertToDouble(Number number) {
+  private static OptionalLong convertToDouble(Number number) {
     if (number instanceof Double d) {
-      return java.util.OptionalLong.of(Double.doubleToLongBits(d));
+      return OptionalLong.of(Double.doubleToLongBits(d));
     }
     if (number instanceof Float f) {
-      return java.util.OptionalLong.of(Double.doubleToLongBits(f.doubleValue()));
+      return OptionalLong.of(Double.doubleToLongBits(f.doubleValue()));
+    }
+    // Only standard integer boxed types — reject BigDecimal, BigInteger, etc.
+    if (!(number instanceof Integer || number instanceof Long
+        || number instanceof Short || number instanceof Byte)) {
+      return OptionalLong.empty();
     }
     // Integer types -> double: safe if |value| <= 2^53
     long longValue = number.longValue();
     if (longValue > DOUBLE_EXACT_LONG_MAX || longValue < -DOUBLE_EXACT_LONG_MAX) {
-      return java.util.OptionalLong.empty();
+      return OptionalLong.empty();
     }
-    return java.util.OptionalLong.of(Double.doubleToLongBits(number.doubleValue()));
+    return OptionalLong.of(Double.doubleToLongBits(number.doubleValue()));
   }
 }
