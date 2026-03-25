@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -42,25 +42,24 @@ Key decisions from reviews that affect step implementation:
 
 ## Steps
 
-- [ ] Step 1: Map-level concurrent correctness tests — mixed operations + rehash
-  > **Scope**: Create `ConcurrentLongIntHashMapConcurrentTest.java` with two test methods:
+- [x] Step 1: Map-level concurrent correctness tests — mixed operations + rehash
+  > **What was done:** Created `ConcurrentLongIntHashMapConcurrentTest.java` with two test
+  > methods: (1) mixed concurrent operations — 8 threads, 200K ops/thread, 12-way operation
+  > mix (get/put/putIfAbsent/remove/conditional-remove/computeIfAbsent/compute/slow-compute)
+  > on 10K key space; (2) rehash under concurrent access — 1-section map, capacity 4, 3
+  > writers + 3 readers + 2 removers with CyclicBarrier for synchronized startup.
   >
-  > 1. **Mixed concurrent operations**: N threads (4-8) performing random
-  >    `get/put/remove/computeIfAbsent/compute` on overlapping keys (bounded key space
-  >    ~10K keys, ~200K ops/thread). Post-run: verify map consistency (size matches
-  >    expected entries, all remaining values retrievable). Include slow-compute variant
-  >    where compute lambda does `Thread.sleep(1)` to force readers through read-lock
-  >    fallback path.
+  > **What was discovered:** Thread.sleep(1) in the slow-compute path was too expensive
+  > (~30s wall-clock). Replaced with LockSupport.parkNanos(100µs) — test now runs in ~7s.
+  > Review also identified that without a startup barrier, threads may not overlap during
+  > rehash events, defeating the purpose of the rehash test.
   >
-  > 2. **Rehash under concurrent access**: 1-section map with minimal capacity
-  >    (`new ConcurrentLongIntHashMap<>(4, 1)`). Writer threads insert entries to trigger
-  >    frequent rehash. Reader threads continuously get entries. Remover threads remove
-  >    random entries. Verify no `ArrayIndexOutOfBoundsException`, no stale/corrupt values
-  >    returned, correct final state. ~100K ops/thread.
+  > **What changed from the plan:** Expanded operation mix beyond plan (added putIfAbsent,
+  > conditional remove). Used LockSupport.parkNanos instead of Thread.sleep. Added
+  > CyclicBarrier (not in original plan). Added inline value assertions during concurrent
+  > phase (not just post-run). Added rehash capacity growth assertion.
   >
-  > Pattern: raw `ExecutorService` + `Future.get(30, SECONDS)`. JUnit 4.
-  >
-  > **Key files**: `ConcurrentLongIntHashMapConcurrentTest.java` (new)
+  > **Key files:** `ConcurrentLongIntHashMapConcurrentTest.java` (new)
 
 - [ ] Step 2: Map-level removeByFileId concurrent test
   > **Scope**: Add test methods to `ConcurrentLongIntHashMapConcurrentTest.java`:
