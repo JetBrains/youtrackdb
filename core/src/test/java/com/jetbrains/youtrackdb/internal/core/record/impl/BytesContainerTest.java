@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
+import java.util.Arrays;
 import org.junit.Test;
 
 public class BytesContainerTest {
@@ -49,7 +50,7 @@ public class BytesContainerTest {
     assertEquals(200, bytesContainer.offset);
     var backingArray = bytesContainer.bytes;
     // Write non-zero data into the allocated region
-    java.util.Arrays.fill(bytesContainer.bytes, 0, 200, (byte) 0xAB);
+    Arrays.fill(bytesContainer.bytes, 0, 200, (byte) 0xAB);
 
     bytesContainer.reset();
     assertEquals(0, bytesContainer.offset);
@@ -69,16 +70,37 @@ public class BytesContainerTest {
 
     // Cycle 1: write 500 bytes of 0xAA
     bytesContainer.alloc(500);
-    java.util.Arrays.fill(bytesContainer.bytes, 0, 500, (byte) 0xAA);
+    Arrays.fill(bytesContainer.bytes, 0, 500, (byte) 0xAA);
 
     // Cycle 2: reset, write only 10 bytes of 0xBB
     bytesContainer.reset();
     bytesContainer.alloc(10);
-    java.util.Arrays.fill(bytesContainer.bytes, 0, 10, (byte) 0xBB);
+    Arrays.fill(bytesContainer.bytes, 0, 10, (byte) 0xBB);
+
+    // Offset tracks the current allocation
+    assertEquals(10, bytesContainer.offset);
+
+    // Active region retains current cycle's data
+    for (int i = 0; i < 10; i++) {
+      assertEquals("current data at index " + i, (byte) 0xBB, bytesContainer.bytes[i]);
+    }
 
     // Bytes [10, 500) must be zero (not 0xAA from cycle 1)
     for (int i = 10; i < 500; i++) {
       assertEquals("stale data at index " + i, 0, bytesContainer.bytes[i]);
     }
+  }
+
+  @Test
+  public void testReset_onFreshContainer_isNoOp() {
+    // reset() on a newly created container (offset=0) must not throw or corrupt state.
+    var bytesContainer = new BytesContainer();
+    assertEquals(0, bytesContainer.offset);
+    var backingArray = bytesContainer.bytes;
+
+    bytesContainer.reset();
+
+    assertEquals(0, bytesContainer.offset);
+    assertSame(backingArray, bytesContainer.bytes);
   }
 }

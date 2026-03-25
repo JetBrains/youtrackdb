@@ -398,6 +398,9 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     if (docEntry.property == null) {
       if (preEncodedName != null) {
         // Reuse pre-computed UTF-8 bytes from hash table construction (avoids double encoding)
+        assert java.util.Arrays.equals(preEncodedName,
+            field.getKey().getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            : "preEncodedName does not match field key UTF-8 bytes for: " + field.getKey();
         VarIntSerializer.write(bytes, preEncodedName.length);
         int start = bytes.alloc(preEncodedName.length);
         System.arraycopy(preEncodedName, 0, bytes.bytes, start, preEncodedName.length);

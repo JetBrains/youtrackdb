@@ -50,6 +50,7 @@ public class BytesContainer {
    * from a previous use).
    */
   public void reset() {
+    assert offset >= 0 : "BytesContainer offset is negative before reset: " + offset;
     Arrays.fill(bytes, 0, offset, (byte) 0);
     offset = 0;
   }
