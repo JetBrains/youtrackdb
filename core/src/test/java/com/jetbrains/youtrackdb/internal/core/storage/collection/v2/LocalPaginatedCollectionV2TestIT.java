@@ -1880,4 +1880,157 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
   }
+
+  // --- Warm-cache reads: exercise the optimistic read path ---
+  // These tests create a record in one atomic operation, read it in a second
+  // (warming the read cache), then read it again in a third. The third read
+  // should find pages in the LockFreeReadCache and exercise the optimistic
+  // read path in readRecord(), getPhysicalPosition(), and exists().
+
+  // Verifies that readRecord returns correct data after the read cache has been
+  // warmed by a prior read, exercising the optimistic read path in readRecord().
+  @Test
+  public void testReadRecordWithWarmCache() throws IOException {
+    var data = new byte[] {10, 20, 30, 40, 50};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.createRecord(data, (byte) 'd', null, op));
+
+    // First read — warms the read cache (pages loaded via pinned path).
+    var buffer1 = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+    Assert.assertArrayEquals(data, buffer1.buffer());
+
+    // Second read — pages are now in cache, optimistic path can succeed.
+    var buffer2 = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+    Assert.assertArrayEquals(data, buffer2.buffer());
+    Assert.assertEquals('d', buffer2.recordType());
+  }
+
+  // Verifies that getPhysicalPosition returns correct metadata after warming
+  // the cache, exercising the optimistic read path.
+  @Test
+  public void testGetPhysicalPositionWithWarmCache() throws IOException {
+    var data = new byte[] {1, 2, 3};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+
+    // Warm the cache.
+    atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.getPhysicalPosition(pos, op));
+
+    // Second read — should exercise optimistic path.
+    var result = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.getPhysicalPosition(pos, op));
+    Assert.assertNotNull("getPhysicalPosition should return non-null", result);
+    Assert.assertEquals(pos.collectionPosition, result.collectionPosition);
+    Assert.assertEquals(1, result.recordType);
+  }
+
+  // Verifies that exists(long) returns true for an existing record after warming
+  // the cache, exercising the optimistic read path.
+  @Test
+  public void testExistsWithWarmCache() throws IOException {
+    var data = new byte[] {1, 2, 3, 4};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+
+    // Warm the cache.
+    atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.exists(pos.collectionPosition, op));
+
+    // Second read — should exercise optimistic path.
+    var exists = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.exists(pos.collectionPosition, op));
+    Assert.assertTrue("Record should exist after cache warming", exists);
+
+    // Verify non-existent position returns false via optimistic path.
+    var nonExistent = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.exists(pos.collectionPosition + 100_000, op));
+    Assert.assertFalse("Non-existent record should not exist", nonExistent);
+  }
+
+  // Verifies that getEntries returns the correct count in a separate atomic operation.
+  @Test
+  public void testGetEntriesInSeparateAtomicOp() throws IOException {
+    // Create multiple records.
+    for (int i = 0; i < 3; i++) {
+      var data = new byte[] {(byte) i};
+      atomicOps().executeInsideAtomicOperation(
+          op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+    }
+
+    // Read entries count in a separate atomic operation.
+    var count = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.getEntries(op));
+    Assert.assertEquals("getEntries should return exactly 3", 3L, (long) count);
+  }
+
+  // Verifies that lowerPositions returns records with positions lower than the given one.
+  @Test
+  public void testLowerPositions() throws IOException {
+    var positions = new ArrayList<PhysicalPosition>();
+    for (int i = 0; i < 5; i++) {
+      var data = new byte[] {(byte) i, (byte) (i + 1)};
+      var pos = atomicOps().calculateInsideAtomicOperation(
+          op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+      positions.add(pos);
+    }
+
+    // lowerPositions from the last position should return exactly 4 positions.
+    var lastPos = positions.get(positions.size() - 1);
+    var lowerResult = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.lowerPositions(lastPos, 10, op));
+    Assert.assertEquals("lowerPositions should return exactly 4 results",
+        4, lowerResult.length);
+
+    // Verify they are strictly less than the query position.
+    for (var p : lowerResult) {
+      Assert.assertTrue("Lower position should be < query position",
+          p.collectionPosition < lastPos.collectionPosition);
+    }
+  }
+
+  // Verifies that floorPositions returns records at or below the given position.
+  @Test
+  public void testFloorPositions() throws IOException {
+    var positions = new ArrayList<PhysicalPosition>();
+    for (int i = 0; i < 5; i++) {
+      var data = new byte[] {(byte) i, (byte) (i + 1)};
+      var pos = atomicOps().calculateInsideAtomicOperation(
+          op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+      positions.add(pos);
+    }
+
+    // floorPositions from the last position should return all 5 positions.
+    var lastPos = positions.get(positions.size() - 1);
+    var floorResult = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.floorPositions(lastPos, 10, op));
+    Assert.assertEquals("floorPositions should return exactly 5 results",
+        5, floorResult.length);
+
+    // Verify they are all <= query position.
+    for (var p : floorResult) {
+      Assert.assertTrue("Floor position should be <= query position",
+          p.collectionPosition <= lastPos.collectionPosition);
+    }
+  }
+
+  // Verifies that getFirstPosition and getLastPosition return valid positions.
+  @Test
+  public void testGetFirstAndLastPosition() throws IOException {
+    var data = new byte[] {10, 20, 30};
+    atomicOps().executeInsideAtomicOperation(
+        op -> paginatedCollection.createRecord(data, (byte) 1, null, op));
+
+    var firstPos = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.getFirstPosition(op));
+    Assert.assertTrue("First position should be >= 0", firstPos >= 0);
+
+    var lastPos = atomicOps().calculateInsideAtomicOperation(
+        op -> paginatedCollection.getLastPosition(op));
+    // With a single record, first and last position should match.
+    Assert.assertEquals("First and last position should match with one record",
+        firstPos, lastPos);
+  }
 }
