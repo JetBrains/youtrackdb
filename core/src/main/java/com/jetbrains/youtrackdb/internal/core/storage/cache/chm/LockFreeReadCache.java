@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -28,7 +29,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -61,7 +61,7 @@ public final class LockFreeReadCache implements ReadCache {
    */
   private static final int READ_BATCH_SIZE = 16;
 
-  private final ConcurrentHashMap<PageKey, CacheEntry> data;
+  private final ConcurrentLongIntHashMap<CacheEntry> data;
   private final Lock evictionLock = new ReentrantLock();
 
   private final WTinyLFUPolicy policy;
@@ -100,7 +100,9 @@ public final class LockFreeReadCache implements ReadCache {
       this.pageFramePool = bufferPool.pageFramePool();
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
-      this.data = new ConcurrentHashMap<>(this.maxCacheSize, 0.5f, N_CPU << 1);
+      // Section count matches ConcurrentHashMap's concurrency level (N_CPU << 1).
+      // The map constructor aligns to the next power of two internally.
+      this.data = new ConcurrentLongIntHashMap<>(this.maxCacheSize, N_CPU << 1);
       policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
       policy.setMaxSize(this.maxCacheSize);
     } finally {
@@ -177,18 +179,21 @@ public final class LockFreeReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums) {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final var pageKey = new PageKey(fileId, pageIndex);
 
     for (;;) {
-      var cacheEntry = data.get(pageKey);
+      var cacheEntry = data.get(fileId, pageIndex);
 
       if (cacheEntry == null) {
         final var updatedEntry = new CacheEntry[1];
 
+        // The compute lambda receives (fId, pIdx, entry) but we use the outer-scope
+        // captured fileId and pageIndex — they are guaranteed identical to the lambda
+        // parameters since we pass (fileId, pageIndex) as the compute key.
         cacheEntry =
             data.compute(
-                pageKey,
-                (page, entry) -> {
+                fileId,
+                pageIndex,
+                (fId, pIdx, entry) -> {
                   if (entry == null) {
                     try {
                       final var pointer =
@@ -199,8 +204,7 @@ public final class LockFreeReadCache implements ReadCache {
                       }
 
                       updatedEntry[0] =
-                          new CacheEntryImpl(
-                              page.fileId(), page.pageIndex(), pointer, false, this);
+                          new CacheEntryImpl(fileId, pageIndex, pointer, false, this);
                       return null;
                     } catch (final IOException e) {
                       throw BaseException.wrapException(
@@ -234,7 +238,6 @@ public final class LockFreeReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums) {
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final var pageKey = new PageKey(fileId, pageIndex);
 
     var success = false;
     try {
@@ -243,7 +246,7 @@ public final class LockFreeReadCache implements ReadCache {
 
         CacheEntry cacheEntry;
 
-        cacheEntry = data.get(pageKey);
+        cacheEntry = data.get(fileId, pageIndex);
 
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
@@ -255,10 +258,14 @@ public final class LockFreeReadCache implements ReadCache {
         } else {
           final var read = new boolean[1];
 
+          // The compute lambda receives (fId, pIdx, entry) but we use the outer-scope
+          // captured fileId and pageIndex — they are guaranteed identical to the lambda
+          // parameters since we pass (fileId, pageIndex) as the compute key.
           cacheEntry =
               data.compute(
-                  pageKey,
-                  (page, entry) -> {
+                  fileId,
+                  pageIndex,
+                  (fId, pIdx, entry) -> {
                     if (entry == null) {
                       try {
                         final var pointer =
@@ -269,8 +276,7 @@ public final class LockFreeReadCache implements ReadCache {
                         }
 
                         cacheSize.incrementAndGet();
-                        return new CacheEntryImpl(
-                            page.fileId(), page.pageIndex(), pointer, true, this);
+                        return new CacheEntryImpl(fileId, pageIndex, pointer, true, this);
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
                             new StorageException(writeCache.getStorageName(),
@@ -324,7 +330,8 @@ public final class LockFreeReadCache implements ReadCache {
     final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
     cacheEntry.acquireEntry();
 
-    final var oldCacheEntry = data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
+    final var oldCacheEntry =
+        data.putIfAbsent(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
     if (oldCacheEntry != null) {
       throw new IllegalStateException(
           "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
@@ -394,13 +401,17 @@ public final class LockFreeReadCache implements ReadCache {
         cacheEntry.clearAllocationFlag();
       }
 
+      // Virtual-lock pattern: compute() holds the segment write lock while the
+      // remapping function executes, even if the key is absent. This ensures
+      // writeCache.store() runs atomically w.r.t. concurrent map operations on
+      // the same key. If absent, remapping returns null → no-op (no insertion).
       data.compute(
-          cacheEntry.getPageKey(),
-          (page, entry) -> {
+          cacheEntry.getFileId(),
+          cacheEntry.getPageIndex(),
+          (fId, pIdx, entry) -> {
             writeCache.store(
                 cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
-            return entry; // may be absent if page in pinned pages, in such case we use map as
-            // virtual lock
+            return entry;
           });
     }
 
@@ -586,7 +597,10 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      for (final var entry : data.values()) {
+      var entries = new ArrayList<CacheEntry>();
+      data.forEachValue(entries::add);
+
+      for (final var entry : entries) {
         if (entry.freeze()) {
           policy.onRemove(entry);
         } else {
@@ -671,8 +685,7 @@ public final class LockFreeReadCache implements ReadCache {
       emptyBuffers();
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var pageKey = new PageKey(fileId, pageIndex);
-        final var cacheEntry = data.remove(pageKey);
+        final var cacheEntry = data.remove(fileId, pageIndex);
         if (cacheEntry != null) {
           if (cacheEntry.freeze()) {
             policy.onRemove(cacheEntry);
