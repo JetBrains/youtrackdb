@@ -316,10 +316,11 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                 for (int r = 0; r < rounds; r++) {
                   var removed = map.removeByFileId(targetFileId);
                   // Every returned value must belong to the target file
+                  // and match the canonical fileId:pageIndex form
                   for (var val : removed) {
                     assertThat(val)
                         .as("removed value belongs to target file %d", targetFileId)
-                        .startsWith(targetFileId + ":");
+                        .matches(targetFileId + ":\\d+");
                   }
                   // Re-populate so next round has entries to remove
                   for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
@@ -373,7 +374,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     for (var val : finalRemoved) {
       assertThat(val)
           .as("final removal returned value belonging to target file")
-          .startsWith(targetFileId + ":");
+          .matches(targetFileId + ":\\d+");
     }
 
     // Verify: no entries for the target file remain, and count other-file entries
@@ -429,7 +430,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                     for (var val : removed) {
                       assertThat(val)
                           .as("removed value must belong to file %d", fileId)
-                          .startsWith(fileId + ":");
+                          .matches(fileId + ":\\d+");
                     }
                   }
                   return null;
@@ -525,15 +526,15 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                 () -> {
                   startBarrier.await();
                   var removed = map.removeByFileId(targetFile);
-                  // Must return exactly pagesPerFile entries, all belonging to target file
-                  assertThat(removed)
-                      .as("removeByFileId(%d) should return all entries", targetFile)
-                      .hasSize(pagesPerFile);
-                  for (var val : removed) {
-                    assertThat(val)
-                        .as("removed value belongs to file %d", targetFile)
-                        .startsWith(targetFile + ":");
+                  // Must return exactly pagesPerFile entries with exact content —
+                  // no concurrent writes, so the set is fully deterministic
+                  var expected = new ArrayList<String>(pagesPerFile);
+                  for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
+                    expected.add(targetFile + ":" + pIdx);
                   }
+                  assertThat(removed)
+                      .as("removeByFileId(%d) should return all page values", targetFile)
+                      .containsExactlyInAnyOrderElementsOf(expected);
                   return null;
                 }));
       }
