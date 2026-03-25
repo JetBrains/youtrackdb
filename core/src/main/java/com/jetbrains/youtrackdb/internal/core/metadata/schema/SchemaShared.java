@@ -859,6 +859,8 @@ public abstract class SchemaShared implements CloseableInStorage {
         }
       }
     }
+    // Use classes.size() as a floor to avoid collisions with legacy collection names
+    // that may match class names without _N suffixes (pre-counter naming convention).
     return Math.max(classes.size(), maxSuffix + 1);
   }
 

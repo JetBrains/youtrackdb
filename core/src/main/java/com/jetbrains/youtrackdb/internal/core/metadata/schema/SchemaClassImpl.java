@@ -1410,6 +1410,7 @@ public abstract class SchemaClassImpl {
         // Counter-based collection name — replace prefix, keep suffix
         renamedName = newPrefix + currentName.substring(oldPrefix.length());
       } else {
+        // Collection was not created by the class naming convention — leave unchanged
         continue;
       }
 

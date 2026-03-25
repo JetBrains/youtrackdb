@@ -26,8 +26,9 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     schema.createClass("MyClass");
 
-    assertNotNull("Exact-case lookup should find the class",
-        schema.getClass("MyClass"));
+    var found = schema.getClass("MyClass");
+    assertNotNull("Exact-case lookup should find the class", found);
+    assertEquals("MyClass", found.getName());
     assertNull("Different-case lookup should not find the class",
         schema.getClass("myclass"));
     assertNull("Different-case lookup should not find the class",
@@ -63,6 +64,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     var cls = schema.createClass("OldName");
     cls.setName("NewName");
 
+    assertEquals("Class object should report new name", "NewName", cls.getName());
     assertNull("Old name should no longer be found", schema.getClass("OldName"));
     assertNotNull("New name should be found", schema.getClass("NewName"));
     assertNull("Lowercase of new name should not be found",
@@ -80,6 +82,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     var cls = schema.createClass("Person");
     cls.setName("person");
 
+    assertEquals("Class object should report new case", "person", cls.getName());
     assertNull("Original-case name should no longer be found",
         schema.getClass("Person"));
     assertNotNull("New-case name should be found",
@@ -100,7 +103,12 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     schema.createClass("CounterTest1");
     schema.createClass("CounterTest2");
 
+    int cls1CollectionId = schema.getClass("CounterTest1").getCollectionIds()[0];
     int cls2CollectionId = schema.getClass("CounterTest2").getCollectionIds()[0];
+
+    // Counter-based IDs should be monotonically increasing
+    assertTrue("Collection IDs should be monotonically increasing",
+        cls2CollectionId > cls1CollectionId);
 
     // Close and reopen session to force schema reload from disk
     session.close();
@@ -108,15 +116,20 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     schema = session.getMetadata().getSchema();
 
-    // Create another class — should get a new counter value, not collide
+    // Verify previously created classes survived the reload
+    assertNotNull("CounterTest1 should survive reload",
+        schema.getClass("CounterTest1"));
+    assertNotNull("CounterTest2 should survive reload",
+        schema.getClass("CounterTest2"));
+
+    // Create another class — should get a counter value higher than pre-reload
     schema.createClass("CounterTest3");
 
     var cls3 = schema.getClass("CounterTest3");
     assertNotNull(cls3);
 
-    // The new class should have a collection ID different from the previous ones
-    assertTrue("Post-reload class should have a different collection ID",
-        cls3.getCollectionIds()[0] != cls2CollectionId);
+    assertTrue("Post-reload collection ID should be greater than pre-reload IDs",
+        cls3.getCollectionIds()[0] > cls2CollectionId);
   }
 
   /**
@@ -175,5 +188,120 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
         child.isSubClassOf("V"));
     assertFalse("Different-case isSubClassOf should not match",
         child.isSubClassOf("v"));
+  }
+
+  /**
+   * Verifies that isSubClassOf traverses multi-level inheritance with
+   * exact-case matching: GrandParent → Parent → Child.
+   */
+  @Test
+  public void testIsSubClassOfMultiLevelCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var grandparent = schema.createClass("GrandParent");
+    var parent = schema.createClass("Parent", grandparent);
+    var child = schema.createClass("Child", parent);
+
+    assertTrue(child.isSubClassOf("GrandParent"));
+    assertTrue(child.isSubClassOf("Parent"));
+    assertFalse("Must not match wrong case", child.isSubClassOf("grandparent"));
+    assertFalse("Must not match wrong case", child.isSubClassOf("parent"));
+  }
+
+  /**
+   * Verifies that dropClass uses exact-case matching: dropping "Animal"
+   * must not affect the "animal" class or its data.
+   */
+  @Test
+  public void testDropClassIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+
+    schema.createClass("Animal");
+    schema.createClass("animal");
+
+    // Insert a record into "animal" to verify data isolation
+    session.begin();
+    session.newInstance("animal");
+    session.commit();
+
+    schema.dropClass("Animal");
+
+    assertNull("Dropped class should not exist", schema.getClass("Animal"));
+    assertNotNull("Other-case class should still exist", schema.getClass("animal"));
+
+    // Verify data in "animal" is intact
+    session.begin();
+    long count = session.countClass("animal");
+    session.rollback();
+    assertEquals("Data in other-case class should be intact", 1L, count);
+  }
+
+  /**
+   * Verifies that the collection counter does not reuse indices after a class
+   * is dropped. Collection name counter suffixes must strictly increase.
+   */
+  @Test
+  public void testCollectionCounterMonotonicallyIncreasesAfterDrop() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls1 = schema.createClass("Mono1");
+    String name1 = session.getCollectionNameById(cls1.getCollectionIds()[0]);
+    int suffix1 = extractCounterSuffix(name1);
+
+    schema.dropClass("Mono1");
+
+    var cls2 = schema.createClass("Mono2");
+    String name2 = session.getCollectionNameById(cls2.getCollectionIds()[0]);
+    int suffix2 = extractCounterSuffix(name2);
+
+    assertTrue("Counter suffix after drop must be strictly greater ("
+        + suffix2 + " > " + suffix1 + ")", suffix2 > suffix1);
+  }
+
+  private static int extractCounterSuffix(String collectionName) {
+    int idx = collectionName.lastIndexOf('_');
+    assertTrue("Collection name should contain counter suffix: " + collectionName,
+        idx >= 0 && idx < collectionName.length() - 1);
+    return Integer.parseInt(collectionName.substring(idx + 1));
+  }
+
+  /**
+   * Verifies that the immutable schema snapshot preserves case-sensitive
+   * class lookup. ImmutableSchema is the primary read path during query
+   * execution.
+   */
+  @Test
+  public void testImmutableSchemaLookupIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("SnapshotTest");
+
+    // Force a fresh snapshot via getImmutableSchemaSnapshot
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+
+    assertTrue(immutableSchema.existsClass("SnapshotTest"));
+    assertFalse(immutableSchema.existsClass("snapshottest"));
+    assertNotNull(immutableSchema.getClass("SnapshotTest"));
+    assertNull(immutableSchema.getClass("SNAPSHOTTEST"));
+  }
+
+  /**
+   * Verifies that making an abstract class concrete generates a collection
+   * using the counter-based naming scheme.
+   */
+  @Test
+  public void testAbstractToConcreteCreatesCounterBasedCollection() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls = schema.createAbstractClass("MixedCase");
+    assertEquals(-1, cls.getCollectionIds()[0]);
+
+    cls.setAbstract(false);
+
+    int[] ids = cls.getCollectionIds();
+    assertTrue("Should have a valid collection ID", ids[0] >= 0);
+
+    String collectionName = session.getCollectionNameById(ids[0]);
+    assertTrue("Collection name should start with lowercase class name",
+        collectionName.startsWith("mixedcase_"));
   }
 }
