@@ -375,7 +375,7 @@ public interface Index extends Comparable<Index> {
     for (var className : classesToCheck) {
       var item =
           allFilteredProperties.stream()
-              .filter(x -> x.getClassName().equals(className))
+              .filter(x -> x.isAllClasses() || className.equals(x.getClassName()))
               .filter(x -> x.getPropertyName().equals(propertyName))
               .findFirst();
 

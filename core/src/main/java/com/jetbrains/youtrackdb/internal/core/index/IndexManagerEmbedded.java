@@ -416,7 +416,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       try (var stream = allFilteredProperties.stream()) {
         indexedAndFilteredProperties =
             stream
-                .filter(x -> x.getClassName().equals(className))
+                .filter(x -> x.isAllClasses() || className.equals(x.getClassName()))
                 .filter(x -> indexedFields.contains(x.getPropertyName()))
                 .collect(Collectors.toSet());
       }
