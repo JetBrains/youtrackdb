@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/3 complete)
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,12 +13,24 @@
 
 ## Steps
 
-- [ ] Step 1: Fix wrong-case class name lookups and equalsIgnoreCase in tests module
-  Fix `SchemaTest.checkSchema()` Java assert statements that use wrong-case
-  lookups (`"whiz"`, `"WHIZ"` → `"Whiz"`; `equalsIgnoreCase("Account")` →
-  `equals("Account")`). Fix `SQLSelectTest` equalsIgnoreCase calls (7 sites)
-  to use `equals("Profile")` / `equals("Animal")`. Investigate why wrong-case
-  assert lookups don't fail despite `-ea` being enabled.
+- [x] Step 1: Fix wrong-case class name lookups and equalsIgnoreCase in tests module
+  - [x] Context: safe
+  > **What was done:** Fixed SchemaTest.checkSchema() — changed 8 `getClass("whiz")`
+  > / `getClass("WHIZ")` calls to `getClass("Whiz")` and 2 `equalsIgnoreCase("Account")`
+  > to `equals("Account")`. Fixed SQLSelectTest — changed 9 `equalsIgnoreCase` calls
+  > to `equals()` with correct-case class names ("Profile", "Animal").
+  >
+  > **What was discovered:** EntityTreeTest line 67 uses `select from profile`
+  > (lowercase) in SQL but still passes — the SQL execution layer resolves class
+  > names independently of the schema map key lookup, so SQL queries with
+  > wrong-case class names don't fail. This means the plan's assumption that
+  > "SQL queries must use exact-case class names" may not hold for the FROM clause.
+  > Not a blocker for this track (test-only changes), but worth investigating
+  > if SQL case behavior matters later. Also confirmed: the old wrong-case
+  > `assert` lookups didn't fail because the schema layer lowercased inputs before
+  > the case-sensitive change, not because `-ea` was disabled.
+  >
+  > **Key files:** SchemaTest.java (modified), SQLSelectTest.java (modified)
 
 - [ ] Step 2: Fix equalsIgnoreCase in core module test files
   Change `HookReadTest.java:29` and `StorageBackupMTStateTest.java:324`
