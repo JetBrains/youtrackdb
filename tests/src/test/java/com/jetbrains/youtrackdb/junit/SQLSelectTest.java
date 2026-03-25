@@ -142,7 +142,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
         executeQuery("select * from Profile where name like 'Gi%'", session);
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().startsWith("Gi"));
     }
 
@@ -159,14 +159,14 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     result1 = executeQuery("select * from Profile where name like '%Gi%'", session);
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
     result1 = executeQuery("select * from Profile where name like ?", session, "%Gi%");
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
     session.commit();
@@ -404,7 +404,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
             session);
 
     for (var record : result) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertNotNull(record.getProperty("races"));
 
       Collection<EntityImpl> races = record.getProperty("races");
@@ -446,7 +446,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
       record = (EntityImpl) result.get(i).asEntityOrNull();
 
       assertTrue(
-          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+          Objects.requireNonNull(record.getSchemaClassName()).equals("Animal"));
       assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
@@ -474,7 +474,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
       record = (EntityImpl) result.get(i).asEntityOrNull();
 
       assertTrue(
-          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+          Objects.requireNonNull(record.getSchemaClassName()).equals("Animal"));
       assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
@@ -557,7 +557,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     for (var i = 0; i < result.size() && !found; ++i) {
       record = result.get(i).asEntityOrNull();
 
-      assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      assertTrue(record.getSchemaClassName().equals("Animal"));
       assertNotNull(record.getProperty("rates"));
 
       rates = record.getProperty("rates");
@@ -578,7 +578,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     for (var i = 0; i < result.size() && !found; ++i) {
       record = result.get(i).asEntity();
 
-      assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      assertTrue(record.getSchemaClassName().equals("Animal"));
       assertNotNull(record.getProperty("rates"));
 
       rates = record.getProperty("rates");
@@ -657,7 +657,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
 
     for (var record : result) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("Profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
 
       var found = false;
       for (var fieldValue : record.getPropertyNames().stream().map(record::getProperty).toArray()) {

@@ -62,28 +62,28 @@ public class SchemaTest extends BaseDBJUnit5Test {
         == PropertyType.DATETIME;
 
     assert schema.getClass("Whiz") != null;
-    assert schema.getClass("whiz").getProperty("account").getType()
+    assert schema.getClass("Whiz").getProperty("account").getType()
         == PropertyType.LINK;
     assert schema
-        .getClass("whiz")
+        .getClass("Whiz")
         .getProperty("account")
         .getLinkedClass()
         .getName()
-        .equalsIgnoreCase("Account");
-    assert schema.getClass("WHIZ").getProperty("date").getType() == PropertyType.DATE;
-    assert schema.getClass("WHIZ").getProperty("text").getType()
+        .equals("Account");
+    assert schema.getClass("Whiz").getProperty("date").getType() == PropertyType.DATE;
+    assert schema.getClass("Whiz").getProperty("text").getType()
         == PropertyType.STRING;
-    assert schema.getClass("WHIZ").getProperty("text").isMandatory();
-    assert schema.getClass("WHIZ").getProperty("text").getMin().equals("1");
-    assert schema.getClass("WHIZ").getProperty("text").getMax().equals("140");
-    assert schema.getClass("whiz").getProperty("replyTo").getType()
+    assert schema.getClass("Whiz").getProperty("text").isMandatory();
+    assert schema.getClass("Whiz").getProperty("text").getMin().equals("1");
+    assert schema.getClass("Whiz").getProperty("text").getMax().equals("140");
+    assert schema.getClass("Whiz").getProperty("replyTo").getType()
         == PropertyType.LINK;
     assert schema
         .getClass("Whiz")
         .getProperty("replyTo")
         .getLinkedClass()
         .getName()
-        .equalsIgnoreCase("Account");
+        .equals("Account");
   }
 
   @Test
