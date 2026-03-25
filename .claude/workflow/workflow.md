@@ -120,7 +120,7 @@ perspective on cross-track impact.
    | `Review + decomposition` is `[ ]` | Re-run only missing reviews, then decompose |
    | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
-   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip Phase C — see track-code-review.md; includes track completion after review) |
+   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md; includes track completion after review) |
    | All steps `[x]`, code review `[x]`, track still `[ ]` in plan | Resume track completion — compile episode, present to user for approval |
 
    Each resume handles exactly **one phase** — end session after that phase.

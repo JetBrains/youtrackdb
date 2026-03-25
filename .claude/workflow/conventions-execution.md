@@ -197,8 +197,10 @@ complete, findings are deduplicated, severity-assigned (blocker /
 should-fix / suggestion), and attributed to source dimension(s). Max 3
 iterations per level.
 
-**Single-step tracks skip Phase C** — the step-level review already
-covered the identical diff. See `track-code-review.md` §Single-Step Track.
+**Single-step tracks skip the code review portion of Phase C** — the
+step-level review already covered the identical diff. Phase C still runs
+for track completion (episode, user approval). See `track-code-review.md`
+§Single-Step Track.
 
 - **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
 - **Track-level:** see `track-code-review.md` (includes track completion)

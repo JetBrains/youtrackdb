@@ -14,18 +14,17 @@ feed into an accurate track episode.
 
 ---
 
-## Single-Step Track: Skip Phase C
+## Single-Step Track: Skip Code Review, Proceed to Track Completion
 
-If the track has exactly **1 step**, Phase C is skipped — the step-level
-review in Phase B already covered the identical diff. There is no cross-step
-interaction to catch.
+If the track has exactly **1 step**, the code review portion of Phase C is
+skipped — the step-level review in Phase B already covered the identical
+diff. There is no cross-step interaction to catch.
 
 1. Mark `Track-level code review` as `[x]` in the step file's Progress
    section with a note: `(skipped — single-step track, fully reviewed
    in Phase B)`.
 2. Commit the step file update.
-3. Inform the user that Phase C is skipped and why.
-4. End the session. The next session enters the Track Completion Protocol.
+3. Skip directly to **Track Completion** (below) in the same session.
 
 ---
 
