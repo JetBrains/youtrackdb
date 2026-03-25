@@ -1,17 +1,20 @@
-Read and follow the workflow for Phase 1 (Planning).
+Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 **Step 1 — Read workflow documents.**
 
 Read these in order before doing anything else (do NOT ask the user anything yet):
 1. `.claude/workflow/conventions.md` — shared formats,
    glossary, plan file structure, scope indicators, review iteration protocol
-2. `.claude/workflow/planning.md` — Phase 1 instructions:
-   goal, plan file structure, architecture notes format, track descriptions,
-   scope indicators, checklist decomposition rules
+2. `.claude/workflow/research.md` — Phase 0 instructions:
+   interactive research, code exploration, internet research, transition rules
+
+Do **NOT** read `.claude/workflow/planning.md` or
+`.claude/workflow/design-document-rules.md` yet — they are only needed when
+the user asks to create the plan (Step 4). Load them on demand at that point.
 
 **Step 2 — Ask the user for the aim.**
 
-After you have finished reading the workflow documents, ask the user to describe the aim and goal for this planning session. Do NOT proceed until the user provides the aim. Wait for the user's response before starting any research or planning work.
+After you have finished reading the workflow documents, ask the user to describe the aim and goal for this session. Do NOT proceed until the user provides the aim. Wait for the user's response before starting any research or planning work.
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
@@ -20,7 +23,41 @@ name. Otherwise, default to the current git branch name
 The plan will be saved to: docs/adr/<dir-name>/implementation-plan.md
 The codebase is at the current working directory.
 
-Once the user provides the aim, help them develop the plan:
+**Step 3 — Research phase (Phase 0).**
+
+Once the user provides the aim, enter **research mode**. In this mode:
+- Answer user questions about the codebase, architecture, and design
+- Explore code (read files, search for patterns, trace call chains)
+- Perform internet research when asked (web search, fetch documentation)
+- Present findings and intermediate conclusions
+- Help the user evaluate trade-offs and alternatives
+- Do **NOT** produce plan files, design documents, or track decompositions
+
+Stay in research mode until the user explicitly asks to create the plan
+(e.g., "create the plan", "let's plan this", "proceed to planning").
+
+**Step 4 — Transition to planning (Phase 1).**
+
+When the user asks to create the plan:
+
+First, read the planning workflow documents (deferred from Step 1):
+1. `.claude/workflow/planning.md` — Phase 1 instructions:
+   goal, plan file structure, architecture notes format, track descriptions,
+   scope indicators, checklist decomposition rules
+2. `.claude/workflow/design-document-rules.md` — design document rules,
+   structure, and examples
+
+Then summarize the key research findings and decisions from the conversation,
+and proceed to planning.
+
+The plan and design document **must** incorporate findings and decisions
+from the research phase:
+- Decision Records should reflect alternatives explored during research
+- Architecture Notes should build on codebase exploration findings
+- Track descriptions should incorporate constraints discovered during research
+- The design document should reflect design choices discussed with the user
+
+Help the user develop the plan:
 1. Understand the relevant parts of the codebase — explore the modules,
    packages, and classes relevant to the goal. Build a mental model before
    proposing anything.
