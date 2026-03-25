@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/3 complete)
+- [x] Step implementation (3/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -41,13 +41,17 @@
   >
   > **Key files:** HookReadTest.java (modified), StorageBackupMTStateTest.java (modified)
 
-- [ ] Step 3: Write deferred test scenarios TC2/TC3/TC4 from Track 2 code review
-  - TC2: Add tests for `isAllClasses()` guard in `Index.isLabelSecurityDefined`
-    and `IndexManagerEmbedded.checkSecurityConstraintsForIndexCreate` — verify
-    wildcard column-security rules work with the new `equals()` filter.
-  - TC3: Add test for `DatabaseImport.importIndexes()` `equals` check on
-    `EXPORT_IMPORT_INDEX_NAME`.
-  - TC4: Add index name preservation test across session reload (create →
-    persist → reload → case-sensitive lookup).
-  Add tests to `CaseSensitiveClassNameTest` or appropriate existing test
-  classes in the core module.
+- [x] Step 3: Write deferred test scenarios TC2/TC3/TC4 from Track 2 code review
+  - [x] Context: info
+  > **What was done:** Added 5 new test methods to CaseSensitiveClassNameTest:
+  > TC4 — index name round-trip across session reload (exact case survives,
+  > wrong case not found, IndexDefinition preserves class name). TC2 — three
+  > tests: wildcard security rule (`database.class.*.filtered`) blocks composite
+  > index for any class; wrong-case specific rule (`secexact` vs `SecExact`)
+  > does NOT block; exact-case specific rule (`SecBlock`) DOES block. TC3 —
+  > export/import round-trip preserves index name and class name case in
+  > IndexDefinition. Review fixes: strengthened exception message assertions
+  > (TC2), added IndexDefinition verification after import (TC3), added
+  > try/finally for safe import DB cleanup, closed export/import resources.
+  >
+  > **Key files:** CaseSensitiveClassNameTest.java (modified)
