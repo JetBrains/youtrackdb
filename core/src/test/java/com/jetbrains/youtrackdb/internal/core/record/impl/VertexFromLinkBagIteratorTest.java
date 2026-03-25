@@ -383,6 +383,201 @@ public class VertexFromLinkBagIteratorTest {
     assertFalse(iterator.hasNext());
   }
 
+  // =========================================================================
+  // ridIterator() tests — RID-only iteration without entity loading
+  // =========================================================================
+
+  /**
+   * ridIterator() yields RecordId objects from the LinkBag without calling
+   * loadEntity(). Verifies that the returned identifiable has the correct
+   * RID and that no entity loading occurs.
+   */
+  @Test
+  public void ridIterator_yieldsRecordIdsWithoutLoading() {
+    var rid1 = new RecordId(10, 1);
+    var rid2 = new RecordId(10, 2);
+    var linkBag = mockLinkBag(
+        RidPair.ofPair(new RecordId(30, 1), rid1),
+        RidPair.ofPair(new RecordId(30, 2), rid2));
+
+    var iterable = new VertexFromLinkBagIterable(linkBag, session);
+    var iter = iterable.ridIterator();
+
+    assertTrue(iter.hasNext());
+    assertEquals(rid1, iter.next().getIdentity());
+    assertTrue(iter.hasNext());
+    assertEquals(rid2, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+
+    // Verify loadEntity was never called — entities were not loaded
+    org.mockito.Mockito.verifyNoInteractions(transaction);
+  }
+
+  /**
+   * ridIterator() applies class filter by collection ID without loading.
+   */
+  @Test
+  public void ridIterator_classFilter_skipsNonMatchingCollectionId() {
+    var matchingRid = new RecordId(10, 1); // collection 10 — accepted
+    var nonMatchingRid = new RecordId(20, 1); // collection 20 — rejected
+    var linkBag = mockLinkBag(
+        RidPair.ofPair(new RecordId(30, 1), nonMatchingRid),
+        RidPair.ofPair(new RecordId(30, 2), matchingRid));
+
+    var iterable = new VertexFromLinkBagIterable(linkBag, session)
+        .withClassFilter(it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10));
+    var iter = iterable.ridIterator();
+
+    assertTrue(iter.hasNext());
+    assertEquals(matchingRid, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+  }
+
+  /**
+   * ridIterator() applies RID filter without loading.
+   */
+  @Test
+  public void ridIterator_ridFilter_skipsNonMatchingRid() {
+    var matchingRid = new RecordId(10, 1);
+    var nonMatchingRid = new RecordId(10, 2);
+    var linkBag = mockLinkBag(
+        RidPair.ofPair(new RecordId(30, 1), nonMatchingRid),
+        RidPair.ofPair(new RecordId(30, 2), matchingRid));
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(matchingRid);
+
+    var iterable = new VertexFromLinkBagIterable(linkBag, session)
+        .withRidFilter(acceptedRids);
+    var iter = iterable.ridIterator();
+
+    assertTrue(iter.hasNext());
+    assertEquals(matchingRid, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+  }
+
+  /**
+   * ridIterator() on an empty LinkBag returns an empty iterator.
+   */
+  @Test
+  public void ridIterator_emptyLinkBag_yieldsNothing() {
+    var linkBag = mockLinkBag();
+    var iterable = new VertexFromLinkBagIterable(linkBag, session);
+    assertFalse(iterable.ridIterator().hasNext());
+  }
+
+  /**
+   * ridIterator() throws NoSuchElementException when exhausted.
+   */
+  @Test(expected = NoSuchElementException.class)
+  public void ridIterator_throwsWhenExhausted() {
+    var linkBag = mockLinkBag();
+    var iterable = new VertexFromLinkBagIterable(linkBag, session);
+    iterable.ridIterator().next();
+  }
+
+  /**
+   * ridIterator() hasNext() is idempotent — calling it multiple times
+   * before next() does not advance past elements.
+   */
+  @Test
+  public void ridIterator_hasNextIsIdempotent() {
+    var rid = new RecordId(10, 1);
+    var linkBag = mockLinkBag(RidPair.ofPair(new RecordId(30, 1), rid));
+
+    var iter = new VertexFromLinkBagIterable(linkBag, session).ridIterator();
+
+    assertTrue(iter.hasNext());
+    assertTrue("Second hasNext() should still return true", iter.hasNext());
+    assertTrue("Third hasNext() should still return true", iter.hasNext());
+    assertEquals(rid, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+  }
+
+  /**
+   * ridIterator() applies both class and RID filters simultaneously.
+   * A vertex must pass both to be yielded.
+   */
+  @Test
+  public void ridIterator_combinedFilter_requiresBothToPass() {
+    // rid1: collection 10 (accepted) AND in ridSet → yielded
+    var rid1 = new RecordId(10, 1);
+    // rid2: collection 10 (accepted) but NOT in ridSet → skipped
+    var rid2 = new RecordId(10, 2);
+    // rid3: collection 20 (rejected by class filter) → skipped
+    var rid3 = new RecordId(20, 1);
+
+    var acceptedRids = new java.util.HashSet<RID>();
+    acceptedRids.add(rid1);
+
+    var linkBag = mockLinkBag(
+        RidPair.ofPair(new RecordId(30, 1), rid3),
+        RidPair.ofPair(new RecordId(30, 2), rid2),
+        RidPair.ofPair(new RecordId(30, 3), rid1));
+
+    var iter = new VertexFromLinkBagIterable(linkBag, session)
+        .withClassFilter(it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(10))
+        .withRidFilter(acceptedRids)
+        .ridIterator();
+
+    assertTrue(iter.hasNext());
+    assertEquals(rid1, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+
+    // No entity loading should have occurred
+    org.mockito.Mockito.verifyNoInteractions(transaction);
+  }
+
+  /**
+   * ridIterator() yields all matching RIDs when multiple pass the filters,
+   * preserving LinkBag iteration order.
+   */
+  @Test
+  public void ridIterator_multipleMatches_preservesOrder() {
+    var rid1 = new RecordId(10, 1);
+    var rid2 = new RecordId(10, 2);
+    var rid3 = new RecordId(10, 3);
+    var linkBag = mockLinkBag(
+        RidPair.ofPair(new RecordId(30, 1), rid1),
+        RidPair.ofPair(new RecordId(30, 2), rid2),
+        RidPair.ofPair(new RecordId(30, 3), rid3));
+
+    var iter = new VertexFromLinkBagIterable(linkBag, session).ridIterator();
+
+    assertEquals(rid1, iter.next().getIdentity());
+    assertEquals(rid2, iter.next().getIdentity());
+    assertEquals(rid3, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+
+    org.mockito.Mockito.verifyNoInteractions(transaction);
+  }
+
+  /**
+   * ridIterator() returns RID objects (not loaded entities). Verifies the
+   * returned Identifiable is a RecordId instance, not a Vertex or Entity.
+   */
+  @Test
+  public void ridIterator_returnsRecordIdNotEntity() {
+    var rid = new RecordId(10, 1);
+    var linkBag = mockLinkBag(RidPair.ofPair(new RecordId(30, 1), rid));
+
+    var result = new VertexFromLinkBagIterable(linkBag, session)
+        .ridIterator().next();
+
+    assertTrue(
+        "ridIterator should yield RecordId, not a loaded entity",
+        result instanceof RecordId);
+    assertEquals(rid, result.getIdentity());
+  }
+
+  private com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag mockLinkBag(
+      RidPair... pairs) {
+    var linkBag = mock(com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag.class);
+    when(linkBag.iterator()).thenReturn(List.of(pairs).iterator());
+    when(linkBag.size()).thenReturn(pairs.length);
+    return linkBag;
+  }
+
   /**
    * Configures the mock transaction to return a vertex entity when loadEntity
    * is called with the given RID.
