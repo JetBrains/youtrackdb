@@ -7,11 +7,18 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
+import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Set;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -575,5 +582,169 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     assertEquals("Widget.nameIdx", forUpper.iterator().next().getName());
     assertEquals("widget.nameIdx", forLower.iterator().next().getName());
+  }
+
+  // --- Deferred test scenarios from Track 2 code review ---
+
+  /**
+   * TC4: Verifies that index names are preserved with exact original case
+   * across a session reload (create → persist → reload → case-sensitive
+   * lookup). This tests the full round-trip through IndexManager persistence
+   * and ImmutableSchema reconstruction.
+   */
+  @Test
+  public void testIndexNamePreservationAcrossSessionReload() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ReloadIdx");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("ReloadIdx.NameIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    // Verify before reload
+    var snap = session.getMetadata().getImmutableSchemaSnapshot();
+    assertTrue("Index should exist before reload",
+        snap.indexExists("ReloadIdx.NameIdx"));
+
+    // Close and reopen session to force schema reload from storage
+    session.close();
+    session = pool.acquire();
+
+    // Verify after reload: exact-case lookup should find the index
+    snap = session.getMetadata().getImmutableSchemaSnapshot();
+    assertTrue("Exact-case index name should survive reload",
+        snap.indexExists("ReloadIdx.NameIdx"));
+    assertFalse("Wrong-case index name should not exist after reload",
+        snap.indexExists("reloadidx.nameidx"));
+    assertFalse("Wrong-case index name should not exist after reload",
+        snap.indexExists("RELOADIDX.NAMEIDX"));
+
+    // Verify IndexDefinition preserves class name case
+    var def = snap.getIndexDefinition("ReloadIdx.NameIdx");
+    assertEquals("ReloadIdx.NameIdx", def.name());
+    assertEquals("ReloadIdx", def.className());
+  }
+
+  /**
+   * TC2: Verifies that the isAllClasses() guard in the security filter works
+   * correctly with case-sensitive class names. A wildcard security rule
+   * (database.class.*.property) must match any class regardless of name case,
+   * blocking composite index creation on the filtered property.
+   */
+  @Test
+  public void testWildcardSecurityRuleBlocksCompositeIndexForAnyClass() {
+    var security = session.getSharedContext().getSecurity();
+
+    var cls = session.getMetadata().getSchema().createClass("SecWild");
+    cls.createProperty("filtered", PropertyType.STRING);
+    cls.createProperty("other", PropertyType.STRING);
+
+    // Set up wildcard security rule: database.class.*.filtered
+    // with a non-trivial read rule (only non-trivial rules trigger filtering)
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "wildcardPolicy");
+    policy.setActive(true);
+    policy.setReadRule("filtered = 'allowed'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(
+        session, security.getRole(session, "reader"),
+        "database.class.*.filtered", policy);
+    session.commit();
+
+    // Creating a composite index on (filtered, other) should throw because
+    // the wildcard rule matches ANY class including "SecWild"
+    try {
+      cls.createIndex("SecWild.compositeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+          "filtered", "other");
+      Assert.fail("Expected IndexException for composite index on"
+          + " wildcard-filtered property");
+    } catch (IndexException e) {
+      // Expected: wildcard security rule blocks composite index creation
+    }
+  }
+
+  /**
+   * TC2: Verifies that a class-specific security rule only matches the
+   * exact-case class name. A security rule set for "secexact" (lowercase)
+   * should NOT block index creation on "SecExact" (original case) because
+   * the equals() comparison is case-sensitive.
+   */
+  @Test
+  public void testSpecificClassSecurityRuleRequiresExactCaseMatch() {
+    var security = session.getSharedContext().getSecurity();
+
+    var cls = session.getMetadata().getSchema().createClass("SecExact");
+    cls.createProperty("secret", PropertyType.STRING);
+    cls.createProperty("extra", PropertyType.STRING);
+
+    // Set up class-specific security rule with WRONG case: "secexact"
+    // instead of "SecExact". With case-sensitive equals(), this rule
+    // should NOT match the actual class "SecExact".
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "specificPolicy");
+    policy.setActive(true);
+    policy.setReadRule("secret = 'allowed'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(
+        session, security.getRole(session, "reader"),
+        "database.class.secexact.secret", policy);
+    session.commit();
+
+    // Creating a composite index should SUCCEED because "secexact" != "SecExact"
+    cls.createIndex("SecExact.compositeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "secret", "extra");
+
+    // Verify the index was actually created
+    var indexManager = session.getSharedContext().getIndexManager();
+    Set<Index> indexes = indexManager.getClassInvolvedIndexes(
+        session, "SecExact", "secret", "extra");
+    assertEquals("Composite index should have been created", 1, indexes.size());
+  }
+
+  /**
+   * TC3: Verifies that index names survive an export/import cycle with
+   * exact case preserved. The import flow uses equals() to compare index
+   * names against the EXPORT_IMPORT_INDEX_NAME constant — this test
+   * ensures that case-sensitive comparison works correctly in that path.
+   */
+  @Test
+  public void testExportImportPreservesIndexNameCase() throws IOException {
+    // Create class with mixed-case index name
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ExpImpTest");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("ExpImpTest.ValueIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    // Export the database
+    var output = new ByteArrayOutputStream();
+    var exp = new DatabaseExport(session, output, (text) -> {
+    });
+    exp.exportDatabase();
+    session.close();
+
+    // Create a fresh database for import
+    String importDbName = databaseName + "_imp";
+    youTrackDB.create(importDbName, dbType,
+        adminUser, adminPassword, "admin",
+        readerUser, readerPassword, "reader");
+    session = youTrackDB.open(importDbName, adminUser, adminPassword);
+
+    // Import from export data
+    var imp = new DatabaseImport(
+        session, new ByteArrayInputStream(output.toByteArray()), (text) -> {
+        });
+    imp.importDatabase();
+
+    // Verify index name is preserved with exact case
+    var snap = session.getMetadata().getImmutableSchemaSnapshot();
+    assertTrue("Exact-case index name should exist after import",
+        snap.indexExists("ExpImpTest.ValueIdx"));
+    assertFalse("Wrong-case index name should not exist after import",
+        snap.indexExists("expimptest.valueidx"));
+
+    // Clean up the import database
+    session.close();
+    youTrackDB.drop(importDbName);
+
+    // Reopen original session for test teardown
+    session = pool.acquire();
   }
 }
