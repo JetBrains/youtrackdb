@@ -275,4 +275,228 @@ public class ConcurrentLongIntHashMapConcurrentTest {
         .as("size() matches forEach entry count after rehash stress")
         .isEqualTo(entryCount.get());
   }
+
+  // ---- removeByFileId concurrent tests ----
+
+  /**
+   * removeByFileId for a target file while other threads concurrently read/write entries for
+   * different file IDs. Verifies that all target-file entries are removed and entries for other
+   * files are unaffected.
+   *
+   * <p>Setup: pre-populate the map with entries for files 0-9. One thread repeatedly calls
+   * removeByFileId(targetFileId) while other threads perform get/put on files != targetFileId. After
+   * completion, verify target-file entries are gone and other-file entries are intact.
+   */
+  @Test
+  public void removeByFileIdDoesNotAffectOtherFiles() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(1024);
+    long targetFileId = 5;
+    int pagesPerFile = 100;
+    int otherFileCount = 9; // files 0-4 and 6-9
+    int rounds = 50;
+
+    // Pre-populate all files
+    for (long fId = 0; fId < 10; fId++) {
+      for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
+        map.put(fId, pIdx, fId + ":" + pIdx);
+      }
+    }
+
+    int totalThreads = 5; // 1 remover + 4 read/write workers on other files
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+
+    try {
+      // Remover thread — repeatedly removes and re-populates the target file
+      futures.add(
+          executor.submit(
+              () -> {
+                startBarrier.await();
+                for (int r = 0; r < rounds; r++) {
+                  var removed = map.removeByFileId(targetFileId);
+                  // Re-populate so next round has entries to remove
+                  for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
+                    map.put(targetFileId, pIdx, targetFileId + ":" + pIdx);
+                  }
+                }
+                return null;
+              }));
+
+      // 4 worker threads on other files — get/put to verify no interference
+      for (int t = 0; t < 4; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  for (int i = 0; i < rounds * pagesPerFile; i++) {
+                    // Pick a file != targetFileId
+                    long fileId = rng.nextInt(otherFileCount);
+                    if (fileId >= targetFileId) {
+                      fileId++; // skip targetFileId
+                    }
+                    int pageIndex = rng.nextInt(pagesPerFile);
+                    String value = fileId + ":" + pageIndex;
+
+                    if (rng.nextBoolean()) {
+                      map.put(fileId, pageIndex, value);
+                    } else {
+                      String result = map.get(fileId, pageIndex);
+                      if (result != null) {
+                        assertThat(result)
+                            .as("get(%d, %d) returned correct value", fileId, pageIndex)
+                            .isEqualTo(value);
+                      }
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      for (var future : futures) {
+        future.get(30, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // Final removeByFileId to ensure target is gone
+    map.removeByFileId(targetFileId);
+
+    // Verify: no entries for the target file remain
+    map.forEach(
+        (fileId, pageIndex, value) -> {
+          assertThat(fileId)
+              .as("no entries for target file %d should remain", targetFileId)
+              .isNotEqualTo(targetFileId);
+          assertThat(value)
+              .as("value at (%d, %d) matches canonical form", fileId, pageIndex)
+              .isEqualTo(fileId + ":" + pageIndex);
+        });
+  }
+
+  /**
+   * removeByFileId + concurrent put on the same file. One thread calls removeByFileId while another
+   * thread inserts entries for the same file. After both complete, we do a final removeByFileId and
+   * verify the map is empty for that file. This exercises the race between removal and insertion
+   * within the same section.
+   */
+  @Test
+  public void removeByFileIdWithConcurrentPutOnSameFile() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(256);
+    long fileId = 42;
+    int pagesPerFile = 200;
+    int rounds = 100;
+
+    int totalThreads = 4; // 2 removers + 2 inserters
+    var executor = Executors.newFixedThreadPool(totalThreads);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(totalThreads);
+
+    try {
+      // 2 remover threads
+      for (int t = 0; t < 2; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  for (int r = 0; r < rounds; r++) {
+                    map.removeByFileId(fileId);
+                  }
+                  return null;
+                }));
+      }
+
+      // 2 inserter threads
+      for (int t = 0; t < 2; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  for (int r = 0; r < rounds; r++) {
+                    for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
+                      map.put(fileId, pIdx, fileId + ":" + pIdx);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
+      for (var future : futures) {
+        future.get(30, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // After all threads stop, do a final removal and verify empty for this file.
+    // Some entries may remain from the last inserter round — that's expected (R2 race).
+    map.removeByFileId(fileId);
+
+    map.forEach(
+        (fId, pageIndex, value) -> assertThat(fId)
+            .as("no entries for file %d should remain after final removeByFileId", fileId)
+            .isNotEqualTo(fileId));
+  }
+
+  /**
+   * Multiple concurrent removeByFileId for different files. Several threads each call
+   * removeByFileId for their own file ID simultaneously. Verifies each file's entries are fully
+   * removed and no cross-file interference occurs.
+   */
+  @Test
+  public void multipleConcurrentRemoveByFileIdForDifferentFiles() throws Exception {
+    var map = new ConcurrentLongIntHashMap<String>(4096);
+    int fileCount = 8;
+    int pagesPerFile = 200;
+
+    // Pre-populate
+    for (long fId = 0; fId < fileCount; fId++) {
+      for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
+        map.put(fId, pIdx, fId + ":" + pIdx);
+      }
+    }
+
+    assertThat(map.size())
+        .as("initial size")
+        .isEqualTo((long) fileCount * pagesPerFile);
+
+    var executor = Executors.newFixedThreadPool(fileCount);
+    var futures = new ArrayList<Future<Void>>();
+    var startBarrier = new CyclicBarrier(fileCount);
+
+    try {
+      // Each thread removes one file
+      for (int t = 0; t < fileCount; t++) {
+        long targetFile = t;
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var removed = map.removeByFileId(targetFile);
+                  // Every entry in the removed list must belong to the target file
+                  for (var val : removed) {
+                    assertThat(val)
+                        .as("removed value belongs to file %d", targetFile)
+                        .startsWith(targetFile + ":");
+                  }
+                  return null;
+                }));
+      }
+
+      for (var future : futures) {
+        future.get(30, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
+
+    // All files removed concurrently — map should be empty
+    assertThat(map.size()).as("map should be empty after all files removed").isEqualTo(0);
+    assertThat(map.isEmpty()).isTrue();
+  }
 }
