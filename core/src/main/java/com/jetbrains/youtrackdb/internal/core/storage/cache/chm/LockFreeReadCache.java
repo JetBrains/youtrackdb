@@ -100,9 +100,11 @@ public final class LockFreeReadCache implements ReadCache {
       this.pageFramePool = bufferPool.pageFramePool();
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
-      // Section count matches ConcurrentHashMap's concurrency level (N_CPU << 1).
-      // The map constructor aligns to the next power of two internally.
-      this.data = new ConcurrentLongIntHashMap<>(this.maxCacheSize, N_CPU << 1);
+      // Section count rounded up to power of two from N_CPU << 1 (matching
+      // ConcurrentHashMap's concurrency level). ConcurrentLongIntHashMap requires
+      // power-of-two section count for bit-mask section selection.
+      this.data =
+          new ConcurrentLongIntHashMap<>(this.maxCacheSize, ceilingPowerOfTwo(N_CPU << 1));
       policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
       policy.setMaxSize(this.maxCacheSize);
     } finally {
