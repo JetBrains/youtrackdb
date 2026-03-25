@@ -9940,4 +9940,231 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * End-to-end test modelling the IC10 two-LET pattern before it was manually
+   * merged into a single sum(if(...)). Verifies that both optimizations compose
+   * correctly:
+   *
+   * <ul>
+   *   <li>Common filter {@code @class = 'IcPost'} is pushed into the
+   *       materialization query's ExpandStep (collection ID check — zero
+   *       I/O for Comments)</li>
+   *   <li>Per-entry filters ({@code tag CONTAINS 'sports'} /
+   *       {@code NOT (tag CONTAINS 'sports')}) are preserved in each entry's
+   *       FilterStep via {@code skipExpandPushDown}</li>
+   *   <li>The shared inner traversal is executed once (materialization), not
+   *       twice</li>
+   * </ul>
+   *
+   * <p>Graph structure per person:
+   * <pre>
+   *   Person ←[IcCreator]— IcPost(tag='sports')   x3
+   *   Person ←[IcCreator]— IcPost(tag='music')     x2
+   *   Person ←[IcCreator]— IcComment(tag='sports') x2  (filtered out by @class)
+   * </pre>
+   */
+  @Test
+  public void testMaterializedLet_IC10Pattern_pushDownWithMaterialization() {
+    session.execute("CREATE CLASS IcPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IcPost EXTENDS V").close();
+    session.execute("CREATE CLASS IcComment EXTENDS V").close();
+    session.execute("CREATE CLASS IcCreator EXTENDS E").close();
+    session.execute("CREATE CLASS IcKnows EXTENDS E").close();
+
+    session.begin();
+    // Create two persons (start and fof) connected by KNOWS
+    var startRs = session.execute(
+        "CREATE VERTEX IcPerson SET name = 'start', id = 1");
+    var startRid = startRs.next().getIdentity();
+    startRs.close();
+
+    var fofRs = session.execute(
+        "CREATE VERTEX IcPerson SET name = 'fof', id = 2");
+    var fofRid = fofRs.next().getIdentity();
+    fofRs.close();
+
+    session.execute(
+        "CREATE EDGE IcKnows FROM " + startRid + " TO " + fofRid).close();
+
+    // fof's content: 3 Posts with tag='sports', 2 Posts with tag='music',
+    // 2 Comments with tag='sports' (should be filtered by @class = 'IcPost')
+    for (int i = 0; i < 3; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcPost SET tag = 'sports'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcPost SET tag = 'music'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcComment SET tag = 'sports'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // IC10-style query: two LETs with common @class='IcPost' filter
+    // and different per-entry tag conditions
+    var result = session.query(
+        "SELECT fofName,"
+            + " $posScore[0].cnt as posScore,"
+            + " $negScore[0].cnt as negScore"
+            + " FROM ("
+            + "   SELECT expand(out('IcKnows')) FROM IcPerson"
+            + "   WHERE @rid = " + startRid
+            + " )"
+            + " LET fofName = name,"
+            + "  $posScore = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('IcCreator')) FROM IcPerson"
+            + "    WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'IcPost' AND tag = 'sports'),"
+            + "  $negScore = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('IcCreator')) FROM IcPerson"
+            + "    WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'IcPost' AND tag = 'music')");
+
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals("fof", row.getProperty("fofName"));
+    // 3 Posts with tag='sports' (Comments excluded by @class filter)
+    Assert.assertEquals(
+        "posScore (Posts with tag=sports)",
+        3L, ((Number) row.getProperty("posScore")).longValue());
+    // 2 Posts with tag='music'
+    Assert.assertEquals(
+        "negScore (Posts with tag=music)",
+        2L, ((Number) row.getProperty("negScore")).longValue());
+
+    // Verify plan structure: materialization with common filter push-down.
+    // The common @class='IcPost' filter should appear in the materialization
+    // step. Per-entry filters (tag conditions) are not visible in the plan
+    // prettyPrint — they live in per-entry plans created at execution time.
+    // Correctness of per-entry filtering is proven by the count assertions
+    // above: if the FilterStep were lost (push-down without skipExpandPushDown),
+    // all Posts would be counted for both entries, yielding 5/5 instead of 3/2.
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "Common filter should contain @class = 'IcPost', plan was:\n" + plan,
+        plan.contains("common filter:") && plan.contains("IcPost"));
+
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * EXPLAIN-level test verifying that a query with two LET entries sharing
+   * the same inner subquery and the same @class filter produces a plan with
+   * MATERIALIZED LET GROUP and the common filter reported in the plan output.
+   * Also verifies the query against independent execution for correctness.
+   */
+  @Test
+  public void testMaterializedLet_explainShowsCommonFilter() {
+    session.execute("CREATE CLASS ExPerson EXTENDS V").close();
+    session.execute("CREATE CLASS ExPost EXTENDS V").close();
+    session.execute("CREATE CLASS ExComment EXTENDS V").close();
+    session.execute("CREATE CLASS ExCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX ExPerson SET name = 'test'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 4; i++) {
+      var rs = session.execute("CREATE VERTEX ExPost SET n = " + i);
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE ExCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    for (int i = 0; i < 3; i++) {
+      var rs = session.execute("CREATE VERTEX ExComment SET n = " + i);
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE ExCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    String query =
+        "SELECT name,"
+            + " $a[0].cnt as countA,"
+            + " $b[0].cnt as countB"
+            + " FROM ExPerson"
+            + " LET $a = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'ExPost' AND n < 2),"
+            + " $b = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'ExPost' AND n >= 2)"
+            + " WHERE @rid = " + personRid;
+
+    // 1. Run EXPLAIN and verify plan structure
+    session.begin();
+    var explain = session.execute("EXPLAIN " + query);
+    Assert.assertTrue(explain.hasNext());
+    var explainPlan = explain.next().getProperty("executionPlanAsString")
+        .toString();
+    explain.close();
+    session.commit();
+
+    Assert.assertTrue(
+        "EXPLAIN should show MATERIALIZED LET GROUP, was:\n" + explainPlan,
+        explainPlan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "EXPLAIN should show common filter with ExPost, was:\n" + explainPlan,
+        explainPlan.contains("common filter:")
+            && explainPlan.contains("ExPost"));
+
+    // 2. Run actual query and verify correct results
+    session.begin();
+    var result = session.query(query);
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    // 4 Posts total: n=0,1 match "n < 2", n=2,3 match "n >= 2"
+    Assert.assertEquals(2L, ((Number) row.getProperty("countA")).longValue());
+    Assert.assertEquals(2L, ((Number) row.getProperty("countB")).longValue());
+    result.close();
+    session.commit();
+
+    // 3. Verify against independent execution (no materialization trick)
+    session.begin();
+    var indA = session.query(
+        "SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + " WHERE @rid = " + personRid + ")"
+            + " WHERE @class = 'ExPost' AND n < 2");
+    Assert.assertEquals(
+        2L, ((Number) indA.next().getProperty("cnt")).longValue());
+    indA.close();
+
+    var indB = session.query(
+        "SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + " WHERE @rid = " + personRid + ")"
+            + " WHERE @class = 'ExPost' AND n >= 2");
+    Assert.assertEquals(
+        2L, ((Number) indB.next().getProperty("cnt")).longValue());
+    indB.close();
+    session.commit();
+  }
+
 }
