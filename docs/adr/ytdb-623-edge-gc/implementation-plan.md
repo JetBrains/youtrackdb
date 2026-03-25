@@ -248,34 +248,23 @@ flowchart LR
   >
   > **Step file:** `tracks/track-2.md` (0 steps, 0 failed — skipped)
 
-- [ ] Track 3: Concurrent and crash-recovery tests for tombstone GC
+- [x] Track 3: Concurrent and crash-recovery tests for tombstone GC
   > Robustness tests verifying tombstone GC correctness under concurrent
   > access and after crash/recovery scenarios.
-  >
-  > **What**:
-  > - **Concurrent GC tests (TX1/TX2)**: Multiple threads performing
-  >   concurrent `put()` and `remove()` operations on the same
-  >   `SharedLinkBagBTree` while tombstone GC is active. Verify that
-  >   concurrent GC-triggering splits don't corrupt the tree (no lost
-  >   entries, no duplicate entries, tree size consistent with actual
-  >   content). Test concurrent writers where some threads insert live
-  >   entries and others insert cross-tx tombstones, both triggering GC.
-  > - **Crash recovery test (TY1)**: Simulate crash during or after
-  >   tombstone GC by writing entries that trigger GC, then performing
-  >   WAL replay/recovery. Verify that the recovered B-tree state is
-  >   consistent: tree size matches actual entries, no ghost resurrection,
-  >   surviving entries are intact. Use the existing crash-recovery test
-  >   infrastructure (atomic operation commit + storage reopen pattern).
-  >
-  > **Constraints**:
-  > - Concurrent tests should use `ConcurrentTestHelper` or similar
-  >   multi-threaded test patterns from the codebase.
-  > - Crash recovery test should follow the pattern of existing WAL
-  >   recovery tests — commit an atomic operation containing GC'd splits,
-  >   close storage uncleanly, reopen, and verify state.
-  > - Must verify tree invariants (size, ordering, no duplicates) after
-  >   concurrent operations complete.
   >
   > **Scope:** ~2-3 steps covering concurrent GC stress tests and
   > crash-recovery verification
   > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Implemented concurrent stress and durability tests for tombstone GC in
+  > `SharedLinkBagBTree`. Two steps: (1) contention stress test with 4
+  > threads performing concurrent put/remove triggering cross-thread GC,
+  > using shared `ridBagId` for bucket co-location; (2) non-graceful close
+  > durability test verifying edge set integrity after force-close during
+  > active GC. Code review found and fixed: defensive assert for tombstone
+  > flag in `remove()` path, stress test key layout for cross-thread GC
+  > interaction, and durability test relabeling (not a true crash
+  > simulation). No cross-track impact — this is the final track.
+  >
+  > **Step file:** `tracks/track-3.md` (2 steps, 0 failed)
