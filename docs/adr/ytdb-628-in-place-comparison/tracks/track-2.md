@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -104,7 +104,8 @@
   > **Key files:** `SQLBinaryCondition.java` (modified),
   > `SQLBinaryConditionInPlaceTest.java` (new)
 
-- [ ] Step 2: In-place comparison in `evaluate(Identifiable, CommandContext)`
+- [x] Step 2: In-place comparison in `evaluate(Identifiable, CommandContext)`
+  - [x] Context: info
   Add the same in-place comparison fast path to the
   `evaluate(Identifiable, CommandContext)` overload. This overload is used by
   `SQLContainsCondition`, `SQLContainsAllCondition`, and
@@ -127,6 +128,17 @@
   **Tests**: SQL queries using CONTAINS with EntityImpl items to exercise the
   Identifiable path. Verify non-EntityImpl identifiables pass through to
   the existing path.
+
+  > **What was done:** Added in-place comparison to the Identifiable-based
+  > evaluate() overload. Extracted shared `tryInPlaceComparison()` method
+  > (returns Boolean, null = fallback) to eliminate code duplication between
+  > the two evaluate() overloads. No collation guard — the existing overload
+  > never applies collation. Test: `testContainsWithLinkedEntityCondition`
+  > using LINKLIST + CONTAINS (condition) syntax for both equality and range
+  > comparison.
+  >
+  > **Key files:** `SQLBinaryCondition.java` (modified),
+  > `SQLBinaryConditionInPlaceTest.java` (modified)
 
 - [ ] Step 3: MATCH and edge case integration tests
   Comprehensive SQL-level integration tests ensuring end-to-end correctness
