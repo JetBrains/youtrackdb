@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -113,37 +113,13 @@ isPropertyEqualTo(name, value) / comparePropertyTo(name, value):
   >
   > **Key files:** `InPlaceComparator.java` (modified), `InPlaceComparatorNonNumericTest.java` (new)
 
-- [ ] Step 3: InPlaceResult enum + EntityImpl comparison methods
-  > Add the `InPlaceResult` enum and two new public methods to EntityImpl:
-  > `isPropertyEqualTo(String, Object)` and `comparePropertyTo(String, Object)`.
+- [x] Step 3: InPlaceResult enum + EntityImpl comparison methods
+  - [x] Context: warning
+  > **What was done:** Added `InPlaceResult` enum (TRUE/FALSE/FALLBACK) and two new methods on EntityImpl: `isPropertyEqualTo` and `comparePropertyTo`. Both check properties map first (without triggering deserialization), then fall back to serialized source bytes via InPlaceComparator. Handles all guards: status, propertyAccess, encryption, collation, null values. Shared `deserializeFieldForComparison` helper eliminates DRY violations. Single `compareJavaValuesOrdering` method handles all type-aware comparisons.
   >
-  > Key design points:
-  > - `InPlaceResult { TRUE, FALSE, FALLBACK }` — replaces `Optional<Boolean>`
-  >   per review finding A3
-  > - `isPropertyEqualTo` returns `InPlaceResult`
-  > - `comparePropertyTo` returns `OptionalInt` (empty = fallback)
-  > - Both methods share the same dispatch logic (see state matrix above)
-  > - Call `checkForBinding()` first (T3)
-  > - Check `status == STATUS.LOADED` (R2)
-  > - Check `propertyAccess` (D6)
-  > - Properties map path: `containsKey` (not `get`), navigate EntityEntry
-  >   (`exists()`, null value, null type → fallback) (R1, A4)
-  > - Deserialized comparison: type-aware, same conversion as InPlaceComparator,
-  >   NOT `Objects.equals` (T1)
-  > - Source path: check encryption (R6), null iClass (R7), collation on
-  >   BinaryField (T7), delegate to InPlaceComparator
-  > - `deserializeField()` returning null → fallback (covers zero-length fields
-  >   and non-comparable types) (A7, T6)
+  > **What was discovered:** Three review-caught bugs: (1) `serializeAndReload` via `ser.fromStream` fully deserializes and clears `source`, so tests never exercised the serialized path — fixed with `fromStream(byte[])`. (2) Float/Double truncation via `longValue()` in INTEGER/LONG/SHORT/BYTE comparison — fixed by rejecting Float/Double values. (3) BINARY deserialized path used `byte[].equals()` (reference equality) — fixed with `Arrays.compare` case.
   >
-  > Unit tests using save→reload pattern to preserve `source`:
-  > - All dispatch paths (properties null, entry present/absent/deleted,
-  >   source null, status checks)
-  > - Guard paths (encryption, collation, propertyAccess)
-  > - Partially deserialized entity (one property read, another compared in-place)
-  > - Schema-less entity
-  >
-  > **Files**: `InPlaceResult.java` (new), `EntityImpl.java` (modify),
-  > `EntityImplInPlaceComparisonTest.java` (new)
+  > **Key files:** `InPlaceResult.java` (new), `EntityImpl.java` (modified), `EntityImplInPlaceComparisonTest.java` (new)
 
 - [ ] Step 4: Cross-path equivalence tests
   > Comprehensive test suite verifying that in-place comparison produces
