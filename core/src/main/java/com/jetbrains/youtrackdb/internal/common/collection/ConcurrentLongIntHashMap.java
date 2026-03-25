@@ -328,9 +328,10 @@ public class ConcurrentLongIntHashMap<V> {
    * A single segment of the hash map. Holds parallel arrays for keys and values, guarded by a
    * {@link StampedLock}. Uses open addressing with linear probing.
    *
-   * <p><b>Write ordering convention:</b> when inserting a new entry, the value is written before the
-   * key fields (fileId, pageIndex). A concurrent optimistic reader that sees a non-null value at a
-   * slot will find valid key fields because the write lock ensures ordering via stamp validation.
+   * <p><b>Note on write ordering:</b> within {@code insertAt}, the value is written before key
+   * fields. The write order does not matter for correctness — all writes happen under the write
+   * lock, and any concurrent optimistic reader will fail stamp validation if a write occurred,
+   * falling back to the read lock.
    */
   private static final class Section<V> {
     private static final float FILL_FACTOR = 0.66f;
@@ -343,7 +344,7 @@ public class ConcurrentLongIntHashMap<V> {
     private int[] pageIndices;
     private V[] values;
 
-    /** Number of logically present entries. */
+    /** Number of logically present entries. Volatile for lock-free reads in the outer size(). */
     private volatile int size;
 
     /** Number of occupied buckets. Drives resize threshold. */
@@ -459,7 +460,7 @@ public class ConcurrentLongIntHashMap<V> {
       try {
         int probeResult = probeForKey(fileId, pageIndex, hashMix);
         if (probeResult >= 0) {
-          // Key found — replace value (write ordering: value before keys, see Section Javadoc)
+          // Key found — replace value only (key fields are already correct)
           V prev = values[probeResult];
           values[probeResult] = value;
           return prev;
@@ -597,6 +598,9 @@ public class ConcurrentLongIntHashMap<V> {
 
         size -= removed;
         usedBuckets -= removed;
+        assert size >= 0 : "size went negative after removeByFileId: " + size;
+        assert usedBuckets >= 0
+            : "usedBuckets went negative after removeByFileId: " + usedBuckets;
 
         // Since we used simple nullification (not backward-sweep per entry), there may be
         // gaps in probe chains. A same-capacity rehash restores probe chain integrity.
@@ -620,6 +624,7 @@ public class ConcurrentLongIntHashMap<V> {
     private void removeAt(int slotIdx) {
       values[slotIdx] = null;
       size--;
+      assert size >= 0 : "size went negative: " + size;
 
       // Backward-sweep cleanup: move entries that were displaced past the removed slot
       // back toward their ideal bucket position.
@@ -644,6 +649,7 @@ public class ConcurrentLongIntHashMap<V> {
 
       // No tombstones created — usedBuckets decreases with size
       usedBuckets--;
+      assert usedBuckets >= 0 : "usedBuckets went negative: " + usedBuckets;
     }
 
     /**
@@ -667,13 +673,17 @@ public class ConcurrentLongIntHashMap<V> {
         slotIdx = findEmptySlot(hashMix);
       }
 
-      // Value first, then key fields (see Section Javadoc for write ordering rationale)
+      assert values[slotIdx] == null : "insertAt called on non-empty slot " + slotIdx;
+
+      // Write order does not matter — all under write lock (see Section Javadoc)
       values[slotIdx] = value;
       fileIds[slotIdx] = fileId;
       pageIndices[slotIdx] = pageIndex;
 
       usedBuckets++;
       size++;
+      assert usedBuckets == size
+          : "usedBuckets (" + usedBuckets + ") != size (" + size + ") — tombstone leak?";
     }
 
     /** Find an empty slot starting from the hash bucket. Must be called under write lock. */
@@ -705,17 +715,18 @@ public class ConcurrentLongIntHashMap<V> {
      */
     @SuppressWarnings("unchecked")
     private void rehashTo(int newCapacity) {
+      assert newCapacity > 0 && (newCapacity & (newCapacity - 1)) == 0
+          : "newCapacity must be a power of two: " + newCapacity;
+
       long[] oldFileIds = fileIds;
       int[] oldPageIndices = pageIndices;
       V[] oldValues = values;
       int oldCapacity = capacity;
 
-      capacity = newCapacity;
-      fileIds = new long[newCapacity];
-      pageIndices = new int[newCapacity];
-      values = (V[]) new Object[newCapacity];
-      resizeThreshold = (int) (newCapacity * FILL_FACTOR);
-      usedBuckets = size;
+      // Allocate all new arrays FIRST — if OOM occurs, old state is untouched
+      long[] newFileIds = new long[newCapacity];
+      int[] newPageIndices = new int[newCapacity];
+      V[] newValues = (V[]) new Object[newCapacity];
 
       int bucketMask = newCapacity - 1;
       for (int i = 0; i < oldCapacity; i++) {
@@ -725,15 +736,26 @@ public class ConcurrentLongIntHashMap<V> {
           int pIdx = oldPageIndices[i];
           int bucket = (int) hash(fId, pIdx) & bucketMask;
 
-          while (values[bucket] != null) {
+          while (newValues[bucket] != null) {
             bucket = (bucket + 1) & bucketMask;
           }
 
-          values[bucket] = val;
-          fileIds[bucket] = fId;
-          pageIndices[bucket] = pIdx;
+          newValues[bucket] = val;
+          newFileIds[bucket] = fId;
+          newPageIndices[bucket] = pIdx;
         }
       }
+
+      // Swap all at once — section remains consistent even if OOM occurred above
+      capacity = newCapacity;
+      fileIds = newFileIds;
+      pageIndices = newPageIndices;
+      values = newValues;
+      resizeThreshold = (int) (newCapacity * FILL_FACTOR);
+      usedBuckets = size;
+
+      assert usedBuckets == size
+          : "usedBuckets (" + usedBuckets + ") != size (" + size + ") after rehash";
     }
 
     @SuppressWarnings("unchecked")
