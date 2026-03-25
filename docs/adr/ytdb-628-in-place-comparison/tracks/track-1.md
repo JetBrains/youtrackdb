@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -121,27 +121,10 @@ isPropertyEqualTo(name, value) / comparePropertyTo(name, value):
   >
   > **Key files:** `InPlaceResult.java` (new), `EntityImpl.java` (modified), `EntityImplInPlaceComparisonTest.java` (new)
 
-- [ ] Step 4: Cross-path equivalence tests
-  > Comprehensive test suite verifying that in-place comparison produces
-  > identical results to the standard deserialization + Java comparison path
-  > for all supported types and edge cases.
+- [x] Step 4: Cross-path equivalence tests
+  - [x] Context: info
+  > **What was done:** Created `InPlaceComparisonEquivalenceTest` with 43 test methods verifying cross-path equivalence. Uses `expectedEquality`/`expectedOrdering` helper methods that replicate Java comparison semantics as an oracle, comparing source-path (InPlaceComparator) results against deserialized-path results. Covers all 13 binary-comparable types (matching + non-matching + ordering), cross-type numeric conversions (Integer vs Long/Short/Byte, Float vs Double/Integer, Double vs Long/Integer), precision boundaries (2^24 ± 1 for int→float, 2^53 ± 1 for long→double, including above-boundary), Float/Double edge cases (NaN, -0.0, ±Infinity for both), DECIMAL different scales + double/float conversion artifacts, DATE with timezone, null handling, empty string, partially deserialized entities, non-comparable types (EMBEDDED, EMBEDDEDLIST, EMBEDDEDMAP → FALLBACK), LINK equality (source vs deserialized asymmetry), Float/Double→integer fallback, and Integer/Byte boundary values.
   >
-  > Test matrix:
-  > - All 13 binary-comparable types with matching values (→ equal)
-  > - All 13 types with non-matching values (→ not equal, correct ordering)
-  > - Cross-type numeric: Integer property vs Long value, Short vs Integer,
-  >   Float vs Double, Integer vs Double, etc.
-  > - Precision boundary values: 2^24 ± 1 for int→float, 2^53 ± 1 for long→double
-  > - Float/Double edge cases: NaN, -0.0, +Infinity, -Infinity
-  > - DECIMAL: different scales (`1.0` vs `1`), double conversion artifacts
-  > - DATE: different timezones (verify convertDayToTimezone correctness)
-  > - Null property value, null comparison value
-  > - Empty string (verifies graceful fallback for zero-length field)
-  > - Partially deserialized entities (mix of map and source lookups)
-  > - Property types that fall back (EMBEDDED, LINKLIST, etc.)
+  > **What was discovered:** (1) Empty string via source path returns TRUE (not FALLBACK as previously documented in track review findings A7). The `deserializeField` handles zero-length string fields correctly. (2) LINK type has an intentional asymmetry: source path supports equality via InPlaceComparator, but deserialized path returns FALLBACK because `compareJavaValuesOrdering` returns empty for LINK (by design — ordering not supported, and equality delegates through ordering).
   >
-  > Pattern: for each test case, create entity with property, save, reload,
-  > then assert `isPropertyEqualTo` / `comparePropertyTo` matches
-  > `getProperty()` + Java comparison.
-  >
-  > **Files**: `InPlaceComparisonEquivalenceTest.java` (new)
+  > **Key files:** `InPlaceComparisonEquivalenceTest.java` (new)
