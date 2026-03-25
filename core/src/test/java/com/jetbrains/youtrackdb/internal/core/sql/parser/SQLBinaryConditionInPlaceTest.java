@@ -573,4 +573,182 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     }
     session.commit();
   }
+
+  // ===== MATCH query integration (Step 3) =====
+
+  @Test
+  public void testMatchWhereEquality() {
+    // Verifies that MATCH queries with WHERE clauses exercise the in-place
+    // comparison path via the Result-based evaluate().
+    session.execute("CREATE class MatchPerson extends V");
+
+    session.begin();
+    session.execute("CREATE VERTEX MatchPerson set name = 'Alice', age = 30");
+    session.execute("CREATE VERTEX MatchPerson set name = 'Bob', age = 25");
+    session.execute("CREATE VERTEX MatchPerson set name = 'Carol', age = 35");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "MATCH {class: MatchPerson, where: (name = 'Bob'), as: p} "
+            + "RETURN p.name as name, p.age as age")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("Bob");
+      assertThat(results.get(0).<Integer>getProperty("age")).isEqualTo(25);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testMatchWhereRange() {
+    // Verifies MATCH with range operators in WHERE clause.
+    session.execute("CREATE class MatchItem extends V");
+
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      session.execute("CREATE VERTEX MatchItem set val = " + i);
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "MATCH {class: MatchItem, where: (val >= 3), as: i} "
+            + "RETURN i.val as val")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(3);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(3, 4, 5);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testMatchWhereNotEqual() {
+    // Verifies MATCH with <> operator in WHERE clause.
+    session.execute("CREATE class MatchColor extends V");
+
+    session.begin();
+    session.execute("CREATE VERTEX MatchColor set color = 'red'");
+    session.execute("CREATE VERTEX MatchColor set color = 'blue'");
+    session.execute("CREATE VERTEX MatchColor set color = 'green'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "MATCH {class: MatchColor, where: (color <> 'blue'), as: c} "
+            + "RETURN c.color as color")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var colors = results.stream()
+          .map(r -> r.<String>getProperty("color"))
+          .collect(Collectors.toList());
+      assertThat(colors).containsExactlyInAnyOrder("red", "green");
+    }
+    session.commit();
+  }
+
+  // ===== Edge cases (Step 3) =====
+
+  @Test
+  public void testNonEntityProjectionPassesThrough() {
+    // Verifies that projection-only queries (no entity, just computed fields)
+    // pass through without error — the in-place path should not activate.
+    session.begin();
+    try (var rs = session.query("SELECT 1 + 2 as result")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<Integer>getProperty("result")).isEqualTo(3);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testSchemalessPropertyFallsBack() {
+    // Verifies that properties not in the schema (schema-less mode) fall back
+    // correctly — the in-place path should still work because deserializeField
+    // handles schema-less fields.
+    session.execute("CREATE class Schemaless");
+
+    session.begin();
+    // Insert without schema — properties are stored dynamically
+    session.execute("INSERT INTO Schemaless SET x = 42, y = 'hello'");
+    session.execute("INSERT INTO Schemaless SET x = 99, y = 'world'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM Schemaless WHERE x = 42")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("y")).isEqualTo("hello");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testMultipleMatchWhereConditions() {
+    // Verifies that multiple WHERE conditions in a MATCH pattern each get
+    // independently optimized.
+    session.execute("CREATE class MatchMulti extends V");
+
+    session.begin();
+    session.execute("CREATE VERTEX MatchMulti set x = 10, y = 'a'");
+    session.execute("CREATE VERTEX MatchMulti set x = 10, y = 'b'");
+    session.execute("CREATE VERTEX MatchMulti set x = 20, y = 'a'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "MATCH {class: MatchMulti, where: (x = 10 AND y = 'a'), as: m} "
+            + "RETURN m.x as x, m.y as y")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<Integer>getProperty("x")).isEqualTo(10);
+      assertThat(results.get(0).<String>getProperty("y")).isEqualTo("a");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testMatchWithTraversalAndWhere() {
+    // Verifies in-place comparison works correctly in MATCH with graph
+    // traversal — the WHERE clause on a traversed vertex should use the
+    // Result-based evaluate with the in-place path.
+    session.execute("CREATE class MNode extends V");
+    session.execute("CREATE class MEdge extends E");
+
+    session.begin();
+    session.execute("CREATE VERTEX MNode set name = 'root', level = 0");
+    session.execute("CREATE VERTEX MNode set name = 'child1', level = 1");
+    session.execute("CREATE VERTEX MNode set name = 'child2', level = 1");
+    session.execute("CREATE VERTEX MNode set name = 'grandchild', level = 2");
+
+    session.execute(
+        "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'root') "
+            + "to (SELECT FROM MNode WHERE name = 'child1')");
+    session.execute(
+        "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'root') "
+            + "to (SELECT FROM MNode WHERE name = 'child2')");
+    session.execute(
+        "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'child1') "
+            + "to (SELECT FROM MNode WHERE name = 'grandchild')");
+    session.commit();
+
+    session.begin();
+    // Find all descendants of root at level > 0
+    try (var rs = session.query(
+        "MATCH {class: MNode, where: (name = 'root'), as: r}"
+            + ".out('MEdge'){where: (level > 0), as: c} "
+            + "RETURN c.name as name, c.level as level")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var names = results.stream()
+          .map(r -> r.<String>getProperty("name"))
+          .collect(Collectors.toList());
+      assertThat(names).containsExactlyInAnyOrder("child1", "child2");
+    }
+    session.commit();
+  }
 }
