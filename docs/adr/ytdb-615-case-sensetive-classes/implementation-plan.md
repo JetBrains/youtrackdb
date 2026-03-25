@@ -256,6 +256,9 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > round-trip persistence test. No cross-track impact on remaining tracks.
   >
   > **Step file:** `tracks/track-2.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact. Deferred test
+  > findings (TC2/TC3/TC4) already captured in Track 3 description.
 
 - [ ] Track 3: Test fixes
   > Update all tests that rely on case-insensitive class or index name
