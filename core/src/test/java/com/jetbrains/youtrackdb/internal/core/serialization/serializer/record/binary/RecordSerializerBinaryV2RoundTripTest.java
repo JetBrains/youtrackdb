@@ -1008,6 +1008,44 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
+  public void roundTrip_hashTableMode_unicodePropertyNames() {
+    // 13+ schema-less properties with multi-byte UTF-8 names exercise the preEncodedName
+    // reuse path in serializePropertyEntry. Byte-length differs from char-length for these
+    // names, catching any length mismatch in the optimization.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("\u540d\u524d", "name_val");
+    entity.setString("\u30e1\u30fc\u30eb", "mail_val");
+    entity.setString("r\u00f4le", "role_val");
+    entity.setString("\u00fcber", "uber_val");
+    entity.setString("stra\u00dfe", "strasse_val");
+    entity.setString("\u0438\u043c\u044f", "imya_val");
+    entity.setString("\u4e3b\u952e", "pk_val");
+    entity.setString("caf\u00e9", "cafe_val");
+    entity.setString("na\u00efve", "naive_val");
+    entity.setString("\u03b1\u03b2\u03b3", "greek_val");
+    entity.setString("normal_ascii", "ascii_val");
+    entity.setString("_\u2603_snowman", "snow_val");
+    entity.setString("prop_extra", "extra_val");
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(13);
+    assertThat((String) deserialized.getProperty("\u540d\u524d")).isEqualTo("name_val");
+    assertThat((String) deserialized.getProperty("\u30e1\u30fc\u30eb")).isEqualTo("mail_val");
+    assertThat((String) deserialized.getProperty("r\u00f4le")).isEqualTo("role_val");
+    assertThat((String) deserialized.getProperty("\u00fcber")).isEqualTo("uber_val");
+    assertThat((String) deserialized.getProperty("stra\u00dfe")).isEqualTo("strasse_val");
+    assertThat((String) deserialized.getProperty("\u0438\u043c\u044f")).isEqualTo("imya_val");
+    assertThat((String) deserialized.getProperty("\u4e3b\u952e")).isEqualTo("pk_val");
+    assertThat((String) deserialized.getProperty("caf\u00e9")).isEqualTo("cafe_val");
+    assertThat((String) deserialized.getProperty("na\u00efve")).isEqualTo("naive_val");
+    assertThat((String) deserialized.getProperty("\u03b1\u03b2\u03b3")).isEqualTo("greek_val");
+    assertThat((String) deserialized.getProperty("normal_ascii")).isEqualTo("ascii_val");
+    assertThat((String) deserialized.getProperty("_\u2603_snowman")).isEqualTo("snow_val");
+    assertThat((String) deserialized.getProperty("prop_extra")).isEqualTo("extra_val");
+  }
+
+  @Test
   public void serializeDeterminism_sameEntityProducesIdenticalBytes() {
     // Same entity serialized twice should produce identical bytes (deterministic hash table seed)
     session.begin();
