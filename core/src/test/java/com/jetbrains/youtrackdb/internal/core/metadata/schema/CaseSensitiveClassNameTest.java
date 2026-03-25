@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
@@ -18,7 +19,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Set;
-import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -655,7 +655,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     try {
       cls.createIndex("SecWild.compositeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
           "filtered", "other");
-      Assert.fail("Expected IndexException for composite index on"
+      fail("Expected IndexException for composite index on"
           + " wildcard-filtered property");
     } catch (IndexException e) {
       thrown = e;
@@ -726,6 +726,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     var exp = new DatabaseExport(session, output, (text) -> {
     });
     exp.exportDatabase();
+    exp.close();
     session.close();
 
     // Create a fresh database for import
@@ -733,33 +734,80 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     youTrackDB.create(importDbName, dbType,
         adminUser, adminPassword, "admin",
         readerUser, readerPassword, "reader");
-    session = youTrackDB.open(importDbName, adminUser, adminPassword);
+    try {
+      session = youTrackDB.open(importDbName, adminUser, adminPassword);
 
-    // Import from export data
-    var imp = new DatabaseImport(
-        session, new ByteArrayInputStream(output.toByteArray()), (text) -> {
-        });
-    imp.importDatabase();
+      // Import from export data
+      var imp = new DatabaseImport(
+          session, new ByteArrayInputStream(output.toByteArray()), (text) -> {
+          });
+      imp.importDatabase();
+      imp.close();
 
-    // Verify index name is preserved with exact case
-    var snap = session.getMetadata().getImmutableSchemaSnapshot();
-    assertTrue("Exact-case index name should exist after import",
-        snap.indexExists("ExpImpTest.ValueIdx"));
-    assertFalse("Wrong-case index name should not exist after import",
-        snap.indexExists("expimptest.valueidx"));
+      // Verify index name is preserved with exact case
+      var snap = session.getMetadata().getImmutableSchemaSnapshot();
+      assertTrue("Exact-case index name should exist after import",
+          snap.indexExists("ExpImpTest.ValueIdx"));
+      assertFalse("Wrong-case index name should not exist after import",
+          snap.indexExists("expimptest.valueidx"));
 
-    // Verify IndexDefinition preserves both index name and class name case
-    var def = snap.getIndexDefinition("ExpImpTest.ValueIdx");
-    assertEquals("Index name should be preserved after import",
-        "ExpImpTest.ValueIdx", def.name());
-    assertEquals("Class name in IndexDefinition should be preserved after import",
-        "ExpImpTest", def.className());
+      // Verify IndexDefinition preserves both index name and class name case
+      var def = snap.getIndexDefinition("ExpImpTest.ValueIdx");
+      assertEquals("Index name should be preserved after import",
+          "ExpImpTest.ValueIdx", def.name());
+      assertEquals("Class name in IndexDefinition should be preserved after import",
+          "ExpImpTest", def.className());
 
-    // Clean up the import database
-    session.close();
-    youTrackDB.drop(importDbName);
+      session.close();
+    } finally {
+      if (youTrackDB.exists(importDbName)) {
+        youTrackDB.drop(importDbName);
+      }
+      // Reopen original session for test teardown
+      session = pool.acquire();
+    }
+  }
 
-    // Reopen original session for test teardown
-    session = pool.acquire();
+  /**
+   * TC2: Verifies that a class-specific security rule with exact-case class
+   * name DOES block composite index creation. This is the positive counterpart
+   * to testSpecificClassSecurityRuleRequiresExactCaseMatch — together they
+   * confirm that equals() (not equalsIgnoreCase()) is used for class name
+   * matching in the security filter.
+   */
+  @Test
+  public void testSpecificClassSecurityRuleBlocksWhenExactCaseMatches() {
+    var security = session.getSharedContext().getSecurity();
+
+    var cls = session.getMetadata().getSchema().createClass("SecBlock");
+    cls.createProperty("secret", PropertyType.STRING);
+    cls.createProperty("extra", PropertyType.STRING);
+
+    // Set up class-specific security rule with CORRECT case: "SecBlock"
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "blockPolicy");
+    policy.setActive(true);
+    policy.setReadRule("secret = 'allowed'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(
+        session, security.getRole(session, "reader"),
+        "database.class.SecBlock.secret", policy);
+    session.commit();
+
+    // Creating a composite index should FAIL because "SecBlock" == "SecBlock"
+    IndexException thrown = null;
+    try {
+      cls.createIndex("SecBlock.compositeIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+          "secret", "extra");
+      fail("Expected IndexException for composite index on"
+          + " exact-case-filtered property");
+    } catch (IndexException e) {
+      thrown = e;
+    }
+    assertNotNull(thrown);
+    assertTrue("Exception should mention the class name",
+        thrown.getMessage().contains("SecBlock"));
+    assertTrue("Exception should mention the filtered property",
+        thrown.getMessage().contains("secret"));
   }
 }
