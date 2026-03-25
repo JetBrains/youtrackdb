@@ -660,7 +660,6 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     } catch (IndexException e) {
       thrown = e;
     }
-    assertNotNull(thrown);
     assertTrue("Exception should mention the class name",
         thrown.getMessage().contains("SecWild"));
     assertTrue("Exception should mention the filtered property",
@@ -705,6 +704,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     Set<Index> indexes = indexManager.getClassInvolvedIndexes(
         session, "SecExact", "secret", "extra");
     assertEquals("Composite index should have been created", 1, indexes.size());
+    assertEquals("SecExact.compositeIdx", indexes.iterator().next().getName());
   }
 
   /**
@@ -758,8 +758,10 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
       assertEquals("Class name in IndexDefinition should be preserved after import",
           "ExpImpTest", def.className());
 
-      session.close();
     } finally {
+      if (session != null && !session.isClosed()) {
+        session.close();
+      }
       if (youTrackDB.exists(importDbName)) {
         youTrackDB.drop(importDbName);
       }
@@ -804,10 +806,11 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     } catch (IndexException e) {
       thrown = e;
     }
-    assertNotNull(thrown);
     assertTrue("Exception should mention the class name",
         thrown.getMessage().contains("SecBlock"));
     assertTrue("Exception should mention the filtered property",
         thrown.getMessage().contains("secret"));
+    assertTrue("Exception should mention security rules",
+        thrown.getMessage().contains("column security rules"));
   }
 }
