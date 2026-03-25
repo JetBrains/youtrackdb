@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (3/4 complete)
+- [x] Step implementation (4/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -99,18 +99,12 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `LockFreeReadCache.java` (modified)
 
-- [ ] Step 4: CacheEntry interface cleanup + PageKey deletion
-  > **Files:** `CacheEntry.java`, `CacheEntryImpl.java`,
-  > `CacheEntryChanges.java`, `PageKey.java` (deleted)
+- [x] Step 4: CacheEntry interface cleanup + PageKey deletion
+  > **What was done:** Removed `getPageKey()` from CacheEntry interface,
+  > CacheEntryImpl, and CacheEntryChanges. Removed `pageKey` field and
+  > `new PageKey(...)` allocation from CacheEntryImpl constructor. Removed
+  > PageKey imports from all three files. Deleted `chm/PageKey.java`.
+  > The `local.PageKey` used by WOWCache is unaffected.
   >
-  > - Remove `getPageKey()` from `CacheEntry` interface (line 111)
-  > - Remove `getPageKey()` from `CacheEntryImpl` (lines 328-330)
-  > - Remove `pageKey` field from `CacheEntryImpl` (line 57), remove
-  >   `new PageKey(...)` from constructor (line 77)
-  > - Remove `getPageKey()` from `CacheEntryChanges` (lines 223-225)
-  > - Remove `PageKey` imports from CacheEntry, CacheEntryImpl, CacheEntryChanges
-  > - Delete `chm/PageKey.java`
-  >
-  > All callers were migrated in steps 1-3 so no `getPageKey()` references remain.
-  >
-  > **Compiles, all tests pass.** Pure cleanup/deletion step.
+  > **Key files:** `CacheEntry.java` (modified), `CacheEntryImpl.java` (modified),
+  > `CacheEntryChanges.java` (modified), `PageKey.java` (deleted)
