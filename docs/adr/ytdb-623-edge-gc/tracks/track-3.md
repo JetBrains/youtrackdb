@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (0/2 complete)
+- [ ] Step implementation (1/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -13,30 +13,20 @@
 
 ## Steps
 
-- [ ] Step 1: Contention stress test for tombstone GC under concurrent put/remove
-  > **What**: Add a test class `SharedLinkBagBTreeTombstoneGCStressTest` in
-  > `core/src/test/java/.../storage/index/edgebtree/btree/`. Multiple threads
-  > concurrently perform `put()` and `remove()` operations on the same
-  > `SharedLinkBagBTree` instance, each in separate atomic operations. Some
-  > threads insert live entries, others insert tombstones (via `put()` with
-  > `tombstone=true`). The interleaved operations cause bucket overflows that
-  > trigger GC non-deterministically. After all threads finish, verify:
-  > (1) no deadlocks or exceptions during execution, (2) tree invariants hold
-  > (all entries findable via `findCurrentEntry()`, no duplicates), (3) live
-  > entries are never lost.
+- [x] Step 1: Contention stress test for tombstone GC under concurrent put/remove
+  > **What was done:** Added `SharedLinkBagBTreeTombstoneGCStressTest` with two
+  > tests: (1) `testConcurrentPutWithTombstonesAndGC` — 4 threads concurrently
+  > insert interleaved tombstones and live entries, (2) `testConcurrentPutAndRemoveWithGC`
+  > — pre-populate + concurrent cross-tx removes and inserts. Both use shared
+  > `ridBagId=1` with non-overlapping position ranges so entries co-locate in
+  > the same B-tree buckets, enabling cross-thread GC interaction.
   >
-  > **Approach**: Use `ExecutorService` with a fixed thread pool. Each worker
-  > runs a loop of put/remove operations within `executeInsideAtomicOperation`.
-  > Operations serialize at the B-tree level (component exclusive lock), so
-  > this tests contention safety, not true concurrency within the GC logic.
-  > The test uses the same static storage/atomicOperationsManager setup as
-  > `SharedLinkBagBTreeTombstoneGCTest`.
+  > **What was discovered:** Initial design used per-thread `ridBagId`, but
+  > dimensional review (6 of 10 agents) flagged that `EdgeKey.compareTo()` sorts
+  > by `ridBagId` first, so per-thread IDs prevent cross-thread bucket co-location.
+  > Switched to shared `ridBagId=1` with non-overlapping position ranges.
   >
-  > **Constraints**: Must not run alongside other tests in the same JVM
-  > (standard project constraint). Threads share the B-tree instance but
-  > each atomic operation is independent. Use assertion-based verification
-  > after thread completion, not during (to avoid lock contention in
-  > verification). Timeout the executor to detect deadlocks.
+  > **Key files:** `core/src/test/java/.../storage/index/edgebtree/btree/SharedLinkBagBTreeTombstoneGCStressTest.java` (new)
 
 - [ ] Step 2: Crash-recovery integration test for tombstone GC
   > **What**: Add a test method (or small test class) that verifies tombstone
