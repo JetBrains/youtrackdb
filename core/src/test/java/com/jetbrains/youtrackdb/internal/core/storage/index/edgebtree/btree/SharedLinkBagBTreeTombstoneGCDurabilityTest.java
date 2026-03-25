@@ -6,13 +6,13 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.io.File;
 import java.util.HashSet;
-import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -82,7 +82,7 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
     if (ytdb != null) {
       ytdb.close();
     }
-    FileUtils.deleteDirectory(new File(testDir));
+    FileUtils.deleteRecursively(new File(testDir));
   }
 
   /**
@@ -108,60 +108,64 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
 
     // Phase 1: Create hub with many edges and commit.
     var edgeTargetNames = new HashSet<String>();
+    var deletedNames = new HashSet<String>();
+    var newNames = new HashSet<String>();
     RID hubRid;
 
     var session = ytdb.open(dbName, ADMIN, ADMIN_PWD);
-    var tx = session.begin();
-    var hub = tx.newVertex("V");
-    hub.setProperty("name", "hub");
-    for (int i = 0; i < EDGE_COUNT; i++) {
-      var target = tx.newVertex("V");
-      var name = "t" + i;
-      target.setProperty("name", name);
-      tx.newEdge(hub, target, "E");
-      edgeTargetNames.add(name);
+    try {
+      var tx = session.begin();
+      var hub = tx.newVertex("V");
+      hub.setProperty("name", "hub");
+      for (int i = 0; i < EDGE_COUNT; i++) {
+        var target = tx.newVertex("V");
+        var name = "t" + i;
+        target.setProperty("name", name);
+        tx.newEdge(hub, target, "E");
+        edgeTargetNames.add(name);
+      }
+      hubRid = hub.getIdentity();
+      tx.commit();
+
+      // Phase 2: In a new tx, delete some edges (creating tombstones),
+      // then insert new ones (triggering GC on tombstones during overflow).
+      var tx2 = session.begin();
+      Vertex hubV = tx2.load(hubRid);
+
+      // Delete first DELETE_COUNT edges and record their target names
+      var edgesIter = hubV.getEdges(Direction.OUT).iterator();
+      int deletedSoFar = 0;
+      while (edgesIter.hasNext() && deletedSoFar < DELETE_COUNT) {
+        var edge = edgesIter.next();
+        var targetName =
+            ((Vertex) edge.getVertex(Direction.IN)).getProperty("name").toString();
+        deletedNames.add(targetName);
+        tx2.delete(edge);
+        deletedSoFar++;
+      }
+      assertThat(deletedSoFar)
+          .as("Should have deleted %d edges", DELETE_COUNT)
+          .isEqualTo(DELETE_COUNT);
+
+      // Insert new edges to trigger bucket overflow + GC on tombstones
+      hubV = tx2.load(hubRid);
+      for (int i = 0; i < INSERT_AFTER_DELETE_COUNT; i++) {
+        var target = tx2.newVertex("V");
+        var name = "new" + i;
+        target.setProperty("name", name);
+        tx2.newEdge(hubV, target, "E");
+        newNames.add(name);
+      }
+      tx2.commit();
+
+      // Phase 3: Force-close without session close.
+      // Note: forceDatabaseClose still flushes WAL + dirty pages, so this
+      // tests durability across non-graceful close, not true crash recovery.
+      session.activateOnCurrentThread();
+    } finally {
+      // Force-close bypasses normal session close — clean up at storage level.
+      ytdb.internal.forceDatabaseClose(dbName);
     }
-    hubRid = hub.getIdentity();
-    tx.commit();
-
-    // Phase 2: In a new tx, delete some edges (creating tombstones),
-    // then insert new ones (triggering GC on tombstones during overflow).
-    var tx2 = session.begin();
-    Vertex hubV = tx2.load(hubRid);
-
-    // Delete first DELETE_COUNT edges and record their target names
-    var deletedNames = new HashSet<String>();
-    var edgesIter = hubV.getEdges(Direction.OUT).iterator();
-    int deletedSoFar = 0;
-    while (edgesIter.hasNext() && deletedSoFar < DELETE_COUNT) {
-      var edge = edgesIter.next();
-      var targetName =
-          ((Vertex) edge.getVertex(Direction.IN)).getProperty("name").toString();
-      deletedNames.add(targetName);
-      tx2.delete(edge);
-      deletedSoFar++;
-    }
-    assertThat(deletedSoFar)
-        .as("Should have deleted %d edges", DELETE_COUNT)
-        .isEqualTo(DELETE_COUNT);
-
-    // Insert new edges to trigger bucket overflow + GC on tombstones
-    hubV = tx2.load(hubRid);
-    var newNames = new HashSet<String>();
-    for (int i = 0; i < INSERT_AFTER_DELETE_COUNT; i++) {
-      var target = tx2.newVertex("V");
-      var name = "new" + i;
-      target.setProperty("name", name);
-      tx2.newEdge(hubV, target, "E");
-      newNames.add(name);
-    }
-    tx2.commit();
-
-    // Phase 3: Force-close without session close.
-    // Note: forceDatabaseClose still flushes WAL + dirty pages, so this
-    // tests durability across non-graceful close, not true crash recovery.
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
 
     // Phase 4: Reopen and verify edge state.
     var recoveredSession = ytdb.open(dbName, ADMIN, ADMIN_PWD);

@@ -206,12 +206,17 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
           assertThat(entry.second().tombstone())
               .as("Entry at pos=%d must be live (not tombstone)", pos)
               .isFalse();
+          assertThat(entry.second().counter())
+              .as("Live entry at pos=%d must have counter=%d (thread %d)",
+                  pos, pos, threadId)
+              .isEqualTo(pos);
         });
       }
     }
 
     // Verify: tombstone entries (even positions), if still present after GC,
-    // must still be tombstones — GC must not flip tombstone to live.
+    // must still be tombstones with correct value — GC must not flip
+    // tombstone to live or corrupt value fields.
     for (int t = 0; t < THREAD_COUNT; t++) {
       int base = t * OPS_PER_THREAD * 2;
       for (int i = 0; i < OPS_PER_THREAD; i += 2) {
@@ -224,6 +229,10 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
                 .as("Surviving entry at pos=%d must still be tombstone (thread %d)",
                     pos, threadId)
                 .isTrue();
+            assertThat(entry.second().counter())
+                .as("Surviving tombstone at pos=%d must have counter=%d (thread %d)",
+                    pos, pos, threadId)
+                .isEqualTo(pos);
           }
           // entry == null means GC removed it, which is acceptable
         });
@@ -233,30 +242,38 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
 
   /**
    * Threads perform interleaved put and cross-tx remove operations on a
-   * shared {@code ridBagId=1}. All threads operate in the same key-space
-   * so inserts and removes co-locate in the same buckets.
+   * shared {@code ridBagId=1}. All threads operate in an interleaved
+   * position space ({@code pos = i * THREAD_COUNT + threadId}) so entries
+   * from different threads co-locate in the same B-tree buckets. This
+   * ensures that inserter threads' bucket overflows trigger GC on buckets
+   * containing remover threads' tombstones, testing cross-thread GC
+   * correctness.
    *
-   * <p>Phase 1 pre-populates even positions with live entries. Phase 2
-   * launches concurrent threads: half do cross-tx removes (creating
-   * tombstones + snapshot entries), half insert new live entries at odd
-   * positions (triggering GC that must respect snapshot entries).
+   * <p>Phase 1 pre-populates entries at remover-thread positions. Phase 2
+   * launches concurrent threads: removers create tombstones + snapshot
+   * entries via cross-tx remove, inserters add new live entries that
+   * trigger GC which must respect snapshot entries.
    *
    * <p>Verifies that:
    * <ul>
-   *   <li>All inserted live entries survive with correct ts</li>
+   *   <li>All inserted live entries survive with correct ts and value</li>
    *   <li>All removed entries become tombstones (none remain live)</li>
-   *   <li>Snapshot-protected tombstones are not incorrectly GC'd</li>
+   *   <li>Snapshot-protected tombstones are not all GC'd (at least some
+   *       survive per remover thread)</li>
    * </ul>
    */
   @Test
   public void testConcurrentPutAndRemoveWithGC() throws Exception {
-    // Phase 1: Pre-populate with live entries at even positions.
-    // All use ridBagId=1 so they share the same key-space. Each thread
-    // will operate on a non-overlapping position range within that space.
+    // Phase 1: Pre-populate entries at positions belonging to remover
+    // threads. All threads share ridBagId=1 with interleaved positions:
+    // pos = i * THREAD_COUNT + threadId. This forces entries from all
+    // threads into the same B-tree buckets.
     for (int t = 0; t < THREAD_COUNT; t++) {
-      int base = t * OPS_PER_THREAD * 2;
+      if (t % 2 != 0) {
+        continue; // only pre-populate for remover threads (even threadId)
+      }
       for (int i = 0; i < OPS_PER_THREAD; i++) {
-        final int pos = base + i * 2; // even positions
+        final int pos = i * THREAD_COUNT + t;
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> bTree.put(atomicOperation,
                 new EdgeKey(1L, 0, pos, 1L),
@@ -264,9 +281,10 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
       }
     }
 
-    // Phase 2: Concurrent threads — half do cross-tx removes (creating
-    // tombstones + snapshots), half insert new live entries at odd
-    // positions (triggering GC).
+    // Phase 2: Concurrent threads — removers create tombstones + snapshots
+    // at their interleaved positions, inserters add new live entries at
+    // their interleaved positions. Bucket overflows from inserters trigger
+    // GC that encounters remover tombstones in the same buckets.
     ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
     try {
       CountDownLatch startLatch = new CountDownLatch(1);
@@ -275,7 +293,6 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
       for (int t = 0; t < THREAD_COUNT; t++) {
         final int threadId = t;
         final boolean isRemover = (threadId % 2 == 0);
-        final int base = threadId * OPS_PER_THREAD * 2;
 
         futures.add(executor.submit(() -> {
           try {
@@ -286,11 +303,11 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
           }
 
           if (isRemover) {
-            // Cross-tx remove of entries at even positions (creates
+            // Cross-tx remove of pre-populated entries (creates
             // tombstones + snapshot entries). Snapshot entries protect
             // these tombstones from GC.
             for (int i = 0; i < OPS_PER_THREAD; i++) {
-              final int pos = base + i * 2;
+              final int pos = i * THREAD_COUNT + threadId;
               try {
                 atomicOperationsManager.executeInsideAtomicOperation(
                     atomicOperation -> bTree.remove(atomicOperation,
@@ -301,10 +318,11 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
               }
             }
           } else {
-            // Insert live entries at odd positions — these interleave with
-            // existing entries and may trigger bucket overflow + GC.
+            // Insert live entries at this thread's interleaved positions —
+            // these share buckets with remover entries and may trigger
+            // bucket overflow + GC on tombstones from remover threads.
             for (int i = 0; i < OPS_PER_THREAD; i++) {
-              final int pos = base + i * 2 + 1;
+              final int pos = i * THREAD_COUNT + threadId;
               try {
                 atomicOperationsManager.executeInsideAtomicOperation(
                     atomicOperation -> bTree.put(atomicOperation,
@@ -333,13 +351,12 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
       executor.shutdownNow();
     }
 
-    // Verify: for inserter threads (odd threadId), all live entries at
-    // odd positions must be present with correct ts.
+    // Verify: for inserter threads (odd threadId), all live entries must
+    // be present with correct ts and value fields.
     for (int t = 0; t < THREAD_COUNT; t++) {
       if (t % 2 != 0) { // inserter threads
-        int base = t * OPS_PER_THREAD * 2;
         for (int i = 0; i < OPS_PER_THREAD; i++) {
-          final int pos = base + i * 2 + 1;
+          final int pos = i * THREAD_COUNT + t;
           final int threadId = t;
           atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
             var entry =
@@ -353,24 +370,24 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
             assertThat(entry.second().tombstone())
                 .as("Entry at pos=%d must be live", pos)
                 .isFalse();
+            assertThat(entry.second().counter())
+                .as("Entry at pos=%d must have counter=%d", pos, pos)
+                .isEqualTo(pos);
           });
         }
       }
     }
 
-    // Verify: for remover threads (even threadId), all entries at even
-    // positions must be tombstones — none should remain live. Entries
-    // may have been GC'd (null) if snapshot cleanup ran, which is
-    // acceptable.
+    // Verify: for remover threads (even threadId), all entries must be
+    // tombstones — none should remain live. Snapshot entries protect
+    // tombstones from GC, so at least some must survive per thread.
     for (int t = 0; t < THREAD_COUNT; t++) {
       if (t % 2 == 0) { // remover threads
-        int base = t * OPS_PER_THREAD * 2;
         int tombstoneCount = 0;
-        int gcdCount = 0;
         for (int i = 0; i < OPS_PER_THREAD; i++) {
-          final int pos = base + i * 2;
+          final int pos = i * THREAD_COUNT + t;
           final int threadId = t;
-          final int[] counts = {0, 0}; // [0]=tombstone, [1]=gc'd
+          final boolean[] isTombstone = {false};
           atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
             var entry =
                 bTree.findCurrentEntry(atomicOperation, 1L, 0, pos);
@@ -380,19 +397,19 @@ public class SharedLinkBagBTreeTombstoneGCStressTest {
                   .as("Removed entry at pos=%d must be tombstone, not live (thread %d)",
                       pos, threadId)
                   .isTrue();
-              counts[0]++;
-            } else {
-              // Entry was GC'd — acceptable if snapshot was cleaned
-              counts[1]++;
+              isTombstone[0] = true;
             }
+            // entry == null means GC removed it
           });
-          tombstoneCount += counts[0];
-          gcdCount += counts[1];
+          if (isTombstone[0]) {
+            tombstoneCount++;
+          }
         }
-        assertThat(tombstoneCount + gcdCount)
-            .as("All %d entries for remover thread %d must be tombstone or GC'd",
-                OPS_PER_THREAD, t)
-            .isEqualTo(OPS_PER_THREAD);
+        // Snapshot entries protect tombstones from GC — at least some
+        // must survive. If all were GC'd, GC is ignoring snapshot protection.
+        assertThat(tombstoneCount)
+            .as("Remover thread %d: snapshot-protected tombstones must not all be GC'd", t)
+            .isGreaterThan(0);
       }
     }
   }
