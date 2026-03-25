@@ -1,11 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -86,6 +89,21 @@ public class VertexFromLinkBagIterable
         linkBag.iterator(), session, linkBag.size(), acceptedCollectionIds, acceptedRids);
   }
 
+  /**
+   * Returns an iterator that yields {@link Identifiable} (RecordId) objects
+   * directly from the LinkBag's secondary RIDs without calling
+   * {@code loadEntity()}. Class filter and RID filter are applied on the
+   * RID (no disk I/O) — only matching RIDs are yielded.
+   *
+   * <p>Used by the MATCH engine to defer entity loading to first property
+   * access via {@code ResultInternal}'s built-in lazy loading.
+   */
+  @Nonnull
+  public Iterator<Identifiable> ridIterator() {
+    return new RidOnlyIterator(
+        linkBag.iterator(), acceptedCollectionIds, acceptedRids);
+  }
+
   @Override
   public int size() {
     return linkBag.size();
@@ -94,5 +112,58 @@ public class VertexFromLinkBagIterable
   @Override
   public boolean isSizeable() {
     return linkBag.isSizeable();
+  }
+
+  /**
+   * Iterator that yields RecordId objects from LinkBag secondary RIDs,
+   * applying class and RID filters without loading entities from storage.
+   */
+  private static final class RidOnlyIterator implements Iterator<Identifiable> {
+
+    private final Iterator<RidPair> ridPairIterator;
+    @Nullable private final IntSet acceptedCollectionIds;
+    @Nullable private final Set<RID> acceptedRids;
+    @Nullable private Identifiable nextRid;
+
+    RidOnlyIterator(
+        Iterator<RidPair> ridPairIterator,
+        @Nullable IntSet acceptedCollectionIds,
+        @Nullable Set<RID> acceptedRids) {
+      this.ridPairIterator = ridPairIterator;
+      this.acceptedCollectionIds = acceptedCollectionIds;
+      this.acceptedRids = acceptedRids;
+    }
+
+    @Override
+    public boolean hasNext() {
+      while (nextRid == null && ridPairIterator.hasNext()) {
+        nextRid = filterRid(ridPairIterator.next());
+      }
+      return nextRid != null;
+    }
+
+    @Override
+    public Identifiable next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+      var current = nextRid;
+      nextRid = null;
+      return current;
+    }
+
+    @Nullable private Identifiable filterRid(RidPair ridPair) {
+      ridPair.validateEdgePair();
+      var rid = ridPair.secondaryRid();
+
+      if (acceptedCollectionIds != null
+          && !acceptedCollectionIds.contains(rid.getCollectionId())) {
+        return null;
+      }
+      if (acceptedRids != null && !acceptedRids.contains(rid)) {
+        return null;
+      }
+      return rid;
+    }
   }
 }
