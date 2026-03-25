@@ -1029,7 +1029,12 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     entity.setString("prop_extra", "extra_val");
 
     var deserialized = serializeAndDeserialize(entity);
-    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(13);
+    assertThat((Iterable<String>) deserialized.getPropertyNames())
+        .containsExactlyInAnyOrder(
+            "\u540d\u524d", "\u30e1\u30fc\u30eb", "r\u00f4le", "\u00fcber",
+            "stra\u00dfe", "\u0438\u043c\u044f", "\u4e3b\u952e", "caf\u00e9",
+            "na\u00efve", "\u03b1\u03b2\u03b3", "normal_ascii", "_\u2603_snowman",
+            "prop_extra");
     assertThat((String) deserialized.getProperty("\u540d\u524d")).isEqualTo("name_val");
     assertThat((String) deserialized.getProperty("\u30e1\u30fc\u30eb")).isEqualTo("mail_val");
     assertThat((String) deserialized.getProperty("r\u00f4le")).isEqualTo("role_val");
@@ -1043,6 +1048,67 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((String) deserialized.getProperty("normal_ascii")).isEqualTo("ascii_val");
     assertThat((String) deserialized.getProperty("_\u2603_snowman")).isEqualTo("snow_val");
     assertThat((String) deserialized.getProperty("prop_extra")).isEqualTo("extra_val");
+    session.rollback();
+  }
+
+  @Test
+  public void roundTrip_hashTableMode_withEmbeddedEntity_tempBufferReuse() {
+    // 13+ properties trigger hash table mode where tempBuffer is reused per property.
+    // An embedded entity (large serialized size) followed by small string properties
+    // verifies that tempBuffer.reset() correctly clears stale embedded data.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 12; i++) {
+      entity.setString("prop_" + i, "val_" + i);
+    }
+    var embedded = new EmbeddedEntityImpl(session);
+    embedded.setString("innerA", "nested_value_1");
+    embedded.setString("innerB", "nested_value_2");
+    embedded.setInt("innerC", 42);
+    entity.setProperty("embeddedProp", embedded, PropertyType.EMBEDDED);
+    // Properties after the embedded one reuse tempBuffer post-reset
+    entity.setString("afterEmbed1", "short");
+    entity.setString("afterEmbed2", "tiny");
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(15);
+    var inner = (EntityImpl) deserialized.getProperty("embeddedProp");
+    assertThat((String) inner.getProperty("innerA")).isEqualTo("nested_value_1");
+    assertThat((String) inner.getProperty("innerB")).isEqualTo("nested_value_2");
+    assertThat((int) inner.getProperty("innerC")).isEqualTo(42);
+    assertThat((String) deserialized.getProperty("afterEmbed1")).isEqualTo("short");
+    assertThat((String) deserialized.getProperty("afterEmbed2")).isEqualTo("tiny");
+    session.rollback();
+  }
+
+  @Test
+  public void roundTrip_hashTableMode_mixedSchemaAwareAndSchemaLess() {
+    // 13+ properties in hash table mode where some are schema-defined (negative varint
+    // name encoding) and some are schema-less (inline UTF-8 via preEncodedName).
+    // Verifies that preEncodedName is correctly ignored for schema-aware properties.
+    var clazz = session.createClass("MixedHashV2Test");
+    for (int i = 0; i < 8; i++) {
+      clazz.createProperty("schema_" + i, PropertyType.STRING);
+    }
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("MixedHashV2Test");
+    for (int i = 0; i < 8; i++) {
+      entity.setProperty("schema_" + i, "sval_" + i);
+    }
+    for (int i = 0; i < 6; i++) {
+      entity.setProperty("dynamic_" + i, "dval_" + i);
+    }
+
+    var deserialized = serializeAndDeserialize(entity);
+    assertThat((Iterable<String>) deserialized.getPropertyNames()).hasSize(14);
+    for (int i = 0; i < 8; i++) {
+      assertThat((String) deserialized.getProperty("schema_" + i)).isEqualTo("sval_" + i);
+    }
+    for (int i = 0; i < 6; i++) {
+      assertThat((String) deserialized.getProperty("dynamic_" + i)).isEqualTo("dval_" + i);
+    }
+    session.rollback();
   }
 
   @Test
