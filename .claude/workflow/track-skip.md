@@ -38,10 +38,13 @@ A track can be skipped (`[~]`) in two situations:
 4. **Delete review files** (`reviews/track-N-*.md`) if any exist. Include
    in the same commit.
 
-5. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks when
-   checking for a pending strategy refresh (State A detection). A skipped
-   track's `**Skipped:**` line serves as its episode — the next session's
-   strategy refresh reads it to assess downstream impact on remaining tracks.
+5. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks for
+   State A detection (see workflow.md §Startup Protocol). A skipped track's
+   `**Skipped:**` line serves as its episode — the next session's strategy
+   refresh reads it to assess downstream impact on remaining tracks. After
+   strategy refresh, a `**Strategy refresh:**` line is written under the
+   `[~]` track's block, just like for `[x]` tracks. This is required for
+   State B detection to work correctly.
 
 ---
 

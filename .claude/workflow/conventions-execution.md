@@ -61,6 +61,18 @@ For ADJUST, include a brief summary of what was adjusted:
   > for the new `IndexStatistics` API shape discovered during this track.
 ```
 
+For skipped tracks (`[~]`), the strategy refresh line follows the skip
+record:
+
+```markdown
+- [~] Track 3: <title>
+  > <description>
+  >
+  > **Skipped:** <reason>
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact from skipping.
+```
+
 ESCALATE triggers inline replanning (see workflow.md), which restructures
 the plan file directly — no strategy refresh line is written.
 

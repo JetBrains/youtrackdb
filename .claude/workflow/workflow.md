@@ -107,8 +107,8 @@ perspective on cross-track impact.
 
    | Plan file state | Step file state | Session state |
    |---|---|---|
-   | Last `[x]` track has episode but no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
-   | All `[x]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
+   | Last completed/skipped track (`[x]` or `[~]`) has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
+   | All `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
    | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
    | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final design document) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |

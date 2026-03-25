@@ -1,7 +1,7 @@
 # Strategy Refresh
 
 Triggered at the **start of a new session** when the previous session
-completed a track (State A in workflow.md §Startup Protocol).
+completed or skipped a track (State A in workflow.md §Startup Protocol).
 
 ## Process
 
