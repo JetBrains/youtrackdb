@@ -453,6 +453,50 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     session.commit();
   }
 
+  // ----- Negative values (TC1: zigzag encoding edge cases) -----
+
+  @Test
+  public void testRangeWithNegativeValues() {
+    // Verifies range comparison works correctly with negative integers, which
+    // use different byte representations in VarInt zigzag encoding.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NegRange");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int v : new int[] {-10, -1, 0, 1, 10}) {
+      var e = session.newEntity("NegRange");
+      e.setProperty("val", v);
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NegRange WHERE val > -1")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(3);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(0, 1, 10);
+    }
+
+    try (var rs = session.query("SELECT FROM NegRange WHERE val <= 0")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(3);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(-10, -1, 0);
+    }
+
+    try (var rs = session.query("SELECT FROM NegRange WHERE val = -1")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<Integer>getProperty("val")).isEqualTo(-1);
+    }
+    session.commit();
+  }
+
   // ----- No match -----
 
   @Test
