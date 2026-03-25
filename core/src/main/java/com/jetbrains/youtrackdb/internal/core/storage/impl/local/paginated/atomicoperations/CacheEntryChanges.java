@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LRUList;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
@@ -212,11 +211,6 @@ public class CacheEntryChanges implements CacheEntry {
   @Override
   public void setInitialLSN(LogSequenceNumber lsn) {
     this.initialLSN = lsn;
-  }
-
-  @Override
-  public PageKey getPageKey() {
-    return delegate.getPageKey();
   }
 
   @Override

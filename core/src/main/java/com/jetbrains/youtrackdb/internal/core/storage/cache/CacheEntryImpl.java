@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LRUList;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.io.IOException;
@@ -60,7 +59,6 @@ public class CacheEntryImpl implements CacheEntry {
   private final ReadCache readCache;
   private final long fileId;
   private final int pageIndex;
-  private final PageKey pageKey;
 
   public CacheEntryImpl(
       final long fileId,
@@ -82,7 +80,6 @@ public class CacheEntryImpl implements CacheEntry {
     this.readCache = readCache;
     this.fileId = fileId;
     this.pageIndex = pageIndex;
-    this.pageKey = new PageKey(fileId, pageIndex);
   }
 
   @Override
@@ -326,11 +323,6 @@ public class CacheEntryImpl implements CacheEntry {
     // Long.hashCode(fileId) * 31 + pageIndex. This is intentionally different from
     // the map's internal murmur hash to avoid correlation with bucket position.
     return Long.hashCode(fileId) * 31 + pageIndex;
-  }
-
-  @Override
-  public PageKey getPageKey() {
-    return this.pageKey;
   }
 
   @Override
