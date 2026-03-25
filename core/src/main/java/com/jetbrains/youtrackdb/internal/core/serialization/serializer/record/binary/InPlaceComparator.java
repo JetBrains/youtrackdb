@@ -23,8 +23,17 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.readInteger;
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.readLong;
 
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Date;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Compares a serialized property value (in a {@link BinaryField}) against a Java object without
@@ -45,12 +54,26 @@ public final class InPlaceComparator {
   private InPlaceComparator() {
   }
 
+  private static final long MILLISEC_PER_DAY = HelperClasses.MILLISEC_PER_DAY;
+
   /**
-   * Compares a serialized field value against a Java object.
+   * Compares a serialized field value against a Java object. For DATE fields, use the overload
+   * that accepts a {@link TimeZone} parameter.
    *
    * @return comparison result (negative, zero, positive) or empty if fallback is needed
    */
   public static OptionalInt compare(BinaryField field, Object value) {
+    return compare(field, value, null);
+  }
+
+  /**
+   * Compares a serialized field value against a Java object.
+   *
+   * @param dbTimeZone the database timezone for DATE fields (required for DATE, ignored for others)
+   * @return comparison result (negative, zero, positive) or empty if fallback is needed
+   */
+  public static OptionalInt compare(
+      BinaryField field, Object value, @Nullable TimeZone dbTimeZone) {
     assert field != null : "BinaryField must not be null";
     assert field.type != null : "BinaryField.type must not be null";
     assert value != null : "Comparison value must not be null";
@@ -62,22 +85,40 @@ public final class InPlaceComparator {
       case BYTE -> compareByte(field.bytes, value);
       case FLOAT -> compareFloat(field.bytes, value);
       case DOUBLE -> compareDouble(field.bytes, value);
+      case STRING -> compareString(field.bytes, value);
+      case BOOLEAN -> compareBoolean(field.bytes, value);
+      case DATETIME -> compareDatetime(field.bytes, value);
+      case DATE -> compareDate(field.bytes, value, dbTimeZone);
+      case DECIMAL -> compareDecimal(field.bytes, value);
+      case BINARY -> compareBinary(field.bytes, value);
+      case LINK -> OptionalInt.empty(); // ordering not defined for LINKs
       default -> OptionalInt.empty();
     };
   }
 
   /**
-   * Checks equality of a serialized field value against a Java object. Delegates to {@link
-   * #compare} for numeric types — specialized equality checks for non-numeric types will be added
-   * in a follow-up step.
+   * Checks equality of a serialized field value against a Java object.
    *
    * @return 1 (equal) or 0 (not equal) if comparison succeeded, or empty if fallback is needed
    */
   public static OptionalInt isEqual(BinaryField field, Object value) {
-    // For numeric types, equality is derived from compare() == 0.
-    // Non-numeric types (STRING, LINK, etc.) can override with specialized equality
-    // in a follow-up step.
-    var cmp = compare(field, value);
+    return isEqual(field, value, null);
+  }
+
+  /**
+   * Checks equality of a serialized field value against a Java object.
+   *
+   * @param dbTimeZone the database timezone for DATE fields
+   * @return 1 (equal) or 0 (not equal) if comparison succeeded, or empty if fallback is needed
+   */
+  public static OptionalInt isEqual(
+      BinaryField field, Object value, @Nullable TimeZone dbTimeZone) {
+    // LINK: specialized equality (ordering is undefined but equality is well-defined)
+    if (field.type == PropertyTypeInternal.LINK) {
+      return compareLinkEquality(field.bytes, value);
+    }
+
+    var cmp = compare(field, value, dbTimeZone);
     if (cmp.isEmpty()) {
       return OptionalInt.empty();
     }
@@ -198,6 +239,127 @@ public final class InPlaceComparator {
     var serialized = Double.longBitsToDouble(readLong(bytes));
     return OptionalInt.of(
         Double.compare(serialized, Double.longBitsToDouble(converted.getAsLong())));
+  }
+
+  // ---------------------------------------------------------------------------
+  // STRING (VarInt length + UTF-8 bytes)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareString(BytesContainer bytes, Object value) {
+    if (!(value instanceof String strValue)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readString(bytes);
+    return OptionalInt.of(serialized.compareTo(strValue));
+  }
+
+  // ---------------------------------------------------------------------------
+  // BOOLEAN (single byte: 0 or 1)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareBoolean(BytesContainer bytes, Object value) {
+    if (!(value instanceof Boolean boolValue)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readByte(bytes) == 1;
+    return OptionalInt.of(Boolean.compare(serialized, boolValue));
+  }
+
+  // ---------------------------------------------------------------------------
+  // DATETIME (VarInt millis since epoch)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareDatetime(BytesContainer bytes, Object value) {
+    long valueMillis;
+    if (value instanceof Date date) {
+      valueMillis = date.getTime();
+    } else if (value instanceof Number number) {
+      valueMillis = number.longValue();
+    } else {
+      return OptionalInt.empty();
+    }
+    var serialized = VarIntSerializer.readAsLong(bytes);
+    return OptionalInt.of(Long.compare(serialized, valueMillis));
+  }
+
+  // ---------------------------------------------------------------------------
+  // DATE (VarInt days since epoch, requires timezone conversion)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareDate(
+      BytesContainer bytes, Object value, @Nullable TimeZone dbTimeZone) {
+    if (dbTimeZone == null) {
+      return OptionalInt.empty();
+    }
+    long valueMillis;
+    if (value instanceof Date date) {
+      valueMillis = date.getTime();
+    } else if (value instanceof Number number) {
+      valueMillis = number.longValue();
+    } else {
+      return OptionalInt.empty();
+    }
+    var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
+    savedTime =
+        HelperClasses.convertDayToTimezone(
+            TimeZone.getTimeZone("GMT"), dbTimeZone, savedTime);
+    return OptionalInt.of(Long.compare(savedTime, valueMillis));
+  }
+
+  // ---------------------------------------------------------------------------
+  // DECIMAL (BigDecimal via DecimalSerializer)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareDecimal(BytesContainer bytes, Object value) {
+    BigDecimal decimalValue;
+    if (value instanceof BigDecimal bd) {
+      decimalValue = bd;
+    } else if (value instanceof Number number) {
+      if (number instanceof Double || number instanceof Float) {
+        decimalValue = BigDecimal.valueOf(number.doubleValue());
+      } else {
+        decimalValue = BigDecimal.valueOf(number.longValue());
+      }
+    } else {
+      return OptionalInt.empty();
+    }
+    var serialized = DecimalSerializer.staticDeserialize(bytes.bytes, bytes.offset);
+    return OptionalInt.of(serialized.compareTo(decimalValue));
+  }
+
+  // ---------------------------------------------------------------------------
+  // BINARY (VarInt length + raw bytes)
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareBinary(BytesContainer bytes, Object value) {
+    if (!(value instanceof byte[] byteArray)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readBinary(bytes);
+    return OptionalInt.of(Arrays.compare(serialized, byteArray));
+  }
+
+  // ---------------------------------------------------------------------------
+  // LINK (VarInt clusterId + VarInt clusterPosition) — equality only
+  // ---------------------------------------------------------------------------
+
+  private static OptionalInt compareLinkEquality(BytesContainer bytes, Object value) {
+    int valueCollectionId;
+    long valueCollectionPos;
+    if (value instanceof RID rid) {
+      valueCollectionId = rid.getCollectionId();
+      valueCollectionPos = rid.getCollectionPosition();
+    } else if (value instanceof Identifiable identifiable) {
+      var identity = identifiable.getIdentity();
+      valueCollectionId = identity.getCollectionId();
+      valueCollectionPos = identity.getCollectionPosition();
+    } else {
+      return OptionalInt.empty();
+    }
+    var serializedId = VarIntSerializer.readAsInteger(bytes);
+    var serializedPos = VarIntSerializer.readAsLong(bytes);
+    var equal = serializedId == valueCollectionId && serializedPos == valueCollectionPos;
+    return OptionalInt.of(equal ? 1 : 0);
   }
 
   // ===========================================================================
