@@ -246,6 +246,61 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
   // String ordering
   // ===========================================================================
 
+  // ===========================================================================
+  // Status guard: entity must be in LOADED status
+  // ===========================================================================
+
+  /**
+   * After mutating a loaded entity, the properties map has the updated value, so the
+   * deserialized path returns the correct result based on the in-memory data. This verifies
+   * that mutations are reflected in comparison results — the comparison uses the properties
+   * map (which has the new value), not the stale source bytes.
+   */
+  @Test
+  public void testMutatedEntityUsesPropertiesMap() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+
+    var loaded = serializeWithSourceOnly(entity);
+    // Verify it works via source path before mutation
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("name", "Alice"));
+
+    // Mutate — properties map is populated with new value
+    loaded.setProperty("name", "Bob");
+
+    // Comparison uses properties map (with "Bob"), not stale source (with "Alice")
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("name", "Alice"));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("name", "Bob"));
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Null property value in properties map
+  // ===========================================================================
+
+  /**
+   * When a property exists in the map but has a null value, comparison must return FALLBACK
+   * to delegate null handling to the standard SQL NULL semantics.
+   */
+  @Test
+  public void testNullPropertyValueInMapReturnsFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+    entity.setProperty("nullProp", (String) null);
+
+    // New entity — properties are in the map, no serialization
+    assertEquals(InPlaceResult.FALLBACK,
+        entity.isPropertyEqualTo("nullProp", "anything"));
+    assertTrue(entity.comparePropertyTo("nullProp", "anything").isEmpty());
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // String ordering
+  // ===========================================================================
+
   /** String ordering via comparePropertyTo. */
   @Test
   public void testStringOrdering() {

@@ -315,7 +315,11 @@ public final class InPlaceComparator {
       decimalValue = bd;
     } else if (value instanceof Number number) {
       if (number instanceof Double || number instanceof Float) {
-        decimalValue = BigDecimal.valueOf(number.doubleValue());
+        double dv = number.doubleValue();
+        if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+          return OptionalInt.empty();
+        }
+        decimalValue = BigDecimal.valueOf(dv);
       } else {
         decimalValue = BigDecimal.valueOf(number.longValue());
       }
