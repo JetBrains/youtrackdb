@@ -574,7 +574,7 @@ graph LR
   > load factor). Track 9 modifies `RecordSerializerBinaryV2` internals only —
   > no changes to binary format structure, slot format, or linear mode.
 
-- [ ] Track 9: Replace cuckoo with linear probing
+- [x] Track 9: Replace cuckoo with linear probing
   > Replace bucketized cuckoo hashing in `RecordSerializerBinaryV2` with
   > plain linear probing. Cuckoo construction (displacement chains, dual
   > hash functions, seed retries) caused a 2-2.5× write path regression
@@ -616,3 +616,76 @@ graph LR
   > (all 3 hash-table-mode read paths), constant/capacity cleanup, and
   > test updates
   > **Depends on:** Track 7, Track 8
+  >
+  > **Track episode:**
+  > Replaced bucketized cuckoo hashing with plain linear probing in
+  > `RecordSerializerBinaryV2`. Single MurmurHash3 call per key with
+  > sequential slot scanning — O(n) construction, no eviction chains or
+  > seed retries. Load factor ~0.625 gives average 1.83 probes. Steps 1-4
+  > were merged into a single commit because removing cuckoo constants made
+  > read paths and tests uncompilable. Review fixes tightened property count
+  > validation to 2047, added `log2Capacity < 1` rejection, and added
+  > runtime assertions in `buildHashTable`. Net: -204 lines. Coverage:
+  > 90.7% line / 82.8% branch. No cross-track impact.
+  >
+  > **Step file:** `tracks/track-9.md` (4 steps merged into 1 commit, 0 failed)
+
+- [ ] Track 10: Reduce GC pressure in V2 serialization path
+  > Investigate and fix excessive object allocation in
+  > `RecordSerializerBinaryV2.serialize()` that causes high GC pressure
+  > observed in `RecordSerializerBenchmark` JMH runs. The benchmark
+  > measures serialization throughput, so per-invocation allocation noise
+  > directly distorts results and indicates real production overhead.
+  >
+  > **What**: Profile and reduce allocations in the V2 serialize hot path.
+  > Preliminary code analysis identified these allocation sources:
+  >
+  > 1. **Per-property `new BytesContainer()` in `serializePropertyEntry()`
+  >    (line 424)** — the biggest offender. For each property value, a
+  >    temporary BytesContainer (object + 64-byte array) is allocated just
+  >    to measure the serialized value length before writing the varint
+  >    size prefix. At 50 properties = 50 allocations per serialize call.
+  >    **Fix**: Reserve space for the max-width varint (5 bytes), serialize
+  >    the value directly into the main buffer, compute actual length, then
+  >    backpatch the varint and reclaim unused reserved bytes (shift or
+  >    compact). Alternatively, add a `VarIntSerializer.signedSize()` method
+  >    and pre-compute value sizes.
+  > 2. **Hash table construction arrays in `buildHashTable()` and
+  >    `serializeHashTableMode()`** — `byte[][] nameBytes`,
+  >    `Entry[] orderedFields`, `int[] propertyKvOffsets`,
+  >    `byte[] slotHash8`, `int[] slotPropertyIndex`. These are per-entity
+  >    arrays whose sizes depend on property count. **Fix**: Evaluate
+  >    whether a reusable thread-local or pre-sized scratch buffer can
+  >    eliminate repeated allocation. Alternatively, merge slotHash8 and
+  >    slotPropertyIndex into the slotArray construction loop to avoid
+  >    intermediate arrays.
+  > 3. **Per-property `fieldName.getBytes(UTF_8)` (line 317)** — allocates
+  >    a byte array for each property name during hash table construction.
+  >    **Fix**: Encode directly into the BytesContainer or use a shared
+  >    scratch buffer.
+  > 4. **`new BytesContainer()` at benchmark call sites (lines 154, 162)**
+  >    — one per invocation for the output buffer. This is inherent to the
+  >    API but could be mitigated by adding a `reset()` method to
+  >    BytesContainer and reusing it across invocations.
+  >
+  > **How**: Run the benchmark with `-prof gc` (JMH GC profiler) to get
+  > precise allocation rates per operation. Profile V1 as a baseline.
+  > Implement fixes starting from the highest-impact source (#1).
+  > After each fix, re-run `-prof gc` to verify reduction. Final
+  > verification: re-run the full benchmark suite comparing V1 vs V2
+  > allocation rates — V2 should not allocate significantly more than V1
+  > per operation.
+  >
+  > **Constraints**: Fixes must not change the serialized binary format.
+  > Must pass all existing V2 tests. Must not regress throughput (the
+  > whole point is to improve it). Changes to `BytesContainer` must not
+  > break V1 serializer usage.
+  >
+  > **Interactions**: Modifies `RecordSerializerBinaryV2` internals and
+  > possibly `BytesContainer`. Does not affect the deserialization path,
+  > `RecordSerializerBinaryV1`, or the binary format.
+  >
+  > **Scope:** ~3-5 steps covering GC profiling baseline, per-property
+  > BytesContainer elimination, hash table array consolidation, benchmark
+  > verification with `-prof gc`
+  > **Depends on:** Track 9
