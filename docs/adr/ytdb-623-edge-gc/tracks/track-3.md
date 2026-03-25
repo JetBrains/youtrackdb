@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -28,27 +28,19 @@
   >
   > **Key files:** `core/src/test/java/.../storage/index/edgebtree/btree/SharedLinkBagBTreeTombstoneGCStressTest.java` (new)
 
-- [ ] Step 2: Crash-recovery integration test for tombstone GC
-  > **What**: Add a test method (or small test class) that verifies tombstone
-  > GC state is consistent after simulated crash and WAL recovery. Follow the
-  > `IndexHistogramDurabilityTest` pattern: (1) create a DISK database,
-  > (2) create vertices and edges via the database/Gremlin API such that
-  > the SharedLinkBagBTree receives enough entries to trigger bucket overflows
-  > and GC, (3) perform cross-tx edge deletions to create tombstones,
-  > (4) insert more edges to trigger GC on the tombstones, (5) call
-  > `ytdb.internal.forceDatabaseClose(dbName)` without session close,
-  > (6) reopen the database, (7) verify observable behavior: surviving edges
-  > are traversable, deleted edges don't reappear, no exceptions during
-  > traversal.
+- [x] Step 2: Durability test for tombstone GC after non-graceful close
+  > **What was done:** Added `SharedLinkBagBTreeTombstoneGCDurabilityTest` with
+  > one test: `forceClose_afterTombstoneGC_preservesEdges`. Creates 600 edges,
+  > deletes 200 (creating tombstones), inserts 300 more (triggering GC), then
+  > force-closes without session close. Reopens and verifies exact edge set
+  > using `containsExactlyInAnyOrderElementsOf` + ghost resurrection check.
+  > Uses forced BTree link bag threshold (-1) for full SharedLinkBagBTree
+  > coverage.
   >
-  > **Approach**: Use `YouTrackDBImpl` directly (not `DbTestBase`) for
-  > explicit database lifecycle control. Create edge-heavy graph topology
-  > (many edges from few vertices) to maximize SharedLinkBagBTree pressure.
-  > Verification uses Gremlin traversal or SQL queries, not direct B-tree
-  > inspection (B-tree internals are inaccessible after database reopen).
+  > **What was discovered:** Dimensional review revealed that `forceDatabaseClose`
+  > calls `flushAllData()` before closing — it's not a true crash simulation.
+  > Test was relabeled from "crash" to "forceClose" with Javadoc documenting
+  > the limitation. The test still provides value as a non-graceful close
+  > durability test (same pattern as `IndexHistogramDurabilityTest`).
   >
-  > **Constraints**: Must use `DatabaseType.DISK` for WAL to be active.
-  > Must NOT call `session.close()` before `forceDatabaseClose()` — session
-  > close triggers graceful flush, defeating crash simulation. Clean up test
-  > directory in `@After`. The test verifies WAL durability of the GC'd split
-  > operations, not GC logic itself (already covered by Track 1 unit tests).
+  > **Key files:** `core/src/test/java/.../storage/index/edgebtree/btree/SharedLinkBagBTreeTombstoneGCDurabilityTest.java` (new)
