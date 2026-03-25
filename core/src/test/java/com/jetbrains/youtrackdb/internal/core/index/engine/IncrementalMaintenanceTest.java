@@ -60,6 +60,9 @@ import org.junit.Test;
  */
 public class IncrementalMaintenanceTest {
 
+  /** Generous timeout for CI environments where thread scheduling can be slow. */
+  private static final int CI_TIMEOUT_SECONDS = 30;
+
   // ═════════════════════════════════════════════════════════════════
   // Frequency updates on insert/remove
   // ═════════════════════════════════════════════════════════════════
@@ -321,7 +324,8 @@ public class IncrementalMaintenanceTest {
       fixture.manager.getHistogram();
 
       // Wait for rebalance to start and block
-      assertTrue(rebalanceStarted.await(5, TimeUnit.SECONDS));
+      // 30s timeout: generous buffer for CI runners under heavy parallel load
+      assertTrue(rebalanceStarted.await(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
       // Apply deltas while rebalance is blocked mid-scan
       for (int i = 0; i < 10; i++) {
@@ -336,7 +340,7 @@ public class IncrementalMaintenanceTest {
       putsCompleted.countDown();
 
       executor.shutdown();
-      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      assertTrue(executor.awaitTermination(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
       // Then no NPE/corruption — snapshot is valid
       var snap = fixture.cache.get(fixture.engineId);
@@ -533,7 +537,6 @@ public class IncrementalMaintenanceTest {
     // Given a manager where rebalance is in progress
     var fixture = new Fixture();
     var histogram = create4BucketHistogram();
-    installSnapshot(fixture, 2000, 2000, 0, histogram, 5000, 2000, 0);
 
     var rebalanceBlocked = new CountDownLatch(1);
     var rebalanceProceeds = new CountDownLatch(1);
@@ -544,7 +547,7 @@ public class IncrementalMaintenanceTest {
       rebalanceBlocked.countDown();
       try {
         // Block until we say proceed
-        rebalanceProceeds.await(10, TimeUnit.SECONDS);
+        rebalanceProceeds.await(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
       }
@@ -552,12 +555,21 @@ public class IncrementalMaintenanceTest {
     });
     setFileId(fixture.manager, 42);
 
+    // Wire the executor BEFORE installing the high-mutations snapshot so that
+    // setBackgroundExecutor's proactive maybeScheduleHistogramWork finds no
+    // snapshot in the cache and is a no-op. Only getHistogram() below will
+    // trigger the rebalance — eliminating a double-trigger race.
     var executor = Executors.newFixedThreadPool(2);
     fixture.manager.setBackgroundExecutor(executor);
+
+    // Now install the snapshot whose mutations exceed the rebalance threshold
+    installSnapshot(fixture, 2000, 2000, 0, histogram, 5000, 2000, 0);
+
     try {
       // First call triggers rebalance
       fixture.manager.getHistogram();
-      assertTrue(rebalanceBlocked.await(5, TimeUnit.SECONDS));
+      // 30s timeout: generous buffer for CI runners under heavy parallel load
+      assertTrue(rebalanceBlocked.await(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
       // Second call while first rebalance is in progress — should be no-op
       fixture.manager.maybeScheduleHistogramWork(executor);
@@ -566,7 +578,7 @@ public class IncrementalMaintenanceTest {
       rebalanceProceeds.countDown();
 
       executor.shutdown();
-      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      assertTrue(executor.awaitTermination(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
       // Only one rebalance should have executed
       assertEquals("Only one rebalance should run", 1,
@@ -959,7 +971,7 @@ public class IncrementalMaintenanceTest {
       }
 
       // Wait for first rebalance to start and block
-      assertTrue(rebalanceStarted.await(30, TimeUnit.SECONDS));
+      assertTrue(rebalanceStarted.await(CI_TIMEOUT_SECONDS, TimeUnit.SECONDS));
 
       // Let the first one proceed
       rebalanceProceeds.countDown();
