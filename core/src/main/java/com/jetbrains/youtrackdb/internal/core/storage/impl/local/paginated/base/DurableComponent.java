@@ -325,12 +325,13 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       recordOptimisticAccesses(scope);
 
       return result;
-    } catch (final RuntimeException e) {
-      // Catch RuntimeException (not just OptimisticReadFailedException) because
-      // speculative reads from stale/reused PageFrames can produce arbitrary
-      // exceptions (AIOOBE, NPE, etc.) before stamp validation has a chance to
-      // detect the inconsistency. All such exceptions are safe to swallow here
-      // — the pinned fallback path will produce the correct result.
+    } catch (final RuntimeException | AssertionError e) {
+      // Catch RuntimeException and AssertionError because speculative reads from
+      // stale/reused PageFrames can produce arbitrary exceptions (AIOOBE, NPE, etc.)
+      // and assertion failures (e.g., position-consistency checks seeing stale data)
+      // before stamp validation has a chance to detect the inconsistency.
+      // All such errors are safe to swallow here — the pinned fallback path will
+      // produce the correct result.
       acquireSharedLock();
       try {
         return pinned.apply();
@@ -358,7 +359,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       scope.validateOrThrow();
 
       recordOptimisticAccesses(scope);
-    } catch (final RuntimeException e) {
+    } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
       acquireSharedLock();
       try {
