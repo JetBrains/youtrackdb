@@ -315,6 +315,8 @@ flowchart LR
   > filter. All fixed. 28 integration tests total.
   >
   > **Step file:** `tracks/track-2.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — all tracks complete, no downstream impact.
 
 ## Final Design Document
 - [ ] Phase 4: Final design document (`design-final.md`)
