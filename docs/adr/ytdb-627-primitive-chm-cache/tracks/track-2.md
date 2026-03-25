@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -47,25 +47,22 @@ Key decisions from reviews that affect step implementation:
 
 ## Steps
 
-- [ ] Step 1: CacheEntryImpl prep + hashForFrequencySketch
-  > **Files:** `CacheEntryImpl.java`, `ConcurrentLongIntHashMap.java`,
-  > `ConcurrentLongIntHashMapTest.java`
+- [x] Step 1: CacheEntryImpl prep + hashForFrequencySketch
+  > **What was done:** Added `long fileId` and `int pageIndex` fields to
+  > `CacheEntryImpl` alongside existing `pageKey`. Updated `getFileId()`,
+  > `getPageIndex()`, `equals()`, and `hashCode()` to use primitive fields
+  > directly. Added `hashForFrequencySketch(long, int)` to
+  > `ConcurrentLongIntHashMap` with 5 unit tests. Review fix: improved test
+  > names, added documentation comment to `hashCode()`.
   >
-  > Add `long fileId` and `int pageIndex` fields to `CacheEntryImpl` alongside
-  > the existing `pageKey` field. Update `getFileId()` and `getPageIndex()` to
-  > return the new fields directly (currently they delegate to
-  > `pageKey.fileId()` / `pageKey.pageIndex()`). Update `equals()` and
-  > `hashCode()` to use the new fields (currently delegate to `pageKey`).
-  > Keep `pageKey` field and `getPageKey()` temporarily — they'll be removed
-  > in step 4.
+  > **What was discovered:** `CacheEntryImpl.hashCode()` now differs from
+  > `PageKey.hashCode()` (record-generated vs explicit formula). Not a
+  > correctness issue — `CacheEntryImpl` is not used as a hash key in any
+  > collection. The frequency sketch hash distribution change during migration
+  > is transient and acceptable per D5.
   >
-  > Add `public static int hashForFrequencySketch(long fileId, int pageIndex)`
-  > to `ConcurrentLongIntHashMap`. Use `Long.hashCode(fileId) * 31 + pageIndex`
-  > — independent from the map's internal murmur hash to avoid correlation with
-  > bucket position (review decision #4). Add unit test verifying consistency
-  > and basic distribution.
-  >
-  > **Compiles, all tests pass.** Purely additive changes.
+  > **Key files:** `CacheEntryImpl.java` (modified), `ConcurrentLongIntHashMap.java`
+  > (modified), `ConcurrentLongIntHashMapTest.java` (modified)
 
 - [ ] Step 2: Core swap — data field type + LockFreeReadCache + WTinyLFUPolicy + tests
   > **Files:** `LockFreeReadCache.java`, `WTinyLFUPolicy.java`,
