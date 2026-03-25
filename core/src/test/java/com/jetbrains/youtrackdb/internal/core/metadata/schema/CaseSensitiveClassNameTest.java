@@ -334,11 +334,28 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     assertFalse("Different-case index name should not exist",
         immutableSchema.indexExists("IDXLOOKUP.NAMEIDX"));
 
+    // getIndexDefinition throws IllegalArgumentException if not found, never returns null
     var def = immutableSchema.getIndexDefinition("IdxLookup.nameIdx");
-    assertNotNull("Index definition should be retrievable", def);
     assertEquals("IdxLookup.nameIdx", def.name());
     assertEquals("className in IndexDefinition must match original case",
         "IdxLookup", def.className());
+  }
+
+  /**
+   * Verifies that getIndexDefinition throws IllegalArgumentException when
+   * called with a wrong-case index name, confirming that case-sensitive
+   * lookup is enforced on the throwing path as well.
+   */
+  @Test(expected = IllegalArgumentException.class)
+  public void testGetIndexDefinitionThrowsForWrongCaseName() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DefThrow");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("DefThrow.valIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    // Should throw because the name does not match (wrong case)
+    immutableSchema.getIndexDefinition("defthrow.validx");
   }
 
   /**
@@ -476,6 +493,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     Set<Index> exact = indexManager.getClassIndexes(session, "ClsIdxTest");
     assertEquals("Exact-case getClassIndexes should return one index",
         1, exact.size());
+    assertEquals("ClsIdxTest.fieldIdx", exact.iterator().next().getName());
 
     Set<Index> wrongCase = indexManager.getClassIndexes(session, "clsidxtest");
     assertTrue("Different-case getClassIndexes should return empty set",
@@ -504,14 +522,18 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     // Full key lookup — exact class name
     Set<Index> fullKey = indexManager.getClassInvolvedIndexes(
         session, "CompositeIdx", "first", "last");
-    assertFalse("Full composite key, exact class name: should find index",
-        fullKey.isEmpty());
+    assertEquals("Full composite key should return exactly one index",
+        1, fullKey.size());
+    assertEquals("CompositeIdx.firstLastIdx",
+        fullKey.iterator().next().getName());
 
     // Prefix lookup — exact class name
     Set<Index> prefix = indexManager.getClassInvolvedIndexes(
         session, "CompositeIdx", "first");
-    assertFalse("Prefix key, exact class name: should find index",
-        prefix.isEmpty());
+    assertEquals("Prefix key should return exactly one index",
+        1, prefix.size());
+    assertEquals("CompositeIdx.firstLastIdx",
+        prefix.iterator().next().getName());
 
     // Wrong-case class name — must find nothing for both lookups
     assertTrue("Full composite key, wrong-case class name: should be empty",
