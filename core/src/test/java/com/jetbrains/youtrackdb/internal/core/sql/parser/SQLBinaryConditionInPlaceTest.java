@@ -1,0 +1,478 @@
+package com.jetbrains.youtrackdb.internal.core.sql.parser;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+
+/**
+ * Tests for the in-place comparison fast path in
+ * {@link SQLBinaryCondition#evaluate(Result, com.jetbrains.youtrackdb.internal.core.command.CommandContext)}.
+ *
+ * <p>Each test inserts records, commits (so they have serialized {@code source} bytes),
+ * then queries via SQL SELECT with WHERE clauses to exercise the in-place comparison path
+ * for the Result-based evaluate method. Results are compared against expected values to
+ * verify correctness.
+ */
+@Category(SequentialTest.class)
+public class SQLBinaryConditionInPlaceTest extends DbTestBase {
+
+  // ----- Equality (=) -----
+
+  @Test
+  public void testEqualsInteger() {
+    // Verifies that integer equality comparison works via the in-place path.
+    // Records with serialized source bytes are queried with WHERE age = 25.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("EqInt");
+    clazz.createProperty("name", PropertyType.STRING);
+    clazz.createProperty("age", PropertyType.INTEGER);
+
+    session.begin();
+    var e1 = session.newEntity("EqInt");
+    e1.setProperty("name", "Alice");
+    e1.setProperty("age", 25);
+
+    var e2 = session.newEntity("EqInt");
+    e2.setProperty("name", "Bob");
+    e2.setProperty("age", 30);
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM EqInt WHERE age = 25")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("Alice");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testEqualsString() {
+    // Verifies that string equality comparison works via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("EqStr");
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("EqStr");
+    e1.setProperty("name", "hello");
+
+    var e2 = session.newEntity("EqStr");
+    e2.setProperty("name", "world");
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM EqStr WHERE name = 'hello'")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("hello");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testEqualsDouble() {
+    // Verifies that double equality comparison works via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("EqDbl");
+    clazz.createProperty("val", PropertyType.DOUBLE);
+    clazz.createProperty("label", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("EqDbl");
+    e1.setProperty("val", 2.5);
+    e1.setProperty("label", "twoAndHalf");
+
+    var e2 = session.newEntity("EqDbl");
+    e2.setProperty("val", 1.25);
+    e2.setProperty("label", "oneAndQuarter");
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM EqDbl WHERE val = 2.5")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("label")).isEqualTo("twoAndHalf");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testEqualsBoolean() {
+    // Verifies that boolean equality comparison works via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("EqBool");
+    clazz.createProperty("active", PropertyType.BOOLEAN);
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("EqBool");
+    e1.setProperty("active", true);
+    e1.setProperty("name", "on");
+
+    var e2 = session.newEntity("EqBool");
+    e2.setProperty("active", false);
+    e2.setProperty("name", "off");
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM EqBool WHERE active = true")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("on");
+    }
+    session.commit();
+  }
+
+  // ----- Not-equal (<>, !=) -----
+
+  @Test
+  public void testNotEqualNeq() {
+    // Verifies the <> operator works correctly via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NeqTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 3; i++) {
+      var e = session.newEntity("NeqTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NeqTest WHERE val <> 2")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(1, 3);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testNotEqualNe() {
+    // Verifies the != operator works correctly via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NeTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 3; i++) {
+      var e = session.newEntity("NeTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NeTest WHERE val != 2")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(1, 3);
+    }
+    session.commit();
+  }
+
+  // ----- Range operators (<, >, <=, >=) -----
+
+  @Test
+  public void testLessThan() {
+    // Verifies < operator via the in-place path on integer property.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LtTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      var e = session.newEntity("LtTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM LtTest WHERE val < 3")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(1, 2);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testGreaterThan() {
+    // Verifies > operator via the in-place path on integer property.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("GtTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      var e = session.newEntity("GtTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM GtTest WHERE val > 3")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(4, 5);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testLessThanOrEqual() {
+    // Verifies <= operator via the in-place path on integer property.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LeTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      var e = session.newEntity("LeTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM LeTest WHERE val <= 3")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(3);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(1, 2, 3);
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testGreaterThanOrEqual() {
+    // Verifies >= operator via the in-place path on integer property.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("GeTest");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    for (int i = 1; i <= 5; i++) {
+      var e = session.newEntity("GeTest");
+      e.setProperty("val", i);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM GeTest WHERE val >= 3")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(3);
+      var vals = results.stream()
+          .map(r -> r.<Integer>getProperty("val"))
+          .collect(Collectors.toList());
+      assertThat(vals).containsExactlyInAnyOrder(3, 4, 5);
+    }
+    session.commit();
+  }
+
+  // ----- String range comparison -----
+
+  @Test
+  public void testStringRangeComparison() {
+    // Verifies that string range comparison (lexicographic) works via
+    // the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("StrRange");
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    for (var name : List.of("apple", "banana", "cherry", "date")) {
+      var e = session.newEntity("StrRange");
+      e.setProperty("name", name);
+
+    }
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM StrRange WHERE name < 'cherry'")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(2);
+      var names = results.stream()
+          .map(r -> r.<String>getProperty("name"))
+          .collect(Collectors.toList());
+      assertThat(names).containsExactlyInAnyOrder("apple", "banana");
+    }
+    session.commit();
+  }
+
+  // ----- Null handling -----
+
+  @Test
+  public void testNullPropertyFallsBackCorrectly() {
+    // Verifies that null property values fall back to the standard SQL NULL
+    // handling path (NULL = X yields false per SQL semantics).
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NullProp");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("NullProp");
+    e1.setProperty("val", 10);
+    e1.setProperty("name", "hasVal");
+
+    var e2 = session.newEntity("NullProp");
+    // val is null
+    e2.setProperty("name", "noVal");
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NullProp WHERE val = 10")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("hasVal");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testNullRightValueFallsBackCorrectly() {
+    // Verifies that comparing against a null right-hand value works correctly.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NullRight");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("NullRight");
+    e.setProperty("val", 10);
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NullRight WHERE val = null")) {
+      var results = rs.stream().collect(Collectors.toList());
+      // SQL semantics: val = NULL is false
+      assertThat(results).isEmpty();
+    }
+    session.commit();
+  }
+
+  // ----- Cross-type numeric comparison -----
+
+  @Test
+  public void testIntegerPropertyVsLongLiteral() {
+    // Verifies cross-type numeric comparison: INTEGER property vs LONG literal.
+    // The SQL parser will produce a LONG for large numeric literals.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("CrossType");
+    clazz.createProperty("val", PropertyType.INTEGER);
+    clazz.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("CrossType");
+    e1.setProperty("val", 42);
+    e1.setProperty("name", "match");
+
+    var e2 = session.newEntity("CrossType");
+    e2.setProperty("val", 99);
+    e2.setProperty("name", "noMatch");
+
+    session.commit();
+
+    session.begin();
+    // The literal 42L is a long; the property type is INTEGER
+    try (var rs = session.query("SELECT FROM CrossType WHERE val = 42")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("match");
+    }
+    session.commit();
+  }
+
+  // ----- Multiple WHERE conditions on same record -----
+
+  @Test
+  public void testMultipleWhereConditions() {
+    // Verifies that multiple WHERE conditions on the same record each get
+    // independently optimized via the in-place path.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("MultiWhere");
+    clazz.createProperty("x", PropertyType.INTEGER);
+    clazz.createProperty("y", PropertyType.STRING);
+
+    session.begin();
+    var e1 = session.newEntity("MultiWhere");
+    e1.setProperty("x", 10);
+    e1.setProperty("y", "alpha");
+
+    var e2 = session.newEntity("MultiWhere");
+    e2.setProperty("x", 10);
+    e2.setProperty("y", "beta");
+
+    var e3 = session.newEntity("MultiWhere");
+    e3.setProperty("x", 20);
+    e3.setProperty("y", "alpha");
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "SELECT FROM MultiWhere WHERE x = 10 AND y = 'alpha'")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<Integer>getProperty("x")).isEqualTo(10);
+      assertThat(results.get(0).<String>getProperty("y")).isEqualTo("alpha");
+    }
+    session.commit();
+  }
+
+  // ----- No match -----
+
+  @Test
+  public void testNoMatchReturnsEmpty() {
+    // Verifies that when no records match, the result set is empty.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("NoMatch");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("NoMatch");
+    e.setProperty("val", 42);
+
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NoMatch WHERE val = 999")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).isEmpty();
+    }
+    session.commit();
+  }
+}
