@@ -315,6 +315,12 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                 startBarrier.await();
                 for (int r = 0; r < rounds; r++) {
                   var removed = map.removeByFileId(targetFileId);
+                  // Every returned value must belong to the target file
+                  for (var val : removed) {
+                    assertThat(val)
+                        .as("removed value belongs to target file %d", targetFileId)
+                        .startsWith(targetFileId + ":");
+                  }
                   // Re-populate so next round has entries to remove
                   for (int pIdx = 0; pIdx < pagesPerFile; pIdx++) {
                     map.put(targetFileId, pIdx, targetFileId + ":" + pIdx);
@@ -363,9 +369,15 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     }
 
     // Final removeByFileId to ensure target is gone
-    map.removeByFileId(targetFileId);
+    var finalRemoved = map.removeByFileId(targetFileId);
+    for (var val : finalRemoved) {
+      assertThat(val)
+          .as("final removal returned value belonging to target file")
+          .startsWith(targetFileId + ":");
+    }
 
-    // Verify: no entries for the target file remain
+    // Verify: no entries for the target file remain, and count other-file entries
+    var otherEntryCount = new AtomicLong();
     map.forEach(
         (fileId, pageIndex, value) -> {
           assertThat(fileId)
@@ -374,36 +386,51 @@ public class ConcurrentLongIntHashMapConcurrentTest {
           assertThat(value)
               .as("value at (%d, %d) matches canonical form", fileId, pageIndex)
               .isEqualTo(fileId + ":" + pageIndex);
+          otherEntryCount.incrementAndGet();
         });
+    // Workers only write canonical values for other files — all 9 files x 100 pages must survive
+    assertThat(otherEntryCount.get())
+        .as("all other-file entries must be present")
+        .isEqualTo((long) otherFileCount * pagesPerFile);
+    assertThat(map.size()).isEqualTo(otherEntryCount.get());
   }
 
   /**
-   * removeByFileId + concurrent put on the same file. One thread calls removeByFileId while another
-   * thread inserts entries for the same file. After both complete, we do a final removeByFileId and
-   * verify the map is empty for that file. This exercises the race between removal and insertion
-   * within the same section.
+   * removeByFileId + concurrent put and reads on the same file. Removers call removeByFileId while
+   * inserters add entries and readers verify value correctness — all for the same file. Uses a
+   * single section to maximize intra-section contention on the write lock. After all threads
+   * complete, a final removeByFileId verifies the map is empty for that file.
+   *
+   * <p>Readers exercise the optimistic-read-to-read-lock fallback during removeByFileId's
+   * same-capacity rehash, which replaces the section's arrays under the write lock.
    */
   @Test
   public void removeByFileIdWithConcurrentPutOnSameFile() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(256);
+    // Single section — all operations contend on one StampedLock
+    var map = new ConcurrentLongIntHashMap<String>(256, 1);
     long fileId = 42;
     int pagesPerFile = 200;
     int rounds = 100;
 
-    int totalThreads = 4; // 2 removers + 2 inserters
+    int totalThreads = 6; // 2 removers + 2 inserters + 2 readers
     var executor = Executors.newFixedThreadPool(totalThreads);
     var futures = new ArrayList<Future<Void>>();
     var startBarrier = new CyclicBarrier(totalThreads);
 
     try {
-      // 2 remover threads
+      // 2 remover threads — validate returned values belong to correct file
       for (int t = 0; t < 2; t++) {
         futures.add(
             executor.submit(
                 () -> {
                   startBarrier.await();
                   for (int r = 0; r < rounds; r++) {
-                    map.removeByFileId(fileId);
+                    var removed = map.removeByFileId(fileId);
+                    for (var val : removed) {
+                      assertThat(val)
+                          .as("removed value must belong to file %d", fileId)
+                          .startsWith(fileId + ":");
+                    }
                   }
                   return null;
                 }));
@@ -424,6 +451,26 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                 }));
       }
 
+      // 2 reader threads — verify get() returns correct or null during removal
+      for (int t = 0; t < 2; t++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  startBarrier.await();
+                  var rng = ThreadLocalRandom.current();
+                  for (int r = 0; r < rounds * pagesPerFile; r++) {
+                    int pIdx = rng.nextInt(pagesPerFile);
+                    String result = map.get(fileId, pIdx);
+                    if (result != null) {
+                      assertThat(result)
+                          .as("get(%d, %d) must return canonical value or null", fileId, pIdx)
+                          .isEqualTo(fileId + ":" + pIdx);
+                    }
+                  }
+                  return null;
+                }));
+      }
+
       for (var future : futures) {
         future.get(30, TimeUnit.SECONDS);
       }
@@ -433,7 +480,8 @@ public class ConcurrentLongIntHashMapConcurrentTest {
     }
 
     // After all threads stop, do a final removal and verify empty for this file.
-    // Some entries may remain from the last inserter round — that's expected (R2 race).
+    // Some entries may remain from the last inserter round — that's expected
+    // (inserters can re-insert after the last removeByFileId call).
     map.removeByFileId(fileId);
 
     map.forEach(
@@ -477,7 +525,10 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                 () -> {
                   startBarrier.await();
                   var removed = map.removeByFileId(targetFile);
-                  // Every entry in the removed list must belong to the target file
+                  // Must return exactly pagesPerFile entries, all belonging to target file
+                  assertThat(removed)
+                      .as("removeByFileId(%d) should return all entries", targetFile)
+                      .hasSize(pagesPerFile);
                   for (var val : removed) {
                     assertThat(val)
                         .as("removed value belongs to file %d", targetFile)
