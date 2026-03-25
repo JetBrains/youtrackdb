@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -95,34 +95,13 @@ isPropertyEqualTo(name, value) / comparePropertyTo(name, value):
 
 ## Steps
 
-- [ ] Step 1: InPlaceComparator — numeric types with type conversion
-  > Create new `InPlaceComparator` utility class with static methods for
-  > binary comparison of numeric property types: INTEGER, LONG, SHORT, BYTE,
-  > FLOAT, DOUBLE. Implement the type conversion infrastructure that converts
-  > a passed-in Java value to the property's serialized type before same-type
-  > comparison.
+- [x] Step 1: InPlaceComparator — numeric types with type conversion
+  - [x] Context: safe
+  > **What was done:** Created `InPlaceComparator` utility class with `compare(BinaryField, Object)` → `OptionalInt` and `isEqual(BinaryField, Object)` → `OptionalInt` (1/0/empty). Supports INTEGER, LONG, SHORT, BYTE, FLOAT, DOUBLE with type conversion infrastructure. Precision boundaries: 2^24 for int→float, 2^53 for long→double. Float/Double→integer always falls back. 90+ unit tests covering all 6 types, all cross-type combinations, precision boundaries, NaN/-0.0/infinity, BigDecimal/BigInteger fallback.
   >
-  > Key design points:
-  > - Main entry: `static OptionalInt compare(BinaryField field, Object value)`
-  >   dispatches by `field.type`
-  > - Main entry: `static InPlaceResult isEqual(BinaryField field, Object value)`
-  >   derives from compare (can optimize STRING later)
-  > - Use `Float.compare()` / `Double.compare()` for NaN and -0.0 correctness
-  > - Float↔Double: always widen to double precision (compare at double when
-  >   either operand is double)
-  > - Integer narrowing: range check `value >= Type.MIN_VALUE && value <= Type.MAX_VALUE`
-  > - Integer→Float precision: safe only if `|value| <= (1 << 24)` (2^24)
-  > - Long→Double precision: safe only if `|value| <= (1L << 53)` (2^53)
-  > - Float→integer, Double→integer: always fall back
-  > - Conversion failure → return `OptionalInt.empty()`
-  > - Read serialized values using `HelperClasses` / `VarIntSerializer` methods
+  > **What was discovered:** Review caught a blocker: `convertToFloat` and `convertToDouble` had a silent truncation bug for `BigDecimal`/`BigInteger` values that fell through to the integer catch-all path via `longValue()`. Fixed by adding explicit guards for standard integer boxed types only.
   >
-  > Unit tests: all 6 numeric types, cross-type conversion (Integer→Long,
-  > Long→Short with overflow, Double→Float precision loss, Float→Integer
-  > fallback), edge cases (NaN, -0.0, MAX_VALUE, MIN_VALUE, precision
-  > boundaries at 2^24 and 2^53).
-  >
-  > **Files**: `InPlaceComparator.java` (new), `InPlaceComparatorNumericTest.java` (new)
+  > **Key files:** `InPlaceComparator.java` (new), `InPlaceComparatorNumericTest.java` (new)
 
 - [ ] Step 2: InPlaceComparator — non-numeric types (STRING, BOOLEAN, DATETIME, DATE, DECIMAL, BINARY, LINK)
   > Extend InPlaceComparator with comparison methods for the remaining 7
