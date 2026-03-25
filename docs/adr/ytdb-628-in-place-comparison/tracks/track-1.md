@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/4 complete)
+- [ ] Step implementation (2/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -103,36 +103,15 @@ isPropertyEqualTo(name, value) / comparePropertyTo(name, value):
   >
   > **Key files:** `InPlaceComparator.java` (new), `InPlaceComparatorNumericTest.java` (new)
 
-- [ ] Step 2: InPlaceComparator — non-numeric types (STRING, BOOLEAN, DATETIME, DATE, DECIMAL, BINARY, LINK)
-  > Extend InPlaceComparator with comparison methods for the remaining 7
-  > binary-comparable types.
+- [x] Step 2: InPlaceComparator — non-numeric types (STRING, BOOLEAN, DATETIME, DATE, DECIMAL, BINARY, LINK)
+  - [x] Context: info
+  > **What was done:** Extended InPlaceComparator with 7 non-numeric types. Added `compare(BinaryField, Object, TimeZone)` overload for DATE timezone support. STRING via `readString()`+`compareTo()`, BOOLEAN via byte read+`Boolean.compare()`, DATETIME via VarInt millis, DATE via days*MILLISEC_PER_DAY+`convertDayToTimezone()`, DECIMAL via `staticDeserialize()`+`BigDecimal.compareTo()`, BINARY via `readBinary()`+`Arrays.compare()`, LINK equality only (ordering returns empty). 60+ tests including non-GMT timezone, Identifiable path, Float-to-DECIMAL precision.
   >
-  > Key design points:
-  > - STRING: read length + UTF-8 bytes via `HelperClasses.readString()`;
-  >   compare with `String.compareTo()`. No collation support (falls back
-  >   at EntityImpl level).
-  > - BOOLEAN: read single byte; compare as boolean values
-  > - DATETIME: read long millis via `VarIntSerializer.readAsLong()`;
-  >   compare passed-in `Date.getTime()` as long
-  > - DATE: read days-since-epoch via `VarIntSerializer.readAsLong()`;
-  >   apply `HelperClasses.convertDayToTimezone()` then compare against
-  >   passed-in `Date.getTime()` converted back to millis
-  > - DECIMAL: `DecimalSerializer.staticDeserialize(bytes.bytes, bytes.offset)`;
-  >   allocates BigDecimal (acknowledged perf gap). Use `BigDecimal.compareTo()`
-  >   (not `equals()`). Convert passed-in value via `BigDecimal.valueOf()`
-  >   for doubles.
-  > - BINARY: compare byte arrays with `Arrays.compare()`
-  > - LINK: read clusterId + clusterPosition via `readOptimizedLink()`;
-  >   for `compare()`, return `OptionalInt.empty()` (ordering undefined).
-  >   For `isEqual()`, compare both components.
+  > **What was discovered:** Review caught DECIMAL bug — `bytes.offset` not advanced after `staticDeserialize()` (unlike all other types that advance offset via read methods). Fixed by adding `bytes.skip(staticGetObjectSize(...))`. Also: DATE requires `TimeZone` parameter, so added overloaded `compare`/`isEqual` that accept optional timezone.
   >
-  > Excluded types (always fall back): EMBEDDED, EMBEDDEDLIST, EMBEDDEDSET,
-  > EMBEDDEDMAP, LINKLIST, LINKSET, LINKMAP, LINKBAG.
+  > **What changed from the plan:** Added `TimeZone` parameter to `compare`/`isEqual` signatures. Step 3 (EntityImpl) will need to pass the database timezone when calling these methods for DATE fields.
   >
-  > Unit tests: all 7 types, edge cases (empty string perf gap documented,
-  > DATE timezone, DECIMAL scale differences, LINK equality, null values).
-  >
-  > **Files**: `InPlaceComparator.java` (extend), `InPlaceComparatorNonNumericTest.java` (new)
+  > **Key files:** `InPlaceComparator.java` (modified), `InPlaceComparatorNonNumericTest.java` (new)
 
 - [ ] Step 3: InPlaceResult enum + EntityImpl comparison methods
   > Add the `InPlaceResult` enum and two new public methods to EntityImpl:
