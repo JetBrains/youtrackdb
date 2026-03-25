@@ -40,4 +40,17 @@ public class BytesContainerTest {
     bytesContainer.skip((short) 100);
     assertEquals(bytesContainer.offset, 100);
   }
+
+  @Test
+  public void testReset_keepsBackingArrayResetsOffset() {
+    var bytesContainer = new BytesContainer();
+    bytesContainer.alloc(200);
+    assertEquals(200, bytesContainer.offset);
+    var backingArray = bytesContainer.bytes;
+
+    bytesContainer.reset();
+    assertEquals(0, bytesContainer.offset);
+    // Backing array is reused, not reallocated
+    assertTrue(bytesContainer.bytes == backingArray);
+  }
 }
