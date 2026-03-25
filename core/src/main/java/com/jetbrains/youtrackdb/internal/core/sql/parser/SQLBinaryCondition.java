@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.InPlaceResult;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
@@ -53,6 +55,44 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
     if (left.isFunctionAll()) {
       return evaluateAllFunction(currentRecord, ctx);
     }
+
+    // In-place comparison fast path: avoid deserialization for simple
+    // "property <op> constant" patterns when no collation is involved.
+    if (left.isBaseIdentifier()
+        && left.mathExpression instanceof SQLBaseExpression baseExpr
+        && right.isEarlyCalculated(ctx)
+        && left.getCollate(currentRecord, ctx) == null
+        && right.getCollate(currentRecord, ctx) == null
+        && currentRecord instanceof ResultInternal ri
+        && ri.asEntityOrNull() instanceof EntityImpl entityImpl) {
+      var propName = baseExpr.getIdentifier().getSuffix()
+          .getIdentifier().getStringValue();
+      var rightVal = right.execute(currentRecord, ctx);
+
+      if (operator instanceof SQLEqualsOperator) {
+        var result = entityImpl.isPropertyEqualTo(propName, rightVal);
+        if (result != InPlaceResult.FALLBACK) {
+          return result == InPlaceResult.TRUE;
+        }
+      } else if (operator instanceof SQLNeqOperator
+          || operator instanceof SQLNeOperator) {
+        var result = entityImpl.isPropertyEqualTo(propName, rightVal);
+        if (result != InPlaceResult.FALLBACK) {
+          return result == InPlaceResult.FALSE;
+        }
+      } else if (operator.isRangeOperator()) {
+        var cmp = entityImpl.comparePropertyTo(propName, rightVal);
+        if (cmp.isPresent()) {
+          int c = cmp.getAsInt();
+          return evaluateRangeResult(c);
+        }
+      }
+
+      // FALLBACK: rightVal already computed, only need leftVal
+      var leftVal = left.execute(currentRecord, ctx);
+      return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
+    }
+
     var leftVal = left.execute(currentRecord, ctx);
     var rightVal = right.execute(currentRecord, ctx);
     var collate = left.getCollate(currentRecord, ctx);
@@ -64,6 +104,24 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       rightVal = collate.transform(rightVal);
     }
     return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
+  }
+
+  /**
+   * Interprets a comparison result (from {@code comparePropertyTo}) according to
+   * the range operator type (Lt, Gt, Le, Ge).
+   */
+  private boolean evaluateRangeResult(int cmp) {
+    if (operator instanceof SQLLtOperator) {
+      return cmp < 0;
+    } else if (operator instanceof SQLGtOperator) {
+      return cmp > 0;
+    } else if (operator instanceof SQLLeOperator) {
+      return cmp <= 0;
+    } else if (operator instanceof SQLGeOperator) {
+      return cmp >= 0;
+    }
+    // Should not happen — isRangeOperator() was true
+    return false;
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
