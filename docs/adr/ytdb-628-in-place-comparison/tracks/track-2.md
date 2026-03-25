@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,7 +14,8 @@
 
 ## Steps
 
-- [ ] Step 1: In-place comparison in `evaluate(Result, CommandContext)`
+- [x] Step 1: In-place comparison in `evaluate(Result, CommandContext)`
+  - [x] Context: safe
   Add the in-place comparison fast path to the `evaluate(Result, CommandContext)`
   method in `SQLBinaryCondition.java`. This is the primary integration point
   used by modern SQL execution (SELECT, MATCH).
@@ -80,6 +81,28 @@
   double, and boolean types. Include records fetched from DB (serialized source)
   to ensure the in-place path is exercised. Verify null property handling
   falls back correctly.
+
+  > **What was done:** Added in-place comparison fast path to
+  > `evaluate(Result, CommandContext)` in SQLBinaryCondition. The guard checks
+  > `isBaseIdentifier()`, `instanceof SQLBaseExpression` (filters out
+  > SQLGetInternalPropertyExpression), `isEarlyCalculated()`, no collation,
+  > and ResultInternal → EntityImpl unwrapping. Supports all 7 operators via
+  > `isPropertyEqualTo` (=, <>, !=) and `comparePropertyTo` (<, >, <=, >=)
+  > with `evaluateRangeResult()` helper. FALLBACK reuses pre-computed rightVal.
+  > 17 tests: 4 equality types, 2 not-equal variants, 4 range operators,
+  > string range, 2 null cases, cross-type, multi-WHERE, no-match, negative
+  > values (review fix TC1).
+  >
+  > **What was discovered:** SQL parser `SQLFloatingPoint.getValue()` casts
+  > double literals that fit in float range to `Float` (line 47:
+  > `if (Math.abs(returnValue) < Float.MAX_VALUE)`). This means `3.14` in SQL
+  > becomes `Float(3.14f)` but DOUBLE properties store `Double(3.14d)`.
+  > These differ in IEEE 754 representation. Used exact-representable values
+  > (2.5) in tests. Not a bug in the in-place path — the existing path has
+  > the same behavior.
+  >
+  > **Key files:** `SQLBinaryCondition.java` (modified),
+  > `SQLBinaryConditionInPlaceTest.java` (new)
 
 - [ ] Step 2: In-place comparison in `evaluate(Identifiable, CommandContext)`
   Add the same in-place comparison fast path to the
