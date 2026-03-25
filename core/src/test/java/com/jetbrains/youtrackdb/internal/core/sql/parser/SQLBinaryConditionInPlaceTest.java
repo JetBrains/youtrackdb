@@ -387,31 +387,63 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
   // ----- Cross-type numeric comparison -----
 
   @Test
-  public void testIntegerPropertyVsLongLiteral() {
-    // Verifies cross-type numeric comparison: INTEGER property vs LONG literal.
-    // The SQL parser will produce a LONG for large numeric literals.
+  public void testLongPropertyVsIntegerLiteral() {
+    // Verifies cross-type numeric comparison: LONG property vs integer-range
+    // literal. The SQL parser produces an Integer for small numeric literals,
+    // but the property is stored as LONG — this exercises the type conversion
+    // path in InPlaceComparator.
     var schema = session.getMetadata().getSchema();
-    var clazz = schema.createClass("CrossType");
-    clazz.createProperty("val", PropertyType.INTEGER);
+    var clazz = schema.createClass("CrossLongInt");
+    clazz.createProperty("val", PropertyType.LONG);
     clazz.createProperty("name", PropertyType.STRING);
 
     session.begin();
-    var e1 = session.newEntity("CrossType");
-    e1.setProperty("val", 42);
+    var e1 = session.newEntity("CrossLongInt");
+    e1.setProperty("val", 42L);
     e1.setProperty("name", "match");
 
-    var e2 = session.newEntity("CrossType");
-    e2.setProperty("val", 99);
+    var e2 = session.newEntity("CrossLongInt");
+    e2.setProperty("val", 99L);
     e2.setProperty("name", "noMatch");
 
     session.commit();
 
     session.begin();
-    // The literal 42L is a long; the property type is INTEGER
-    try (var rs = session.query("SELECT FROM CrossType WHERE val = 42")) {
+    // Literal 42 is parsed as Integer; property type is LONG
+    try (var rs = session.query("SELECT FROM CrossLongInt WHERE val = 42")) {
       var results = rs.stream().collect(Collectors.toList());
       assertThat(results).hasSize(1);
       assertThat(results.get(0).<String>getProperty("name")).isEqualTo("match");
+    }
+    // Also verify range comparison cross-type
+    try (var rs = session.query("SELECT FROM CrossLongInt WHERE val > 50")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("noMatch");
+    }
+    session.commit();
+  }
+
+  @Test
+  public void testIntegerPropertyVsOverflowLongLiteral() {
+    // Verifies that comparing an INTEGER property against a literal exceeding
+    // Integer range correctly returns no match (the in-place path should
+    // detect the overflow and fall back).
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("CrossIntOverflow");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("CrossIntOverflow");
+    e.setProperty("val", 42);
+    session.commit();
+
+    session.begin();
+    // 4294967296 exceeds Integer.MAX_VALUE — no INTEGER can match
+    try (var rs = session.query(
+        "SELECT FROM CrossIntOverflow WHERE val = 4294967296")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).isEmpty();
     }
     session.commit();
   }
@@ -654,22 +686,32 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
 
   @Test
   public void testNonEntityProjectionPassesThrough() {
-    // Verifies that projection-only queries (no entity, just computed fields)
-    // pass through without error — the in-place path should not activate.
+    // Verifies that WHERE on a projected (non-entity) result falls back
+    // gracefully — the in-place path requires an EntityImpl, so subquery
+    // projections that produce plain ResultInternal should use the standard
+    // evaluation path.
+    session.execute("CREATE class ProjTest");
+
     session.begin();
-    try (var rs = session.query("SELECT 1 + 2 as result")) {
+    session.execute("INSERT INTO ProjTest SET x = 10");
+    session.execute("INSERT INTO ProjTest SET x = 20");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query(
+        "SELECT x FROM (SELECT x FROM ProjTest) WHERE x = 10")) {
       var results = rs.stream().collect(Collectors.toList());
       assertThat(results).hasSize(1);
-      assertThat(results.get(0).<Integer>getProperty("result")).isEqualTo(3);
+      assertThat(results.get(0).<Integer>getProperty("x")).isEqualTo(10);
     }
     session.commit();
   }
 
   @Test
-  public void testSchemalessPropertyFallsBack() {
-    // Verifies that properties not in the schema (schema-less mode) fall back
-    // correctly — the in-place path should still work because deserializeField
-    // handles schema-less fields.
+  public void testSchemalessPropertyWorksViaInPlacePath() {
+    // Verifies that schema-less properties (no explicit property definition)
+    // produce correct results — deserializeField handles dynamic fields, so
+    // the in-place path works for schema-less mode too.
     session.execute("CREATE class Schemaless");
 
     session.begin();
@@ -724,6 +766,8 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
     session.execute("CREATE VERTEX MNode set name = 'child1', level = 1");
     session.execute("CREATE VERTEX MNode set name = 'child2', level = 1");
     session.execute("CREATE VERTEX MNode set name = 'grandchild', level = 2");
+    // phantom has level = 0, same as root — should be filtered OUT by level > 0
+    session.execute("CREATE VERTEX MNode set name = 'phantom', level = 0");
 
     session.execute(
         "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'root') "
@@ -732,12 +776,16 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
         "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'root') "
             + "to (SELECT FROM MNode WHERE name = 'child2')");
     session.execute(
+        "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'root') "
+            + "to (SELECT FROM MNode WHERE name = 'phantom')");
+    session.execute(
         "CREATE EDGE MEdge from (SELECT FROM MNode WHERE name = 'child1') "
             + "to (SELECT FROM MNode WHERE name = 'grandchild')");
     session.commit();
 
     session.begin();
-    // Find all descendants of root at level > 0
+    // Find direct children of root at level > 0 — phantom (level=0) should
+    // be excluded by the WHERE filter, proving the range comparison works.
     try (var rs = session.query(
         "MATCH {class: MNode, where: (name = 'root'), as: r}"
             + ".out('MEdge'){where: (level > 0), as: c} "
@@ -748,6 +796,65 @@ public class SQLBinaryConditionInPlaceTest extends DbTestBase {
           .map(r -> r.<String>getProperty("name"))
           .collect(Collectors.toList());
       assertThat(names).containsExactlyInAnyOrder("child1", "child2");
+    }
+    session.commit();
+  }
+
+  // ===== Collation bypass (TC2) =====
+
+  @Test
+  public void testCollationPropertyBypassesInPlacePath() {
+    // Verifies that a property with COLLATE ci skips the in-place path
+    // (which does raw byte comparison ignoring collation) and still produces
+    // correct case-insensitive matching via the standard evaluation path.
+    session.execute("CREATE class CollateTest");
+    session.execute("CREATE PROPERTY CollateTest.name STRING (COLLATE ci)");
+
+    session.begin();
+    session.execute("INSERT INTO CollateTest SET name = 'Alice'");
+    session.execute("INSERT INTO CollateTest SET name = 'bob'");
+    session.commit();
+
+    session.begin();
+    // Case-insensitive collation: 'alice' should match 'Alice'
+    try (var rs = session.query(
+        "SELECT FROM CollateTest WHERE name = 'alice'")) {
+      var results = rs.stream().collect(Collectors.toList());
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).<String>getProperty("name")).isEqualTo("Alice");
+    }
+    session.commit();
+  }
+
+  // ===== Le/Ge exact boundary (TC3) =====
+
+  @Test
+  public void testLeGeExactBoundary() {
+    // Verifies that <= and >= return true when the property value exactly
+    // equals the comparison value (comparePropertyTo returns 0), and that
+    // strict < and > exclude the exact value.
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("LeGeExact");
+    clazz.createProperty("val", PropertyType.INTEGER);
+
+    session.begin();
+    var e = session.newEntity("LeGeExact");
+    e.setProperty("val", 42);
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM LeGeExact WHERE val <= 42")) {
+      assertThat(rs.stream().collect(Collectors.toList())).hasSize(1);
+    }
+    try (var rs = session.query("SELECT FROM LeGeExact WHERE val >= 42")) {
+      assertThat(rs.stream().collect(Collectors.toList())).hasSize(1);
+    }
+    // Strict operators should exclude the exact boundary value
+    try (var rs = session.query("SELECT FROM LeGeExact WHERE val < 42")) {
+      assertThat(rs.stream().collect(Collectors.toList())).isEmpty();
+    }
+    try (var rs = session.query("SELECT FROM LeGeExact WHERE val > 42")) {
+      assertThat(rs.stream().collect(Collectors.toList())).isEmpty();
     }
     session.commit();
   }
