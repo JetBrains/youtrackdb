@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (2/4 complete)
+- [ ] Step implementation (3/4 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -49,27 +49,17 @@
   >
   > **Key files:** `RecordSerializerBinaryV2.java` (modified)
 
-- [ ] Step 3: Eliminate double UTF-8 encoding for schema-less properties
-  In hash table mode, schema-less property names are UTF-8 encoded twice:
-  once at line 317 (`fieldName.getBytes(UTF_8)` for hash computation) and
-  again in `serializePropertyEntry()` via `writeString()` → `bytesFromString()`.
-  Pass the pre-encoded `nameBytes[i]` into `serializePropertyEntry()` so it
-  can write the name bytes directly instead of re-encoding.
-
-  **What to do**:
-  1. Add an overloaded `serializePropertyEntry()` that accepts an optional
-     `byte[] preEncodedName` parameter (or null for linear mode / schema-aware).
-  2. In `serializeHashTableMode()`, pass `nameBytes[i]` when calling
-     `serializePropertyEntry()` for each property.
-  3. In `serializePropertyEntry()`, when `preEncodedName != null` and the
-     property is schema-less (`docEntry.property == null`), write the name
-     bytes directly via `VarIntSerializer.write(bytes, preEncodedName.length)`
-     + `System.arraycopy` instead of calling `writeString()`.
-  4. Verify V1 delegate `serializeValue` only writes forward from
-     `bytes.offset` (per R6) — trace through key type handlers.
-  5. Run all V2 tests.
-
-  **Key files**: `RecordSerializerBinaryV2.java`
+- [x] Step 3: Eliminate double UTF-8 encoding for schema-less properties
+  > **What was done:** Added `@Nullable byte[] preEncodedName` parameter to
+  > `serializePropertyEntry()`. In hash table mode, passes `nameBytes[i]`
+  > (already computed for hash table construction). When non-null and property
+  > is schema-less, writes name bytes directly via VarIntSerializer + arraycopy,
+  > skipping the second `getBytes(UTF_8)` call. Linear mode passes null.
+  > Added `roundTrip_hashTableMode_unicodePropertyNames` test with 13 multi-byte
+  > UTF-8 property names (CJK, Cyrillic, accented Latin, Greek).
+  >
+  > **Key files:** `RecordSerializerBinaryV2.java` (modified),
+  > `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
 - [ ] Step 4: Run `-prof gc` benchmark locally, verify allocation reduction
   Run the `RecordSerializerBenchmark` with JMH's GC profiler (`-prof gc`)
