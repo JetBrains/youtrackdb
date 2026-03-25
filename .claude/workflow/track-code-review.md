@@ -1,28 +1,37 @@
 # Track Execution — Phase C: Track-Level Code Review
 
-After all steps are committed, spawn **ten sub-agents in parallel** to review
-the full track diff. These are deliberately sub-agents — fresh eyes catch
-systematic issues that you (as the implementer) are blind to.
+After all steps are committed, review the full track diff using sub-agents.
+These are deliberately sub-agents — fresh eyes catch systematic issues that
+you (as the implementer) are blind to.
 
-**Five dimensional code review agents** (each reviews code from its own
-perspective):
-1. `review-code-quality` — code quality, conventions, readability
-2. `review-bugs-concurrency` — bugs, logic errors, concurrency, resource leaks
-3. `review-crash-safety` — WAL correctness, durability, crash recovery
-4. `review-security` — injection, auth, data exposure, dependencies
-5. `review-performance` — algorithmic complexity, allocations, lock contention
+---
 
-**Five dimensional test quality agents** (each reviews tests from its own
-perspective):
-6. `review-test-behavior` — behavior-driven quality, assertion precision, exception testing
-7. `review-test-completeness` — corner cases, boundary conditions, test data quality
-8. `review-test-structure` — isolation, independence, readability, documentation
-9. `review-test-concurrency` — concurrent behavior testing quality
-10. `review-test-crash-safety` — crash/recovery test quality, production assert statements
+## Single-Step Track: Skip Phase C
 
-All ten reviews run against the same diff (`git diff {base_commit}..HEAD`)
-and produce independent findings. Launching them in parallel saves
-wall-clock time since they examine different aspects of the changes.
+If the track has exactly **1 step**, Phase C is skipped — the step-level
+review in Phase B already covered the identical diff. There is no cross-step
+interaction to catch.
+
+1. Mark `Track-level code review` as `[x]` in the step file's Progress
+   section with a note: `(skipped — single-step track, fully reviewed
+   in Phase B)`.
+2. Commit the step file update.
+3. Inform the user that Phase C is skipped and why.
+4. End the session. The next session enters the Track Completion Protocol.
+
+---
+
+## Multi-Step Tracks
+
+Select review agents based on code characteristics (see
+[`review-agent-selection.md`](review-agent-selection.md)), then spawn them
+in parallel. Baseline agents (4) always run; conditional agents are added
+based on the track description and changed files across the full diff.
+
+All selected reviews run against the same diff
+(`git diff {base_commit}..HEAD`) and produce independent findings. Launching
+them in parallel saves wall-clock time since they examine different aspects
+of the changes.
 
 ---
 
@@ -73,29 +82,11 @@ Reviewing commit range: {base_commit}..HEAD
 {output of git diff {base_commit}..HEAD}
 ```
 
-### Five dimensional code review agents
+### Agent selection and launching
 
-Launch all five using the Agent tool with the respective `subagent_type`:
-
-| Agent | `subagent_type` | Finding prefix |
-|---|---|---|
-| Code quality | `review-code-quality` | `CQ1, CQ2, ...` |
-| Bugs & concurrency | `review-bugs-concurrency` | `BC1, BC2, ...` |
-| Crash safety | `review-crash-safety` | `CS1, CS2, ...` |
-| Security | `review-security` | `SE1, SE2, ...` |
-| Performance | `review-performance` | `PF1, PF2, ...` |
-
-### Five dimensional test quality agents
-
-Launch all five using the Agent tool with the respective `subagent_type`:
-
-| Agent | `subagent_type` | Finding prefix |
-|---|---|---|
-| Test behavior | `review-test-behavior` | `TB1, TB2, ...` |
-| Test completeness | `review-test-completeness` | `TC1, TC2, ...` |
-| Test structure | `review-test-structure` | `TS1, TS2, ...` |
-| Test concurrency | `review-test-concurrency` | `TX1, TX2, ...` |
-| Test crash safety | `review-test-crash-safety` | `TY1, TY2, ...` |
+Select agents per [`review-agent-selection.md`](review-agent-selection.md).
+Use the track description and `git diff {base_commit}..HEAD --name-only` to
+determine which conditional agents to include alongside the baseline.
 
 Each agent's prompt is:
 
@@ -105,17 +96,15 @@ Review the following code changes from your specialized perspective.
 {context block from above}
 ```
 
-### Launching all sub-agents
-
-**Launch all ten sub-agents in a single message** (parallel tool calls) to
-maximize efficiency. Wait for all to complete before proceeding to
+**Launch all selected sub-agents in a single message** (parallel tool calls)
+to maximize efficiency. Wait for all to complete before proceeding to
 synthesis.
 
 ---
 
 ## Synthesis
 
-After all ten sub-agents complete, produce a unified findings list:
+After all selected sub-agents complete, produce a unified findings list:
 
 1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a
    missing crash-recovery test flagged by both `review-test-crash-safety`
@@ -153,14 +142,17 @@ Iterate on the synthesized findings:
      review dimension(s) that had open findings. For example, if only
      crash-safety code findings and test-completeness findings remain,
      spawn only `review-crash-safety` and `review-test-completeness`.
-     If findings span all dimensions, re-run all ten.
-   - **Context consumption check** (after each iteration, except the
-     last): run `cat /tmp/claude-code-context-usage-$PPID.txt`. If the
-     level is `warning` (≥25%) or `critical` (≥40%), do NOT start the
-     next iteration. Save all work (update Progress section with current
+     If findings span all dimensions, re-run all originally selected agents.
+   - **Context consumption check** (mandatory after each iteration,
+     except the last): run
+     `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
+     `warning` (≥25%) or `critical` (≥40%), do NOT start the next
+     iteration. Save all work (update Progress section with current
      iteration count, commit) and ask the user for a session refresh
-     (see workflow.md §Context Consumption Check). If the file does not
-     exist or the level is `safe`/`info`, continue to the next iteration.
+     (see workflow.md §Context Consumption Check). If the level is
+     `safe`/`info`, continue to the next iteration. If the file does
+     not exist or the command fails, this is **not an error** — treat
+     as `safe` and continue.
 2. Max 3 iterations **total across sessions** — on resume, read the
    iteration count from the Progress section to determine how many remain.
    The iteration count is shared across all review dimensions (not

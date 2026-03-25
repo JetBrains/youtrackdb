@@ -88,11 +88,13 @@ detection is used.
 
 ## Steps
 - [x] Step: <description>
+  - [x] Context: safe
   > **What was done:** ...
   > **What was discovered:** ...
   > **Key files:** ...
 
 - [x] Step: <description>
+  - [x] Context: info
   > **What was done:** ...
   > **Key files:** ...
 
@@ -109,6 +111,14 @@ agent updates it at each phase transition:
 - Update `Track-level code review` iteration count as each review
   iteration completes (e.g., `(1/3 iterations)`); mark `[x]` when the
   review passes or max iterations are reached
+
+The **Context check** sub-item under each step records the context window
+level measured after step completion (sub-step 7 in step-implementation.md).
+The agent marks it `[x]` with the measured level (`safe`, `info`, `warning`,
+or `critical`). If measurement failed (file missing or command error), record
+`- [x] Context: unavailable`. This sub-item is written as part of the
+episode commit. It must be marked before the step is considered complete —
+an unmarked context check means the agent skipped the check.
 
 The **Base commit** section records the git SHA of `HEAD` at the start of
 Phase B, before the first implementation commit. Phase B writes this once
@@ -178,11 +188,17 @@ message explains why.
 
 ## 2.4 Two-Tier Dimensional Code Review
 
-Code review happens at two levels — step-level and track-level — both using
-ten specialized review sub-agents (5 code + 5 test quality) launched in
-parallel. After all complete, findings are deduplicated, severity-assigned
-(blocker / should-fix / suggestion), and attributed to source dimension(s).
-Max 3 iterations per level.
+Code review happens at two levels — step-level and track-level — using
+review sub-agents selected based on code characteristics (see
+[`review-agent-selection.md`](review-agent-selection.md)). Four baseline
+agents always run; up to six conditional agents are added based on the
+step/track description and changed files. After all selected agents
+complete, findings are deduplicated, severity-assigned (blocker /
+should-fix / suggestion), and attributed to source dimension(s). Max 3
+iterations per level.
+
+**Single-step tracks skip Phase C** — the step-level review already
+covered the identical diff. See `track-code-review.md` §Single-Step Track.
 
 - **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
 - **Track-level:** see `track-code-review.md`

@@ -60,7 +60,7 @@ duplicate or conflicting changes.
 
 ## Step Completion Gate
 
-**A step is not complete until all six sub-steps below are done.** Do NOT
+**A step is not complete until all seven sub-steps below are done.** Do NOT
 begin implementing the next step until the current step's episode is
 committed and cross-track impact is assessed. This is a hard gate, not a
 guideline.
@@ -99,22 +99,11 @@ completion**, before moving to the next step:
    modified, so stage them explicitly (no `git add -A`). Follow the project's
    commit message conventions (see `CLAUDE.md`).
 4. **Dimensional review loop** (up to 3 iterations, within your context):
-   a. Spawn **ten review sub-agents in parallel** (fresh sub-agents each
-      iteration):
-
-      **Five code review agents:**
-      - `review-code-quality` — code quality, conventions, readability
-      - `review-bugs-concurrency` — bugs, logic errors, concurrency
-      - `review-crash-safety` — WAL correctness, durability, crash recovery
-      - `review-security` — injection, auth, data exposure
-      - `review-performance` — complexity, allocations, contention
-
-      **Five test quality agents:**
-      - `review-test-behavior` — behavior-driven quality, assertion precision
-      - `review-test-completeness` — corner cases, boundary conditions
-      - `review-test-structure` — isolation, independence, readability
-      - `review-test-concurrency` — concurrent behavior testing quality
-      - `review-test-crash-safety` — crash/recovery tests, production asserts
+   a. **Select review agents** based on code characteristics (see
+      [`review-agent-selection.md`](review-agent-selection.md)), then spawn
+      them in parallel (fresh sub-agents each iteration). Baseline agents
+      (4) always run; conditional agents are added based on the step
+      description and changed files.
 
       Each agent receives the same context:
       ```
@@ -134,7 +123,7 @@ completion**, before moving to the next step:
       ## Diff
       {the step's diff}
       ```
-   b. **Synthesize**: After all ten complete, deduplicate findings across
+   b. **Synthesize**: After all selected agents complete, deduplicate findings across
       dimensions and prioritize (blocker > should-fix > suggestion). Merge
       findings that multiple agents flagged for the same code location.
    c. If findings need fixes, fix them, commit fixes (using the
@@ -142,34 +131,52 @@ completion**, before moving to the next step:
       **only the dimension(s) with open findings**.
    d. Repeat until approved OR **max 3 iterations** reached.
    e. If max iterations reached, note remaining findings in the episode.
-5. **Produce the step episode** — a structured record of what happened
-   (see conventions-execution.md §2.2 for format). Write it to the step file
-   under the step item. Mark the step as `[x]`. Update the **Progress**
-   section's `Step implementation` count (e.g., `(3/5 complete)`). If this is
-   the last step, mark `Step implementation` as `[x]`. Commit the episode as
-   a **separate episode commit**.
-6. **Cross-track impact check** — quick self-assessment against the plan:
+5. **Cross-track impact check** — quick self-assessment against the plan:
    - Does this step contradict assumptions in upcoming tracks?
    - Does it affect the Component Map or Decision Records?
    - Does it invalidate remaining track dependencies?
-   Alert the user only if impact is detected (see workflow.md §Cross-Track
-   Impact Monitoring for the full escalation process).
+   If minor impact is detected (recommendation: **Continue**), note the
+   affected tracks and weakened assumptions — these go into the episode's
+   **What was discovered** field in the next sub-step.
+   If **Pause and ADJUST** or **ESCALATE** is needed, alert the user
+   immediately (see workflow.md §Cross-Track Impact Monitoring for the
+   full escalation process).
+6. **Context consumption check** (mandatory, including after the last
+   step). Always run it:
 
-**→ GATE: Step is now complete.**
+   ```bash
+   cat /tmp/claude-code-context-usage-$PPID.txt
+   ```
 
-**Before proceeding to the next step** (skip this check after the last
-step — the session ends anyway), run a context consumption check:
+   - Record the result: `safe`, `info`, `warning`, `critical`.
+   - If the file does not exist or the command fails: this is **not an
+     error** — record `unavailable` and treat as `safe`.
 
-```bash
-cat /tmp/claude-code-context-usage-$PPID.txt
-```
+7. **Produce the step episode** — a structured record of what happened
+   (see conventions-execution.md §2.2 for format). Write it to the step file
+   under the step item. Include any cross-track impact notes from sub-step 5
+   in the **What was discovered** field. **Write the context check sub-item**
+   under the step with the measured level:
 
-If the level is `warning` (≥25%) or `critical` (≥40%): do NOT start the
-next step. Instead, save all work and ask the user for a session refresh
-(see workflow.md §Context Consumption Check).
+   ```markdown
+   - [x] Step: <description>
+     - [x] Context: safe
+     > **What was done:** ...
+   ```
 
-If the file does not exist, the command fails, or the level is `safe` or
-`info`, proceed to the next step.
+   If measurement failed, write `- [x] Context: unavailable`.
+
+   Mark the step as `[x]`. Update the **Progress** section's `Step
+   implementation` count (e.g., `(3/5 complete)`). If this is the last step,
+   mark `Step implementation` as `[x]`. Commit the episode as a **separate
+   episode commit**.
+
+   After the episode commit: if the context level was `warning` or
+   `critical`, do NOT start the next step. Save all work and ask the user
+   for a session refresh (see workflow.md §Context Consumption Check).
+
+**→ GATE: Step is now complete.** Do not begin the next step until all
+seven sub-steps above are done.
 
 ---
 

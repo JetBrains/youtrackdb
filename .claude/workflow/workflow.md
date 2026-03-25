@@ -116,7 +116,7 @@ perspective on cross-track impact.
    | `Review + decomposition` is `[ ]` | Re-run only missing reviews, then decompose |
    | `Review + decomposition` is `[x]`, steps partially complete | Resume from next `[ ]` step (see step-implementation.md §Phase B Resume for orphan commit recovery) |
    | Steps contain `[!]` (failed) entries | Check if a retry `[ ]` step follows — if yes, resume from retry. If no retry step, present failed episode to user |
-   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration |
+   | All steps `[x]`, code review `[ ]` or partial | Run Phase C from current iteration (single-step tracks skip Phase C — see track-code-review.md) |
    | All phases `[x]` | Track completion — compile episode, present to user for approval |
 
    Each resume handles exactly **one phase** — end session after that phase.
@@ -172,7 +172,9 @@ Alert the user immediately with:
 - What assumption is weakened or invalidated
 - What the step discovered that triggered this alert
 - Recommended action:
-  - **Continue** (minor impact — note it, address during that track's review)
+  - **Continue** (minor impact — record in the step episode's **What was
+    discovered** field so strategy refresh and future track reviews can
+    see it; no user notification needed)
   - **Pause and ADJUST** (remaining steps in current track need revision)
   - **ESCALATE** (the discovery fundamentally changes the plan)
 
@@ -341,6 +343,16 @@ propose → review → iterate cycle.
 
 ---
 
+## Track Skip (`[~]`)
+
+Triggered when a Phase A review sub-agent returns a `skip` severity finding
+or the user requests skipping a track at session start / during strategy
+refresh. Requires user confirmation — tracks are never skipped autonomously.
+
+**Full protocol:** [`track-skip.md`](track-skip.md)
+
+---
+
 ## Track Completion Protocol
 
 After track-level code review passes (or max iterations):
@@ -437,3 +449,5 @@ On-demand reference documents (loaded only when their specific situation arises)
 - **`design-document-rules.md`** — design document rules, examples, structure
 - **`design-decision-escalation.md`** — when/how to escalate design decisions to the user
 - **`structural-review.md`** — structural review details (loaded by implementation-review.md)
+- **`track-skip.md`** — full track skip protocol (when `[~]` is triggered)
+- **`review-agent-selection.md`** — characteristic-based review agent selection (loaded by step-implementation.md and track-code-review.md)

@@ -11,6 +11,7 @@ Recorded in the step file under the completed step item:
 
 ```markdown
 - [x] Step: <description>
+  - [x] Context: <safe|info|warning|critical|unavailable>
   > **What was done:** ...
   > **What was discovered:** ... (when applicable)
   > **What changed from the plan:** ... (when applicable)
@@ -49,6 +50,7 @@ after it commits the code changes and completes the code review cycle.
 
 ```markdown
 - [x] Step: Add histogram header to leaf page structure
+  - [x] Context: safe
   > **What was done:** Extended `LeafPage` with 16-byte histogram header.
   > Added serialization/deserialization in `LeafPageSerializer`.
   >
