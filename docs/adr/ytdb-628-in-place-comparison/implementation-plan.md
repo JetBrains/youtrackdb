@@ -262,6 +262,8 @@ flowchart LR
   > path (was FALLBACK-only, now matches source path). 235 tests total.
   >
   > **Step file:** `tracks/track-1.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected.
 
 - [ ] Track 2: SQLBinaryCondition integration
   > Wire the EntityImpl comparison methods into the modern SQL execution
