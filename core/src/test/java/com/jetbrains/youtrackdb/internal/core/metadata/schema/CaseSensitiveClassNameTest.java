@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import java.util.Collections;
 import java.util.Set;
 import org.junit.Test;
 
@@ -315,7 +314,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   /**
    * Verifies that an index created on a class is retrievable by its exact
    * original-case name through the immutable schema snapshot, and that a
-   * different-case lookup does not find it.
+   * different-case lookup does not find it. Also verifies that the
+   * IndexDefinition record preserves the original-case class name.
    */
   @Test
   public void testIndexLookupByExactCaseName() {
@@ -337,6 +337,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     var def = immutableSchema.getIndexDefinition("IdxLookup.nameIdx");
     assertNotNull("Index definition should be retrievable", def);
     assertEquals("IdxLookup.nameIdx", def.name());
+    assertEquals("className in IndexDefinition must match original case",
+        "IdxLookup", def.className());
   }
 
   /**
@@ -355,15 +357,17 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     var indexManager = session.getSharedContext().getIndexManager();
 
-    // Exact-case class name should find the index
+    // Exact-case class name should find exactly one index
     Set<Index> indexes = indexManager.getClassInvolvedIndexes(
-        session, "PropLookup", Collections.singletonList("value"));
-    assertFalse("Exact-case className should find involved indexes",
-        indexes.isEmpty());
+        session, "PropLookup", "value");
+    assertEquals("Exact-case lookup should return exactly one index",
+        1, indexes.size());
+    assertEquals("PropLookup.valueIdx",
+        indexes.iterator().next().getName());
 
     // Different-case class name should not find the index
     Set<Index> wrongCase = indexManager.getClassInvolvedIndexes(
-        session, "proplookup", Collections.singletonList("value"));
+        session, "proplookup", "value");
     assertTrue("Different-case className should not find involved indexes",
         wrongCase.isEmpty());
   }
@@ -371,7 +375,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   /**
    * Verifies that index removal works correctly with case-sensitive class
    * names: after dropping an index, the classPropertyIndex entry is properly
-   * cleaned up and the index is no longer found.
+   * cleaned up and the index is no longer found via any lookup path.
    */
   @Test
   public void testIndexRemovalWithCaseSensitiveClassName() {
@@ -385,26 +389,33 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     // Verify index exists before removal
     Set<Index> before = indexManager.getClassInvolvedIndexes(
-        session, "RemoveIdx", Collections.singletonList("field"));
-    assertFalse("Index should exist before removal", before.isEmpty());
+        session, "RemoveIdx", "field");
+    assertEquals("Exactly one index should exist before removal",
+        1, before.size());
+    assertEquals("RemoveIdx.fieldIdx", before.iterator().next().getName());
 
     // Drop the index
     indexManager.dropIndex(session, "RemoveIdx.fieldIdx");
 
     // Verify index is gone from classPropertyIndex
     Set<Index> after = indexManager.getClassInvolvedIndexes(
-        session, "RemoveIdx", Collections.singletonList("field"));
+        session, "RemoveIdx", "field");
     assertTrue("Index should be gone after removal", after.isEmpty());
 
-    // Verify through immutable schema too
+    // Verify through immutable schema
     var snap = session.getMetadata().getImmutableSchemaSnapshot();
     assertFalse("Index should not exist in snapshot after removal",
         snap.indexExists("RemoveIdx.fieldIdx"));
+
+    // Verify getClassIndex also returns null after removal
+    assertNull("getClassIndex should return null after index removal",
+        indexManager.getClassIndex(session, "RemoveIdx", "RemoveIdx.fieldIdx"));
   }
 
   /**
    * Verifies that getClassIndex uses exact-case class name matching.
    * Looking up an index with the wrong-case class name should return null.
+   * Also verifies the returned index identity for the exact-case lookup.
    */
   @Test
   public void testGetClassIndexIsCaseSensitive() {
@@ -419,11 +430,128 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     // Exact-case class name should find the index
     var idx = indexManager.getClassIndex(session, "ClassIdx", "ClassIdx.dataIdx");
     assertNotNull("Exact-case getClassIndex should find the index", idx);
+    assertEquals("ClassIdx.dataIdx", idx.getName());
+    assertEquals("ClassIdx", idx.getDefinition().getClassName());
 
     // Different-case class name should not find the index
     var wrongCaseIdx = indexManager.getClassIndex(
         session, "classidx", "ClassIdx.dataIdx");
     assertNull("Different-case getClassIndex should not find the index",
         wrongCaseIdx);
+  }
+
+  /**
+   * Verifies that areIndexed() uses exact-case class name matching.
+   * The query planner uses this to decide index scan eligibility — a
+   * false positive for wrong-case names would silently select wrong indexes.
+   */
+  @Test
+  public void testAreIndexedIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("AreIdxClass");
+    cls.createProperty("score", PropertyType.INTEGER);
+    cls.createIndex("AreIdxClass.scoreIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "score");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    assertTrue("Exact-case areIndexed should return true",
+        indexManager.areIndexed(session, "AreIdxClass", "score"));
+    assertFalse("Different-case areIndexed should return false",
+        indexManager.areIndexed(session, "areidxclass", "score"));
+  }
+
+  /**
+   * Verifies that getClassIndexes() uses exact-case class name matching.
+   * Wrong-case class name should return an empty set.
+   */
+  @Test
+  public void testGetClassIndexesIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ClsIdxTest");
+    cls.createProperty("field", PropertyType.STRING);
+    cls.createIndex("ClsIdxTest.fieldIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "field");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    Set<Index> exact = indexManager.getClassIndexes(session, "ClsIdxTest");
+    assertEquals("Exact-case getClassIndexes should return one index",
+        1, exact.size());
+
+    Set<Index> wrongCase = indexManager.getClassIndexes(session, "clsidxtest");
+    assertTrue("Different-case getClassIndexes should return empty set",
+        wrongCase.isEmpty());
+  }
+
+  /**
+   * Verifies that a composite (multi-property) index is correctly stored
+   * and retrieved using exact-case class names. The addIndexInternalNoLock
+   * loop builds one MultiKey per property prefix — all must be retrievable
+   * with the exact-case class name and not with wrong case.
+   */
+  @Test
+  public void testCompositeIndexLookupIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("CompositeIdx");
+    cls.createProperty("first", PropertyType.STRING);
+    cls.createProperty("last", PropertyType.STRING);
+    cls.createIndex(
+        "CompositeIdx.firstLastIdx",
+        SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "first", "last");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // Full key lookup — exact class name
+    Set<Index> fullKey = indexManager.getClassInvolvedIndexes(
+        session, "CompositeIdx", "first", "last");
+    assertFalse("Full composite key, exact class name: should find index",
+        fullKey.isEmpty());
+
+    // Prefix lookup — exact class name
+    Set<Index> prefix = indexManager.getClassInvolvedIndexes(
+        session, "CompositeIdx", "first");
+    assertFalse("Prefix key, exact class name: should find index",
+        prefix.isEmpty());
+
+    // Wrong-case class name — must find nothing for both lookups
+    assertTrue("Full composite key, wrong-case class name: should be empty",
+        indexManager.getClassInvolvedIndexes(
+            session, "compositeidx", "first", "last").isEmpty());
+    assertTrue("Prefix key, wrong-case class name: should be empty",
+        indexManager.getClassInvolvedIndexes(
+            session, "compositeidx", "first").isEmpty());
+  }
+
+  /**
+   * Two classes with the same letters but different case can each hold their
+   * own index without collision in classPropertyIndex. Before the fix, both
+   * class names lowercased to the same key, causing one to silently overwrite
+   * the other.
+   */
+  @Test
+  public void testIndexesOfCaseVariantClassesDontCollide() {
+    Schema schema = session.getMetadata().getSchema();
+    var upper = schema.createClass("Widget");
+    upper.createProperty("name", PropertyType.STRING);
+    upper.createIndex("Widget.nameIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var lower = schema.createClass("widget");
+    lower.createProperty("name", PropertyType.STRING);
+    lower.createIndex("widget.nameIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    Set<Index> forUpper = indexManager.getClassInvolvedIndexes(
+        session, "Widget", "name");
+    Set<Index> forLower = indexManager.getClassInvolvedIndexes(
+        session, "widget", "name");
+
+    assertEquals("'Widget' should have exactly one involved index",
+        1, forUpper.size());
+    assertEquals("'widget' should have exactly one involved index",
+        1, forLower.size());
+
+    assertEquals("Widget.nameIdx", forUpper.iterator().next().getName());
+    assertEquals("widget.nameIdx", forLower.iterator().next().getName());
   }
 }
