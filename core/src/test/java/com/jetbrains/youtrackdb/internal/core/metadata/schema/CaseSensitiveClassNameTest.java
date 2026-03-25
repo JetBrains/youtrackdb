@@ -7,7 +7,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Collections;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -303,5 +308,122 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     String collectionName = session.getCollectionNameById(ids[0]);
     assertTrue("Collection name should start with lowercase class name",
         collectionName.startsWith("mixedcase_"));
+  }
+
+  // --- Index case-sensitivity tests (Track 2) ---
+
+  /**
+   * Verifies that an index created on a class is retrievable by its exact
+   * original-case name through the immutable schema snapshot, and that a
+   * different-case lookup does not find it.
+   */
+  @Test
+  public void testIndexLookupByExactCaseName() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls = schema.createClass("IdxLookup");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex("IdxLookup.nameIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+
+    assertTrue("Exact-case index name should exist",
+        immutableSchema.indexExists("IdxLookup.nameIdx"));
+    assertFalse("Different-case index name should not exist",
+        immutableSchema.indexExists("idxlookup.nameidx"));
+    assertFalse("Different-case index name should not exist",
+        immutableSchema.indexExists("IDXLOOKUP.NAMEIDX"));
+
+    var def = immutableSchema.getIndexDefinition("IdxLookup.nameIdx");
+    assertNotNull("Index definition should be retrievable", def);
+    assertEquals("IdxLookup.nameIdx", def.name());
+  }
+
+  /**
+   * Verifies that the classPropertyIndex lookup in IndexManager works with
+   * the exact original-case class name. After creating an index on "PropLookup",
+   * querying involved indexes for "PropLookup" should return the index, but
+   * querying for "proplookup" should not.
+   */
+  @Test
+  public void testClassPropertyIndexLookupIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls = schema.createClass("PropLookup");
+    cls.createProperty("value", PropertyType.INTEGER);
+    cls.createIndex("PropLookup.valueIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // Exact-case class name should find the index
+    Set<Index> indexes = indexManager.getClassInvolvedIndexes(
+        session, "PropLookup", Collections.singletonList("value"));
+    assertFalse("Exact-case className should find involved indexes",
+        indexes.isEmpty());
+
+    // Different-case class name should not find the index
+    Set<Index> wrongCase = indexManager.getClassInvolvedIndexes(
+        session, "proplookup", Collections.singletonList("value"));
+    assertTrue("Different-case className should not find involved indexes",
+        wrongCase.isEmpty());
+  }
+
+  /**
+   * Verifies that index removal works correctly with case-sensitive class
+   * names: after dropping an index, the classPropertyIndex entry is properly
+   * cleaned up and the index is no longer found.
+   */
+  @Test
+  public void testIndexRemovalWithCaseSensitiveClassName() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls = schema.createClass("RemoveIdx");
+    cls.createProperty("field", PropertyType.STRING);
+    cls.createIndex("RemoveIdx.fieldIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "field");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // Verify index exists before removal
+    Set<Index> before = indexManager.getClassInvolvedIndexes(
+        session, "RemoveIdx", Collections.singletonList("field"));
+    assertFalse("Index should exist before removal", before.isEmpty());
+
+    // Drop the index
+    indexManager.dropIndex(session, "RemoveIdx.fieldIdx");
+
+    // Verify index is gone from classPropertyIndex
+    Set<Index> after = indexManager.getClassInvolvedIndexes(
+        session, "RemoveIdx", Collections.singletonList("field"));
+    assertTrue("Index should be gone after removal", after.isEmpty());
+
+    // Verify through immutable schema too
+    var snap = session.getMetadata().getImmutableSchemaSnapshot();
+    assertFalse("Index should not exist in snapshot after removal",
+        snap.indexExists("RemoveIdx.fieldIdx"));
+  }
+
+  /**
+   * Verifies that getClassIndex uses exact-case class name matching.
+   * Looking up an index with the wrong-case class name should return null.
+   */
+  @Test
+  public void testGetClassIndexIsCaseSensitive() {
+    Schema schema = session.getMetadata().getSchema();
+
+    var cls = schema.createClass("ClassIdx");
+    cls.createProperty("data", PropertyType.STRING);
+    cls.createIndex("ClassIdx.dataIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "data");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // Exact-case class name should find the index
+    var idx = indexManager.getClassIndex(session, "ClassIdx", "ClassIdx.dataIdx");
+    assertNotNull("Exact-case getClassIndex should find the index", idx);
+
+    // Different-case class name should not find the index
+    var wrongCaseIdx = indexManager.getClassIndex(
+        session, "classidx", "ClassIdx.dataIdx");
+    assertNull("Different-case getClassIndex should not find the index",
+        wrongCaseIdx);
   }
 }

@@ -37,7 +37,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -108,7 +107,7 @@ public class ImmutableSchema implements SchemaInternal {
         //do nothing
       }
 
-      indexes.put(indexName.toLowerCase(Locale.ROOT),
+      indexes.put(indexName,
           new IndexDefinition(indexName, indexDefinition.getClassName(),
               Collections.unmodifiableList(indexDefinition.getProperties()),
               SchemaClass.INDEX_TYPE.valueOf(index.getType()),
@@ -238,12 +237,12 @@ public class ImmutableSchema implements SchemaInternal {
 
   @Override
   public boolean indexExists(String indexName) {
-    return indexes.containsKey(indexName.toLowerCase(Locale.ROOT));
+    return indexes.containsKey(indexName);
   }
 
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
-    var indexDefinition = indexes.get(indexName.toLowerCase(Locale.ROOT));
+    var indexDefinition = indexes.get(indexName);
     if (indexDefinition == null) {
       throw new IllegalArgumentException("Index '" + indexName + "' not found");
     }
