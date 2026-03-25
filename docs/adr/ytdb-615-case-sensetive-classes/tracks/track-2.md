@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/2 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -30,15 +30,17 @@
   > (modified), IndexManagerEmbedded.java (modified),
   > CaseSensitiveClassNameTest.java (modified)
 
-- [ ] Step 2: Switch equalsIgnoreCase → equals in index-layer security and import code
-  Change remaining `equalsIgnoreCase()` calls to `equals()`:
-  - **Index.java**: `isLabelSecurityDefined()` (line 378) — security filter
-    className comparison.
-  - **IndexManagerEmbedded.java**: `checkSecurityConstraintsForIndexCreate()`
-    (line 423) — security filter className comparison.
-  - **DatabaseImport.java**: line 1386 — index name comparison with
-    `EXPORT_IMPORT_INDEX_NAME` constant.
-  - Add test verifying security-filtered index property check uses exact-case
-    class name matching.
-  Files: `Index.java`, `IndexManagerEmbedded.java`, `DatabaseImport.java`,
-  test file(s)
+- [x] Step 2: Switch equalsIgnoreCase → equals in index-layer security and import code
+  - [x] Context: info
+  > **What was done:** Changed 3 `equalsIgnoreCase()` calls to `equals()`:
+  > Index.isLabelSecurityDefined() className filter,
+  > IndexManagerEmbedded.checkSecurityConstraintsForIndexCreate() className
+  > filter, and DatabaseImport.importIndexes() index name comparison with
+  > EXPORT_IMPORT_INDEX_NAME constant.
+  > **What was discovered:** Code review found that
+  > SecurityResourceProperty.getClassName() returns null when allClasses is
+  > true (wildcard policy like database.class.*.<prop>). Both the old
+  > equalsIgnoreCase and new equals calls had a latent NPE on this path.
+  > Fixed by adding isAllClasses() guard and reversing the equals receiver.
+  > **Key files:** Index.java (modified), IndexManagerEmbedded.java
+  > (modified), DatabaseImport.java (modified)
