@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -61,24 +61,21 @@ Key decisions from reviews that affect step implementation:
   >
   > **Key files:** `ConcurrentLongIntHashMapConcurrentTest.java` (new)
 
-- [ ] Step 2: Map-level removeByFileId concurrent test
-  > **Scope**: Add test methods to `ConcurrentLongIntHashMapConcurrentTest.java`:
+- [x] Step 2: Map-level removeByFileId concurrent test
+  > **What was done:** Added three removeByFileId concurrent test methods: (1)
+  > removeByFileId on target file with 4 concurrent workers on other files — validates
+  > isolation and counts remaining entries; (2) removeByFileId + concurrent put + readers
+  > on same file with single section for max contention — validates return values and
+  > reader correctness during removal; (3) 8 threads each removing their own file
+  > simultaneously — validates returned list size and map emptiness.
   >
-  > 1. **removeByFileId + concurrent get/put on different files**: One thread calls
-  >    `removeByFileId(targetFileId)` while other threads read/write entries for different
-  >    file IDs. Verify: all target-file entries removed, all other-file entries unaffected,
-  >    no exceptions.
+  > **What was discovered:** Review identified that without concurrent readers in the
+  > same-file test, the optimistic-read fallback during removeByFileId's rehash was
+  > never exercised. Added reader threads and switched to single section. Also
+  > strengthened assertions: validate removeByFileId return values (all must belong to
+  > correct file), count remaining other-file entries, assert exact returned list size.
   >
-  > 2. **removeByFileId + concurrent put on same file**: One thread calls
-  >    `removeByFileId(fileId)` while another thread inserts entries for the same file.
-  >    After both complete, verify map contains only entries inserted after removeByFileId
-  >    (or is empty if removeByFileId ran last). Use barriers for controlled interleaving.
-  >
-  > 3. **Multiple concurrent removeByFileId for different files**: Several threads each
-  >    call `removeByFileId` for their own file ID simultaneously. Verify each file's
-  >    entries are fully removed and no cross-file interference.
-  >
-  > **Key files**: `ConcurrentLongIntHashMapConcurrentTest.java` (modified)
+  > **Key files:** `ConcurrentLongIntHashMapConcurrentTest.java` (modified)
 
 - [ ] Step 3: Integrated LockFreeReadCache concurrent stress test
   > **Scope**: Create `LockFreeReadCacheConcurrentTestIT.java` in
