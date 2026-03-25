@@ -141,16 +141,26 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
 
     // Replace the SubQueryStep (which would re-execute the shared inner subquery)
     // with a ListSourceStep that streams from the already-materialized results.
-    // Guard: only replace if the plan structure matches expectations.
+    //
+    // Guard: only replace if the plan structure allows safe substitution.
+    // The planner may push the outer WHERE filter down into the SubQueryStep's
+    // inner ExpandStep (tryPushDownFilterIntoExpand). When this happens, the
+    // outer FilterStep is removed and the filter lives inside the inner plan.
+    // Replacing SubQueryStep with ListSourceStep would lose that pushed-down
+    // filter, producing wrong results. Detect this by checking whether a
+    // FilterStep follows the SubQueryStep — if not, the filter was pushed
+    // down and we must fall back to independent execution.
     if (outerPlan instanceof SelectExecutionPlan selectPlan
         && !selectPlan.getSteps().isEmpty()
-        && selectPlan.getSteps().getFirst() instanceof SubQueryStep) {
+        && selectPlan.getSteps().getFirst() instanceof SubQueryStep
+        && hasFilterAfterSubQuery(selectPlan)) {
       var listSource = new ListSourceStep(
           materializedBase, subCtx, profilingEnabled);
       selectPlan.replaceFirstStep(listSource);
     }
-    // If the plan structure doesn't match (e.g. no SubQueryStep as first step),
-    // the full query executes normally without materialization — correct but slower.
+    // If the plan structure doesn't match or the filter was pushed down,
+    // the full query executes normally without materialization — correct
+    // but slower.
 
     result.setMetadata(entry.varName.getStringValue(),
         toList(new LocalResultSet(session, outerPlan)));
@@ -172,6 +182,17 @@ public class MaterializedLetGroupStep extends AbstractExecutionStep {
       result.setMetadata(entry.varName.getStringValue(),
           toList(new LocalResultSet(session, plan)));
     }
+  }
+
+  /**
+   * Returns {@code true} if the plan has a FilterStep immediately after the
+   * SubQueryStep. When the planner pushes the outer WHERE into the inner
+   * ExpandStep, it removes the outer FilterStep — in that case, replacing
+   * SubQueryStep with ListSourceStep would lose the filter.
+   */
+  private static boolean hasFilterAfterSubQuery(SelectExecutionPlan plan) {
+    var steps = plan.getSteps();
+    return steps.size() >= 2 && steps.get(1) instanceof FilterStep;
   }
 
   /**
