@@ -185,7 +185,7 @@ parallel. After all complete, findings are deduplicated, severity-assigned
 Max 3 iterations per level.
 
 - **Step-level:** see `step-implementation.md` §Per-Step Workflow (sub-step 4)
-- **Track-level:** see `track-code-review.md`
+- **Track-level:** see `track-code-review.md` (includes track completion)
 
 ---
 
