@@ -258,11 +258,22 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   >   `equalsIgnoreCase` for class name comparison — change to `equals`.
   > - Additional tests discovered during execution that break due to
   >   case-mismatch lookups.
+  > - **Deferred from Track 2 code review (TC2):** Add tests for
+  >   `isAllClasses()` guard in `Index.isLabelSecurityDefined` and
+  >   `IndexManagerEmbedded.checkSecurityConstraintsForIndexCreate` — verify
+  >   wildcard column-security rules work with the new `equals()` filter.
+  > - **Deferred from Track 2 code review (TC3):** Add test for
+  >   `DatabaseImport.importIndexes()` `equals` check on
+  >   `EXPORT_IMPORT_INDEX_NAME`.
+  > - **Deferred from Track 2 code review (TC4):** Add index name
+  >   preservation test across session reload (create → persist → reload →
+  >   case-sensitive lookup).
   >
   > **Depends on:** Track 1, Track 2
   >
   > **Scope:** ~3-5 steps covering known test fixes, discovery of additional
-  > broken tests via test run, and fixing remaining failures
+  > broken tests via test run, fixing remaining failures, and deferred test
+  > scenarios from Track 2 code review
 
 ## Final Design Document
 - [ ] Phase 4: Final design document (`design-final.md`)
