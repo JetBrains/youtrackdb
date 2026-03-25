@@ -290,7 +290,8 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       if (!field.getValue().exists()) {
         continue;
       }
-      serializePropertyEntry(session, bytes, field, props, oClass, schema, encryption, tempBuffer);
+      serializePropertyEntry(session, bytes, field, props, oClass, schema, encryption, tempBuffer,
+          null);
     }
   }
 
@@ -355,7 +356,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
       propertyKvOffsets[i] = entryOffset;
       serializePropertyEntry(session, bytes, orderedFields[i], props, oClass, schema, encryption,
-          tempBuffer);
+          tempBuffer, nameBytes[i]);
     }
 
     // Backpatch slot offsets using slotPropertyIndex mapping
@@ -374,10 +375,15 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   /**
    * Serializes a single property entry: [name-encoding][type byte][value-size varint][value-bytes].
    */
+  /**
+   * @param preEncodedName pre-computed UTF-8 bytes for the field name (from hash table
+   *     construction), or null if not available (linear mode). When non-null and the property
+   *     is schema-less, the name bytes are written directly, avoiding a second getBytes(UTF_8).
+   */
   private void serializePropertyEntry(DatabaseSessionEmbedded session, BytesContainer bytes,
       Entry<String, EntityEntry> field, Map<String, SchemaProperty> props,
       SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
-      BytesContainer tempBuffer) {
+      BytesContainer tempBuffer, @Nullable byte[] preEncodedName) {
     var docEntry = field.getValue();
 
     // Resolve schema property if needed
@@ -391,7 +397,14 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
 
     // Write name-encoding
     if (docEntry.property == null) {
-      writeString(bytes, field.getKey());
+      if (preEncodedName != null) {
+        // Reuse pre-computed UTF-8 bytes from hash table construction (avoids double encoding)
+        VarIntSerializer.write(bytes, preEncodedName.length);
+        int start = bytes.alloc(preEncodedName.length);
+        System.arraycopy(preEncodedName, 0, bytes.bytes, start, preEncodedName.length);
+      } else {
+        writeString(bytes, field.getKey());
+      }
     } else {
       VarIntSerializer.write(bytes, (docEntry.property.getId() + 1) * -1);
     }
