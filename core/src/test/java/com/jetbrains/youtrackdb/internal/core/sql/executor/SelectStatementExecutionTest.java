@@ -8606,13 +8606,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8665,13 +8665,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8710,13 +8710,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8770,13 +8770,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8814,13 +8814,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8858,13 +8858,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
@@ -8909,13 +8909,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
       Vertex v1 = null;
       Vertex v2 = null;
 
-      StatefulEdge edge = null;
+      Edge edge = null;
 
       for (var i = 0; i < 10; i++) {
         v1 = transaction.newVertex(vertexClass);
         v2 = transaction.newVertex(vertexClass);
 
-        edge = v1.addStateFulEdge(v2, edgeClass);
+        edge = v1.addEdge(v2, edgeClass);
       }
 
       return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
