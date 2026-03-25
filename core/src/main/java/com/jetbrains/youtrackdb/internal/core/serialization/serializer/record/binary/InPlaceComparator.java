@@ -55,6 +55,7 @@ public final class InPlaceComparator {
   }
 
   private static final long MILLISEC_PER_DAY = HelperClasses.MILLISEC_PER_DAY;
+  private static final TimeZone GMT = TimeZone.getTimeZone("GMT");
 
   /**
    * Compares a serialized field value against a Java object. For DATE fields, use the overload
@@ -91,7 +92,7 @@ public final class InPlaceComparator {
       case DATE -> compareDate(field.bytes, value, dbTimeZone);
       case DECIMAL -> compareDecimal(field.bytes, value);
       case BINARY -> compareBinary(field.bytes, value);
-      case LINK -> OptionalInt.empty(); // ordering not defined for LINKs
+      case LINK -> OptionalInt.empty(); // ordering not supported; use isEqual() for equality
       default -> OptionalInt.empty();
     };
   }
@@ -300,9 +301,7 @@ public final class InPlaceComparator {
       return OptionalInt.empty();
     }
     var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
-    savedTime =
-        HelperClasses.convertDayToTimezone(
-            TimeZone.getTimeZone("GMT"), dbTimeZone, savedTime);
+    savedTime = HelperClasses.convertDayToTimezone(GMT, dbTimeZone, savedTime);
     return OptionalInt.of(Long.compare(savedTime, valueMillis));
   }
 
@@ -324,6 +323,7 @@ public final class InPlaceComparator {
       return OptionalInt.empty();
     }
     var serialized = DecimalSerializer.staticDeserialize(bytes.bytes, bytes.offset);
+    bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
     return OptionalInt.of(serialized.compareTo(decimalValue));
   }
 

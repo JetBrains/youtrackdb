@@ -24,6 +24,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
@@ -550,5 +552,149 @@ public class InPlaceComparatorNonNumericTest {
     var result =
         InPlaceComparator.isEqual(decimalField(new BigDecimal("1.0")), new BigDecimal("1"));
     assertEquals(OptionalInt.of(1), result);
+  }
+
+  // ===========================================================================
+  // Review fix: non-GMT DATE timezone tests
+  // ===========================================================================
+
+  /** DATE with non-GMT timezone — timezone offset is applied to the serialized day value. */
+  @Test
+  public void testDateWithNonGmtTimezone() {
+    var eastern = TimeZone.getTimeZone("US/Eastern");
+    long days = 1;
+    // Convert using the same helper the production code uses
+    long convertedMillis =
+        HelperClasses.convertDayToTimezone(
+            TimeZone.getTimeZone("GMT"), eastern, days * 86400000L);
+    var result = InPlaceComparator.compare(dateField(days), new Date(convertedMillis), eastern);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DATE with positive-offset timezone (Asia/Tokyo = UTC+9). */
+  @Test
+  public void testDateWithPositiveOffsetTimezone() {
+    var tokyo = TimeZone.getTimeZone("Asia/Tokyo");
+    long days = 0;
+    long convertedMillis =
+        HelperClasses.convertDayToTimezone(TimeZone.getTimeZone("GMT"), tokyo, 0L);
+    var result = InPlaceComparator.compare(dateField(days), new Date(convertedMillis), tokyo);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DATE epoch day 0 with GMT — should equal Date(0). */
+  @Test
+  public void testDateEpochDayZeroGmt() {
+    var gmtTz = TimeZone.getTimeZone("GMT");
+    var result = InPlaceComparator.compare(dateField(0), new Date(0L), gmtTz);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  // ===========================================================================
+  // Review fix: LINK Identifiable path + boundary values
+  // ===========================================================================
+
+  /** LINK isEqual with Identifiable (non-RID) value — exercises the Identifiable branch. */
+  @Test
+  public void testLinkIsEqualWithIdentifiable() {
+    Identifiable identifiable = new Identifiable() {
+      @Override
+      public RID getIdentity() {
+        return new RecordId(5, 10L);
+      }
+
+      @Override
+      public int compareTo(Identifiable o) {
+        return getIdentity().compareTo(o.getIdentity());
+      }
+    };
+    var result = InPlaceComparator.isEqual(linkField(5, 10L), identifiable);
+    assertEquals(OptionalInt.of(1), result);
+  }
+
+  /** LINK isEqual with non-matching Identifiable. */
+  @Test
+  public void testLinkIsEqualWithIdentifiableNotEqual() {
+    Identifiable identifiable = new Identifiable() {
+      @Override
+      public RID getIdentity() {
+        return new RecordId(99, 99L);
+      }
+
+      @Override
+      public int compareTo(Identifiable o) {
+        return getIdentity().compareTo(o.getIdentity());
+      }
+    };
+    var result = InPlaceComparator.isEqual(linkField(5, 10L), identifiable);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** LINK isEqual with cluster 0, position 0. */
+  @Test
+  public void testLinkIsEqualZeroRid() {
+    var result = InPlaceComparator.isEqual(linkField(0, 0L), new RecordId(0, 0L));
+    assertEquals(OptionalInt.of(1), result);
+  }
+
+  // ===========================================================================
+  // Review fix: DECIMAL with Float, additional fallback tests
+  // ===========================================================================
+
+  /** DECIMAL with Float value — converts via BigDecimal.valueOf(doubleValue()). */
+  @Test
+  public void testDecimalWithFloat() {
+    // 42.5f converts exactly to double, so this should match
+    var result = InPlaceComparator.compare(decimalField(new BigDecimal("42.5")), 42.5f);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DECIMAL with Float that has representation noise (0.1f != 0.1d). */
+  @Test
+  public void testDecimalWithFloatRepresentationDifference() {
+    // 0.1f widens to ~0.10000000149011612d, not 0.1d
+    var result = InPlaceComparator.compare(decimalField(new BigDecimal("0.1")), 0.1f);
+    assertTrue(result.isPresent());
+    // Should NOT be equal due to float representation noise
+    assertTrue(result.getAsInt() != 0);
+  }
+
+  /** EMBEDDEDSET type returns empty. */
+  @Test
+  public void testEmbeddedSetFallback() {
+    var field = new BinaryField(
+        "test", PropertyTypeInternal.EMBEDDEDSET, new BytesContainer(new byte[4], 0), null);
+    assertTrue(InPlaceComparator.compare(field, "value").isEmpty());
+  }
+
+  /** LINKMAP type returns empty. */
+  @Test
+  public void testLinkMapFallback() {
+    var field = new BinaryField(
+        "test", PropertyTypeInternal.LINKMAP, new BytesContainer(new byte[4], 0), null);
+    assertTrue(InPlaceComparator.compare(field, "value").isEmpty());
+  }
+
+  /** LINKBAG type returns empty. */
+  @Test
+  public void testLinkBagFallback() {
+    var field = new BinaryField(
+        "test", PropertyTypeInternal.LINKBAG, new BytesContainer(new byte[4], 0), null);
+    assertTrue(InPlaceComparator.compare(field, "value").isEmpty());
+  }
+
+  /** DATETIME with negative millis — pre-epoch date. */
+  @Test
+  public void testDatetimeNegativeMillis() {
+    long millis = -86400000L; // 1969-12-31
+    var result = InPlaceComparator.compare(datetimeField(millis), new Date(millis));
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** DATETIME with Integer value (small millis within int range). */
+  @Test
+  public void testDatetimeWithInteger() {
+    var result = InPlaceComparator.compare(datetimeField(5000L), 5000);
+    assertEquals(OptionalInt.of(0), result);
   }
 }
