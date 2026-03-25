@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashSet;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -19,18 +18,27 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Crash-recovery durability test for tombstone GC in
+ * Durability test for tombstone GC in
  * {@link com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree}.
  *
- * <p>Verifies that after a simulated crash (via {@code forceDatabaseClose}
- * without prior session close), WAL recovery restores the B-tree to a
- * consistent state: surviving edges are traversable, deleted edges do not
- * reappear (no ghost resurrection), and no exceptions occur during traversal.
+ * <p>Verifies that after a non-graceful shutdown (via {@code forceDatabaseClose}
+ * without prior session close), the database reopens with consistent state:
+ * surviving edges are traversable, deleted edges do not reappear (no ghost
+ * resurrection), and no exceptions occur during traversal.
+ *
+ * <p><b>Note on crash fidelity:</b> {@code forceDatabaseClose} performs a
+ * storage-level shutdown that flushes WAL and dirty pages before closing.
+ * This means it tests durability across a non-graceful close (no explicit
+ * session close), not true mid-operation crash recovery. True WAL replay
+ * testing would require preventing the flush — e.g., by copying data files
+ * before operations and replaying WAL against the stale copy. The current
+ * test still provides value by verifying that GC-modified B-tree state
+ * survives the close/reopen cycle without corruption.
  *
  * <p>The test forces BTree-backed link bag storage (threshold = -1) so that
  * even a small number of edges goes through SharedLinkBagBTree. It creates
  * enough edges to trigger bucket overflows and GC during the insert/delete
- * cycle before crashing.
+ * cycle.
  *
  * <p>Does NOT extend {@link DbTestBase} because we need explicit control
  * over the database lifecycle (close, reopen, forceDatabaseClose).
@@ -78,8 +86,9 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
   }
 
   /**
-   * Simulates a crash after tombstone GC has occurred, then verifies that
-   * WAL recovery restores the B-tree correctly.
+   * Force-closes the database after tombstone GC has occurred (committed
+   * cross-tx deletions + new inserts that trigger GC), then reopens and
+   * verifies the B-tree state is consistent.
    *
    * <p>The test flow:
    * <ol>
@@ -87,18 +96,18 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
    *   <li>Delete DELETE_COUNT edges in a new tx (creates cross-tx tombstones),
    *       then insert INSERT_AFTER_DELETE_COUNT new edges (triggers GC on
    *       tombstones during bucket overflow). Commit tx2.</li>
-   *   <li>Force-close the database without session close (simulates crash)</li>
+   *   <li>Force-close the database without session close</li>
    *   <li>Reopen and verify: surviving + new edges are traversable, deleted
    *       edges don't reappear, total count is correct</li>
    * </ol>
    */
   @Test
-  public void crashAfterTombstoneGC_recoveryPreservesEdges() {
-    var dbName = "crashGCRecovery";
+  public void forceClose_afterTombstoneGC_preservesEdges() {
+    var dbName = "forceCloseGCRecovery";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
     // Phase 1: Create hub with many edges and commit.
-    var edgeTargetNames = new ArrayList<String>();
+    var edgeTargetNames = new HashSet<String>();
     RID hubRid;
 
     var session = ytdb.open(dbName, ADMIN, ADMIN_PWD);
@@ -120,7 +129,7 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
     var tx2 = session.begin();
     Vertex hubV = tx2.load(hubRid);
 
-    // Collect edge RIDs to delete (first DELETE_COUNT edges)
+    // Delete first DELETE_COUNT edges and record their target names
     var deletedNames = new HashSet<String>();
     var edgesIter = hubV.getEdges(Direction.OUT).iterator();
     int deletedSoFar = 0;
@@ -148,48 +157,46 @@ public class SharedLinkBagBTreeTombstoneGCDurabilityTest {
     }
     tx2.commit();
 
-    // Phase 3: Force-close without session close — simulates crash.
-    // Do NOT call session.close() first, as that triggers graceful flush.
+    // Phase 3: Force-close without session close.
+    // Note: forceDatabaseClose still flushes WAL + dirty pages, so this
+    // tests durability across non-graceful close, not true crash recovery.
     session.activateOnCurrentThread();
     ytdb.internal.forceDatabaseClose(dbName);
 
-    // Phase 4: Reopen — WAL recovery runs automatically.
+    // Phase 4: Reopen and verify edge state.
     var recoveredSession = ytdb.open(dbName, ADMIN, ADMIN_PWD);
-    var txVerify = recoveredSession.begin();
-    Vertex recoveredHub = txVerify.load(hubRid);
+    try {
+      var txVerify = recoveredSession.begin();
+      Vertex recoveredHub = txVerify.load(hubRid);
 
-    // Collect all edge target names after recovery
-    var survivingNames = new HashSet<String>();
-    for (var edge : recoveredHub.getEdges(Direction.OUT)) {
-      var targetName =
-          ((Vertex) edge.getVertex(Direction.IN)).getProperty("name").toString();
-      survivingNames.add(targetName);
+      // Collect all edge target names after recovery
+      var survivingNames = new HashSet<String>();
+      for (var edge : recoveredHub.getEdges(Direction.OUT)) {
+        var targetName =
+            ((Vertex) edge.getVertex(Direction.IN)).getProperty("name").toString();
+        survivingNames.add(targetName);
+      }
+
+      // Build the full expected set: original survivors + new edges
+      var expectedNames = new HashSet<>(edgeTargetNames);
+      expectedNames.removeAll(deletedNames);
+      expectedNames.addAll(newNames);
+
+      // Exact-match assertion: catches ghosts, missing edges, and count
+      // mismatches in one shot with a clear diff in the failure message.
+      assertThat(survivingNames)
+          .as("Recovered edges must exactly match expected survivors + new edges")
+          .containsExactlyInAnyOrderElementsOf(expectedNames);
+
+      // Separate ghost-resurrection check for diagnostic clarity —
+      // if it fails, the developer immediately knows the issue.
+      assertThat(survivingNames)
+          .as("Deleted edges must not reappear after recovery (ghost resurrection)")
+          .doesNotContainAnyElementsOf(deletedNames);
+
+      txVerify.commit();
+    } finally {
+      recoveredSession.close();
     }
-
-    // Expected count: original - deleted + new
-    int expectedCount = EDGE_COUNT - DELETE_COUNT + INSERT_AFTER_DELETE_COUNT;
-    assertThat(survivingNames)
-        .as("Edge count after recovery must match expected")
-        .hasSize(expectedCount);
-
-    // Deleted edges must not reappear (no ghost resurrection)
-    assertThat(survivingNames)
-        .as("Deleted edges must not reappear after recovery")
-        .doesNotContainAnyElementsOf(deletedNames);
-
-    // All new edges must be present
-    assertThat(survivingNames)
-        .as("Newly inserted edges must survive recovery")
-        .containsAll(newNames);
-
-    // Surviving original edges must be present
-    var expectedSurvivors = new HashSet<>(edgeTargetNames);
-    expectedSurvivors.removeAll(deletedNames);
-    assertThat(survivingNames)
-        .as("Surviving original edges must be present after recovery")
-        .containsAll(expectedSurvivors);
-
-    txVerify.commit();
-    recoveredSession.close();
   }
 }
