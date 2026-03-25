@@ -40,9 +40,23 @@ import org.junit.Test;
 public class EntityImplInPlaceComparisonTest extends DbTestBase {
 
   /**
-   * Creates a new entity, serializes it, and deserializes it into a fresh entity.
-   * The returned entity has {@code source} bytes (serialized form) — properties are not yet
-   * deserialized until accessed.
+   * Creates a new entity with source bytes set but properties NOT deserialized.
+   * Uses {@code RecordAbstract.fromStream(byte[])} which sets source + STATUS.LOADED
+   * without calling deserialize(). This exercises the serialized (InPlaceComparator) path.
+   */
+  private EntityImpl serializeWithSourceOnly(EntityImpl entity) {
+    var ser = session.getSerializer();
+    var bytes = ser.toStream(session, entity);
+    var reloaded = (EntityImpl) session.newEntity();
+    reloaded.unsetDirty();
+    reloaded.fromStream(bytes);
+    return reloaded;
+  }
+
+  /**
+   * Creates a new entity, serializes it, and fully deserializes it into a fresh entity.
+   * Properties are populated in memory; source is cleared. This exercises the deserialized
+   * (properties map) path.
    */
   private EntityImpl serializeAndReload(EntityImpl entity) {
     var ser = session.getSerializer();
@@ -64,7 +78,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     entity.setProperty("name", "Alice");
     entity.setProperty("age", 30, PropertyType.INTEGER);
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("name", "Alice"));
     assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("name", "Bob"));
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("age", 30));
@@ -79,7 +93,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.setProperty("score", 100L, PropertyType.LONG);
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("score", 100L));
     assertTrue(loaded.comparePropertyTo("score", 50L).getAsInt() > 0);
     assertTrue(loaded.comparePropertyTo("score", 200L).getAsInt() < 0);
@@ -134,7 +148,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.setProperty("name", "Alice");
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("name", null));
     assertTrue(loaded.comparePropertyTo("name", null).isEmpty());
     session.rollback();
@@ -147,7 +161,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.setProperty("name", "Alice");
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("nonExistent", "value"));
     assertTrue(loaded.comparePropertyTo("nonExistent", "value").isEmpty());
     session.rollback();
@@ -169,7 +183,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     entity.setProperty("boolVal", true, PropertyType.BOOLEAN);
     entity.setProperty("dateVal", new Date(1700000000000L), PropertyType.DATETIME);
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("str", "hello"));
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("intVal", 42));
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("longVal", 999L));
@@ -192,7 +206,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.setProperty("intVal", 42, PropertyType.INTEGER);
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("intVal", 42L));
     assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("intVal", 99L));
     session.rollback();
@@ -239,7 +253,7 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.setProperty("name", "Bob");
 
-    var loaded = serializeAndReload(entity);
+    var loaded = serializeWithSourceOnly(entity);
     assertTrue(loaded.comparePropertyTo("name", "Alice").getAsInt() > 0);
     assertTrue(loaded.comparePropertyTo("name", "Charlie").getAsInt() < 0);
     assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("name", "Bob"));
