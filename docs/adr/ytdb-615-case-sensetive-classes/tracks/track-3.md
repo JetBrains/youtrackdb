@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [ ] Step implementation (2/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -32,10 +32,14 @@
   >
   > **Key files:** SchemaTest.java (modified), SQLSelectTest.java (modified)
 
-- [ ] Step 2: Fix equalsIgnoreCase in core module test files
-  Change `HookReadTest.java:29` and `StorageBackupMTStateTest.java:324`
-  from `equalsIgnoreCase` to `equals`. Both are cosmetic cleanup — neither
-  test currently fails.
+- [x] Step 2: Fix equalsIgnoreCase in core module test files
+  - [x] Context: safe
+  > **What was done:** Changed `equalsIgnoreCase` to `equals` in
+  > HookReadTest.java (line 29, schema class name comparison) and
+  > StorageBackupMTStateTest.java (line 324, generated class name comparison).
+  > Both were cosmetic — neither test relied on case-insensitive behavior.
+  >
+  > **Key files:** HookReadTest.java (modified), StorageBackupMTStateTest.java (modified)
 
 - [ ] Step 3: Write deferred test scenarios TC2/TC3/TC4 from Track 2 code review
   - TC2: Add tests for `isAllClasses()` guard in `Index.isLabelSecurityDefined`
