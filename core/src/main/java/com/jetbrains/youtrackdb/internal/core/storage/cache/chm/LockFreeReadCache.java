@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
-import com.jetbrains.youtrackdb.internal.common.util.RawPairLongInteger;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -28,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -626,40 +624,32 @@ public final class LockFreeReadCache implements ReadCache {
   public void truncateFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
 
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
     writeCache.truncateFile(fileId);
-
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
   }
 
   @Override
   public void closeFile(long fileId, final boolean flush, final WriteCache writeCache) {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
     writeCache.close(fileId, flush);
   }
 
   @Override
   public void deleteFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
     writeCache.deleteFile(fileId);
   }
 
   @Override
   public void deleteStorage(final WriteCache writeCache) throws IOException {
     final var files = writeCache.files().values();
-    final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
-    for (final long fileId : files) {
-      filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
-    }
 
-    for (final var entry : filledUpTo) {
-      clearFile(entry.first, entry.second, writeCache);
+    for (final long fileId : files) {
+      clearFile(fileId, writeCache);
     }
 
     writeCache.delete();
@@ -668,46 +658,52 @@ public final class LockFreeReadCache implements ReadCache {
   @Override
   public void closeStorage(final WriteCache writeCache) throws IOException {
     final var files = writeCache.files().values();
-    final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
-    for (final long fileId : files) {
-      filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
-    }
 
-    for (final var entry : filledUpTo) {
-      clearFile(entry.first, entry.second, writeCache);
+    for (final long fileId : files) {
+      clearFile(fileId, writeCache);
     }
 
     writeCache.close();
   }
 
-  private void clearFile(final long fileId, final int filledUpTo, final WriteCache writeCache) {
+  private void clearFile(final long fileId, final WriteCache writeCache) {
     flushCurrentThreadReadBatch();
     evictionLock.lock();
     try {
       emptyBuffers();
 
-      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var cacheEntry = data.remove(fileId, pageIndex);
-        if (cacheEntry != null) {
-          if (cacheEntry.freeze()) {
-            policy.onRemove(cacheEntry);
-            cacheSize.decrementAndGet();
+      // Bulk removal: removeByFileId sweeps each segment linearly under its write
+      // lock, collecting removed entries into a list. Entries are returned after
+      // the segment lock is released, so the processing below (freeze, onRemove,
+      // checkCacheOverflow) does not run under a segment write lock — avoiding
+      // StampedLock reentrancy deadlock if callbacks re-enter the map.
+      //
+      // Precondition: clearFile assumes no concurrent doLoad for the same fileId.
+      // A concurrent doLoad could re-insert an entry for a page of this file after
+      // removeByFileId completes. This is a pre-existing race (the old per-page
+      // loop had the same gap between remove and freeze). Callers ensure this by
+      // coordinating file lifecycle at a higher level.
+      final var removedEntries = data.removeByFileId(fileId);
 
-            try {
-              writeCache.checkCacheOverflow();
-            } catch (final java.lang.InterruptedException e) {
-              throw BaseException.wrapException(
-                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                  e, writeCache.getStorageName());
-            }
-          } else {
-            throw new StorageException(writeCache.getStorageName(),
-                "Page with index "
-                    + cacheEntry.getPageIndex()
-                    + " for file id "
-                    + cacheEntry.getFileId()
-                    + " is used and cannot be removed");
+      for (final var cacheEntry : removedEntries) {
+        if (cacheEntry.freeze()) {
+          policy.onRemove(cacheEntry);
+          cacheSize.decrementAndGet();
+
+          try {
+            writeCache.checkCacheOverflow();
+          } catch (final java.lang.InterruptedException e) {
+            throw BaseException.wrapException(
+                new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                e, writeCache.getStorageName());
           }
+        } else {
+          throw new StorageException(writeCache.getStorageName(),
+              "Page with index "
+                  + cacheEntry.getPageIndex()
+                  + " for file id "
+                  + cacheEntry.getFileId()
+                  + " is used and cannot be removed");
         }
       }
     } finally {
