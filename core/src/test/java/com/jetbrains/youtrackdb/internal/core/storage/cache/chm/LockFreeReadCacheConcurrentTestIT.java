@@ -75,8 +75,9 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int pageIndex = rng.nextInt(pageLimit);
                     var cacheEntry =
                         readCache.loadForRead(fileId, pageIndex, writeCache, true);
-                    // Loaded entry must be non-null and have valid pointer
                     assertThat(cacheEntry).isNotNull();
+                    assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
+                    assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);
                     assertThat(cacheEntry.getCachePointer()).isNotNull();
                     readCache.releaseFromRead(cacheEntry);
                   }
@@ -97,6 +98,8 @@ public class LockFreeReadCacheConcurrentTestIT {
                     var cacheEntry =
                         readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
                     assertThat(cacheEntry).isNotNull();
+                    assertThat(cacheEntry.getFileId()).isEqualTo(fileId);
+                    assertThat(cacheEntry.getPageIndex()).isEqualTo(pageIndex);
                     assertThat(cacheEntry.getCachePointer()).isNotNull();
                     readCache.releaseFromWrite(cacheEntry, writeCache, true);
                   }
@@ -113,14 +116,18 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     // Post-run validation: cache internal consistency
-    readCache.assertSize();
-    readCache.assertConsistency();
-    assertThat(readCache.getUsedMemory())
-        .as("used memory within cache limit")
-        .isLessThanOrEqualTo(maxMemory);
-
-    // Cleanup
-    readCache.clear();
+    try {
+      readCache.assertSize();
+      readCache.assertConsistency();
+      assertThat(readCache.getUsedMemory())
+          .as("cache should have entries after concurrent operations")
+          .isGreaterThan(0);
+      assertThat(readCache.getUsedMemory())
+          .as("used memory within cache limit")
+          .isLessThanOrEqualTo(maxMemory);
+    } finally {
+      readCache.clear();
+    }
     assertThat(readCache.getUsedMemory()).isEqualTo(0);
   }
 
@@ -181,22 +188,33 @@ public class LockFreeReadCacheConcurrentTestIT {
     }
 
     // Cache should be consistent after concurrent load
-    readCache.assertSize();
-    readCache.assertConsistency();
-    assertThat(readCache.getUsedMemory())
-        .as("used memory within cache limit")
-        .isLessThanOrEqualTo(maxMemory);
+    try {
+      readCache.assertSize();
+      readCache.assertConsistency();
+      assertThat(readCache.getUsedMemory())
+          .as("cache should have entries before deletion")
+          .isGreaterThan(0);
+      assertThat(readCache.getUsedMemory())
+          .as("used memory within cache limit")
+          .isLessThanOrEqualTo(maxMemory);
 
-    // Delete all files one by one — exercises clearFile -> removeByFileId path
-    for (int fId = 0; fId < fileCount; fId++) {
-      readCache.deleteFile(fId, writeCache);
+      // Delete all files one by one — exercises clearFile -> removeByFileId path
+      for (int fId = 0; fId < fileCount; fId++) {
+        readCache.deleteFile(fId, writeCache);
+        assertThat(readCache.getUsedMemory())
+            .as("memory non-negative after deleting file %d", fId)
+            .isGreaterThanOrEqualTo(0);
+      }
+
+      // After all files deleted, cache should be empty and consistent
+      assertThat(readCache.getUsedMemory())
+          .as("cache should be empty after all files deleted")
+          .isEqualTo(0);
+      readCache.assertSize();
+      readCache.assertConsistency();
+    } finally {
+      readCache.clear();
     }
-
-    // After all files deleted, cache should be empty
-    assertThat(readCache.getUsedMemory())
-        .as("cache should be empty after all files deleted")
-        .isEqualTo(0);
-    readCache.assertSize();
   }
 
   /** Minimal WriteCache stub — allocates from ByteBufferPool, no disk I/O. */
