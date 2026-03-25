@@ -38,6 +38,23 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class LockFreeReadCacheConcurrentTestIT {
 
+  private static final int PAGE_SIZE = 4 * 1024; // 4KB pages
+  // 4MB cache — forces frequent eviction with ~1024 pages capacity
+  private static final long MAX_MEMORY = 4L * 1024 * 1024;
+
+  /** Creates cache + write cache fixture for tests. */
+  private record CacheFixture(
+      LockFreeReadCache readCache, WriteCache writeCache, ByteBufferPool byteBufferPool) {
+  }
+
+  private static CacheFixture createCacheFixture() {
+    var allocator = new DirectMemoryAllocator();
+    var byteBufferPool = new ByteBufferPool(PAGE_SIZE, allocator, 256);
+    var readCache = new LockFreeReadCache(byteBufferPool, MAX_MEMORY, PAGE_SIZE);
+    var writeCache = new MockedWriteCache(byteBufferPool);
+    return new CacheFixture(readCache, writeCache, byteBufferPool);
+  }
+
   /**
    * Concurrent reads + writes with eviction on a small cache. Multiple threads call
    * loadForRead/loadForWrite on a 4MB cache (small enough to force frequent eviction). Verifies: no
@@ -46,13 +63,9 @@ public class LockFreeReadCacheConcurrentTestIT {
    */
   @Test
   public void concurrentReadsAndWritesWithEviction() throws Exception {
-    final int pageSize = 4 * 1024; // 4KB pages
-    final var allocator = new DirectMemoryAllocator();
-    final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
-    final long maxMemory = 4L * 1024 * 1024; // 4MB cache — forces frequent eviction
-
-    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
-    final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
+    final var fixture = createCacheFixture();
+    final var readCache = fixture.readCache();
+    final WriteCache writeCache = fixture.writeCache();
 
     int fileCount = 4;
     int pageLimit = 1000; // 4 files x 1000 pages = 4000 pages, but cache fits ~1024
@@ -124,7 +137,7 @@ public class LockFreeReadCacheConcurrentTestIT {
           .isGreaterThan(0);
       assertThat(readCache.getUsedMemory())
           .as("used memory within cache limit")
-          .isLessThanOrEqualTo(maxMemory);
+          .isLessThanOrEqualTo(MAX_MEMORY);
     } finally {
       readCache.clear();
     }
@@ -143,13 +156,9 @@ public class LockFreeReadCacheConcurrentTestIT {
    */
   @Test
   public void deleteFileAfterConcurrentLoad() throws Exception {
-    final int pageSize = 4 * 1024;
-    final var allocator = new DirectMemoryAllocator();
-    final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
-    final long maxMemory = 4L * 1024 * 1024;
-
-    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
-    final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
+    final var fixture = createCacheFixture();
+    final var readCache = fixture.readCache();
+    final WriteCache writeCache = fixture.writeCache();
 
     int fileCount = 4;
     int pageLimit = 500;
@@ -173,6 +182,8 @@ public class LockFreeReadCacheConcurrentTestIT {
                     int pageIndex = rng.nextInt(pageLimit);
                     var entry = readCache.loadForRead(fileId, pageIndex, writeCache, true);
                     assertThat(entry).isNotNull();
+                    assertThat(entry.getFileId()).isEqualTo(fileId);
+                    assertThat(entry.getPageIndex()).isEqualTo(pageIndex);
                     readCache.releaseFromRead(entry);
                   }
                   return null;
@@ -196,14 +207,19 @@ public class LockFreeReadCacheConcurrentTestIT {
           .isGreaterThan(0);
       assertThat(readCache.getUsedMemory())
           .as("used memory within cache limit")
-          .isLessThanOrEqualTo(maxMemory);
+          .isLessThanOrEqualTo(MAX_MEMORY);
 
-      // Delete all files one by one — exercises clearFile -> removeByFileId path
+      // Delete all files one by one — exercises clearFile -> removeByFileId path.
+      // Memory must not increase after each deletion.
+      long previousMemory = readCache.getUsedMemory();
       for (int fId = 0; fId < fileCount; fId++) {
         readCache.deleteFile(fId, writeCache);
-        assertThat(readCache.getUsedMemory())
-            .as("memory non-negative after deleting file %d", fId)
-            .isGreaterThanOrEqualTo(0);
+        long currentMemory = readCache.getUsedMemory();
+        assertThat(currentMemory)
+            .as("memory should not increase after deleting file %d", fId)
+            .isLessThanOrEqualTo(previousMemory);
+        readCache.assertConsistency();
+        previousMemory = currentMemory;
       }
 
       // After all files deleted, cache should be empty and consistent
