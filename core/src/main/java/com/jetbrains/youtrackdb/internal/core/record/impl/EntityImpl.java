@@ -641,16 +641,36 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * Type-aware equality comparison of two Java values. Delegates to
-   * {@link #compareJavaValuesOrdering} and maps the result.
+   * Type-aware equality comparison of two Java values. Handles LINK equality directly
+   * (comparing RID components), then delegates to {@link #compareJavaValuesOrdering}
+   * for all other types.
    */
   private static InPlaceResult compareJavaValues(
       PropertyTypeInternal type, Object entryValue, Object value) {
+    // LINK: equality via RID components (ordering is not supported)
+    if (type == PropertyTypeInternal.LINK) {
+      return compareLinkJavaValues(entryValue, value);
+    }
     var cmp = compareJavaValuesOrdering(type, entryValue, value);
     if (cmp.isEmpty()) {
       return InPlaceResult.FALLBACK;
     }
     return cmp.getAsInt() == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+  }
+
+  /**
+   * LINK equality: compare cluster ID and cluster position from both Identifiable instances.
+   */
+  private static InPlaceResult compareLinkJavaValues(Object entryValue, Object value) {
+    if (!(entryValue instanceof Identifiable entryId)
+        || !(value instanceof Identifiable valueId)) {
+      return InPlaceResult.FALLBACK;
+    }
+    var entryRid = entryId.getIdentity();
+    var valueRid = valueId.getIdentity();
+    return (entryRid.getCollectionId() == valueRid.getCollectionId()
+        && entryRid.getCollectionPosition() == valueRid.getCollectionPosition())
+            ? InPlaceResult.TRUE : InPlaceResult.FALSE;
   }
 
   /**
