@@ -1,0 +1,248 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+
+package com.jetbrains.youtrackdb.internal.core.record.impl;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import java.util.Date;
+import java.util.OptionalInt;
+import org.junit.Test;
+
+/**
+ * Tests for {@link EntityImpl#isPropertyEqualTo(String, Object)} and
+ * {@link EntityImpl#comparePropertyTo(String, Object)}. Covers both the deserialized (properties
+ * map) path and the serialized (source bytes) path, plus guard conditions.
+ *
+ * <p>Entities are serialized via {@code toStream/fromStream} to create entities with {@code source}
+ * bytes without requiring a full save/reload cycle.
+ */
+public class EntityImplInPlaceComparisonTest extends DbTestBase {
+
+  /**
+   * Creates a new entity, serializes it, and deserializes it into a fresh entity.
+   * The returned entity has {@code source} bytes (serialized form) — properties are not yet
+   * deserialized until accessed.
+   */
+  private EntityImpl serializeAndReload(EntityImpl entity) {
+    var ser = session.getSerializer();
+    var bytes = ser.toStream(session, entity);
+    var reloaded = (EntityImpl) session.newEntity();
+    ser.fromStream(session, bytes, reloaded, null);
+    return reloaded;
+  }
+
+  // ===========================================================================
+  // Serialized path — entity has source bytes, properties not yet deserialized
+  // ===========================================================================
+
+  /** isPropertyEqualTo against serialized source bytes — matching and non-matching. */
+  @Test
+  public void testIsPropertyEqualToFromSource() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+    entity.setProperty("age", 30, PropertyType.INTEGER);
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("name", "Alice"));
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("name", "Bob"));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("age", 30));
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("age", 99));
+    session.rollback();
+  }
+
+  /** comparePropertyTo against serialized source bytes — equal, greater, less. */
+  @Test
+  public void testComparePropertyToFromSource() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("score", 100L, PropertyType.LONG);
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("score", 100L));
+    assertTrue(loaded.comparePropertyTo("score", 50L).getAsInt() > 0);
+    assertTrue(loaded.comparePropertyTo("score", 200L).getAsInt() < 0);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Deserialized path — properties already in memory
+  // ===========================================================================
+
+  /** After accessing a property via getProperty(), the comparison uses the deserialized path. */
+  @Test
+  public void testIsPropertyEqualToFromPropertiesMap() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+    entity.setProperty("age", 30, PropertyType.INTEGER);
+
+    var loaded = serializeAndReload(entity);
+    // Trigger deserialization by reading a property
+    loaded.getProperty("name");
+
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("name", "Alice"));
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("name", "Bob"));
+    session.rollback();
+  }
+
+  /** comparePropertyTo from deserialized properties. */
+  @Test
+  public void testComparePropertyToFromPropertiesMap() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("score", 100L, PropertyType.LONG);
+
+    var loaded = serializeAndReload(entity);
+    // Trigger deserialization
+    loaded.getProperty("score");
+
+    assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("score", 100L));
+    assertTrue(loaded.comparePropertyTo("score", 50L).getAsInt() > 0);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Null handling
+  // ===========================================================================
+
+  /** Null comparison value — should fall back. */
+  @Test
+  public void testNullValueFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("name", null));
+    assertTrue(loaded.comparePropertyTo("name", null).isEmpty());
+    session.rollback();
+  }
+
+  /** Non-existent property — should fall back via source path (deserializeField returns null). */
+  @Test
+  public void testNonExistentPropertyFallback() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("nonExistent", "value"));
+    assertTrue(loaded.comparePropertyTo("nonExistent", "value").isEmpty());
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Multiple types
+  // ===========================================================================
+
+  /** Test various property types through the source path. */
+  @Test
+  public void testMultiplePropertyTypes() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("str", "hello");
+    entity.setProperty("intVal", 42, PropertyType.INTEGER);
+    entity.setProperty("longVal", 999L, PropertyType.LONG);
+    entity.setProperty("dblVal", 3.14, PropertyType.DOUBLE);
+    entity.setProperty("boolVal", true, PropertyType.BOOLEAN);
+    entity.setProperty("dateVal", new Date(1700000000000L), PropertyType.DATETIME);
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("str", "hello"));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("intVal", 42));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("longVal", 999L));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("dblVal", 3.14));
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("boolVal", true));
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("boolVal", false));
+    assertEquals(InPlaceResult.TRUE,
+        loaded.isPropertyEqualTo("dateVal", new Date(1700000000000L)));
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Cross-type numeric conversion
+  // ===========================================================================
+
+  /** INTEGER property compared with Long value — should work via type conversion. */
+  @Test
+  public void testCrossTypeNumericComparison() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("intVal", 42, PropertyType.INTEGER);
+
+    var loaded = serializeAndReload(entity);
+    assertEquals(InPlaceResult.TRUE, loaded.isPropertyEqualTo("intVal", 42L));
+    assertEquals(InPlaceResult.FALSE, loaded.isPropertyEqualTo("intVal", 99L));
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // Entity without source (new, unsaved)
+  // ===========================================================================
+
+  /** New entity with properties but no source — comparison uses deserialized path. */
+  @Test
+  public void testNewEntityNoSource() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Alice");
+    entity.setProperty("age", 30, PropertyType.INTEGER);
+
+    assertEquals(InPlaceResult.TRUE, entity.isPropertyEqualTo("name", "Alice"));
+    assertEquals(InPlaceResult.FALSE, entity.isPropertyEqualTo("name", "Bob"));
+    assertEquals(InPlaceResult.TRUE, entity.isPropertyEqualTo("age", 30));
+    session.rollback();
+  }
+
+  /** New entity — comparePropertyTo via deserialized path. */
+  @Test
+  public void testNewEntityComparePropertyTo() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("score", 100L, PropertyType.LONG);
+
+    assertEquals(OptionalInt.of(0), entity.comparePropertyTo("score", 100L));
+    assertTrue(entity.comparePropertyTo("score", 50L).getAsInt() > 0);
+    session.rollback();
+  }
+
+  // ===========================================================================
+  // String ordering
+  // ===========================================================================
+
+  /** String ordering via comparePropertyTo. */
+  @Test
+  public void testStringOrdering() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setProperty("name", "Bob");
+
+    var loaded = serializeAndReload(entity);
+    assertTrue(loaded.comparePropertyTo("name", "Alice").getAsInt() > 0);
+    assertTrue(loaded.comparePropertyTo("name", "Charlie").getAsInt() < 0);
+    assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("name", "Bob"));
+    session.rollback();
+  }
+}
