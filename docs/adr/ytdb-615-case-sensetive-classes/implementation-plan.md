@@ -260,37 +260,28 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > **Strategy refresh:** CONTINUE — no downstream impact. Deferred test
   > findings (TC2/TC3/TC4) already captured in Track 3 description.
 
-- [ ] Track 3: Test fixes
+- [x] Track 3: Test fixes
   > Update all tests that rely on case-insensitive class or index name
-  > lookup behavior. Known tests:
-  >
-  > - **`SchemaTest.checkSchema()`** (`tests` module): Looks up `"Whiz"` as
-  >   `"whiz"` and `"WHIZ"` — must use exact name `"Whiz"`.
-  > - **`IndexCollectionEmptinessCheckTest`** (`core` module): Expects
-  >   collection name derived from `className.toLowerCase()` — must be
-  >   updated to expect the new `<lowercase>_<counter>` format.
-  > - **`HookReadTest`** (`core` module): Uses `equalsIgnoreCase` for class
-  >   name comparison — change to `equals`.
-  > - **`StorageBackupMTStateTest`** (`core` module): Uses
-  >   `equalsIgnoreCase` for class name comparison — change to `equals`.
-  > - Additional tests discovered during execution that break due to
-  >   case-mismatch lookups.
-  > - **Deferred from Track 2 code review (TC2):** Add tests for
-  >   `isAllClasses()` guard in `Index.isLabelSecurityDefined` and
-  >   `IndexManagerEmbedded.checkSecurityConstraintsForIndexCreate` — verify
-  >   wildcard column-security rules work with the new `equals()` filter.
-  > - **Deferred from Track 2 code review (TC3):** Add test for
-  >   `DatabaseImport.importIndexes()` `equals` check on
-  >   `EXPORT_IMPORT_INDEX_NAME`.
-  > - **Deferred from Track 2 code review (TC4):** Add index name
-  >   preservation test across session reload (create → persist → reload →
-  >   case-sensitive lookup).
+  > lookup behavior.
   >
   > **Depends on:** Track 1, Track 2
   >
-  > **Scope:** ~3-5 steps covering known test fixes, discovery of additional
-  > broken tests via test run, fixing remaining failures, and deferred test
-  > scenarios from Track 2 code review
+  > **Track episode:**
+  > Updated all tests that relied on case-insensitive class/index name
+  > lookup. Fixed 19 `equalsIgnoreCase` → `equals()` call sites across 4
+  > test files (SchemaTest, SQLSelectTest, HookReadTest,
+  > StorageBackupMTStateTest). Added 5 new test methods for deferred
+  > Track 2 code review scenarios: index name round-trip across session
+  > reload (TC4), wildcard and exact-case security filter behavior (TC2,
+  > 3 tests), and export/import index name preservation (TC3). During
+  > Phase C investigation, confirmed SQL class resolution is fully
+  > case-sensitive (`ImmutableSchema.getClassInternal()` = direct
+  > `HashMap.get()`, no fallback). Fixed 15 additional SQL query strings
+  > with wrong-case class names (ouser→OUser, orole→ORole,
+  > profile→Profile, v→V, e→E, user→User) across 6 test files. No
+  > `toLowerCase()` allocations exist in the SQL class resolution path.
+  >
+  > **Step file:** `tracks/track-3.md` (3 steps + 1 Phase C fix, 0 failed)
 
 ## Final Design Document
 - [ ] Phase 4: Final design document (`design-final.md`)
