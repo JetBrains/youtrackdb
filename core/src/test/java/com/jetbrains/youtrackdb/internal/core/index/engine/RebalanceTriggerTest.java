@@ -15,9 +15,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.junit.Test;
 
@@ -330,17 +336,60 @@ public class RebalanceTriggerTest {
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
+  public void computeRebalanceThreshold_halvesThresholdWhenDrifted() {
+    // Verify the drift-biased threshold computation directly, without
+    // relying on background executor timing.
+    var fixture = createManagerFixture();
+
+    // Normal snapshot (no drift): threshold = max(min(5000*0.3, 10M), 1000) = 1500
+    var stats = new IndexStatistics(5000, 5000, 0);
+    var normalSnapshot = new HistogramSnapshot(
+        stats, createTestHistogram(), 1000, 5000, 0, false, null, false);
+    long normalThreshold =
+        fixture.manager.computeRebalanceThreshold(normalSnapshot);
+    assertEquals("Normal threshold should be 1500", 1500, normalThreshold);
+
+    // Drifted snapshot: halved threshold = max(1, 1500/2) = 750
+    var driftedSnapshot = new HistogramSnapshot(
+        stats, createTestHistogram(), 1000, 5000, 0, true, null, false);
+    long driftedThreshold =
+        fixture.manager.computeRebalanceThreshold(driftedSnapshot);
+    assertEquals("Drifted threshold should be halved", 750, driftedThreshold);
+
+    // Sanity: confirm the chosen mutation count (1000) sits between the
+    // two thresholds, proving drift triggers sooner than normal
+    assertTrue("Mutations should exceed drifted threshold",
+        1000 > driftedThreshold);
+    assertTrue("Mutations should NOT exceed normal threshold",
+        1000 <= normalThreshold);
+
+    // Edge case: base threshold clamped to minRebalanceMutations (1000).
+    // totalCountAtLastBuild=2000 → fraction=600 → clamped to min=1000
+    // Halved = max(1, 1000/2) = 500
+    var smallStats = new IndexStatistics(2000, 2000, 0);
+    var smallNormal = new HistogramSnapshot(
+        smallStats, createTestHistogram(), 0, 2000, 0, false, null, false);
+    assertEquals("Clamped normal threshold", 1000,
+        fixture.manager.computeRebalanceThreshold(smallNormal));
+
+    var smallDrifted = new HistogramSnapshot(
+        smallStats, createTestHistogram(), 0, 2000, 0, true, null, false);
+    assertEquals("Halved clamped threshold", 500,
+        fixture.manager.computeRebalanceThreshold(smallDrifted));
+  }
+
+  @Test
   public void getHistogram_schedulesRebalanceSoonerWhenDrifted()
       throws Exception {
     // Given a manager with hasDriftedBuckets=true and mutations that exceed
-    // the halved threshold but not the normal threshold
+    // the halved threshold but not the normal threshold.
+    // Uses createRebalanceCapableFixture-style setup for robustness, then
+    // modifies the snapshot to add drift.
     var fixture = createManagerFixture();
     var histogram = createTestHistogram();
     var stats = new IndexStatistics(5000, 5000, 0);
-    // totalCountAtLastBuild=5000, normal threshold=max(min(1500,10M),1000)=1500
-    // Halved threshold = 750. mutationsSinceRebalance=1000.
-    // 1000 > 750 (halved) → rebalance fires
-    // 1000 < 1500 (normal) → would NOT fire without drift
+    // totalCountAtLastBuild=5000, normal threshold=1500, halved=750.
+    // mutationsSinceRebalance=1000 > 750 → rebalance fires
     var snapshot = new HistogramSnapshot(
         stats, histogram, 1000, 5000, 0, true, null, false);
     fixture.cache.put(fixture.engineId, snapshot);
@@ -349,7 +398,28 @@ public class RebalanceTriggerTest {
         () -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
-    var executor = Executors.newSingleThreadExecutor();
+    // Use a custom executor that captures background task errors.
+    // FutureTask swallows exceptions — afterExecute extracts them.
+    var taskError = new AtomicReference<Throwable>();
+    var executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+        new LinkedBlockingQueue<>()) {
+      @Override
+      protected void afterExecute(Runnable r, Throwable t) {
+        super.afterExecute(r, t);
+        if (t != null) {
+          taskError.compareAndSet(null, t);
+        } else if (r instanceof Future<?> f) {
+          try {
+            if (f.isDone()) {
+              f.get();
+            }
+          } catch (ExecutionException ex) {
+            taskError.compareAndSet(null, ex.getCause());
+          } catch (InterruptedException | CancellationException ignored) {
+          }
+        }
+      }
+    };
     fixture.manager.setBackgroundExecutor(executor);
     try {
       // When getHistogram() is called
@@ -359,19 +429,21 @@ public class RebalanceTriggerTest {
       assertTrue("Drift-biased rebalance should complete",
           executor.awaitTermination(10, TimeUnit.SECONDS));
 
-      // awaitTermination provides happens-before with all task actions,
-      // and CHM.compute() inside the task is volatile — the cache read
-      // below MUST see the updated value. If mutationsSinceRebalance != 0,
-      // the rebalance task was never submitted (check scheduleRebalance
-      // preconditions: CAS guard, cooldown, keyStreamSupplier, fileId).
+      // Fail fast with the actual exception if the background task errored
+      var bg = taskError.get();
+      if (bg != null) {
+        throw new AssertionError(
+            "Background rebalance task failed — this is the root cause "
+                + "of the mutation counter not being reset",
+            bg);
+      }
+
       var updatedSnapshot = fixture.cache.get(fixture.engineId);
 
       // Then rebalance ran — mutationsSinceRebalance reset
       assertNotNull("Snapshot should exist after rebalance",
           updatedSnapshot);
-      assertEquals("Rebalance should reset mutation counter — if not, "
-          + "the task was likely never submitted (CAS guard, cooldown, "
-          + "or missing keyStreamSupplier/fileId)",
+      assertEquals("Rebalance should reset mutation counter",
           0, updatedSnapshot.mutationsSinceRebalance());
     } finally {
       executor.shutdownNow();
