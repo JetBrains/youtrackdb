@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation (1/3 complete)
+- [x] Step implementation (2/2 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -48,26 +48,20 @@
   > - `RecordSerializerBinaryV2HashTableTest.java` (deleted)
   > - `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
-- [ ] Step 3: Update unit tests — remove hash table tests, add hash-accelerated tests
-  Delete or rewrite `RecordSerializerBinaryV2HashTableTest.java` — all
-  `buildHashTable_*`, `fibonacciSlotIndex_*`, and hash-table-specific tests
-  are obsolete. Replace with tests for the new format:
-
-  - Hash prefix correctness: serialize an entity, verify 4-byte hash prefix
-    matches `MurmurHash3.hash32WithSeed(name.getBytes(UTF_8), 0, len, 0)`.
-  - Hash-accelerated partial deserialization: verify correct field retrieval
-    for entities with 5, 13, 20, 50 properties.
-  - getFieldNames with hash prefix: verify field names are correctly extracted.
-  - Edge cases: single property, empty entity, very long property names,
-    schema-aware properties, mixed schema-aware/schema-less.
-
-  Update `RecordSerializerBinaryV2RoundTripTest.java` and
-  `RecordSerializerBinaryV2PartialTest.java` — remove any assertions that
-  reference hash table structure (slot arrays, seed, log2Capacity) and
-  update property count tier tests (no more linear/hash-table distinction).
-
-  **Note:** Much of this work was done in Step 1+2. Remaining work is
-  updating PartialTest comments and adding new hash-prefix-specific tests.
-
-  **Key files**: `RecordSerializerBinaryV2RoundTripTest.java`,
-  `RecordSerializerBinaryV2PartialTest.java`
+- [x] Step 3: Update unit tests — remove hash table tests, add hash-accelerated tests
+  - [x] Context: info
+  > **What was done:** Updated both V2 test files to remove all hash table
+  > terminology (method names, comments, section headers). Renamed 30+ methods
+  > from `*_linearMode`/`*_hashTableMode` to property-count-based names.
+  > Updated class javadocs to describe hash-accelerated linear scan. Added 10
+  > new test methods: boundary tests (single-property partial/field, empty-entity
+  > field), 20-property partial deserialization, unicode partial lookup,
+  > schema-aware hash prefix verification with direct byte inspection, and mixed
+  > schema-aware/schema-less fieldNames test. Review fixes added missing
+  > session.rollback() calls, fixed collision test comment, and reorganized
+  > sections. Final test count: 90 (was 85 pre-step). Coverage: 85.8% line /
+  > 78.7% branch.
+  >
+  > **Key files:**
+  > - `RecordSerializerBinaryV2PartialTest.java` (modified)
+  > - `RecordSerializerBinaryV2RoundTripTest.java` (modified)
