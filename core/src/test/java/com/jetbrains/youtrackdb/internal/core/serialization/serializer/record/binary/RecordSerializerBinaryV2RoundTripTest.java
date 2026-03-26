@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -508,6 +509,35 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
         () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
         .isInstanceOf(SerializationException.class)
         .hasMessageContaining("exceeds maximum");
+  }
+
+  /**
+   * Verifies that a corrupted record with a negative value length varint is rejected
+   * during full deserialization, preventing backwards buffer offset movement.
+   */
+  @Test
+  public void deserialize_negativeValueLength_throwsSerializationException() {
+    session.begin();
+    var bytes = new BytesContainer();
+    // Property count = 1
+    VarIntSerializer.write(bytes, 1);
+    // 4-byte hash prefix (arbitrary)
+    int hashStart = bytes.alloc(IntegerSerializer.INT_SIZE);
+    IntegerSerializer.serializeLiteral(0x12345678, bytes.bytes, hashStart);
+    // Schema-less name: length + UTF-8 bytes for "test"
+    byte[] nameBytes = "test".getBytes(StandardCharsets.UTF_8);
+    VarIntSerializer.write(bytes, nameBytes.length);
+    int nameStart = bytes.alloc(nameBytes.length);
+    System.arraycopy(nameBytes, 0, bytes.bytes, nameStart, nameBytes.length);
+    // Type byte (STRING = 7)
+    bytes.bytes[bytes.alloc(1)] = 7;
+    // Negative value length (corrupted varint)
+    VarIntSerializer.write(bytes, -3);
+    var target = (EntityImpl) session.newEntity();
+    assertThatThrownBy(
+        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("negative value length");
   }
 
   // --- Moderate scale ---
