@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -28,16 +29,13 @@ record PathNode(@Nonnull Result value, @Nullable PathNode prev, int depth) {
    * and the path must be exposed as a property.
    */
   List<Result> toList() {
-    var list = new ArrayList<Result>(depth + 1);
-    collectInto(list);
-    return list;
-  }
-
-  private void collectInto(ArrayList<Result> list) {
-    if (prev != null) {
-      prev.collectInto(list);
+    var results = new Result[depth + 1];
+    var current = this;
+    for (int i = depth; i >= 0; i--) {
+      results[i] = current.value;
+      current = current.prev;
     }
-    list.add(value);
+    return new ArrayList<>(Arrays.asList(results));
   }
 
   /**
