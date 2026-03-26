@@ -2265,6 +2265,59 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         resultPairs);
   }
 
+  // Verifies that a WHILE traversal WITHOUT pathAlias produces the same vertices
+  // and depths as one WITH pathAlias, but does not expose any path property.
+  // This exercises the optimization that skips PathNode construction entirely
+  // when no pathAlias is declared (the common case for queries like IS2).
+  @Test
+  public void testWhileWithoutPathAliasSkipsPathConstruction() {
+    var clazz = "testWhileNoPath";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'a'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'b'").close();
+    session.execute("CREATE VERTEX " + clazz + " SET name = 'c'").close();
+
+    // Chain: a → b → c
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'b')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'b') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'c')")
+        .close();
+    session.commit();
+
+    // Query with depthAlias only (no pathAlias) — path construction should be skipped
+    var queryNoPath =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'a')} --> {as:dest, while:($depth<10),"
+            + " depthAlias: d} RETURN dest.name as dname, d";
+
+    session.begin();
+    var result = session.query(queryNoPath);
+
+    // Collect (name, depth) pairs — should be: a:0, b:1, c:2
+    var pairs = new java.util.ArrayList<String>();
+    while (result.hasNext()) {
+      var item = result.next();
+      String dname = item.getProperty("dname");
+      Integer depth = item.getProperty("d");
+      Assert.assertNotNull("depthAlias must still be populated", depth);
+      pairs.add(dname + ":" + depth);
+    }
+    result.close();
+    session.commit();
+
+    java.util.Collections.sort(pairs);
+    Assert.assertEquals(
+        "WHILE without pathAlias must still traverse and return all reachable vertices",
+        java.util.List.of("a:0", "b:1", "c:2"),
+        pairs);
+  }
+
   @Test
   public void testNegativePattern() {
     var clazz = "testNegativePattern";
