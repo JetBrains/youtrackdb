@@ -15,8 +15,9 @@ import org.junit.Test;
 
 /**
  * Tests for V2 partial deserialization (deserializePartial), field lookup (deserializeField), and
- * field name extraction (getFieldNames). Covers linear mode (<=12 properties), linear probing hash table
- * mode (13+ properties), and edge cases.
+ * field name extraction (getFieldNames). V2 uses hash-accelerated linear scan: each property entry
+ * is prefixed with a 4-byte MurmurHash3 hash for fast rejection during partial deserialization.
+ * Covers various property counts and edge cases.
  */
 public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
 
@@ -27,7 +28,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void partial_singleField_linearMode() {
+  public void partial_singleField_twoProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Alice");
@@ -40,7 +41,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_singleField_linearMode_fiveProperties() {
+  public void partial_singleField_fiveProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -56,7 +57,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_multipleFields_linearMode() {
+  public void partial_multipleFields_fourProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("first", "A");
@@ -97,7 +98,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_allFields_linearMode() {
+  public void partial_allFields_threeProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("a", "1");
@@ -123,7 +124,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void partial_schemaAwareProperty_linearMode() {
+  public void partial_schemaAwareProperty() {
     // Schema-aware properties use global property ID encoding. Verify partial
     // deserialization correctly resolves the ID back to the property name and
     // returns the correct value.
@@ -176,7 +177,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_stringField_linearMode() {
+  public void field_stringField() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Alice");
@@ -195,7 +196,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_integerField_linearMode() {
+  public void field_integerField() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -239,7 +240,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_linearMode() {
+  public void field_twoProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "One");
@@ -292,7 +293,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_linkProperty_linearMode() {
+  public void field_linkProperty() {
     // Verify deserializeField returns a non-null BinaryField for a LINK property
     // so that BinaryComparatorV0 can compare RID bytes directly.
     session.begin();
@@ -328,7 +329,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void fieldNames_linearMode() {
+  public void fieldNames_twoProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("first", "A");
@@ -339,7 +340,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void fieldNames_linearMode_fiveProperties() {
+  public void fieldNames_fiveProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("a", "1");
@@ -380,13 +381,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Boundary: 13-property threshold (first hash table mode case)
+  // Higher property counts
   // ========================================================================================
 
   @Test
-  public void partial_thirteenProperties_hashTableModeBoundary() {
-    // Exactly 13 properties = first hash table mode case (LINEAR_MODE_THRESHOLD = 12).
-    // An off-by-one in the threshold check would route to the wrong deserialize path.
+  public void partial_thirteenProperties() {
+    // Thirteen properties — verifies hash-accelerated scan works at moderate count.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 13; i++) {
@@ -404,7 +404,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   // ========================================================================================
 
   @Test
-  public void field_embeddedEntity_linearMode() {
+  public void field_embeddedEntity() {
     // Verify deserializeField works when embedded=true, which adds a class name
     // prefix before the property count. If the class name skip is wrong,
     // the field lookup reads garbage.
@@ -465,13 +465,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Hash table mode tests (13+ properties)
+  // Many-property tests (13+ properties)
   // ========================================================================================
 
   @Test
-  public void partial_hashTableMode_fifteenProperties() {
-    // 15 properties triggers hash table mode. Verify partial deserialization finds all requested
-    // fields via linear probe — some properties may require multi-step probing.
+  public void partial_fifteenProperties() {
+    // 15 properties — verifies hash-accelerated partial deserialization at higher count.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -488,8 +487,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_hashTableMode_fiftyProperties() {
-    // 50-property stress test for hash table partial deserialization
+  public void partial_fiftyProperties() {
+    // 50-property stress test for hash-accelerated partial deserialization
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 50; i++) {
@@ -503,8 +502,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_hashTableMode_fifteenProperties() {
-    // Verify deserializeField works in hash table mode — field lookup via linear probe
+  public void field_fifteenProperties() {
+    // Verify deserializeField works with 15 properties — hash prefix fast-rejects non-matches
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -523,8 +522,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void fieldNames_hashTableMode_fifteenProperties() {
-    // Verify getFieldNames in hash table mode returns all property names
+  public void fieldNames_fifteenProperties() {
+    // Verify getFieldNames returns all property names for 15-property entity
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -541,8 +540,8 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_hashTableMode_nonExistentField() {
-    // Requesting a field that doesn't exist in hash table mode should not throw
+  public void partial_nonExistentField_manyProperties() {
+    // Requesting a field that doesn't exist in a many-property entity should not throw
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 13; i++) {
@@ -555,10 +554,10 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void field_hashTableMode_nonExistentFieldReturnsNull() {
-    // deserializeField for a field that doesn't exist in hash table mode should return null.
-    // This exercises the empty-slot termination path in deserializeFieldHashTable,
-    // which is a separate implementation from deserializePartialHashTable.
+  public void field_nonExistentField_manyProperties_returnsNull() {
+    // deserializeField for a field that doesn't exist in a many-property entity should return
+    // null. The hash-accelerated scan rejects all entries via hash prefix mismatch or name
+    // comparison, then returns null after exhausting the entry list.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 15; i++) {
@@ -570,11 +569,11 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_hashTableMode_hash8CollisionResolved() {
-    // With 30 properties and 256 possible hash8 values, there is a ~83% probability
-    // of at least one hash8 collision. The linear probe must skip hash8-matching but
-    // name-mismatching slots and continue probing. Verify each property is individually
-    // retrievable via partial deserialization to confirm the continue-on-mismatch path.
+  public void partial_hashCollisionResolved_thirtyProperties() {
+    // With 30 properties and 2^32 possible hash values, hash collisions are rare but
+    // the hash-accelerated scan must handle them: when the 4-byte hash prefix matches
+    // but the full name comparison fails, the scan continues to the next entry.
+    // Verify each property is individually retrievable via partial deserialization.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     int n = 30;
@@ -591,9 +590,9 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_hashTableMode_mixedTierEmbeddedEntity() {
-    // Small parent (2 properties, linear) with large embedded child (15+ properties, hash table).
-    // Verifies that different tiers can coexist in the same serialized record.
+  public void partial_mixedSizeEmbeddedEntity() {
+    // Small parent (2 properties) with large embedded child (15+ properties).
+    // Verifies that entities of different sizes coexist in the same serialized record.
     session.begin();
     var parent = (EntityImpl) session.newEntity();
     parent.setString("parentName", "root");
@@ -604,7 +603,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     }
     parent.setProperty("child", child, PropertyType.EMBEDDED);
 
-    // Full round-trip verifies both linear parent and hash table embedded child
+    // Full round-trip verifies both small parent and large embedded child
     var bytes = new BytesContainer();
     v2.serialize(session, parent, bytes);
     var deserialized = (EntityImpl) session.newEntity();
@@ -620,21 +619,19 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Binary comparator with hash table mode (15+ properties)
+  // Binary comparator with many properties (15+)
   // ========================================================================================
 
   /**
-   * Binary comparator correctness in hash table mode: serialize entities with 15+ properties
-   * using V2, call deserializeField() to locate a field via the hash table linear probe,
-   * then verify BinaryComparatorV0.isEqual() and compare() produce correct results.
-   * Extends the 3-property binary comparator test from Track 6 to the hash table tier.
+   * Binary comparator correctness with 15+ properties: serialize entities using V2, call
+   * deserializeField() to locate a field via hash-accelerated scan, then verify
+   * BinaryComparatorV0.isEqual() and compare() produce correct results.
    */
   @Test
-  public void binaryComparator_hashTableMode_deserializeFieldWithComparatorV0() {
+  public void binaryComparator_manyProperties_deserializeFieldWithComparatorV0() {
     session.begin();
 
-    // Build two entities with 15 properties each (triggers hash table mode),
-    // differing only in the "score" field
+    // Build two entities with 15 properties each, differing only in the "score" field
     var entity1 = (EntityImpl) session.newEntity();
     var entity2 = (EntityImpl) session.newEntity();
     var entity3 = (EntityImpl) session.newEntity();
@@ -675,12 +672,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   /**
-   * Binary comparator with hash table mode for string fields: verifies that deserializeField()
-   * correctly locates string fields in the linear probing hash table and BinaryComparatorV0 compares
+   * Binary comparator with many-property string fields: verifies that deserializeField()
+   * correctly locates string fields via hash-accelerated scan and BinaryComparatorV0 compares
    * them correctly via byte-level comparison.
    */
   @Test
-  public void binaryComparator_hashTableMode_stringFieldComparison() {
+  public void binaryComparator_manyProperties_stringFieldComparison() {
     session.begin();
 
     var entity1 = (EntityImpl) session.newEntity();
@@ -715,6 +712,76 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(comparator.compare(session, field2, field1)).isGreaterThan(0);
     // "apple" == "apple" → zero
     assertThat(comparator.compare(session, field1, field3)).isEqualTo(0);
+    session.rollback();
+  }
+
+  // ========================================================================================
+  // Hash prefix verification
+  // ========================================================================================
+
+  @Test
+  public void partial_twentyProperties() {
+    // 20 properties — verifies hash-accelerated partial deserialization at a count
+    // between the 15-property and 50-property tests.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 20; i++) {
+      entity.setString("key_" + i, "val_" + i);
+    }
+
+    // Request first, middle, and last fields
+    var deserialized = partialDeserialize(entity, "key_0", "key_10", "key_19");
+    assertThat(deserialized.getString("key_0")).isEqualTo("val_0");
+    assertThat(deserialized.getString("key_10")).isEqualTo("val_10");
+    assertThat(deserialized.getString("key_19")).isEqualTo("val_19");
+    assertThat(deserialized.hasProperty("key_5")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void partial_schemaAware_hashPrefixUsesPropertyName() {
+    // Schema-aware properties encode the property ID as a negative varint in the binary
+    // format, but the 4-byte hash prefix is always computed from the property NAME string
+    // (not the encoded ID). Verify that partial deserialization of a schema-aware property
+    // correctly computes the hash from the name and matches it against the stored prefix.
+    var clazz = session.createClass("HashPrefixSchemaTest");
+    clazz.createProperty("alpha", PropertyType.STRING);
+    clazz.createProperty("beta", PropertyType.INTEGER);
+    clazz.createProperty("gamma", PropertyType.DOUBLE);
+    clazz.createProperty("delta", PropertyType.BOOLEAN);
+    clazz.createProperty("epsilon", PropertyType.STRING);
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("HashPrefixSchemaTest");
+    entity.setProperty("alpha", "a_val");
+    entity.setProperty("beta", 42);
+    entity.setProperty("gamma", 3.14);
+    entity.setProperty("delta", true);
+    entity.setProperty("epsilon", "e_val");
+
+    // Request middle field — hash prefix must match "gamma" name, not its property ID
+    var deserialized = partialDeserialize(entity, "gamma");
+    assertThat((double) deserialized.getProperty("gamma")).isEqualTo(3.14);
+    assertThat(deserialized.hasProperty("alpha")).isFalse();
+    assertThat(deserialized.hasProperty("epsilon")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void fieldNames_twentyProperties() {
+    // Verify getFieldNames returns all 20 property names — exercises the hash prefix
+    // skip logic in getFieldNames (must skip 4-byte prefix before reading each name).
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    for (int i = 0; i < 20; i++) {
+      entity.setString("name_" + i, "val");
+    }
+    var names = getFieldNamesFromEntity(entity, false);
+    String[] expected = new String[20];
+    for (int i = 0; i < 20; i++) {
+      expected[i] = "name_" + i;
+    }
+    assertThat(names).containsExactlyInAnyOrder(expected);
     session.rollback();
   }
 
