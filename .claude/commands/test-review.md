@@ -110,7 +110,7 @@ Two agents **always run** because they catch general gaps regardless of domain. 
 | **review-test-completeness** | **Always** (unless `docs-only` or `build-config` are the ONLY categories) |
 | **review-test-structure** | Any test files are changed (reviews isolation, readability, setup/teardown of test code itself) |
 | **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
-| **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved), OR production code adds/modifies Java `assert` statements |
+| **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved) |
 
 ### 5c: Log Your Triage Decision
 

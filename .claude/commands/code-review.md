@@ -115,7 +115,7 @@ Use the following mapping to decide which agents to launch:
 
 | Agent | Launch when ANY of these categories are present |
 |---|---|
-| **review-code-quality** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
 | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
 | **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
 | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
