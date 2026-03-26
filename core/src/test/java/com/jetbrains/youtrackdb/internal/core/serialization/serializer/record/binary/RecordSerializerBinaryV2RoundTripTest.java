@@ -24,8 +24,9 @@ import org.junit.Test;
 
 /**
  * Round-trip tests for RecordSerializerBinaryV2: serialize an entity, deserialize it, and verify
- * all properties are preserved. Tests cover linear mode (0-12 properties), linear probing hash table mode
- * (13+ properties), all property types, embedded entities, and edge cases.
+ * all properties are preserved. V2 uses hash-accelerated linear scan: each property entry is
+ * prefixed with a 4-byte MurmurHash3 hash for fast rejection during partial deserialization.
+ * Tests cover various property counts, all property types, embedded entities, and edge cases.
  */
 public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
@@ -41,7 +42,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((Iterable<String>) deserialized.getPropertyNames()).isEmpty();
   }
 
-  // --- Linear mode (1-2 properties) ---
+  // --- Small entities (1-2 properties) ---
 
   @Test
   public void roundTrip_singleStringProperty() {
@@ -54,7 +55,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_twoProperties_linearMode() {
+  public void roundTrip_twoProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("first", "Hello");
@@ -74,10 +75,10 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat((Object) deserialized.getProperty("value")).isNull();
   }
 
-  // --- Linear mode (3-12 properties) ---
+  // --- Moderate entities (3-12 properties) ---
 
   @Test
-  public void roundTrip_threeProperties_linearMode() {
+  public void roundTrip_threeProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Bob");
@@ -90,7 +91,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_fiveProperties_linearMode() {
+  public void roundTrip_fiveProperties() {
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("name", "Charlie");
@@ -497,7 +498,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
   @Test
   public void roundTrip_fortyProperties() {
-    // 40 properties: hash table at moderate scale
+    // 40 properties: moderate scale
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 40; i++) {
@@ -513,7 +514,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
   @Test
   public void roundTrip_fortyOneProperties() {
-    // 41 properties: hash table just above 40
+    // 41 properties: just above 40
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 41; i++) {
@@ -583,10 +584,10 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_schemaAwareThirteenProperties_hashTableMode() {
-    // 13+ schema-defined properties trigger hash table mode with global property ID encoding.
+  public void roundTrip_schemaAwareThirteenProperties() {
+    // 13 schema-defined properties with global property ID encoding.
     // Schema-aware names encode the property ID as a negative varint, changing the byte
-    // length of the name encoding. Verify hash-based lookup works with this encoding.
+    // length of the name encoding. Verify hash-accelerated scan works with this encoding.
     var clazz = session.createClass("SchemaHashTableV2Test");
     for (int i = 0; i < 13; i++) {
       clazz.createProperty("field_" + i, PropertyType.STRING);
@@ -608,8 +609,8 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
   @Test
   public void roundTrip_oneHundredMixedProperties() {
-    // Stress test with 100 properties of mixed types to verify hash table construction,
-    // hash table sizing via capacity formula, and correct slot assignment at scale.
+    // Stress test with 100 properties of mixed types to verify serialization and
+    // hash-accelerated deserialization at scale.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 100; i++) {
@@ -644,7 +645,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   @Test
   public void roundTrip_longPropertyNames() {
     // Property names with 200-500 characters stress the MurmurHash3 hash function
-    // on long UTF-8 inputs. Verify hash table correctly maps these names.
+    // on long UTF-8 inputs. Verify hash-accelerated scan correctly handles these names.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     var name200 = "a".repeat(200);
@@ -784,7 +785,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   @Test
   public void roundTrip_mixedLinksAndRegularProperties() {
     // Combine LINK, LINKLIST, and regular properties in one entity to verify
-    // V2 hash table correctly handles the mixed type set.
+    // V2 correctly handles the mixed type set.
     session.createClass("MixedLinkTarget");
     session.begin();
     var target = (EntityImpl) session.newEntity("MixedLinkTarget");
@@ -847,8 +848,8 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_hashTableMode_unicodePropertyNames() {
-    // 13+ schema-less properties with multi-byte UTF-8 names exercise the preEncodedName
+  public void roundTrip_unicodePropertyNames_thirteenProperties() {
+    // 13 schema-less properties with multi-byte UTF-8 names exercise the preEncodedName
     // reuse path in serializePropertyEntry. Byte-length differs from char-length for these
     // names, catching any length mismatch in the optimization.
     session.begin();
@@ -891,8 +892,8 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_hashTableMode_withEmbeddedEntity_tempBufferReuse() {
-    // 13+ properties trigger hash table mode where tempBuffer is reused per property.
+  public void roundTrip_withEmbeddedEntity_tempBufferReuse() {
+    // 15 properties where tempBuffer is reused per property during serialization.
     // An embedded entity (large serialized size) followed by small string properties
     // verifies that tempBuffer.reset() correctly clears stale embedded data.
     session.begin();
@@ -921,9 +922,9 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void roundTrip_hashTableMode_mixedSchemaAwareAndSchemaLess() {
-    // 13+ properties in hash table mode where some are schema-defined (negative varint
-    // name encoding) and some are schema-less (inline UTF-8 via preEncodedName).
+  public void roundTrip_mixedSchemaAwareAndSchemaLess_fourteenProperties() {
+    // 14 properties where some are schema-defined (negative varint name encoding)
+    // and some are schema-less (inline UTF-8 via preEncodedName).
     // Verifies that preEncodedName is correctly ignored for schema-aware properties.
     var clazz = session.createClass("MixedHashV2Test");
     for (int i = 0; i < 8; i++) {
@@ -952,7 +953,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
 
   @Test
   public void serializeDeterminism_sameEntityProducesIdenticalBytes() {
-    // Same entity serialized twice should produce identical bytes (deterministic hash table seed)
+    // Same entity serialized twice should produce identical bytes (deterministic hash computation)
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 20; i++) {
