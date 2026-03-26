@@ -8584,4 +8584,1587 @@ public class SelectStatementExecutionTest extends DbTestBase {
         plan.contains("LET"));
     session.commit();
   }
+
+  @Test
+  public void testOutEStateFullEdgesIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestOutEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var propertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
+    var oudEdgesProperty = vertexClass.createProperty(propertyName,
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestOutEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "outE('" + edgeClassName + "') contains :outE", Map.of("outE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[0], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
+
+        var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+
+        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(expression instanceof SQLContainsCondition);
+
+        var containsCondition = (SQLContainsCondition) expression;
+        Assert.assertTrue(
+            containsCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals(propertyName, containsCondition.getLeft().toString());
+        Assert.assertEquals(":outE", containsCondition.getRight().toString());
+      }
+    });
+  }
+
+  @Test
+  public void testOutEStateFullEdgesWithoutIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestOutEStateFullWithoutIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEStateFullWithoutIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var vertexClassName = vertexClass.getName();
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "outE('" + edgeClassName + "') contains :outE", Map.of("outE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[0], resList.getFirst().getIdentity());
+      }
+    });
+  }
+
+  @Test
+  public void testInEStateFullEdgesIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestInEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestInEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var inEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var propertyName = inEdgesProperty.getName();
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestInEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "inE('" + edgeClassName + "') contains :inE", Map.of("inE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[1], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
+
+        var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+
+        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(expression instanceof SQLContainsCondition);
+
+        var containsCondition = (SQLContainsCondition) expression;
+        Assert.assertTrue(
+            containsCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals(propertyName, containsCondition.getLeft().toString());
+        Assert.assertEquals(":inE", containsCondition.getRight().toString());
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesWithoutIndex() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var vertexClassName = vertexClass.getName();
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexIn() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexOut() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphTwoIndexes() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+
+    var outEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
+        PropertyType.LINKBAG);
+    var inEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var outIndexName = "TestBothEStateFullIndexUsageInGraphIndexOutIndex";
+    vertexClass.createIndex(outIndexName, INDEX_TYPE.NOTUNIQUE, outEdgesProperty.getName());
+
+    var inIndexName = "TestBothEStateFullIndexUsageInGraphIndexInIndex";
+    vertexClass.createIndex(inIndexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      Edge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addEdge(v2, edgeClass);
+      }
+
+      return new RID[] {v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+        var first = steps.getFirst();
+        Assert.assertTrue(first instanceof ParallelExecStep);
+
+        var parallelExecStep = (ParallelExecStep) first;
+        var parallelSteps = parallelExecStep.getSubExecutionPlans();
+
+        Assert.assertEquals(2, parallelSteps.size());
+
+        var firstParallelStep = parallelSteps.getFirst().getSteps().getFirst();
+        Assert.assertTrue(firstParallelStep instanceof FetchFromIndexStep);
+        var firstParallelIndexStep = (FetchFromIndexStep) firstParallelStep;
+
+        var secondParallelStep = parallelSteps.getLast().getSteps().getFirst();
+        Assert.assertTrue(secondParallelStep instanceof FetchFromIndexStep);
+        var secondParallelIndexStep = (FetchFromIndexStep) secondParallelStep;
+
+        var indexNames = Set.of(firstParallelIndexStep.getDesc().getIndex().getName(),
+            secondParallelIndexStep.getDesc().getIndex().getName());
+
+        Assert.assertEquals(Set.of(outIndexName, inIndexName), indexNames);
+      }
+    });
+  }
+
+  /**
+   * Verifies that two correlated LET subqueries sharing the same inner FROM
+   * subquery are materialized once and reused. The execution plan should show
+   * a MATERIALIZED LET GROUP instead of two independent LET steps.
+   */
+  @Test
+  public void testLetMaterialization_sharedBase() {
+    session.execute("CREATE CLASS LmPerson EXTENDS V").close();
+    session.execute("CREATE CLASS LmMessage EXTENDS V").close();
+    session.execute("CREATE CLASS LmHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX LmPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 6; i++) {
+      String type = (i < 4) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX LmMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE LmHasCreator FROM (SELECT FROM LmMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $postCount[0].cnt as posts, $commentCount[0].cnt as comments"
+            + " FROM LmPerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('LmHasCreator')) FROM LmPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('LmHasCreator')) FROM LmPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(4L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("comments")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that a single LET subquery (no sharing opportunity) still uses
+   * the regular LET step, not the materialized group step.
+   */
+  @Test
+  public void testLetMaterialization_singleLetNoGrouping() {
+    session.execute("CREATE CLASS SlPerson EXTENDS V").close();
+    session.execute("CREATE CLASS SlMessage EXTENDS V").close();
+    session.execute("CREATE CLASS SlHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX SlPerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX SlMessage SET title = 'msg" + i + "'").close();
+      session.execute(
+          "CREATE EDGE SlHasCreator FROM (SELECT FROM SlMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $msgCount[0].cnt as msgs FROM SlPerson"
+            + " LET $msgCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('SlHasCreator')) FROM SlPerson"
+            + " WHERE @rid = $parent.$current.@rid))"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(3L, ((Number) item.getProperty("msgs")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertFalse(
+        "Single LET should NOT use materialized group, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "Single LET should use regular LET step, plan was:\n" + plan,
+        plan.contains("LET (for each record)"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that when the materialized results exceed the configured max size,
+   * the engine falls back to independent execution and still returns correct
+   * results.
+   */
+  @Test
+  public void testLetMaterialization_fallbackOnSizeLimit() {
+    session.execute("CREATE CLASS FbPerson EXTENDS V").close();
+    session.execute("CREATE CLASS FbMessage EXTENDS V").close();
+    session.execute("CREATE CLASS FbHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX FbPerson SET name = 'carol'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 5; i++) {
+      String type = (i < 3) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX FbMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE FbHasCreator FROM (SELECT FROM FbMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    var originalMax = GlobalConfiguration.QUERY_LET_MATERIALIZATION_MAX_SIZE
+        .getValueAsInteger();
+    try {
+      GlobalConfiguration.QUERY_LET_MATERIALIZATION_MAX_SIZE.setValue(1);
+
+      session.begin();
+      var result = session.query(
+          "SELECT name, $postCount[0].cnt as posts,"
+              + " $commentCount[0].cnt as comments"
+              + " FROM FbPerson"
+              + " LET $postCount = (SELECT count(*) as cnt FROM"
+              + " (SELECT expand(in('FbHasCreator')) FROM FbPerson"
+              + " WHERE @rid = $parent.$current.@rid)"
+              + " WHERE type = 'Post'),"
+              + " $commentCount = (SELECT count(*) as cnt FROM"
+              + " (SELECT expand(in('FbHasCreator')) FROM FbPerson"
+              + " WHERE @rid = $parent.$current.@rid)"
+              + " WHERE type = 'Comment')"
+              + " WHERE @rid = " + personRid);
+
+      Assert.assertTrue(result.hasNext());
+      var item = result.next();
+      Assert.assertEquals(3L, ((Number) item.getProperty("posts")).longValue());
+      Assert.assertEquals(2L, ((Number) item.getProperty("comments")).longValue());
+
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_LET_MATERIALIZATION_MAX_SIZE.setValue(originalMax);
+    }
+  }
+
+  /**
+   * Verifies that two LET subqueries with different inner FROM subqueries are
+   * NOT grouped — each executes independently.
+   */
+  @Test
+  public void testLetMaterialization_differentInnerSubqueries() {
+    session.execute("CREATE CLASS DsPerson EXTENDS V").close();
+    session.execute("CREATE CLASS DsMessage EXTENDS V").close();
+    session.execute("CREATE CLASS DsForum EXTENDS V").close();
+    session.execute("CREATE CLASS DsHasCreator EXTENDS E").close();
+    session.execute("CREATE CLASS DsMemberOf EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX DsPerson SET name = 'dave'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX DsMessage SET title = 'msg" + i + "'").close();
+      session.execute(
+          "CREATE EDGE DsHasCreator FROM (SELECT FROM DsMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX DsForum SET title = 'forum" + i + "'").close();
+      session.execute(
+          "CREATE EDGE DsMemberOf FROM " + personRid
+              + " TO (SELECT FROM DsForum WHERE title = 'forum" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $msgCount[0].cnt as msgs, $forumCount[0].cnt as forums"
+            + " FROM DsPerson"
+            + " LET $msgCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('DsHasCreator')) FROM DsPerson"
+            + " WHERE @rid = $parent.$current.@rid)),"
+            + " $forumCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(out('DsMemberOf')) FROM DsPerson"
+            + " WHERE @rid = $parent.$current.@rid))"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(3L, ((Number) item.getProperty("msgs")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("forums")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertFalse(
+        "Different inner subqueries should NOT be grouped, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that three LET subqueries sharing the same inner FROM subquery
+   * are all grouped into a single materialized group.
+   */
+  @Test
+  public void testLetMaterialization_threeLetsSharedBase() {
+    session.execute("CREATE CLASS TlPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TlMessage EXTENDS V").close();
+    session.execute("CREATE CLASS TlHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX TlPerson SET name = 'eve'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 9; i++) {
+      String type = i < 4 ? "Post" : (i < 7 ? "Comment" : "Reply");
+      session.execute(
+          "CREATE VERTEX TlMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE TlHasCreator FROM (SELECT FROM TlMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $posts[0].cnt as posts, $comments[0].cnt as comments,"
+            + " $replies[0].cnt as replies"
+            + " FROM TlPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment'),"
+            + " $replies = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('TlHasCreator')) FROM TlPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Reply')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(4L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(3L, ((Number) item.getProperty("comments")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("replies")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Three shared LETs should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies mixed LET types: two shared subqueries grouped, one expression LET
+   * and one different subquery LET handled independently.
+   */
+  @Test
+  public void testLetMaterialization_mixedLetTypes() {
+    session.execute("CREATE CLASS MxPerson EXTENDS V").close();
+    session.execute("CREATE CLASS MxMessage EXTENDS V").close();
+    session.execute("CREATE CLASS MxHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX MxPerson SET name = 'frank', age = 30");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (var i = 0; i < 4; i++) {
+      String type = (i < 2) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX MxMessage SET title = 'msg" + i + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE MxHasCreator FROM (SELECT FROM MxMessage WHERE title = 'msg"
+              + i + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $doubled, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM MxPerson"
+            + " LET $doubled = age * 2,"
+            + " $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('MxHasCreator')) FROM MxPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('MxHasCreator')) FROM MxPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    // Focus on the shared subquery LET results (the expression LET is handled separately)
+    Assert.assertEquals(2L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(2L, ((Number) item.getProperty("comments")).longValue());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that materialized LET handles an empty inner result set correctly:
+   * the outer COUNT(*) should return 0 for both LET variables.
+   */
+  @Test
+  public void testMaterializedLet_emptyInnerResultSet() {
+    session.execute("CREATE CLASS EmptyPerson EXTENDS V").close();
+    session.execute("CREATE CLASS EmptyMessage EXTENDS V").close();
+    session.execute("CREATE CLASS EmptyHasCreator EXTENDS E").close();
+
+    session.begin();
+    // Create a person with NO edges to any messages
+    var personRs = session.execute(
+        "CREATE VERTEX EmptyPerson SET name = 'lonely'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM EmptyPerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('EmptyHasCreator')) FROM EmptyPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('EmptyHasCreator')) FROM EmptyPerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    // Empty inner result set should yield count 0 for both
+    Assert.assertEquals(0L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(0L, ((Number) item.getProperty("comments")).longValue());
+    Assert.assertFalse(result.hasNext());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies LET with inter-variable dependency: $b references $a. The second
+   * LET variable depends on the first, ensuring ordering is preserved.
+   */
+  @Test
+  public void testCorrelatedLet_interVariableDependency() {
+    session.execute("CREATE CLASS DepPerson EXTENDS V").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX DepPerson SET name = 'alice', age = 10");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "SELECT name, $a, $b FROM DepPerson"
+            + " LET $a = age * 2,"
+            + " $b = $a + 5"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(20, ((Number) item.getProperty("$a")).intValue());
+    Assert.assertEquals(25, ((Number) item.getProperty("$b")).intValue());
+    Assert.assertFalse(result.hasNext());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that running the same materialized LET query twice produces
+   * consistent results, exercising the plan caching path.
+   */
+  @Test
+  public void testMaterializedLet_planCachingConsistency() {
+    session.execute("CREATE CLASS CachePerson EXTENDS V").close();
+    session.execute("CREATE CLASS CacheMessage EXTENDS V").close();
+    session.execute("CREATE CLASS CacheHasCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX CachePerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 3; i++) {
+      String type = (i < 2) ? "Post" : "Comment";
+      session.execute(
+          "CREATE VERTEX CacheMessage SET title = 'cm" + i
+              + "', type = '" + type + "'")
+          .close();
+      session.execute(
+          "CREATE EDGE CacheHasCreator FROM"
+              + " (SELECT FROM CacheMessage WHERE title = 'cm" + i
+              + "') TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    String query =
+        "SELECT name, $postCount[0].cnt as posts,"
+            + " $commentCount[0].cnt as comments"
+            + " FROM CachePerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('CacheHasCreator')) FROM CachePerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Post'),"
+            + " $commentCount = (SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('CacheHasCreator')) FROM CachePerson"
+            + " WHERE @rid = $parent.$current.@rid)"
+            + " WHERE type = 'Comment')"
+            + " WHERE @rid = " + personRid;
+
+    // First execution
+    session.begin();
+    var result1 = session.query(query);
+    Assert.assertTrue(result1.hasNext());
+    var item1 = result1.next();
+    long posts1 = ((Number) item1.getProperty("posts")).longValue();
+    long comments1 = ((Number) item1.getProperty("comments")).longValue();
+    result1.close();
+    session.commit();
+
+    // Second execution (exercises plan cache)
+    session.begin();
+    var result2 = session.query(query);
+    Assert.assertTrue(result2.hasNext());
+    var item2 = result2.next();
+    Assert.assertEquals(posts1, ((Number) item2.getProperty("posts")).longValue());
+    Assert.assertEquals(comments1,
+        ((Number) item2.getProperty("comments")).longValue());
+    result2.close();
+    session.commit();
+
+    Assert.assertEquals(2L, posts1);
+    Assert.assertEquals(1L, comments1);
+  }
+
+  /**
+   * Verifies that three LET subqueries sharing the same inner FROM subquery
+   * are correctly materialized and produce independent results. Each applies
+   * a different WHERE filter to the same expanded edge set.
+   */
+  @Test
+  public void testMaterializedLet_threeEntriesSameBase() {
+    session.execute("CREATE CLASS TriPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TriMessage EXTENDS V").close();
+    session.execute("CREATE CLASS TriCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX TriPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 2 posts, 3 comments, 1 draft
+    for (int i = 0; i < 6; i++) {
+      String type = (i < 2) ? "Post" : (i < 5) ? "Comment" : "Draft";
+      session.execute(
+          "CREATE VERTEX TriMessage SET type = '" + type + "'").close();
+      session.execute(
+          "CREATE EDGE TriCreator FROM"
+              + " (SELECT FROM TriMessage WHERE type = '" + type
+              + "' AND @rid NOT IN (SELECT in('TriCreator') FROM TriPerson))"
+              + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    // Three LET entries with the same inner subquery but different filters.
+    String query =
+        "SELECT name,"
+            + " $posts[0].cnt as postCount,"
+            + " $comments[0].cnt as commentCount,"
+            + " $drafts[0].cnt as draftCount"
+            + " FROM TriPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Comment'),"
+            + " $drafts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('TriCreator')) FROM TriPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Draft')"
+            + " WHERE @rid = " + personRid;
+
+    session.begin();
+    var rs = session.query(query);
+    Assert.assertTrue(rs.hasNext());
+    var row = rs.next();
+    Assert.assertEquals(2L,
+        ((Number) row.getProperty("postCount")).longValue());
+    Assert.assertEquals(3L,
+        ((Number) row.getProperty("commentCount")).longValue());
+    Assert.assertEquals(1L,
+        ((Number) row.getProperty("draftCount")).longValue());
+    rs.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that a LET expression ($total) referencing a materialized LET
+   * subquery ($posts) produces correct results. The subquery is part of a
+   * materialized group (shared inner FROM), while the expression is evaluated
+   * separately. This guards against evaluation order regressions — if
+   * materialization somehow ran $total before $posts, it would get null/wrong
+   * values.
+   */
+  @Test
+  public void testMaterializedLet_expressionReferencesSubquery() {
+    session.execute("CREATE CLASS RefPerson EXTENDS V").close();
+    session.execute("CREATE CLASS RefMessage EXTENDS V").close();
+    session.execute("CREATE CLASS RefCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX RefPerson SET name = 'eve'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 4 posts, 2 comments
+    String[] types = {"Post", "Post", "Post", "Post", "Comment", "Comment"};
+    for (int i = 0; i < types.length; i++) {
+      session.execute(
+          "CREATE VERTEX RefMessage SET type = '" + types[i] + "'").close();
+    }
+    for (int i = 0; i < types.length; i++) {
+      session.execute(
+          "CREATE EDGE RefCreator FROM"
+              + " (SELECT FROM RefMessage WHERE type = '" + types[i]
+              + "' AND @rid NOT IN"
+              + " (SELECT in('RefCreator') FROM RefPerson))"
+              + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    // $posts and $comments share the same inner FROM → materialized group.
+    // $total is an expression referencing $posts and $comments → evaluated
+    // after the group, must see the correct values.
+    String query =
+        "SELECT name,"
+            + " $posts[0].cnt as postCount,"
+            + " $comments[0].cnt as commentCount,"
+            + " $total as totalCount"
+            + " FROM RefPerson"
+            + " LET $posts = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('RefCreator')) FROM RefPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $comments = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('RefCreator')) FROM RefPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Comment'),"
+            + " $total = $posts[0].cnt + $comments[0].cnt"
+            + " WHERE @rid = " + personRid;
+
+    session.begin();
+    var rs = session.query(query);
+    Assert.assertTrue(rs.hasNext());
+    var row = rs.next();
+    Assert.assertEquals(4L,
+        ((Number) row.getProperty("postCount")).longValue());
+    Assert.assertEquals(2L,
+        ((Number) row.getProperty("commentCount")).longValue());
+    // $total = $posts[0].cnt + $comments[0].cnt = 4 + 2 = 6
+    Assert.assertNotNull("$total should not be null",
+        row.getProperty("totalCount"));
+    Assert.assertEquals(6L,
+        ((Number) row.getProperty("totalCount")).longValue());
+    rs.close();
+    session.commit();
+  }
+
+  // ---------- Common filter extraction + push-down interaction tests ----------
+
+  /**
+   * Two LET entries sharing the same inner subquery with a common @class filter
+   * and different per-entry conditions. The common filter (@class = 'PdPost')
+   * should be pushed into the materialization query's ExpandStep, while the
+   * per-entry conditions (tag = 'A' / tag = 'B') are preserved in each entry's
+   * FilterStep via skipExpandPushDown.
+   */
+  @Test
+  public void testMaterializedLet_commonFilterPushDown() {
+    session.execute("CREATE CLASS PdPerson EXTENDS V").close();
+    session.execute("CREATE CLASS PdPost EXTENDS V").close();
+    session.execute("CREATE CLASS PdComment EXTENDS V").close();
+    session.execute("CREATE CLASS PdCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX PdPerson SET name = 'alice'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 3 Posts with tag=A, 2 Posts with tag=B, 2 Comments (should be ignored)
+    for (int i = 0; i < 3; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX PdPost SET tag = 'A'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE PdCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX PdPost SET tag = 'B'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE PdCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX PdComment SET tag = 'A'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE PdCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Common filter: @class = 'PdPost'. Per-entry: tag = 'A' / tag = 'B'
+    var result = session.query(
+        "SELECT name,"
+            + " $aCount[0].cnt as tagA,"
+            + " $bCount[0].cnt as tagB"
+            + " FROM PdPerson"
+            + " LET $aCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('PdCreator')) FROM PdPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'PdPost' AND tag = 'A'),"
+            + " $bCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('PdCreator')) FROM PdPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'PdPost' AND tag = 'B')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(
+        "Posts with tag=A", 3L, ((Number) item.getProperty("tagA")).longValue());
+    Assert.assertEquals(
+        "Posts with tag=B", 2L, ((Number) item.getProperty("tagB")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "Should show common filter in plan, plan was:\n" + plan,
+        plan.contains("common filter:"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Two LET entries with completely different WHERE clauses (no common filter).
+   * Materialization should still work — each entry gets its full WHERE preserved
+   * via skipExpandPushDown. No wrapper query is built.
+   */
+  @Test
+  public void testMaterializedLet_noCommonFilter() {
+    session.execute("CREATE CLASS NcPerson EXTENDS V").close();
+    session.execute("CREATE CLASS NcMessage EXTENDS V").close();
+    session.execute("CREATE CLASS NcCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX NcPerson SET name = 'bob'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    // 4 messages: 2 with color=red, 2 with size=big
+    for (int i = 0; i < 2; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX NcMessage SET color = 'red', size = 'small'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE NcCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX NcMessage SET color = 'blue', size = 'big'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE NcCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Completely different WHERE clauses — no common filter possible
+    var result = session.query(
+        "SELECT name,"
+            + " $redCount[0].cnt as reds,"
+            + " $bigCount[0].cnt as bigs"
+            + " FROM NcPerson"
+            + " LET $redCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('NcCreator')) FROM NcPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE color = 'red'),"
+            + " $bigCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('NcCreator')) FROM NcPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE size = 'big')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(
+        "Messages with color=red", 2L,
+        ((Number) item.getProperty("reds")).longValue());
+    Assert.assertEquals(
+        "Messages with size=big", 2L,
+        ((Number) item.getProperty("bigs")).longValue());
+
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Should still use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Two LET entries where one has a WHERE clause and the other has no WHERE.
+   * The entry without WHERE contributes an empty set to the intersection,
+   * resulting in no common filter. Both entries should still produce correct
+   * results.
+   */
+  @Test
+  public void testMaterializedLet_oneEntryWithoutWhere() {
+    session.execute("CREATE CLASS NwPerson EXTENDS V").close();
+    session.execute("CREATE CLASS NwMessage EXTENDS V").close();
+    session.execute("CREATE CLASS NwCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX NwPerson SET name = 'carol'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 5; i++) {
+      String type = (i < 3) ? "Post" : "Comment";
+      var msgRs = session.execute(
+          "CREATE VERTEX NwMessage SET type = '" + type + "'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE NwCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // $postCount has a WHERE, $allCount has no WHERE at all
+    var result = session.query(
+        "SELECT name,"
+            + " $postCount[0].cnt as posts,"
+            + " $allCount[0].cnt as total"
+            + " FROM NwPerson"
+            + " LET $postCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('NwCreator')) FROM NwPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $allCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('NwCreator')) FROM NwPerson"
+            + "   WHERE @rid = $parent.$current.@rid))"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(
+        "Posts only", 3L, ((Number) item.getProperty("posts")).longValue());
+    Assert.assertEquals(
+        "All messages", 5L, ((Number) item.getProperty("total")).longValue());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Two LET entries with common @class filter executed multiple times (multiple
+   * outer rows). Verifies that the plan cache works correctly with the
+   * skipExpandPushDown flag included in the cache key — the second outer row
+   * should get a cache hit for the per-entry plan (compiled without push-down).
+   */
+  @Test
+  public void testMaterializedLet_commonFilterPlanCaching() {
+    session.execute("CREATE CLASS CfPerson EXTENDS V").close();
+    session.execute("CREATE CLASS CfPost EXTENDS V").close();
+    session.execute("CREATE CLASS CfComment EXTENDS V").close();
+    session.execute("CREATE CLASS CfCreator EXTENDS E").close();
+
+    session.begin();
+    // Create two persons, each with different edge counts
+    var p1Rs = session.execute("CREATE VERTEX CfPerson SET name = 'alice'");
+    var p1Rid = p1Rs.next().getIdentity();
+    p1Rs.close();
+    var p2Rs = session.execute("CREATE VERTEX CfPerson SET name = 'bob'");
+    var p2Rid = p2Rs.next().getIdentity();
+    p2Rs.close();
+
+    // Alice: 3 Posts(tag=A), 1 Post(tag=B), 1 Comment
+    for (int i = 0; i < 3; i++) {
+      var rs = session.execute("CREATE VERTEX CfPost SET tag = 'A'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE CfCreator FROM " + rid + " TO " + p1Rid)
+          .close();
+    }
+    var rs1 = session.execute("CREATE VERTEX CfPost SET tag = 'B'");
+    var rid1 = rs1.next().getIdentity();
+    rs1.close();
+    session.execute("CREATE EDGE CfCreator FROM " + rid1 + " TO " + p1Rid)
+        .close();
+    var rs1c = session.execute("CREATE VERTEX CfComment SET tag = 'A'");
+    var rid1c = rs1c.next().getIdentity();
+    rs1c.close();
+    session.execute("CREATE EDGE CfCreator FROM " + rid1c + " TO " + p1Rid)
+        .close();
+
+    // Bob: 1 Post(tag=A), 2 Posts(tag=B)
+    var rs2a = session.execute("CREATE VERTEX CfPost SET tag = 'A'");
+    var rid2a = rs2a.next().getIdentity();
+    rs2a.close();
+    session.execute("CREATE EDGE CfCreator FROM " + rid2a + " TO " + p2Rid)
+        .close();
+    for (int i = 0; i < 2; i++) {
+      var rs2 = session.execute("CREATE VERTEX CfPost SET tag = 'B'");
+      var rid2 = rs2.next().getIdentity();
+      rs2.close();
+      session.execute("CREATE EDGE CfCreator FROM " + rid2 + " TO " + p2Rid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Query all persons — multiple outer rows exercise plan caching
+    var result = session.query(
+        "SELECT name,"
+            + " $aCount[0].cnt as tagA,"
+            + " $bCount[0].cnt as tagB"
+            + " FROM CfPerson"
+            + " LET $aCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('CfCreator')) FROM CfPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'CfPost' AND tag = 'A'),"
+            + " $bCount = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('CfCreator')) FROM CfPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'CfPost' AND tag = 'B')"
+            + " ORDER BY name");
+
+    Assert.assertTrue(result.hasNext());
+    var alice = result.next();
+    Assert.assertEquals("alice", alice.getProperty("name"));
+    Assert.assertEquals(3L, ((Number) alice.getProperty("tagA")).longValue());
+    Assert.assertEquals(1L, ((Number) alice.getProperty("tagB")).longValue());
+
+    Assert.assertTrue(result.hasNext());
+    var bob = result.next();
+    Assert.assertEquals("bob", bob.getProperty("name"));
+    Assert.assertEquals(1L, ((Number) bob.getProperty("tagA")).longValue());
+    Assert.assertEquals(2L, ((Number) bob.getProperty("tagB")).longValue());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * Verifies that the common filter is only the intersection of all entries'
+   * WHERE conditions. When all entries share the full WHERE (identical
+   * conditions), the per-entry FilterStep evaluates redundantly (always true)
+   * and materialization still produces correct results.
+   */
+  @Test
+  public void testMaterializedLet_allConditionsCommon() {
+    session.execute("CREATE CLASS AcPerson EXTENDS V").close();
+    session.execute("CREATE CLASS AcMessage EXTENDS V").close();
+    session.execute("CREATE CLASS AcCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute("CREATE VERTEX AcPerson SET name = 'dave'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 4; i++) {
+      var msgRs = session.execute(
+          "CREATE VERTEX AcMessage SET type = 'Post', n = " + i);
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE AcCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    // 2 non-Post messages
+    for (int i = 0; i < 2; i++) {
+      var msgRs = session.execute("CREATE VERTEX AcMessage SET type = 'Comment'");
+      var rid = msgRs.next().getIdentity();
+      msgRs.close();
+      session.execute("CREATE EDGE AcCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Both entries have identical WHERE — all conditions are common.
+    // Each computes count(*) but with different aliases — still a valid
+    // materialization group.
+    var result = session.query(
+        "SELECT name,"
+            + " $x[0].cnt as countX,"
+            + " $y[0].cnt as countY"
+            + " FROM AcPerson"
+            + " LET $x = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('AcCreator')) FROM AcPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post'),"
+            + " $y = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('AcCreator')) FROM AcPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE type = 'Post')"
+            + " WHERE @rid = " + personRid);
+
+    Assert.assertTrue(result.hasNext());
+    var item = result.next();
+    Assert.assertEquals(4L, ((Number) item.getProperty("countX")).longValue());
+    Assert.assertEquals(4L, ((Number) item.getProperty("countY")).longValue());
+
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * End-to-end test modelling the IC10 two-LET pattern before it was manually
+   * merged into a single sum(if(...)). Verifies that both optimizations compose
+   * correctly:
+   *
+   * <ul>
+   *   <li>Common filter {@code @class = 'IcPost'} is pushed into the
+   *       materialization query's ExpandStep (collection ID check — zero
+   *       I/O for Comments)</li>
+   *   <li>Per-entry filters ({@code tag CONTAINS 'sports'} /
+   *       {@code NOT (tag CONTAINS 'sports')}) are preserved in each entry's
+   *       FilterStep via {@code skipExpandPushDown}</li>
+   *   <li>The shared inner traversal is executed once (materialization), not
+   *       twice</li>
+   * </ul>
+   *
+   * <p>Graph structure per person:
+   * <pre>
+   *   Person ←[IcCreator]— IcPost(tag='sports')   x3
+   *   Person ←[IcCreator]— IcPost(tag='music')     x2
+   *   Person ←[IcCreator]— IcComment(tag='sports') x2  (filtered out by @class)
+   * </pre>
+   */
+  @Test
+  public void testMaterializedLet_IC10Pattern_pushDownWithMaterialization() {
+    session.execute("CREATE CLASS IcPerson EXTENDS V").close();
+    session.execute("CREATE CLASS IcPost EXTENDS V").close();
+    session.execute("CREATE CLASS IcComment EXTENDS V").close();
+    session.execute("CREATE CLASS IcCreator EXTENDS E").close();
+    session.execute("CREATE CLASS IcKnows EXTENDS E").close();
+
+    session.begin();
+    // Create two persons (start and fof) connected by KNOWS
+    var startRs = session.execute(
+        "CREATE VERTEX IcPerson SET name = 'start', id = 1");
+    var startRid = startRs.next().getIdentity();
+    startRs.close();
+
+    var fofRs = session.execute(
+        "CREATE VERTEX IcPerson SET name = 'fof', id = 2");
+    var fofRid = fofRs.next().getIdentity();
+    fofRs.close();
+
+    session.execute(
+        "CREATE EDGE IcKnows FROM " + startRid + " TO " + fofRid).close();
+
+    // fof's content: 3 Posts with tag='sports', 2 Posts with tag='music',
+    // 2 Comments with tag='sports' (should be filtered by @class = 'IcPost')
+    for (int i = 0; i < 3; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcPost SET tag = 'sports'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcPost SET tag = 'music'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    for (int i = 0; i < 2; i++) {
+      var rs = session.execute(
+          "CREATE VERTEX IcComment SET tag = 'sports'");
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE IcCreator FROM " + rid + " TO " + fofRid)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // IC10-style query: two LETs with common @class='IcPost' filter
+    // and different per-entry tag conditions
+    var result = session.query(
+        "SELECT fofName,"
+            + " $posScore[0].cnt as posScore,"
+            + " $negScore[0].cnt as negScore"
+            + " FROM ("
+            + "   SELECT expand(out('IcKnows')) FROM IcPerson"
+            + "   WHERE @rid = " + startRid
+            + " )"
+            + " LET fofName = name,"
+            + "  $posScore = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('IcCreator')) FROM IcPerson"
+            + "    WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'IcPost' AND tag = 'sports'),"
+            + "  $negScore = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('IcCreator')) FROM IcPerson"
+            + "    WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'IcPost' AND tag = 'music')");
+
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    Assert.assertEquals("fof", row.getProperty("fofName"));
+    // 3 Posts with tag='sports' (Comments excluded by @class filter)
+    Assert.assertEquals(
+        "posScore (Posts with tag=sports)",
+        3L, ((Number) row.getProperty("posScore")).longValue());
+    // 2 Posts with tag='music'
+    Assert.assertEquals(
+        "negScore (Posts with tag=music)",
+        2L, ((Number) row.getProperty("negScore")).longValue());
+
+    // Verify plan structure: materialization with common filter push-down.
+    // The common @class='IcPost' filter should appear in the materialization
+    // step. Per-entry filters (tag conditions) are not visible in the plan
+    // prettyPrint — they live in per-entry plans created at execution time.
+    // Correctness of per-entry filtering is proven by the count assertions
+    // above: if the FilterStep were lost (push-down without skipExpandPushDown),
+    // all Posts would be counted for both entries, yielding 5/5 instead of 3/2.
+    var plan = result.getExecutionPlan().prettyPrint(0, 2);
+    Assert.assertTrue(
+        "Should use MATERIALIZED LET GROUP, plan was:\n" + plan,
+        plan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "Common filter should contain @class = 'IcPost', plan was:\n" + plan,
+        plan.contains("common filter:") && plan.contains("IcPost"));
+
+    Assert.assertFalse(result.hasNext());
+    result.close();
+    session.commit();
+  }
+
+  /**
+   * EXPLAIN-level test verifying that a query with two LET entries sharing
+   * the same inner subquery and the same @class filter produces a plan with
+   * MATERIALIZED LET GROUP and the common filter reported in the plan output.
+   * Also verifies the query against independent execution for correctness.
+   */
+  @Test
+  public void testMaterializedLet_explainShowsCommonFilter() {
+    session.execute("CREATE CLASS ExPerson EXTENDS V").close();
+    session.execute("CREATE CLASS ExPost EXTENDS V").close();
+    session.execute("CREATE CLASS ExComment EXTENDS V").close();
+    session.execute("CREATE CLASS ExCreator EXTENDS E").close();
+
+    session.begin();
+    var personRs = session.execute(
+        "CREATE VERTEX ExPerson SET name = 'test'");
+    var personRid = personRs.next().getIdentity();
+    personRs.close();
+
+    for (int i = 0; i < 4; i++) {
+      var rs = session.execute("CREATE VERTEX ExPost SET n = " + i);
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE ExCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    for (int i = 0; i < 3; i++) {
+      var rs = session.execute("CREATE VERTEX ExComment SET n = " + i);
+      var rid = rs.next().getIdentity();
+      rs.close();
+      session.execute("CREATE EDGE ExCreator FROM " + rid + " TO " + personRid)
+          .close();
+    }
+    session.commit();
+
+    String query =
+        "SELECT name,"
+            + " $a[0].cnt as countA,"
+            + " $b[0].cnt as countB"
+            + " FROM ExPerson"
+            + " LET $a = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'ExPost' AND n < 2),"
+            + " $b = (SELECT count(*) as cnt FROM"
+            + "   (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + "   WHERE @rid = $parent.$current.@rid)"
+            + "   WHERE @class = 'ExPost' AND n >= 2)"
+            + " WHERE @rid = " + personRid;
+
+    // 1. Run EXPLAIN and verify plan structure
+    session.begin();
+    var explain = session.execute("EXPLAIN " + query);
+    Assert.assertTrue(explain.hasNext());
+    var explainPlan = explain.next().getProperty("executionPlanAsString")
+        .toString();
+    explain.close();
+    session.commit();
+
+    Assert.assertTrue(
+        "EXPLAIN should show MATERIALIZED LET GROUP, was:\n" + explainPlan,
+        explainPlan.contains("MATERIALIZED LET GROUP"));
+    Assert.assertTrue(
+        "EXPLAIN should show common filter with ExPost, was:\n" + explainPlan,
+        explainPlan.contains("common filter:")
+            && explainPlan.contains("ExPost"));
+
+    // 2. Run actual query and verify correct results
+    session.begin();
+    var result = session.query(query);
+    Assert.assertTrue(result.hasNext());
+    var row = result.next();
+    // 4 Posts total: n=0,1 match "n < 2", n=2,3 match "n >= 2"
+    Assert.assertEquals(2L, ((Number) row.getProperty("countA")).longValue());
+    Assert.assertEquals(2L, ((Number) row.getProperty("countB")).longValue());
+    result.close();
+    session.commit();
+
+    // 3. Verify against independent execution (no materialization trick)
+    session.begin();
+    var indA = session.query(
+        "SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + " WHERE @rid = " + personRid + ")"
+            + " WHERE @class = 'ExPost' AND n < 2");
+    Assert.assertEquals(
+        2L, ((Number) indA.next().getProperty("cnt")).longValue());
+    indA.close();
+
+    var indB = session.query(
+        "SELECT count(*) as cnt FROM"
+            + " (SELECT expand(in('ExCreator')) FROM ExPerson"
+            + " WHERE @rid = " + personRid + ")"
+            + " WHERE @class = 'ExPost' AND n >= 2");
+    Assert.assertEquals(
+        2L, ((Number) indB.next().getProperty("cnt")).longValue());
+    indB.close();
+    session.commit();
+  }
+
 }

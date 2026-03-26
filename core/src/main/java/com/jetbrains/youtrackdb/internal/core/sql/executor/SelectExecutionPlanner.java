@@ -53,6 +53,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -224,8 +225,15 @@ public class SelectExecutionPlanner {
     var session = ctx.getDatabaseSession();
 
     // --- 1. Check the plan cache before doing any work ---
+    // Include skipExpandPushDown in the cache key so that plans compiled with
+    // push-down disabled (materialized LET per-entry) are stored separately
+    // from plans compiled with push-down enabled (normal execution).
+    var cacheKey = statement.getOriginalStatement();
+    if (ctx.isSkipExpandPushDown()) {
+      cacheKey += "\0skipExpandPushDown";
+    }
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
-      var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
+      var plan = YqlExecutionPlanCache.get(cacheKey, ctx, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
@@ -278,7 +286,7 @@ public class SelectExecutionPlanner {
         && statement.executinPlanCanBeCached(session)
         && result.canBeCached()
         && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
-      YqlExecutionPlanCache.put(statement.getOriginalStatement(), result, ctx.getDatabaseSession());
+      YqlExecutionPlanCache.put(cacheKey, result, ctx.getDatabaseSession());
     }
     return result;
   }
@@ -1701,24 +1709,238 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    // this could be invoked multiple times
-    // so it can be optimized
-    // checking whether the execution plan already contains some LET steps
-    // and in case skip
-    if (info.perRecordLetClause != null) {
-      var items = info.perRecordLetClause.getItems();
-      items = sortLet(items, this.statement.getLetClause());
+    if (info.perRecordLetClause == null) {
+      return;
+    }
+    var items = info.perRecordLetClause.getItems();
+    items = sortLet(items, this.statement.getLetClause());
 
-      for (var item : items) {
-        if (item.getExpression() != null) {
-          plan.chain(
-              new LetExpressionStep(
-                  item.getVarName(), item.getExpression(), ctx, profilingEnabled));
-        } else {
-          plan.chain(new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
+    var shared = detectSharedLetBases(items);
+    var alreadyGrouped = new HashSet<SQLLetItem>();
+
+    for (var item : items) {
+      if (alreadyGrouped.contains(item)) {
+        continue;
+      }
+      if (item.getExpression() != null) {
+        plan.chain(
+            new LetExpressionStep(
+                item.getVarName(), item.getExpression(), ctx, profilingEnabled));
+        continue;
+      }
+
+      var group = shared.groups().get(item);
+      if (group != null && group.size() > 1) {
+        var sharedInner = shared.innerByItem().get(item);
+        var commonFilter = shared.commonFilterByGroup().get(group.getFirst());
+        var entries = new ArrayList<MaterializedLetGroupStep.LetEntry>();
+        for (var grouped : group) {
+          entries.add(new MaterializedLetGroupStep.LetEntry(
+              grouped.getVarName(), grouped.getQuery()));
+          alreadyGrouped.add(grouped);
+        }
+        plan.chain(new MaterializedLetGroupStep(
+            sharedInner, commonFilter, entries, ctx, profilingEnabled));
+      } else {
+        plan.chain(
+            new LetQueryStep(item.getVarName(), item.getQuery(), ctx, profilingEnabled));
+      }
+    }
+  }
+
+  /**
+   * Groups per-record LET subquery items by their inner FROM subquery. Items
+   * whose full query is a {@code SELECT ... FROM (innerSubquery) WHERE ...}
+   * pattern are grouped by structural equality of the inner subquery.
+   *
+   * <p>Returns a map from each item to its group (list of items sharing the
+   * same inner subquery). Items that don't match the pattern or have unique
+   * inner subqueries map to a singleton list.
+   */
+  /**
+   * Groups per-record LET subquery items by their shared inner FROM subquery
+   * and extracts common WHERE conditions within each group.
+   *
+   * @param groups            maps each item to its group (all items sharing
+   *                          the same inner subquery)
+   * @param innerByItem       maps each item to its extracted inner FROM subquery
+   * @param commonFilterByGroup common WHERE filter per group, keyed by the first
+   *                          item of the group. Null value means no common filter.
+   */
+  private record SharedLetBases(
+      Map<SQLLetItem, List<SQLLetItem>> groups,
+      Map<SQLLetItem, SQLStatement> innerByItem,
+      Map<SQLLetItem, SQLWhereClause> commonFilterByGroup) {
+  }
+
+  private static SharedLetBases detectSharedLetBases(
+      List<SQLLetItem> items) {
+    // Group subquery items by the string representation of their inner FROM
+    // subquery. Using toString() instead of equals() because SQLStatement.equals()
+    // may not work reliably across different AST instances parsed from the same
+    // text (e.g. different object identities for $parent.$current references).
+    var byInnerText = new LinkedHashMap<String, List<SQLLetItem>>();
+    var innerByItem = new HashMap<SQLLetItem, SQLStatement>();
+    for (var item : items) {
+      if (item.getQuery() == null) {
+        continue;
+      }
+      var inner = extractInnerFromSubquery(item.getQuery());
+      if (inner == null) {
+        continue;
+      }
+      innerByItem.put(item, inner);
+      var key = inner.toString();
+      byInnerText.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
+    }
+
+    var groups = new HashMap<SQLLetItem, List<SQLLetItem>>();
+    var commonFilterByGroup = new HashMap<SQLLetItem, SQLWhereClause>();
+    for (var group : byInnerText.values()) {
+      for (var item : group) {
+        groups.put(item, group);
+      }
+      if (group.size() > 1) {
+        var commonFilter = extractCommonFilter(group);
+        if (commonFilter != null) {
+          commonFilterByGroup.put(group.getFirst(), commonFilter);
         }
       }
     }
+    return new SharedLetBases(groups, innerByItem, commonFilterByGroup);
+  }
+
+  /**
+   * Extracts the common WHERE conditions shared by all entries in a group.
+   * Decomposes each entry's WHERE into AND-level sub-blocks and computes
+   * the intersection using structural {@code equals()} on
+   * {@link SQLBooleanExpression} instances.
+   *
+   * @return a WHERE clause containing only the common conditions, or
+   *         {@code null} if there is no common filter
+   */
+  @Nullable private static SQLWhereClause extractCommonFilter(List<SQLLetItem> group) {
+    List<List<SQLBooleanExpression>> allConditions = new ArrayList<>();
+    for (var item : group) {
+      var conditions = extractAndConditions(item.getQuery());
+      if (conditions == null || conditions.isEmpty()) {
+        // An entry with no WHERE contributes an empty set to the
+        // intersection — the result will be empty.
+        return null;
+      }
+      allConditions.add(conditions);
+    }
+
+    // Compute intersection: start with the first entry's conditions,
+    // then retain only those present in all other entries.
+    var intersection = new ArrayList<>(allConditions.getFirst());
+    for (int i = 1; i < allConditions.size(); i++) {
+      var other = allConditions.get(i);
+      intersection.removeIf(cond -> !containsExpression(other, cond));
+    }
+
+    if (intersection.isEmpty()) {
+      return null;
+    }
+
+    // Build the common WHERE clause from intersection conditions.
+    var commonWhere = buildWhereFromConditions(intersection);
+
+    // Defensive guard: common filter must not reference $parent (impossible
+    // by definition since $parent conditions vary per entry).
+    if (commonWhere.refersToParent()) {
+      return null;
+    }
+    return commonWhere;
+  }
+
+  /**
+   * Extracts AND-level conditions from a LET entry's full query WHERE clause.
+   * Returns {@code null} if the query has no WHERE or is not a SELECT statement.
+   */
+  @Nullable private static List<SQLBooleanExpression> extractAndConditions(
+      SQLStatement query) {
+    if (!(query instanceof SQLSelectStatement selectStmt)) {
+      return null;
+    }
+    var where = selectStmt.getWhereClause();
+    if (where == null) {
+      return null;
+    }
+    var base = where.getBaseExpression();
+    if (base == null) {
+      return null;
+    }
+
+    // Unwrap: parser produces SQLOrBlock -> [SQLAndBlock -> [conditions]]
+    if (base instanceof SQLOrBlock orBlock) {
+      var orSubs = orBlock.getSubBlocks();
+      if (orSubs.size() == 1 && orSubs.getFirst() instanceof SQLAndBlock andBlock) {
+        // Single OR branch — unwrap to AND-level sub-blocks
+        return new ArrayList<>(andBlock.getSubBlocks());
+      }
+      // Multiple OR branches — treat entire OR as a single opaque condition
+      return List.of(base);
+    }
+    if (base instanceof SQLAndBlock andBlock) {
+      return new ArrayList<>(andBlock.getSubBlocks());
+    }
+    // Single condition (e.g. @class = 'X') — wrap in a list
+    return new ArrayList<>(List.of(base));
+  }
+
+  /**
+   * Checks if a list of expressions contains one structurally equal to the
+   * given expression, using {@link SQLBooleanExpression#equals(Object)}.
+   */
+  private static boolean containsExpression(
+      List<SQLBooleanExpression> list, SQLBooleanExpression target) {
+    for (var expr : list) {
+      if (expr.equals(target)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Builds a {@link SQLWhereClause} from a list of AND-conditions.
+   */
+  private static SQLWhereClause buildWhereFromConditions(
+      List<SQLBooleanExpression> conditions) {
+    SQLBooleanExpression base;
+    if (conditions.size() == 1) {
+      base = conditions.getFirst().copy();
+    } else {
+      var andBlock = new SQLAndBlock(-1);
+      for (var cond : conditions) {
+        andBlock.getSubBlocks().add(cond.copy());
+      }
+      base = andBlock;
+    }
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(base);
+    return where;
+  }
+
+  /**
+   * Extracts the inner FROM subquery from a LET query of the form
+   * {@code SELECT ... FROM (innerSubquery) WHERE ...}. Returns {@code null}
+   * if the query does not match this pattern.
+   */
+  @Nullable private static SQLStatement extractInnerFromSubquery(SQLStatement query) {
+    if (!(query instanceof SQLSelectStatement selectStmt)) {
+      return null;
+    }
+    var target = selectStmt.getTarget();
+    if (target == null) {
+      return null;
+    }
+    var fromItem = target.getItem();
+    if (fromItem == null) {
+      return null;
+    }
+    return fromItem.getStatement();
   }
 
   /**
@@ -3134,6 +3356,12 @@ public class SelectExecutionPlanner {
    */
   private void tryPushDownFilterIntoExpand(
       SelectExecutionPlan plan, QueryPlanningInfo info) {
+    // Materialized LET per-entry plans set this flag to preserve the outer
+    // FilterStep — push-down would move filters into the SubQueryStep which
+    // is later replaced with ListSourceStep, silently losing the filter.
+    if (plan.getContext().isSkipExpandPushDown()) {
+      return;
+    }
     var steps = plan.steps;
     if (steps.size() < 2 || info.whereClause == null) {
       return;

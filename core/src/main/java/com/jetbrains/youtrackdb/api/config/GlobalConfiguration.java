@@ -833,6 +833,15 @@ public enum GlobalConfiguration {
       Integer.class,
       1000),
 
+  QUERY_LET_MATERIALIZATION_MAX_SIZE(
+      "youtrackdb.query.letMaterialization.maxSize",
+      "Maximum number of records to materialize when sharing a common inner subquery"
+          + " across multiple correlated LET clauses. If the inner subquery returns more"
+          + " records than this limit, each LET clause executes independently.",
+      Integer.class,
+      10000,
+      true),
+
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
