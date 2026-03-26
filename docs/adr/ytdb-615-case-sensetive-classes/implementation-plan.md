@@ -286,4 +286,4 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > **Strategy refresh:** CONTINUE — no downstream impact. All tracks complete.
 
 ## Final Design Document
-- [>] Phase 4: Final design document (`design-final.md`)
+- [x] Phase 4: Final design document (`design-final.md`)
