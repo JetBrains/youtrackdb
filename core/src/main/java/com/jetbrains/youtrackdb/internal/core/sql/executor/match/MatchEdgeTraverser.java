@@ -351,7 +351,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
       SQLMatchPathItem item,
       Result startingPoint,
       int depth,
-      @Nullable MatchPath pathToHere,
+      @Nullable PathNode pathToHere,
       RidSet visited) {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
@@ -427,7 +427,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
           rs.setMetadata("$depth", depth);
           rs.setMetadata("$matchPath",
-              pathToHere == null ? MatchPath.emptyPath() : pathToHere.toList());
+              pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
           result.add(rs);
         }
       }
@@ -465,9 +465,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
           }
 
           // Build the path by appending the current neighbor — O(1) cons-cell append
-          // instead of O(depth) ArrayList copy. The MatchPath shares structure with
+          // instead of O(depth) ArrayList copy. The PathNode shares structure with
           // all ancestor paths and is only materialized to a List when pathAlias is read.
-          var newPath = new MatchPath(origin, pathToHere, depth);
+          var newPath = new PathNode(origin, pathToHere, depth);
 
           // Recursive call with incremented depth, sharing the visited set
           var subResult =
