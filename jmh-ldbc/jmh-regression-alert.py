@@ -251,7 +251,6 @@ def send_zulip_message(content, zulip_url, api_key, bot_email, stream, topic):
         sys.exit(1)
 
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="Check JMH results for regressions and alert via Zulip"
