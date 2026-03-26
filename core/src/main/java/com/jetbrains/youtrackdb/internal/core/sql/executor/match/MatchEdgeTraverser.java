@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -340,8 +339,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
    * @param item           the path item describing the traversal
    * @param startingPoint  the record to traverse from
    * @param depth          current recursion depth (0 at the start)
-   * @param pathToHere     the sequence of records visited so far (for `$matchPath`),
-   *                       `null` at the start
+   * @param pathToHere     immutable cons-cell path of records visited so far (for
+   *                       `$matchPath`), or `null` at the start. Appending is O(1);
+   *                       materialization to a list is deferred to when pathAlias is read.
    * @param visited        mutable bitmap set of RIDs already emitted; used to deduplicate
    *                       vertices reachable via multiple paths in diamond/cyclic graphs
    * @return a stream of matching result records
@@ -351,7 +351,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
       SQLMatchPathItem item,
       Result startingPoint,
       int depth,
-      List<Result> pathToHere,
+      @Nullable MatchPath pathToHere,
       RidSet visited) {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
@@ -427,7 +427,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
           rs.setMetadata("$depth", depth);
           rs.setMetadata("$matchPath",
-              pathToHere == null ? Collections.EMPTY_LIST : pathToHere);
+              pathToHere == null ? MatchPath.emptyPath() : pathToHere.toList());
           result.add(rs);
         }
       }
@@ -464,12 +464,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
             }
           }
 
-          // Build the path by appending the current neighbor
-          List<Result> newPath = new ArrayList<>();
-          if (pathToHere != null) {
-            newPath.addAll(pathToHere);
-          }
-          newPath.add(origin);
+          // Build the path by appending the current neighbor — O(1) cons-cell append
+          // instead of O(depth) ArrayList copy. The MatchPath shares structure with
+          // all ancestor paths and is only materialized to a List when pathAlias is read.
+          var newPath = new MatchPath(origin, pathToHere, depth);
 
           // Recursive call with incremented depth, sharing the visited set
           var subResult =
