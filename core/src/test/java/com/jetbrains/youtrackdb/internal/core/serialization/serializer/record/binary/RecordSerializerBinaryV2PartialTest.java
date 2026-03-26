@@ -397,6 +397,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(deserialized.getString("field_7")).isEqualTo("val_7");
     assertThat(deserialized.hasProperty("field_0")).isFalse();
     assertThat(deserialized.hasProperty("field_12")).isFalse();
+    session.rollback();
   }
 
   // ========================================================================================
@@ -569,11 +570,12 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
-  public void partial_hashCollisionResolved_thirtyProperties() {
-    // With 30 properties and 2^32 possible hash values, hash collisions are rare but
-    // the hash-accelerated scan must handle them: when the 4-byte hash prefix matches
-    // but the full name comparison fails, the scan continues to the next entry.
-    // Verify each property is individually retrievable via partial deserialization.
+  public void partial_thirtyProperties_allIndividuallyRetrievable() {
+    // Verify each of 30 properties is individually retrievable via partial
+    // deserialization. While 4-byte hash collisions are extremely unlikely at this
+    // scale (~0.01%), the exhaustive per-field check ensures correctness of the
+    // linear scan for all entry positions. In the rare event of a collision, the
+    // scan correctly falls through to full name comparison.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     int n = 30;
@@ -716,8 +718,55 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   // ========================================================================================
-  // Hash prefix verification
+  // Boundary tests (single property, empty entity)
   // ========================================================================================
+
+  @Test
+  public void partial_singleProperty_found() {
+    // Entity with exactly one property — minimal non-empty case. The scan loop runs
+    // once and should find the match.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("only", "value");
+
+    var deserialized = partialDeserialize(entity, "only");
+    assertThat(deserialized.getString("only")).isEqualTo("value");
+    session.rollback();
+  }
+
+  @Test
+  public void partial_singleProperty_notFound() {
+    // Entity with exactly one property, but we request a different field.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("only", "value");
+
+    var deserialized = partialDeserialize(entity, "other");
+    assertThat(deserialized.hasProperty("other")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void field_emptyEntity_returnsNull() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var field = deserializeFieldFromEntity(entity, "anything", false);
+    assertThat(field).isNull();
+    session.rollback();
+  }
+
+  @Test
+  public void field_singleProperty_found() {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("only", "value");
+
+    var field = deserializeFieldFromEntity(entity, "only", false);
+    assertThat(field).isNotNull();
+    assertThat(field.name).isEqualTo("only");
+    assertThat(field.type).isEqualTo(PropertyTypeInternal.STRING);
+    session.rollback();
+  }
 
   @Test
   public void partial_twentyProperties() {
@@ -739,11 +788,30 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
   }
 
   @Test
+  public void partial_unicodePropertyName_foundViaHashScan() {
+    // Multi-byte UTF-8 property names: the hash is computed from UTF-8 bytes, so
+    // a mismatch between lookup encoding and stored encoding would cause lookup failure.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("ascii", "val1");
+    entity.setString("\u4e16\u754c", "world"); // Chinese "world"
+    entity.setString("\u0410\u0411", "cyrillic");
+
+    var deserialized = partialDeserialize(entity, "\u4e16\u754c");
+    assertThat(deserialized.getString("\u4e16\u754c")).isEqualTo("world");
+    assertThat(deserialized.hasProperty("ascii")).isFalse();
+    session.rollback();
+  }
+
+  // ========================================================================================
+  // Hash prefix verification
+  // ========================================================================================
+
+  @Test
   public void partial_schemaAware_hashPrefixUsesPropertyName() {
     // Schema-aware properties encode the property ID as a negative varint in the binary
     // format, but the 4-byte hash prefix is always computed from the property NAME string
-    // (not the encoded ID). Verify that partial deserialization of a schema-aware property
-    // correctly computes the hash from the name and matches it against the stored prefix.
+    // (not the encoded ID). Verify via round-trip and direct byte inspection.
     var clazz = session.createClass("HashPrefixSchemaTest");
     clazz.createProperty("alpha", PropertyType.STRING);
     clazz.createProperty("beta", PropertyType.INTEGER);
@@ -759,27 +827,64 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     entity.setProperty("delta", true);
     entity.setProperty("epsilon", "e_val");
 
-    // Request middle field — hash prefix must match "gamma" name, not its property ID
+    // Round-trip: request middle field
     var deserialized = partialDeserialize(entity, "gamma");
     assertThat((double) deserialized.getProperty("gamma")).isEqualTo(3.14);
     assertThat(deserialized.hasProperty("alpha")).isFalse();
     assertThat(deserialized.hasProperty("epsilon")).isFalse();
+
+    // Direct byte inspection: verify the first entry's 4-byte hash prefix is computed
+    // from the property name string, not the encoded property ID
+    var bytes = new BytesContainer();
+    v2.serialize(session, entity, bytes);
+    var readBytes = new BytesContainer(bytes.bytes);
+    VarIntSerializer.readAsInteger(readBytes); // skip property count
+    int storedHash = com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
+        .deserializeLiteral(readBytes.bytes, readBytes.offset);
+    // The first property name varies by serialization order, but we can verify
+    // the stored hash matches the MurmurHash3 of whichever name is first
+    readBytes.skip(4); // skip hash
+    int nameLen = VarIntSerializer.readAsInteger(readBytes);
+    String firstName;
+    if (nameLen > 0) {
+      // schema-less encoding
+      firstName = new String(readBytes.bytes, readBytes.offset, nameLen,
+          java.nio.charset.StandardCharsets.UTF_8);
+    } else {
+      // schema-aware encoding: resolve property name from global ID
+      int propertyId = (nameLen * -1) - 1;
+      var globalProp = session.getMetadata().getSchema().getGlobalPropertyById(propertyId);
+      firstName = globalProp.getName();
+    }
+    byte[] firstNameBytes = firstName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    int expectedHash = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3
+        .hash32WithSeed(firstNameBytes, 0, firstNameBytes.length, 0);
+    assertThat(storedHash).as("Hash prefix for '%s'", firstName).isEqualTo(expectedHash);
     session.rollback();
   }
 
   @Test
-  public void fieldNames_twentyProperties() {
-    // Verify getFieldNames returns all 20 property names — exercises the hash prefix
-    // skip logic in getFieldNames (must skip 4-byte prefix before reading each name).
+  public void fieldNames_mixedSchemaAwareAndSchemaLess_twentyProperties() {
+    // Verify getFieldNames correctly skips 4-byte hash prefix for both schema-aware
+    // (negative varint name encoding) and schema-less (inline UTF-8) properties.
+    var clazz = session.createClass("FieldNamesMixedTest");
+    for (int i = 0; i < 10; i++) {
+      clazz.createProperty("schema_" + i, PropertyType.STRING);
+    }
+
     session.begin();
-    var entity = (EntityImpl) session.newEntity();
-    for (int i = 0; i < 20; i++) {
-      entity.setString("name_" + i, "val");
+    var entity = (EntityImpl) session.newEntity("FieldNamesMixedTest");
+    for (int i = 0; i < 10; i++) {
+      entity.setProperty("schema_" + i, "val");
+    }
+    for (int i = 0; i < 10; i++) {
+      entity.setString("dynamic_" + i, "val");
     }
     var names = getFieldNamesFromEntity(entity, false);
     String[] expected = new String[20];
-    for (int i = 0; i < 20; i++) {
-      expected[i] = "name_" + i;
+    for (int i = 0; i < 10; i++) {
+      expected[i] = "schema_" + i;
+      expected[i + 10] = "dynamic_" + i;
     }
     assertThat(names).containsExactlyInAnyOrder(expected);
     session.rollback();
