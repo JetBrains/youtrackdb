@@ -83,15 +83,19 @@ public class CacheEntryChangesLockTest {
   @Test
   public void testReleaseSharedLockDelegatesToCacheEntry() {
     // Verifies that releaseSharedLock(stamp) on CacheEntryChanges correctly delegates to
-    // the underlying CacheEntryImpl, allowing the shared lock to be freed. A second shared
-    // lock acquisition after release confirms the lock was properly released.
-    long stamp1 = changes.acquireSharedLock();
-    changes.releaseSharedLock(stamp1);
+    // the underlying CacheEntryImpl. After releasing the shared lock, an exclusive lock
+    // must be acquirable — this proves the shared lock was truly released (shared locks
+    // block exclusive acquisition, so if release didn't work, acquireExclusiveLock would
+    // deadlock).
+    long sharedStamp = changes.acquireSharedLock();
+    changes.releaseSharedLock(sharedStamp);
 
-    // Re-acquire to prove the release actually freed the lock.
-    long stamp2 = changes.acquireSharedLock();
+    // Acquire exclusive lock to prove the shared lock was fully released.
+    // If releaseSharedLock didn't actually free the shared lock, this would deadlock.
+    long exclusiveStamp = changes.acquireExclusiveLock();
     assertNotEquals(
-        "Second acquireSharedLock must return a non-zero stamp", 0L, stamp2);
-    changes.releaseSharedLock(stamp2);
+        "acquireExclusiveLock must return a non-zero stamp after shared release",
+        0L, exclusiveStamp);
+    changes.releaseExclusiveLock();
   }
 }

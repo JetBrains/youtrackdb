@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
+import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -83,7 +85,8 @@ public class SharedLinkBagBTreeOptimisticReadTest {
     if (youTrackDB.exists(DB_NAME)) {
       youTrackDB.drop(DB_NAME);
     }
-    youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
+    youTrackDB.create(DB_NAME, DatabaseType.DISK,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
 
     var session = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = session.getStorage();
@@ -108,6 +111,8 @@ public class SharedLinkBagBTreeOptimisticReadTest {
     // Insert entries in a single atomic operation.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var i = 0; i < ENTRY_COUNT; i++) {
+        // targetCollection cycles through 0..31 (simulating 32 target collections),
+        // targetPosition equals the entry index, ts=0 (no tombstone timestamp).
         var key = new EdgeKey(RID_BAG_ID, i % 32, i, 0L);
         var value = new LinkBagValue(i + 1, 0, 0, false);
         bTree.put(atomicOperation, key, value);

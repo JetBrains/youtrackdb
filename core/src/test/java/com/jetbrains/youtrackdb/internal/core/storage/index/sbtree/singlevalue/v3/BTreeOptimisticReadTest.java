@@ -380,6 +380,109 @@ public class BTreeOptimisticReadTest {
   }
 
   /**
+   * Verifies that iterateEntriesBetween() with exclusive bounds (inclusive=false)
+   * exercises a different cursor positioning path than inclusive bounds. The boundary
+   * keys "100" and "200" must not appear in the results.
+   */
+  @Test
+  public void testIterateEntriesBetweenExclusiveBoundsOptimistic() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      try (Stream<RawPair<String, RID>> stream =
+          singleValueTree.iterateEntriesBetween(
+              "100", false, "200", false, true, atomicOperation)) {
+        final var entries = stream.collect(Collectors.toList());
+
+        // Verify exclusive: boundary keys must not be present.
+        for (var entry : entries) {
+          Assert.assertNotEquals(
+              "Exclusive lower bound '100' must not appear", "100", entry.first());
+          Assert.assertNotEquals(
+              "Exclusive upper bound '200' must not appear", "200", entry.first());
+        }
+
+        // Verify ascending order.
+        for (var i = 1; i < entries.size(); i++) {
+          Assert.assertTrue(
+              "Entries should be in ascending key order",
+              entries.get(i - 1).first().compareTo(entries.get(i).first()) <= 0);
+        }
+
+        // First entry must be strictly greater than "100".
+        if (!entries.isEmpty()) {
+          Assert.assertTrue(
+              "First entry key should be > '100'",
+              entries.get(0).first().compareTo("100") > 0);
+          Assert.assertTrue(
+              "Last entry key should be < '200'",
+              entries.get(entries.size() - 1).first().compareTo("200") < 0);
+        }
+      }
+    });
+  }
+
+  /**
+   * Verifies that iterateEntriesMinor() with exclusive upper bound (inclusive=false)
+   * omits the boundary key. Exercises a different cursor positioning path than
+   * inclusive=true.
+   */
+  @Test
+  public void testIterateEntriesMinorExclusiveOptimistic() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      try (Stream<RawPair<String, RID>> stream =
+          singleValueTree.iterateEntriesMinor(
+              "200", false, true, atomicOperation)) {
+        final var entries = stream.collect(Collectors.toList());
+
+        Assert.assertFalse("Should return at least one entry", entries.isEmpty());
+
+        // Verify exclusive: key "200" must not appear.
+        for (var entry : entries) {
+          Assert.assertNotEquals(
+              "Exclusive bound '200' must not appear", "200", entry.first());
+        }
+
+        // All keys should be strictly < "200".
+        for (var entry : entries) {
+          Assert.assertTrue(
+              "All keys should be < '200'",
+              entry.first().compareTo("200") < 0);
+        }
+      }
+    });
+  }
+
+  /**
+   * Verifies that iterateEntriesMajor() with exclusive lower bound (inclusive=false)
+   * omits the boundary key. Exercises a different cursor positioning path than
+   * inclusive=true.
+   */
+  @Test
+  public void testIterateEntriesMajorExclusiveOptimistic() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      try (Stream<RawPair<String, RID>> stream =
+          singleValueTree.iterateEntriesMajor(
+              "800", false, true, atomicOperation)) {
+        final var entries = stream.collect(Collectors.toList());
+
+        Assert.assertFalse("Should return at least one entry", entries.isEmpty());
+
+        // Verify exclusive: key "800" must not appear.
+        for (var entry : entries) {
+          Assert.assertNotEquals(
+              "Exclusive bound '800' must not appear", "800", entry.first());
+        }
+
+        // All keys should be strictly > "800".
+        for (var entry : entries) {
+          Assert.assertTrue(
+              "All keys should be > '800'",
+              entry.first().compareTo("800") > 0);
+        }
+      }
+    });
+  }
+
+  /**
    * Verifies that keyStream() exercises the optimistic path and returns
    * all non-null keys in ascending order.
    */

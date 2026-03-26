@@ -127,6 +127,18 @@ public final class PageFrame {
   }
 
   /**
+   * Sets the page coordinates during initial frame assignment, before the frame is
+   * visible to other threads. Skips the exclusive lock because the caller guarantees
+   * single-threaded access (e.g., CachePointer constructor). The subsequent
+   * publication of the CachePointer via a volatile write or CAS provides the
+   * necessary happens-before edge for visibility.
+   */
+  public void initPageCoordinates(long fileId, int pageIndex) {
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
+  }
+
+  /**
    * Returns the file ID of the page currently assigned to this frame. Must be read within
    * a stamp-validated region (between {@link #tryOptimisticRead()} and
    * {@link #validate(long)}), or under a shared or exclusive lock.

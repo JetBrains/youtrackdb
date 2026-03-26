@@ -422,17 +422,13 @@ public final class CachePointer {
 
   /**
    * Propagates this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame.
-   * Called at construction time so that the coordinate-verification guard in
-   * {@code DurableComponent.loadPageOptimistic()} can detect frame reuse.
+   * Called at construction time — the frame is thread-local at this point (not yet published
+   * to any shared data structure), so no lock is needed. The subsequent publication of this
+   * CachePointer via a volatile write or CAS provides the necessary happens-before edge.
    */
   private void propagateCoordinatesToFrame() {
     if (this.pageFrame != null) {
-      long stamp = this.pageFrame.acquireExclusiveLock();
-      try {
-        this.pageFrame.setPageCoordinates(fileId, pageIndex);
-      } finally {
-        this.pageFrame.releaseExclusiveLock(stamp);
-      }
+      this.pageFrame.initPageCoordinates(fileId, pageIndex);
     }
   }
 

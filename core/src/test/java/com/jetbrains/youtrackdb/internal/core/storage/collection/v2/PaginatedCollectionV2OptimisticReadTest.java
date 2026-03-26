@@ -95,9 +95,6 @@ public class PaginatedCollectionV2OptimisticReadTest {
    * enabling the optimistic read path.
    */
   private void flushToReadCache() {
-    // Close and reopen the database so all pages are evicted from the write
-    // cache. After reopening, any page load goes through the read cache,
-    // enabling the optimistic read path.
     youTrackDB.close();
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
     var session = youTrackDB.open(DB_NAME, "admin", "admin");
@@ -147,7 +144,10 @@ public class PaginatedCollectionV2OptimisticReadTest {
     Assert.assertNotNull("Optimistic read should return a non-null buffer", buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     Assert.assertEquals(2, buffer.recordType());
-    Assert.assertTrue("Version should be positive", buffer.version() > 0);
+    // The record version encodes the commit timestamp from the atomic operation.
+    // It must be positive and non-zero for any committed record.
+    Assert.assertTrue("Version should be positive for a committed record, got: "
+        + buffer.version(), buffer.version() > 0);
   }
 
   // Verifies that reading multiple small records in the same read-only atomic operation
@@ -181,6 +181,9 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // to the pinned path and still returns the correct data.
   @Test
   public void testReadRecordOptimisticFallbackForMultiPageRecord() throws IOException {
+    // 131172 bytes = (2 << 16) + 100 = 128 KB + 100 bytes. This is much larger than
+    // the default 8 KB page size, guaranteeing the record spans multiple pages. The +100
+    // avoids landing exactly on a page boundary, exercising partial-page handling.
     var bigData = new byte[(2 << 16) + 100];
     new Random(42).nextBytes(bigData);
 
@@ -201,8 +204,9 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // Verifies that reading a non-existent position throws RecordNotFoundException even
   // through the optimistic path (the RuntimeException catch in doReadRecordOptimistic
   // converts RecordNotFoundException to OptimisticReadFailedException, so the pinned
-  // path produces the authoritative answer).
-  @Test(expected = RecordNotFoundException.class)
+  // path produces the authoritative answer). The exception must reference the requested
+  // position so the caller can diagnose which record was missing.
+  @Test
   public void testReadRecordOptimisticNonExistentThrows() throws IOException {
     // Insert at least one record so the collection is not empty (getLastPosition needs it)
     var data = new byte[] {1};
@@ -215,8 +219,16 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     flushToReadCache();
 
-    atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(nonExistent, op));
+    try {
+      atomicOps().calculateInsideAtomicOperation(
+          op -> collection.readRecord(nonExistent, op));
+      Assert.fail("Should throw RecordNotFoundException for non-existent position");
+    } catch (RecordNotFoundException e) {
+      // The exception should reference the non-existent position.
+      Assertions.assertThat(e.getMessage())
+          .as("Exception message should contain the requested position")
+          .contains(String.valueOf(nonExistent));
+    }
   }
 
   // --- getPhysicalPosition optimistic path ---
@@ -241,8 +253,14 @@ public class PaginatedCollectionV2OptimisticReadTest {
         result);
     Assert.assertEquals(created.collectionPosition, result.collectionPosition);
     Assert.assertEquals(7, result.recordType);
-    Assert.assertTrue("Record version should be positive", result.recordVersion > 0);
-    Assert.assertEquals(-1, result.recordSize);
+    // The record version encodes the commit timestamp from the atomic operation.
+    // It must be positive and non-zero for any committed record.
+    Assert.assertTrue("Record version should be positive for a committed record, got: "
+        + result.recordVersion, result.recordVersion > 0);
+    // PaginatedCollectionV2.getPhysicalPosition() does not compute record size — it sets
+    // recordSize = -1 as a sentinel meaning "size not available" (see doGetPhysicalPosition).
+    Assert.assertEquals("recordSize should be -1 (not computed by getPhysicalPosition)",
+        -1, result.recordSize);
   }
 
   // Verifies that getPhysicalPosition returns null for a non-existent position through the
@@ -608,6 +626,15 @@ public class PaginatedCollectionV2OptimisticReadTest {
         visitedPositions.containsAll(createdPositions));
     Assert.assertEquals("Should visit exactly the created records",
         createdPositions.size(), visitedPositions.size());
+
+    // Verify ascending order of visited positions.
+    for (var i = 1; i < visitedPositions.size(); i++) {
+      Assert.assertTrue(
+          "Positions should be in ascending order, but position at index " + (i - 1)
+              + " (" + visitedPositions.get(i - 1) + ") >= position at index " + i
+              + " (" + visitedPositions.get(i) + ")",
+          visitedPositions.get(i - 1) < visitedPositions.get(i));
+    }
   }
 
   // Verifies that backward page browsing via nextPage exercises the optimistic path in
@@ -635,6 +662,32 @@ public class PaginatedCollectionV2OptimisticReadTest {
       prevPos = entry.collectionPosition();
     }
     Assert.assertTrue("Page should have entries", hasEntries);
+  }
+
+  // --- Zero-length record edge case ---
+
+  // Verifies that a zero-length (empty byte[0]) record can be created, flushed, and read
+  // back through the optimistic path. Empty records could trigger edge cases in size
+  // calculations or optimistic read buffer allocation.
+  @Test
+  public void testReadRecordOptimisticZeroLengthRecord() throws IOException {
+    var emptyData = new byte[0];
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(emptyData, (byte) 4, null, op));
+
+    flushToReadCache();
+
+    var buffer = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op));
+
+    Assert.assertNotNull("Optimistic read should return a non-null buffer for empty record",
+        buffer);
+    Assertions.assertThat(buffer.buffer())
+        .as("Empty record should return a zero-length byte array")
+        .isEqualTo(emptyData);
+    Assert.assertEquals(4, buffer.recordType());
+    Assert.assertTrue("Version should be positive for a committed record, got: "
+        + buffer.version(), buffer.version() > 0);
   }
 
   // --- Combined read scenario ---

@@ -11,7 +11,9 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
+import org.assertj.core.api.Assertions;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -186,44 +188,107 @@ public class CachePointerPageFrameTest {
     new CachePointer((Pointer) null, null, 10, -1);
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testAcquireExclusiveLockOnSentinelThrows() {
     // Verifies that acquireExclusiveLock() throws IllegalStateException on a sentinel
     // CachePointer (one with null PageFrame), since there is no lock to acquire.
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
-    sentinel.acquireExclusiveLock();
+    try {
+      sentinel.acquireExclusiveLock();
+      Assert.fail("Expected IllegalStateException for sentinel lock");
+    } catch (IllegalStateException e) {
+      Assertions.assertThat(e.getMessage()).containsIgnoringCase("sentinel");
+    }
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testReleaseExclusiveLockOnSentinelThrows() {
     // Verifies that releaseExclusiveLock() throws IllegalStateException on a sentinel
     // CachePointer (one with null PageFrame), since there is no lock to release.
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
-    sentinel.releaseExclusiveLock(42L);
+    try {
+      sentinel.releaseExclusiveLock(42L);
+      Assert.fail("Expected IllegalStateException for sentinel lock");
+    } catch (IllegalStateException e) {
+      Assertions.assertThat(e.getMessage()).containsIgnoringCase("sentinel");
+    }
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testAcquireSharedLockOnSentinelThrows() {
     // Verifies that acquireSharedLock() throws IllegalStateException on a sentinel
     // CachePointer (one with null PageFrame), since there is no lock to acquire.
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
-    sentinel.acquireSharedLock();
+    try {
+      sentinel.acquireSharedLock();
+      Assert.fail("Expected IllegalStateException for sentinel lock");
+    } catch (IllegalStateException e) {
+      Assertions.assertThat(e.getMessage()).containsIgnoringCase("sentinel");
+    }
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testReleaseSharedLockOnSentinelThrows() {
     // Verifies that releaseSharedLock() throws IllegalStateException on a sentinel
     // CachePointer (one with null PageFrame), since there is no lock to release.
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
-    sentinel.releaseSharedLock(42L);
+    try {
+      sentinel.releaseSharedLock(42L);
+      Assert.fail("Expected IllegalStateException for sentinel lock");
+    } catch (IllegalStateException e) {
+      Assertions.assertThat(e.getMessage()).containsIgnoringCase("sentinel");
+    }
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testTryAcquireSharedLockOnSentinelThrows() {
     // Verifies that tryAcquireSharedLock() throws IllegalStateException on a sentinel
     // CachePointer (one with null PageFrame), since there is no lock to try.
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
-    sentinel.tryAcquireSharedLock();
+    try {
+      sentinel.tryAcquireSharedLock();
+      Assert.fail("Expected IllegalStateException for sentinel lock");
+    } catch (IllegalStateException e) {
+      Assertions.assertThat(e.getMessage()).containsIgnoringCase("sentinel");
+    }
+  }
+
+  @Test
+  public void testBoundaryValueFileIdZeroPageIndexZero() {
+    // Verifies that the minimum valid boundary values (fileId=0, pageIndex=0) are accepted
+    // and propagated correctly. These are edge cases because 0 is the first valid value
+    // after the -1 rejection boundary.
+    var cachePointer = new CachePointer((PageFrame) null, null, 0, 0);
+    assertEquals(0, cachePointer.getFileId());
+    assertEquals(0, cachePointer.getPageIndex());
+  }
+
+  @Test
+  public void testBoundaryValueMaxFileIdAndPageIndex() {
+    // Verifies that maximum valid values (Integer.MAX_VALUE for both fileId and pageIndex)
+    // are accepted and stored correctly. Tests that no overflow or sign-extension issues
+    // occur with large values.
+    var cachePointer = new CachePointer(
+        (PageFrame) null, null, Integer.MAX_VALUE, Integer.MAX_VALUE);
+    assertEquals(Integer.MAX_VALUE, cachePointer.getFileId());
+    assertEquals(Integer.MAX_VALUE, cachePointer.getPageIndex());
+  }
+
+  @Test
+  public void testBoundaryValueMaxFileIdPageFrameConstructor() {
+    // Verifies that large coordinate values are propagated correctly to the PageFrame.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, Integer.MAX_VALUE, Integer.MAX_VALUE);
+
+    assertEquals((long) Integer.MAX_VALUE, frame.getFileId());
+    assertEquals(Integer.MAX_VALUE, frame.getPageIndex());
+
+    pool.release(frame);
+    pool.clear();
+    allocator.checkMemoryLeaks();
   }
 
   @Test
@@ -260,6 +325,128 @@ public class CachePointerPageFrameTest {
     assertEquals(13, frame.getPageIndex());
 
     allocator.deallocate(pointer);
+    allocator.checkMemoryLeaks();
+  }
+
+  @Test
+  public void testOptimisticReadDetectsCoordinateChangeAcrossThreads() throws Exception {
+    // Verifies that tryOptimisticRead()/validate() on a PageFrame correctly detects
+    // coordinate changes made by another thread under exclusive lock. The writer thread
+    // changes the coordinates, and the reader's stamp must be invalidated.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    // Set initial coordinates.
+    long initStamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(1, 10);
+    frame.releaseExclusiveLock(initStamp);
+
+    // Reader obtains an optimistic stamp before the writer changes coordinates.
+    long optimisticStamp = frame.tryOptimisticRead();
+    Assert.assertNotEquals("Optimistic stamp should be non-zero", 0L, optimisticStamp);
+
+    // Read coordinates under the optimistic stamp.
+    long fileIdBefore = frame.getFileId();
+    int pageIndexBefore = frame.getPageIndex();
+    assertEquals(1L, fileIdBefore);
+    assertEquals(10, pageIndexBefore);
+
+    // Writer thread changes the coordinates under exclusive lock.
+    var writerDone = new java.util.concurrent.CountDownLatch(1);
+    var writerThread = new Thread(() -> {
+      long writeStamp = frame.acquireExclusiveLock();
+      frame.setPageCoordinates(2, 20);
+      frame.releaseExclusiveLock(writeStamp);
+      writerDone.countDown();
+    });
+    writerThread.start();
+    writerDone.await();
+
+    // The reader's optimistic stamp must be invalidated because the writer acquired
+    // the exclusive lock (which bumps the StampedLock's write-stamp sequence).
+    Assert.assertFalse(
+        "Optimistic stamp should be invalidated after exclusive write",
+        frame.validate(optimisticStamp));
+
+    // Re-read under a new optimistic stamp to verify the new coordinates.
+    long newStamp = frame.tryOptimisticRead();
+    long fileIdAfter = frame.getFileId();
+    int pageIndexAfter = frame.getPageIndex();
+    Assert.assertTrue("New optimistic stamp should be valid", frame.validate(newStamp));
+    assertEquals(2L, fileIdAfter);
+    assertEquals(20, pageIndexAfter);
+
+    pool.release(frame);
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  @Test
+  public void testConcurrentOptimisticReadDuringExclusiveWrite() throws Exception {
+    // Verifies that optimistic reads during concurrent exclusive writes either observe
+    // consistent coordinates (and validate succeeds) or detect the write (validation
+    // fails). No torn read (mismatched fileId/pageIndex pair) should be observed.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    // Initial coordinates.
+    long initStamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(0, 0);
+    frame.releaseExclusiveLock(initStamp);
+
+    var iterations = 10_000;
+    var errors = new java.util.concurrent.atomic.AtomicReference<String>();
+    var running = new java.util.concurrent.atomic.AtomicBoolean(true);
+
+    // Writer thread: alternates between two coordinate pairs.
+    var writerThread = new Thread(() -> {
+      for (var i = 0; i < iterations && errors.get() == null; i++) {
+        long stamp = frame.acquireExclusiveLock();
+        if (i % 2 == 0) {
+          frame.setPageCoordinates(100, 200);
+        } else {
+          frame.setPageCoordinates(300, 400);
+        }
+        frame.releaseExclusiveLock(stamp);
+      }
+      running.set(false);
+    });
+
+    // Reader thread: performs optimistic reads and checks for torn values.
+    var readerThread = new Thread(() -> {
+      while (running.get() && errors.get() == null) {
+        long stamp = frame.tryOptimisticRead();
+        if (stamp == 0) {
+          continue; // Exclusively locked, retry.
+        }
+        long fid = frame.getFileId();
+        int pidx = frame.getPageIndex();
+
+        if (frame.validate(stamp)) {
+          // If validation passed, the (fid, pidx) pair must be one of the consistent
+          // pairs: (0,0), (100,200), or (300,400).
+          boolean consistent = (fid == 0 && pidx == 0)
+              || (fid == 100 && pidx == 200)
+              || (fid == 300 && pidx == 400);
+          if (!consistent) {
+            errors.set("Torn read detected: fileId=" + fid + ", pageIndex=" + pidx);
+          }
+        }
+        // If validation failed, the data is discarded — that's correct behavior.
+      }
+    });
+
+    writerThread.start();
+    readerThread.start();
+    writerThread.join(10_000);
+    readerThread.join(10_000);
+
+    assertNull("No torn reads should be observed: " + errors.get(), errors.get());
+
+    pool.release(frame);
+    pool.clear();
     allocator.checkMemoryLeaks();
   }
 }
