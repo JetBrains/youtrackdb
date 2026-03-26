@@ -438,159 +438,47 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void serializedBytes_hashTableMode_containsSeedAndSlots() {
-    // 13 properties triggers linear probing hash table mode (threshold is 12 for linear)
+  public void serializedBytes_containsHashPrefixPerEntry() {
+    // Verify that each property entry starts with a 4-byte MurmurHash3 hash prefix
     session.begin();
     var entity = (EntityImpl) session.newEntity();
-    String[] propNames = new String[13];
-    for (int i = 0; i < 13; i++) {
-      propNames[i] = "prop_" + i;
-      entity.setString(propNames[i], "val_" + i);
-    }
+    entity.setString("alpha", "val_a");
+    entity.setString("beta", "val_b");
 
     var bytes = new BytesContainer();
     v2.serialize(session, entity, bytes);
     var result = new BytesContainer(bytes.bytes);
 
-    // Read property count
     int count = VarIntSerializer.readAsInteger(result);
-    assertThat(count).isEqualTo(13);
+    assertThat(count).isEqualTo(2);
 
-    // Read seed (4 bytes LE)
-    int seed = com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
-        .deserializeLiteral(result.bytes, result.offset);
-    result.skip(4);
+    for (int i = 0; i < count; i++) {
+      // Read 4-byte hash prefix
+      int storedHash =
+          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
+              .deserializeLiteral(result.bytes, result.offset);
+      result.skip(4);
 
-    // Read log2Capacity (1 byte) — 13 properties → ceil(13*8/5)=21 → nextPow2=32 → log2=5
-    int log2Capacity = result.bytes[result.offset++] & 0xFF;
-    assertThat(log2Capacity).isEqualTo(5);
+      // Read name
+      int nameLen = VarIntSerializer.readAsInteger(result);
+      assertThat(nameLen).isGreaterThan(0);
+      String name = new String(result.bytes, result.offset, nameLen, StandardCharsets.UTF_8);
+      result.skip(nameLen);
 
-    // Verify slot array has correct size
-    int capacity = 1 << log2Capacity;
-    int slotArraySize = capacity * RecordSerializerBinaryV2.SLOT_SIZE;
-    int slotArrayStart = result.offset;
-
-    // Verify each property is locatable via linear probing
-    int kvRegionBase = slotArrayStart + slotArraySize;
-    for (String name : propNames) {
+      // Verify hash matches the property name
       byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
-      int hash = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3
-          .hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
-      byte expectedHash8 = RecordSerializerBinaryV2.computeHash8(hash);
-      int startSlot = RecordSerializerBinaryV2.fibonacciSlotIndex(hash, log2Capacity);
+      int expectedHash = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3
+          .hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
+      assertThat(storedHash).as("Hash prefix for '%s'", name).isEqualTo(expectedHash);
 
-      boolean found = false;
-      for (int probe = 0; probe < capacity; probe++) {
-        int slot = (startSlot + probe) & (capacity - 1);
-        int slotPos = slotArrayStart + slot * RecordSerializerBinaryV2.SLOT_SIZE;
-        byte slotHash8 = result.bytes[slotPos];
-        int slotOffset =
-            (result.bytes[slotPos + 1] & 0xFF) | ((result.bytes[slotPos + 2] & 0xFF) << 8);
-
-        // Empty slot: property not present (should not happen for valid property)
-        if (slotHash8 == RecordSerializerBinaryV2.EMPTY_HASH8
-            && slotOffset == (RecordSerializerBinaryV2.EMPTY_OFFSET & 0xFFFF)) {
-          break;
-        }
-
-        // Hash8 fast-reject
-        if (slotHash8 != expectedHash8) {
-          continue;
-        }
-
-        // Verify the offset points to the correct property name in the KV region
-        var kvBytes = new BytesContainer(result.bytes);
-        kvBytes.offset = kvRegionBase + slotOffset;
-        int nameLen = VarIntSerializer.readAsInteger(kvBytes);
-        String storedName =
-            new String(result.bytes, kvBytes.offset, nameLen, StandardCharsets.UTF_8);
-        if (storedName.equals(name)) {
-          found = true;
-          break;
-        }
-      }
-      assertThat(found).as("Property '%s' not found via linear probe from slot %d",
-          name, startSlot).isTrue();
+      // Skip type byte + value
+      result.skip(1);
+      int valueLen = VarIntSerializer.readAsInteger(result);
+      result.skip(valueLen);
     }
-
-    // Verify no duplicate slots — count occupied slots matches property count
-    int occupiedSlots = 0;
-    for (int s = 0; s < capacity; s++) {
-      int slotPos = slotArrayStart + s * RecordSerializerBinaryV2.SLOT_SIZE;
-      int slotOffset =
-          (result.bytes[slotPos + 1] & 0xFF) | ((result.bytes[slotPos + 2] & 0xFF) << 8);
-      if (slotOffset != (RecordSerializerBinaryV2.EMPTY_OFFSET & 0xFFFF)) {
-        occupiedSlots++;
-      }
-    }
-    assertThat(occupiedSlots).isEqualTo(13);
-  }
-
-  @Test
-  public void serializedBytes_linearMode_noHashTable() {
-    session.begin();
-    var entity = (EntityImpl) session.newEntity();
-    entity.setString("x", "hello");
-
-    var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
-    var result = new BytesContainer(bytes.bytes);
-
-    // Read property count
-    int count = VarIntSerializer.readAsInteger(result);
-    assertThat(count).isEqualTo(1);
-
-    // Next byte should be the name length (for schema-less), not seed bytes
-    int nameLen = VarIntSerializer.readAsInteger(result);
-    assertThat(nameLen).isEqualTo(1); // "x" is 1 byte
   }
 
   // --- Error paths ---
-
-  @Test
-  public void serialize_kvRegionExceeding64KB_throwsSerializationException() {
-    // KV region >64 KB triggers overflow guard (2-byte offsets cannot address beyond 64 KB).
-    // The guard checks entryOffset > MAX_KV_REGION_SIZE (65534) at the START of each entry,
-    // so we need enough entries that a later entry's offset exceeds 64 KB.
-    // Requires 13+ properties to trigger hash table mode (linear mode threshold is 12).
-    session.begin();
-    var entity = (EntityImpl) session.newEntity();
-    String largeValue = "x".repeat(5_000);
-    for (int i = 0; i < 15; i++) {
-      entity.setString("field_" + i, largeValue);
-    }
-    // Total KV ~75 KB; the check triggers when an entry starts at offset >65534
-    var bytes = new BytesContainer();
-    assertThatThrownBy(() -> v2.serialize(session, entity, bytes))
-        .isInstanceOf(SerializationException.class)
-        .hasMessageContaining("KV region");
-  }
-
-  @Test
-  public void deserialize_corruptedLog2Capacity_throwsSerializationException() {
-    // Corrupt the log2Capacity byte to an invalid value (>MAX_LOG2_CAPACITY).
-    // Requires 13+ properties to trigger hash table mode.
-    session.begin();
-    var entity = (EntityImpl) session.newEntity();
-    for (int i = 0; i < 13; i++) {
-      entity.setString("prop_" + i, "val_" + i);
-    }
-    var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
-
-    // Find and corrupt the log2Capacity byte: after propertyCount varint + 4-byte seed
-    var readBytes = new BytesContainer(bytes.bytes);
-    VarIntSerializer.readAsInteger(readBytes); // skip propertyCount
-    readBytes.skip(4); // skip seed
-    int log2Pos = readBytes.offset;
-    bytes.bytes[log2Pos] = (byte) 30; // invalid: would mean 1B+ slots
-
-    var target = (EntityImpl) session.newEntity();
-    assertThatThrownBy(
-        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
-        .isInstanceOf(SerializationException.class)
-        .hasMessageContaining("log2Capacity");
-  }
 
   @Test
   public void deserialize_negativePropertyCount_throwsSerializationException() {
@@ -605,32 +493,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
         .hasMessageContaining("negative property count");
   }
 
-  @Test
-  public void deserialize_corruptedLog2Capacity_zero_throwsSerializationException() {
-    // log2Capacity=0 is invalid for linear probing (minimum is 1).
-    // A corrupted record with 0 should be rejected by readAndValidateLog2Capacity.
-    session.begin();
-    var entity = (EntityImpl) session.newEntity();
-    for (int i = 0; i < 13; i++) {
-      entity.setString("prop_" + i, "val_" + i);
-    }
-    var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
-
-    // Corrupt log2Capacity byte to 0: after propertyCount varint + 4-byte seed
-    var readBytes = new BytesContainer(bytes.bytes);
-    VarIntSerializer.readAsInteger(readBytes); // skip propertyCount
-    readBytes.skip(4); // skip seed
-    bytes.bytes[readBytes.offset] = (byte) 0;
-
-    var target = (EntityImpl) session.newEntity();
-    assertThatThrownBy(
-        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
-        .isInstanceOf(SerializationException.class)
-        .hasMessageContaining("log2Capacity");
-  }
-
-  // --- Hash table mode at moderate scale ---
+  // --- Moderate scale ---
 
   @Test
   public void roundTrip_fortyProperties() {
@@ -954,23 +817,13 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   // --- Threshold boundary tests ---
 
   @Test
-  public void serializeDeserialize_twelveProperties_usesLinearMode() {
-    // 12 properties is at the threshold boundary — should use linear mode (no hash table)
+  public void roundTrip_twelveProperties() {
+    // 12 properties round-trip
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 12; i++) {
       entity.setString("field_" + i, "value_" + i);
     }
-    var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
-
-    // Verify linear mode: after property count, next bytes should be name encoding (not seed)
-    var readBytes = new BytesContainer(bytes.bytes);
-    int count = VarIntSerializer.readAsInteger(readBytes);
-    assertThat(count).isEqualTo(12);
-    // In linear mode, the next byte is a varint name length — small positive number.
-    // In hash table mode, the next 4 bytes are a seed (LE int) — likely not a valid varint.
-    // Verify round-trip correctness
     var deserialized = serializeAndDeserialize(entity);
     for (int i = 0; i < 12; i++) {
       assertThat(deserialized.getString("field_" + i)).isEqualTo("value_" + i);
@@ -979,27 +832,13 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void serializeDeserialize_thirteenProperties_usesHashTableMode() {
-    // 13 properties triggers linear probing hash table mode
+  public void roundTrip_thirteenProperties() {
+    // 13 properties round-trip
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     for (int i = 0; i < 13; i++) {
       entity.setString("field_" + i, "value_" + i);
     }
-    var bytes = new BytesContainer();
-    v2.serialize(session, entity, bytes);
-
-    // Verify hash table mode: after property count, next bytes are seed (4 bytes) + log2Capacity
-    var readBytes = new BytesContainer(bytes.bytes);
-    int count = VarIntSerializer.readAsInteger(readBytes);
-    assertThat(count).isEqualTo(13);
-    // Read seed
-    readBytes.skip(4);
-    // Read log2Capacity — 13 properties → log2 = 5
-    int log2 = readBytes.bytes[readBytes.offset] & 0xFF;
-    assertThat(log2).isEqualTo(5);
-
-    // Verify round-trip correctness
     var deserialized = serializeAndDeserialize(entity);
     for (int i = 0; i < 13; i++) {
       assertThat(deserialized.getString("field_" + i)).isEqualTo("value_" + i);

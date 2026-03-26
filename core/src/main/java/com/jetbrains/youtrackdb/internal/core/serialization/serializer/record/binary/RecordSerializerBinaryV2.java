@@ -36,184 +36,33 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * V2 entity serializer using a linear probing hash map layout for O(1) property lookup.
+ * V2 entity serializer with hash-accelerated linear scan for faster partial deserialization.
+ *
+ * <p>Each property entry is prefixed with a 4-byte MurmurHash3 hash of the property name.
+ * During partial deserialization, the hash is compared first — on mismatch, the entry is
+ * skipped without constructing a String or resolving the property ID.
  *
  * <p>Binary format:
  * <pre>
  * [class name: varint len + UTF-8 bytes]  (0 len = no class, only for embedded mode)
  * [property count: varint]
- * --- if count &lt;= 12: linear mode ---
- * [for each property: name-encoding + type byte + value-size varint + value-bytes]
- * --- if count &gt; 12: linear probing hash table mode ---
- * [seed: 4 bytes LE]
- * [log2Capacity: 1 byte]
- * [slot array: capacity × 3 bytes]
- *   slot = [hash8: 1 byte][offset: 2 bytes LE]
- *   empty slot = [0xFF][0xFFFF]
- * [key-value entries packed sequentially]
- *   entry = [name-encoding][type byte][value-size varint][value-bytes]
+ * [for each property:]
+ *   [name hash: 4 bytes — MurmurHash3 of property name UTF-8 bytes with seed 0]
+ *   [name-encoding: varint len + UTF-8 (schema-less) or varint (id+1)*-1 (schema-aware)]
+ *   [type byte]
+ *   [value-size varint]
+ *   [value-bytes]
  * </pre>
  */
 public class RecordSerializerBinaryV2 implements EntitySerializer {
 
-  // -- Sentinel for empty hash table slots --
-  static final byte EMPTY_HASH8 = (byte) 0xFF;
-  static final short EMPTY_OFFSET = (short) 0xFFFF;
-
-  // Fibonacci hashing constant: golden ratio * 2^32, truncated to 32 bits
-  private static final int FIBONACCI_CONSTANT = 0x9E3779B9;
-
-  // Slot size in bytes: 1 byte hash8 + 2 bytes offset
-  static final int SLOT_SIZE = 3;
-
-  // Maximum log2 of slot capacity (2048 slots = ~1280 properties at 0.625 load factor)
-  static final int MAX_LOG2_CAPACITY = 11;
-
-  // Maximum offset value for 2-byte offsets (64 KB minus 1, since 0xFFFF is sentinel)
-  static final int MAX_KV_REGION_SIZE = 0xFFFE;
-
-  // Threshold for count <= LINEAR_MODE_THRESHOLD: use linear layout instead of hash table.
-  // For 3-12 properties, linear scan is cheaper than hash table overhead (seed + slots).
-  // Hash table only pays off for 13+ properties where O(n) scanning becomes measurable.
-  static final int LINEAR_MODE_THRESHOLD = 12;
+  // Maximum property count — reasonable upper bound for a single entity.
+  static final int MAX_PROPERTY_COUNT = 2048;
 
   // V1 serializer for delegating serializeValue/deserializeValue
   private final RecordSerializerBinaryV1 v1Delegate = new RecordSerializerBinaryV1();
 
   private final BinaryComparatorV0 comparator = new BinaryComparatorV0();
-
-  // ========================================================================================
-  // Hash table core utilities
-  // ========================================================================================
-
-  /**
-   * Extracts the high 8 bits of a hash value for the slot hash8 prefix.
-   */
-  static byte computeHash8(int hash) {
-    return (byte) (hash >>> 24);
-  }
-
-  // ========================================================================================
-  // Linear probing hash table — construction utilities
-  // ========================================================================================
-
-  /**
-   * Computes log2 of the slot capacity for a given property count at ~0.625 (5/8) load factor.
-   * Formula: nextPowerOfTwo(ceil(N * 8 / 5)), minimum 2 slots (log2 = 1).
-   *
-   * <p>The total slot count is {@code 1 << log2Capacity}.
-   */
-  static int computeLog2Capacity(int propertyCount) {
-    assert propertyCount > 0 : "propertyCount must be positive: " + propertyCount;
-
-    // ceil(N * 8 / 5) = (N * 8 + 4) / 5
-    // Use long arithmetic to avoid overflow for large property counts
-    int minSlots = (int) (((long) propertyCount * 8 + 4) / 5);
-    if (minSlots <= 2) {
-      return 1; // Minimum 2 slots (log2 = 1)
-    }
-    int log2 = 32 - Integer.numberOfLeadingZeros(minSlots - 1);
-    return Math.min(log2, MAX_LOG2_CAPACITY);
-  }
-
-  /**
-   * Builds a linear probing hash table for the given property name bytes. Returns a result
-   * containing the seed used, log2 of the capacity, and the slot array bytes.
-   *
-   * <p>Algorithm: for each property, compute hash via MurmurHash3 with a fixed seed (0), compute
-   * the slot index via Fibonacci hashing, and scan forward (wrapping) until an empty slot is
-   * found. No eviction chains, no seed retries, no dual hash computation.
-   *
-   * @param propertyNameBytes array of UTF-8 encoded property names
-   * @param log2Capacity log2 of the slot capacity (power-of-two)
-   * @return HashTableResult containing seed, log2Capacity, slot array, and slot-to-property map
-   */
-  static HashTableResult buildHashTable(byte[][] propertyNameBytes, int log2Capacity) {
-    assert propertyNameBytes != null : "propertyNameBytes must not be null";
-    assert propertyNameBytes.length > 0 : "must have at least one property";
-    assert log2Capacity >= 1 && log2Capacity <= MAX_LOG2_CAPACITY
-        : "log2Capacity out of range: " + log2Capacity;
-
-    int n = propertyNameBytes.length;
-    int capacity = 1 << log2Capacity;
-    if (n >= capacity) {
-      throw new IllegalStateException(
-          "property count " + n + " must be < capacity " + capacity
-              + " (load factor violation)");
-    }
-    // Seed is fixed at 0; field preserved in wire format for future extensibility.
-    int seed = 0;
-
-    // Allocate slot array and property index in one pass.
-    // slotArray stores [hash8, offsetLo, offsetHi] per slot — initialized to empty sentinels.
-    // slotPropertyIndex maps each slot to the property index (-1 if empty).
-    byte[] slotArray = new byte[capacity * SLOT_SIZE];
-    int[] slotPropertyIndex = new int[capacity];
-    // All sentinel bytes are 0xFF (EMPTY_HASH8 = 0xFF, EMPTY_OFFSET = 0xFFFF),
-    // so a single fill covers hash8 + offset fields for every slot.
-    Arrays.fill(slotArray, (byte) 0xFF);
-    Arrays.fill(slotPropertyIndex, -1);
-
-    // Insert each property via linear probing — write hash8 directly into slotArray
-    for (int i = 0; i < n; i++) {
-      byte[] nameBytes = propertyNameBytes[i];
-      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
-      byte hash8 = computeHash8(hash);
-      int startSlot = fibonacciSlotIndex(hash, log2Capacity);
-
-      // Linear probe forward until an empty slot is found
-      boolean placed = false;
-      for (int probe = 0; probe < capacity; probe++) {
-        int slot = (startSlot + probe) & (capacity - 1);
-        if (slotPropertyIndex[slot] == -1) {
-          slotArray[slot * SLOT_SIZE] = hash8;
-          slotPropertyIndex[slot] = i;
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        throw new IllegalStateException(
-            "Failed to place property " + i + " in " + capacity
-                + " slots — table should have empty slots at load factor 0.625");
-      }
-    }
-
-    assert slotArray.length == capacity * SLOT_SIZE
-        : "slotArray size mismatch: " + slotArray.length + " vs " + (capacity * SLOT_SIZE);
-    return new HashTableResult(seed, log2Capacity, slotArray, slotPropertyIndex);
-  }
-
-  /**
-   * Computes a slot index via Fibonacci hashing. Multiplies the hash by the golden ratio
-   * constant and right-shifts to produce an index in [0, capacity).
-   */
-  static int fibonacciSlotIndex(int hash, int log2Capacity) {
-    assert log2Capacity >= 1 : "log2Capacity must be >= 1: " + log2Capacity;
-    return (hash * FIBONACCI_CONSTANT) >>> (32 - log2Capacity);
-  }
-
-  /**
-   * Result of hash table construction, containing the seed, slot layout, and slot-to-property
-   * mapping for backpatching offsets during serialization.
-   *
-   * <p>Note: offset fields in {@code slotArray} are initialized to the empty sentinel (0xFFFF)
-   * during construction. Use {@code slotPropertyIndex} to determine slot occupancy. Offsets must
-   * be backpatched during serialization with actual KV region offsets.
-   */
-  static final class HashTableResult {
-    final int seed;
-    final int log2Capacity;
-    final byte[] slotArray; // capacity * SLOT_SIZE bytes
-    final int[] slotPropertyIndex; // maps each slot to property index (-1 if empty)
-
-    HashTableResult(int seed, int log2Capacity, byte[] slotArray, int[] slotPropertyIndex) {
-      this.seed = seed;
-      this.log2Capacity = log2Capacity;
-      this.slotArray = slotArray;
-      this.slotPropertyIndex = slotPropertyIndex;
-    }
-  }
 
   // ========================================================================================
   // Serialization
@@ -270,105 +119,20 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // so nested entities do not interfere with the parent's buffer.
     var tempBuffer = new BytesContainer();
 
-    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      serializeLinearMode(session, bytes, fields, props, clazz, schema, encryption, tempBuffer);
-    } else {
-      serializeHashTableMode(session, bytes, fields, props, clazz, schema, encryption,
-          propertyCount, tempBuffer);
-    }
-  }
-
-  /**
-   * Linear mode: write entries sequentially (for <= 12 properties). Each entry is:
-   * [name-encoding][type byte][value-size varint][value-bytes]
-   */
-  private void serializeLinearMode(DatabaseSessionEmbedded session, BytesContainer bytes,
-      Set<Entry<String, EntityEntry>> fields, Map<String, SchemaProperty> props,
-      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
-      BytesContainer tempBuffer) {
+    // Hash-accelerated linear scan: for each property, write 4-byte hash prefix then entry
     for (var field : fields) {
       if (!field.getValue().exists()) {
         continue;
       }
-      serializePropertyEntry(session, bytes, field, props, oClass, schema, encryption, tempBuffer,
-          null);
-    }
-  }
-
-  /**
-   * Linear probing hash table mode: build hash table, write seed + slot array + KV entries.
-   * Uses slotPropertyIndex from HashTableResult to backpatch slot offsets after writing
-   * KV entries.
-   */
-  private void serializeHashTableMode(DatabaseSessionEmbedded session, BytesContainer bytes,
-      Set<Entry<String, EntityEntry>> fields, Map<String, SchemaProperty> props,
-      SchemaClass oClass, ImmutableSchema schema, PropertyEncryption encryption,
-      int propertyCount, BytesContainer tempBuffer) {
-
-    // Collect property names as UTF-8 bytes for hash table construction
-    byte[][] nameBytes = new byte[propertyCount][];
-    @SuppressWarnings("unchecked")
-    Entry<String, EntityEntry>[] orderedFields = new Entry[propertyCount];
-    int idx = 0;
-    for (var field : fields) {
-      if (!field.getValue().exists()) {
-        continue;
-      }
+      // Compute hash prefix from the property name
       String fieldName = resolveFieldName(field);
-      nameBytes[idx] = fieldName.getBytes(StandardCharsets.UTF_8);
-      orderedFields[idx] = field;
-      idx++;
-    }
-
-    // Build linear probing hash table
-    int log2Capacity = computeLog2Capacity(propertyCount);
-    HashTableResult table = buildHashTable(nameBytes, log2Capacity);
-    int capacity = 1 << table.log2Capacity;
-
-    // Write seed (4 bytes LE)
-    int seedPos = bytes.alloc(IntegerSerializer.INT_SIZE);
-    IntegerSerializer.serializeLiteral(table.seed, bytes.bytes, seedPos);
-
-    // Write log2Capacity (1 byte)
-    int log2Pos = bytes.alloc(1);
-    bytes.bytes[log2Pos] = (byte) table.log2Capacity;
-
-    // Write slot array (capacity * SLOT_SIZE bytes), initially from HashTableResult
-    // (hash8 set, offsets = 0xFFFF sentinel to be backpatched)
-    int slotArrayPos = bytes.alloc(capacity * SLOT_SIZE);
-    System.arraycopy(table.slotArray, 0, bytes.bytes, slotArrayPos, table.slotArray.length);
-
-    // KV region starts here
-    int kvRegionBase = bytes.offset;
-
-    // Track which KV entry offset belongs to which property index
-    int[] propertyKvOffsets = new int[propertyCount];
-
-    // Write KV entries sequentially
-    for (int i = 0; i < propertyCount; i++) {
-      int entryOffset = bytes.offset - kvRegionBase;
-
-      if (entryOffset > MAX_KV_REGION_SIZE) {
-        throw new SerializationException(session.getDatabaseName(),
-            "V2 serialization failed: KV region exceeds 64 KB limit ("
-                + entryOffset + " bytes)");
-      }
-
-      propertyKvOffsets[i] = entryOffset;
-      serializePropertyEntry(session, bytes, orderedFields[i], props, oClass, schema, encryption,
-          tempBuffer, nameBytes[i]);
-    }
-
-    // Backpatch slot offsets using slotPropertyIndex mapping
-    for (int s = 0; s < capacity; s++) {
-      int propIdx = table.slotPropertyIndex[s];
-      if (propIdx != -1) {
-        int slotBytePos = slotArrayPos + s * SLOT_SIZE;
-        int entryOffset = propertyKvOffsets[propIdx];
-        // hash8 is already written by HashTableResult; write offset (2 bytes LE)
-        bytes.bytes[slotBytePos + 1] = (byte) (entryOffset & 0xFF);
-        bytes.bytes[slotBytePos + 2] = (byte) ((entryOffset >>> 8) & 0xFF);
-      }
+      byte[] nameBytes = fieldName.getBytes(StandardCharsets.UTF_8);
+      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
+      int hashPos = bytes.alloc(IntegerSerializer.INT_SIZE);
+      IntegerSerializer.serializeLiteral(hash, bytes.bytes, hashPos);
+      // Write property entry: [name-encoding][type][value-size][value]
+      serializePropertyEntry(session, bytes, field, props, clazz, schema, encryption,
+          tempBuffer, nameBytes);
     }
   }
 
@@ -470,10 +234,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
-    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      deserializeLinearMode(db, entity, bytes, propertyCount);
-    } else {
-      deserializeHashTableModeFull(db, entity, bytes, propertyCount);
+    // Full deserialization: skip hash prefix per entry, then read entry normally
+    for (int i = 0; i < propertyCount; i++) {
+      bytes.skip(IntegerSerializer.INT_SIZE);
+      deserializeEntry(db, entity, bytes);
     }
 
     entity.clearSource();
@@ -489,35 +253,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       entity.setClassNameWithoutPropertiesPostProcessing(className);
     }
     deserialize(db, entity, bytes);
-  }
-
-  /**
-   * Linear mode deserialization: read entries sequentially.
-   */
-  private void deserializeLinearMode(DatabaseSessionEmbedded db, EntityImpl entity,
-      BytesContainer bytes, int propertyCount) {
-    for (int i = 0; i < propertyCount; i++) {
-      deserializeEntry(db, entity, bytes);
-    }
-  }
-
-  /**
-   * Hash table mode full deserialization: skip hash table header and slots, read KV entries linearly.
-   */
-  private void deserializeHashTableModeFull(DatabaseSessionEmbedded db, EntityImpl entity,
-      BytesContainer bytes, int propertyCount) {
-    // Skip seed (4 bytes)
-    bytes.skip(IntegerSerializer.INT_SIZE);
-    // Read and validate log2Capacity
-    int log2Capacity = readAndValidateLog2Capacity(bytes);
-    int capacity = 1 << log2Capacity;
-    // Skip slot array: capacity slots, each SLOT_SIZE bytes
-    bytes.skip(capacity * SLOT_SIZE);
-
-    // Read KV entries linearly (full deserialization doesn't need the hash table)
-    for (int i = 0; i < propertyCount; i++) {
-      deserializeEntry(db, entity, bytes);
-    }
   }
 
   /**
@@ -568,107 +303,54 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
-    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      deserializePartialLinear(db, entity, bytes, iFields, propertyCount);
-    } else {
-      deserializePartialHashTable(db, entity, bytes, iFields);
+    // Hash-accelerated partial deserialization: pre-compute hashes for requested fields,
+    // then scan entries comparing hash prefix before reading name strings
+    int[] fieldHashes = new int[iFields.length];
+    for (int fi = 0; fi < iFields.length; fi++) {
+      byte[] nameBytes = iFields[fi].getBytes(StandardCharsets.UTF_8);
+      fieldHashes[fi] = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
     }
-  }
 
-  /**
-   * Partial deserialization in linear mode: scan entries sequentially, only deserialize matching
-   * fields.
-   */
-  private void deserializePartialLinear(DatabaseSessionEmbedded db, EntityImpl entity,
-      BytesContainer bytes, String[] iFields, int propertyCount) {
     int found = 0;
     for (int i = 0; i < propertyCount && found < iFields.length; i++) {
-      var nameAndType = readNameAndType(db, entity, bytes);
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
+      // Read 4-byte hash prefix
+      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
+      bytes.skip(IntegerSerializer.INT_SIZE);
 
-      // Check if this entry matches any requested field
+      // Check if this entry's hash matches any requested field
       int matchIndex = -1;
       for (int j = 0; j < iFields.length; j++) {
-        if (iFields[j] != null && iFields[j].equals(nameAndType.name)) {
+        if (iFields[j] != null && fieldHashes[j] == entryHash) {
           matchIndex = j;
           break;
         }
       }
 
-      if (matchIndex >= 0) {
-        if (valueLength != 0) {
-          var value = deserializeValue(db, bytes, nameAndType.type, entity);
-          entity.setDeserializedPropertyInternal(
-              nameAndType.name, value, nameAndType.type);
-        } else {
-          entity.setDeserializedPropertyInternal(nameAndType.name, null, null);
-        }
-        found++;
-      } else {
-        // Skip value bytes
+      if (matchIndex < 0) {
+        // Hash mismatch — skip name, type, and value without constructing strings
+        skipNameAndTypeAndValue(bytes);
+        continue;
+      }
+
+      // Hash match — read name and verify string equality (collision guard)
+      var nameAndType = readNameAndType(db, entity, bytes);
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+
+      if (!iFields[matchIndex].equals(nameAndType.name)) {
+        // Hash collision — not the field we want, skip value
         bytes.skip(valueLength);
+        continue;
       }
-    }
-  }
 
-  /**
-   * Partial deserialization in linear probing hash table mode: O(1) lookup per field via
-   * Fibonacci-indexed linear probe with hash8 fast-reject. Empty slot terminates search.
-   */
-  private void deserializePartialHashTable(DatabaseSessionEmbedded db, EntityImpl entity,
-      BytesContainer bytes, String[] iFields) {
-    // Read hash table header
-    int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
-    bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2Capacity = readAndValidateLog2Capacity(bytes);
-    int capacity = 1 << log2Capacity;
-    int slotArrayStart = bytes.offset;
-    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
-
-    for (String fieldName : iFields) {
-      byte[] nameBytes = fieldName.getBytes(StandardCharsets.UTF_8);
-      int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, seed);
-      byte expectedHash8 = computeHash8(hash);
-      int startSlot = fibonacciSlotIndex(hash, log2Capacity);
-
-      // Linear probe forward until found or empty slot (defensive bound: probes < capacity)
-      for (int probe = 0; probe < capacity; probe++) {
-        int slot = (startSlot + probe) & (capacity - 1);
-        int slotPos = slotArrayStart + slot * SLOT_SIZE;
-        byte slotHash8 = bytes.bytes[slotPos];
-        int slotOffset =
-            (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
-
-        // Empty slot: field not present — terminate search
-        if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
-          break;
-        }
-
-        // Hash8 fast-reject
-        if (slotHash8 != expectedHash8) {
-          continue;
-        }
-
-        // Bounds check
-        validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
-
-        // Navigate to KV entry and verify name match
-        bytes.offset = kvRegionBase + slotOffset;
-        var nameAndType = readNameAndType(db, entity, bytes);
-        if (!fieldName.equals(nameAndType.name)) {
-          continue;
-        }
-
-        // Found — deserialize value
-        int valueLength = VarIntSerializer.readAsInteger(bytes);
-        if (valueLength != 0) {
-          var value = deserializeValue(db, bytes, nameAndType.type, entity);
-          entity.setDeserializedPropertyInternal(fieldName, value, nameAndType.type);
-        } else {
-          entity.setDeserializedPropertyInternal(fieldName, null, null);
-        }
-        break;
+      // Field matched — deserialize value
+      if (valueLength != 0) {
+        var value = deserializeValue(db, bytes, nameAndType.type, entity);
+        entity.setDeserializedPropertyInternal(
+            nameAndType.name, value, nameAndType.type);
+      } else {
+        entity.setDeserializedPropertyInternal(nameAndType.name, null, null);
       }
+      found++;
     }
   }
 
@@ -688,11 +370,38 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return null;
     }
 
-    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      return deserializeFieldLinear(bytes, iClass, iFieldName, schema, propertyCount);
-    } else {
-      return deserializeFieldHashTable(bytes, iClass, iFieldName, schema);
+    // Hash-accelerated field lookup: pre-compute hash, scan with hash-first rejection
+    byte[] fieldNameBytes = iFieldName.getBytes(StandardCharsets.UTF_8);
+    int targetHash = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, 0);
+
+    for (int i = 0; i < propertyCount; i++) {
+      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
+      bytes.skip(IntegerSerializer.INT_SIZE);
+
+      if (entryHash != targetHash) {
+        skipNameAndTypeAndValue(bytes);
+        continue;
+      }
+
+      // Hash match — read name and verify
+      var nameAndType = readFieldName(bytes, schema);
+      int valueLength = VarIntSerializer.readAsInteger(bytes);
+
+      if (!iFieldName.equals(nameAndType.name)) {
+        bytes.skip(valueLength);
+        continue;
+      }
+
+      if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
+        return null;
+      }
+
+      var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
+      return new BinaryField(
+          iFieldName, nameAndType.type, bytes,
+          classProp != null ? classProp.getCollate() : null);
     }
+    return null;
   }
 
   /**
@@ -721,64 +430,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     return null;
   }
 
-  /**
-   * Field lookup in linear probing hash table mode: Fibonacci-indexed linear probe with hash8
-   * fast-reject. Empty slot terminates search (field absent).
-   */
-  @Nullable private BinaryField deserializeFieldHashTable(BytesContainer bytes,
-      SchemaClass iClass, String iFieldName, ImmutableSchema schema) {
-    // Read hash table header
-    int seed = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
-    bytes.skip(IntegerSerializer.INT_SIZE);
-    int log2Capacity = readAndValidateLog2Capacity(bytes);
-    int capacity = 1 << log2Capacity;
-    int slotArrayStart = bytes.offset;
-    int kvRegionBase = slotArrayStart + capacity * SLOT_SIZE;
-
-    byte[] fieldNameBytes = iFieldName.getBytes(StandardCharsets.UTF_8);
-    int hash = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, seed);
-    byte expectedHash8 = computeHash8(hash);
-    int startSlot = fibonacciSlotIndex(hash, log2Capacity);
-
-    // Linear probe forward until found or empty slot (defensive bound: probes < capacity)
-    for (int probe = 0; probe < capacity; probe++) {
-      int slot = (startSlot + probe) & (capacity - 1);
-      int slotPos = slotArrayStart + slot * SLOT_SIZE;
-      byte slotHash8 = bytes.bytes[slotPos];
-      int slotOffset =
-          (bytes.bytes[slotPos + 1] & 0xFF) | ((bytes.bytes[slotPos + 2] & 0xFF) << 8);
-
-      // Empty slot: field not present — terminate search
-      if (slotHash8 == EMPTY_HASH8 && slotOffset == (EMPTY_OFFSET & 0xFFFF)) {
-        return null;
-      }
-
-      // Hash8 fast-reject
-      if (slotHash8 != expectedHash8) {
-        continue;
-      }
-
-      validateSlotOffset(kvRegionBase, slotOffset, bytes.bytes.length);
-      bytes.offset = kvRegionBase + slotOffset;
-
-      var nameAndType = readFieldName(bytes, schema);
-      if (!iFieldName.equals(nameAndType.name)) {
-        continue;
-      }
-
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-      if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
-        return null;
-      }
-
-      var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
-      return new BinaryField(
-          iFieldName, nameAndType.type, bytes,
-          classProp != null ? classProp.getCollate() : null);
-    }
-    return null;
-  }
-
   @Override
   public String[] getFieldNames(DatabaseSessionEmbedded session, EntityImpl reference,
       BytesContainer bytes, boolean embedded) {
@@ -793,47 +444,12 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return new String[0];
     }
 
-    if (propertyCount <= LINEAR_MODE_THRESHOLD) {
-      return getFieldNamesLinear(session, reference, bytes, propertyCount);
-    } else {
-      return getFieldNamesHashTable(session, reference, bytes, propertyCount);
-    }
-  }
-
-  /**
-   * Field names in linear mode: read names sequentially, skip values.
-   */
-  private String[] getFieldNamesLinear(DatabaseSessionEmbedded session, EntityImpl reference,
-      BytesContainer bytes, int propertyCount) {
+    // Read field names: skip hash prefix per entry, read name, skip value
     String[] names = new String[propertyCount];
     for (int i = 0; i < propertyCount; i++) {
+      bytes.skip(IntegerSerializer.INT_SIZE);
       var nameAndType = readNameAndType(session, reference, bytes);
       names[i] = nameAndType.name;
-      // Skip value
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-      bytes.skip(valueLength);
-    }
-    return names;
-  }
-
-  /**
-   * Field names in linear probing hash table mode: skip to KV entries, read names, skip values.
-   */
-  private String[] getFieldNamesHashTable(DatabaseSessionEmbedded session, EntityImpl reference,
-      BytesContainer bytes, int propertyCount) {
-    // Skip seed (4 bytes)
-    bytes.skip(IntegerSerializer.INT_SIZE);
-    // Read and validate log2Capacity, skip slot array
-    int log2Capacity = readAndValidateLog2Capacity(bytes);
-    int capacity = 1 << log2Capacity;
-    bytes.skip(capacity * SLOT_SIZE);
-
-    // Read names from KV entries sequentially
-    String[] names = new String[propertyCount];
-    for (int i = 0; i < propertyCount; i++) {
-      var nameAndType = readNameAndType(session, reference, bytes);
-      names[i] = nameAndType.name;
-      // Skip value
       int valueLength = VarIntSerializer.readAsInteger(bytes);
       bytes.skip(valueLength);
     }
@@ -1119,6 +735,21 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     return new NameAndType(fieldName, type);
   }
 
+  /**
+   * Skips over a property entry's name-encoding, type byte, and value bytes without constructing
+   * any objects. Used by hash-accelerated deserialization to skip non-matching entries.
+   */
+  private static void skipNameAndTypeAndValue(BytesContainer bytes) {
+    int len = VarIntSerializer.readAsInteger(bytes);
+    if (len > 0) {
+      bytes.skip(len); // schema-less: skip UTF-8 name bytes
+    }
+    // schema-aware (len <= 0): varint itself was the entire encoding
+    bytes.skip(1); // type byte
+    int valueLength = VarIntSerializer.readAsInteger(bytes);
+    bytes.skip(valueLength);
+  }
+
   private static void writeEmptyString(BytesContainer bytes) {
     VarIntSerializer.write(bytes, 0);
   }
@@ -1147,42 +778,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       throw new SerializationException(
           "Corrupted record: negative property count " + propertyCount);
     }
-    // Upper bound: at 0.625 load factor with MAX_LOG2_CAPACITY=11 (2048 slots),
-    // the maximum property count is (2048 * 5 / 8) = 1280. Beyond this, the
-    // capacity formula clamps at MAX_LOG2_CAPACITY causing severe load factor
-    // degradation (e.g., 2047 properties in 2048 slots = 99.95% load).
-    int maxProperties = (1 << MAX_LOG2_CAPACITY) * 5 / 8;
-    if (propertyCount > maxProperties) {
+    if (propertyCount > MAX_PROPERTY_COUNT) {
       throw new SerializationException(
           "Corrupted record: property count " + propertyCount + " exceeds maximum "
-              + maxProperties);
-    }
-  }
-
-  /**
-   * Validates that log2Capacity read from a serialized record is within the supported range.
-   * A corrupted byte could produce a value like 30 or 255, causing massive memory allocation or
-   * integer overflow in capacity computation.
-   */
-  private static int readAndValidateLog2Capacity(BytesContainer bytes) {
-    int log2Capacity = bytes.bytes[bytes.offset++] & 0xFF;
-    if (log2Capacity < 1 || log2Capacity > MAX_LOG2_CAPACITY) {
-      throw new SerializationException(
-          "Corrupted record: invalid log2Capacity " + log2Capacity
-              + " (expected 1-" + MAX_LOG2_CAPACITY + ")");
-    }
-    return log2Capacity;
-  }
-
-  /**
-   * Validates that a slot offset is within the bounds of the byte buffer. A corrupted offset
-   * would cause an out-of-bounds read during deserialization.
-   */
-  private static void validateSlotOffset(int kvRegionBase, int slotOffset, int bufferLength) {
-    if (kvRegionBase + slotOffset >= bufferLength) {
-      throw new SerializationException(
-          "Corrupted record: slot offset " + slotOffset + " exceeds buffer bounds (kvBase="
-              + kvRegionBase + ", bufLen=" + bufferLength + ")");
+              + MAX_PROPERTY_COUNT);
     }
   }
 
