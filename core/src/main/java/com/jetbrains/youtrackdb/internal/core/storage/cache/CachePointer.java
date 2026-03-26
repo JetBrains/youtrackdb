@@ -110,16 +110,10 @@ public final class CachePointer {
     this.fileId = fileId;
     this.pageIndex = pageIndex;
 
-    // Propagate coordinates to the PageFrame so that the coordinate-verification
-    // guard in DurableComponent.loadPageOptimistic() can detect frame reuse.
-    if (this.pageFrame != null) {
-      long stamp = this.pageFrame.acquireExclusiveLock();
-      try {
-        this.pageFrame.setPageCoordinates(fileId, pageIndex);
-      } finally {
-        this.pageFrame.releaseExclusiveLock(stamp);
-      }
-    }
+    propagateCoordinatesToFrame();
+    assert pageFrame == null
+        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
+        : "PageFrame coordinates diverge from CachePointer";
   }
 
   /**
@@ -161,16 +155,10 @@ public final class CachePointer {
     this.fileId = fileId;
     this.pageIndex = pageIndex;
 
-    // Propagate coordinates to the PageFrame so that the coordinate-verification
-    // guard in DurableComponent.loadPageOptimistic() can detect frame reuse.
-    if (this.pageFrame != null) {
-      long stamp = this.pageFrame.acquireExclusiveLock();
-      try {
-        this.pageFrame.setPageCoordinates(fileId, pageIndex);
-      } finally {
-        this.pageFrame.releaseExclusiveLock(stamp);
-      }
-    }
+    propagateCoordinatesToFrame();
+    assert pageFrame == null
+        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
+        : "PageFrame coordinates diverge from CachePointer";
   }
 
   public void setWritersListener(WritersListener writersListener) {
@@ -430,6 +418,22 @@ public final class CachePointer {
   @Override
   public String toString() {
     return "CachePointer{" + "referrersCount=" + referrersCount + '}';
+  }
+
+  /**
+   * Propagates this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame.
+   * Called at construction time so that the coordinate-verification guard in
+   * {@code DurableComponent.loadPageOptimistic()} can detect frame reuse.
+   */
+  private void propagateCoordinatesToFrame() {
+    if (this.pageFrame != null) {
+      long stamp = this.pageFrame.acquireExclusiveLock();
+      try {
+        this.pageFrame.setPageCoordinates(fileId, pageIndex);
+      } finally {
+        this.pageFrame.releaseExclusiveLock(stamp);
+      }
+    }
   }
 
   private static long composeReadersWriters(int readers, int writers) {

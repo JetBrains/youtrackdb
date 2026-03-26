@@ -225,4 +225,41 @@ public class CachePointerPageFrameTest {
     var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
     sentinel.tryAcquireSharedLock();
   }
+
+  @Test
+  public void testPageFrameCoordinatesPropagatedByPageFrameConstructor() {
+    // Verifies that the PageFrame-based constructor propagates fileId and pageIndex
+    // to the PageFrame, so the coordinate-verification guard in
+    // DurableComponent.loadPageOptimistic() can detect frame reuse.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 2);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    var cp = new CachePointer(frame, pool, 42, 7);
+
+    assertEquals(42L, frame.getFileId());
+    assertEquals(7, frame.getPageIndex());
+
+    pool.release(frame);
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
+  @Test
+  public void testPageFrameCoordinatesPropagatedByLegacyConstructor() {
+    // Verifies that the legacy Pointer+ByteBufferPool constructor propagates fileId and
+    // pageIndex to the standalone PageFrame created for lock delegation.
+    var allocator = new DirectMemoryAllocator();
+    var pointer = allocator.allocate(4096, true, Intention.TEST);
+
+    var cp = new CachePointer(pointer, null, 99, 13);
+    var frame = cp.getPageFrame();
+
+    assertNotNull(frame);
+    assertEquals(99L, frame.getFileId());
+    assertEquals(13, frame.getPageIndex());
+
+    allocator.deallocate(pointer);
+    allocator.checkMemoryLeaks();
+  }
 }

@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
@@ -18,9 +17,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Random;
 import org.assertj.core.api.Assertions;
-import org.junit.AfterClass;
+import org.junit.After;
 import org.junit.Assert;
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -29,6 +28,9 @@ import org.junit.experimental.categories.Category;
  * one atomic operation, commits, then reads in a separate atomic operation with no pending
  * changes. This exercises the optimistic (lock-free) read path that
  * {@code executeOptimisticStorageRead} tries before falling back to the pinned (locked) path.
+ *
+ * <p>Each test gets a fresh database and collection to ensure full isolation — no state leaks
+ * between tests.
  *
  * <p>The following optimistic code paths are covered:
  * <ul>
@@ -49,15 +51,14 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class PaginatedCollectionV2OptimisticReadTest {
 
-  private static YouTrackDBImpl youTrackDB;
-  private static DatabaseSessionEmbedded session;
-  private static AbstractStorage storage;
-  private static PaginatedCollectionV2 collection;
-  private static String buildDirectory;
+  private YouTrackDBImpl youTrackDB;
+  private AbstractStorage storage;
+  private PaginatedCollectionV2 collection;
+  private String buildDirectory;
   private static final String DB_NAME = "optimisticReadTest";
 
-  @BeforeClass
-  public static void beforeClass() throws IOException {
+  @Before
+  public void setUp() throws IOException {
     buildDirectory = System.getProperty("buildDirectory");
     if (buildDirectory == null || buildDirectory.isEmpty()) {
       buildDirectory = ".";
@@ -69,7 +70,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
     youTrackDB.create(DB_NAME, DatabaseType.DISK,
         new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
-    session = youTrackDB.open(DB_NAME, "admin", "admin");
+    var session = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = (AbstractStorage) session.getStorage();
 
     collection = new PaginatedCollectionV2("optReadCollection", storage);
@@ -78,32 +79,13 @@ public class PaginatedCollectionV2OptimisticReadTest {
         op -> collection.create(op));
   }
 
-  @AfterClass
-  public static void afterClass() throws IOException {
-    // Clean up all records
-    var positions = atomicOps().calculateInsideAtomicOperation(op -> {
-      var first = collection.getFirstPosition(op);
-      return collection.ceilingPositions(
-          new PhysicalPosition(first), Integer.MAX_VALUE, op);
-    });
-
-    while (positions.length > 0) {
-      for (var pos : positions) {
-        atomicOps().executeInsideAtomicOperation(
-            op -> collection.deleteRecord(op, pos.collectionPosition));
-      }
-      var last = positions;
-      positions = atomicOps().calculateInsideAtomicOperation(
-          op -> collection.higherPositions(
-              last[last.length - 1], Integer.MAX_VALUE, op));
-    }
-
-    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
+  @After
+  public void tearDown() {
     youTrackDB.drop(DB_NAME);
     youTrackDB.close();
   }
 
-  private static AtomicOperationsManager atomicOps() {
+  private AtomicOperationsManager atomicOps() {
     return storage.getAtomicOperationsManager();
   }
 
@@ -112,13 +94,13 @@ public class PaginatedCollectionV2OptimisticReadTest {
    * cache. After reopening, any page load goes through the read cache,
    * enabling the optimistic read path.
    */
-  private static void flushToReadCache() {
+  private void flushToReadCache() {
     // Close and reopen the database so all pages are evicted from the write
     // cache. After reopening, any page load goes through the read cache,
     // enabling the optimistic read path.
     youTrackDB.close();
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
-    session = youTrackDB.open(DB_NAME, "admin", "admin");
+    var session = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = (AbstractStorage) session.getStorage();
 
     // Reopen the collection with the new storage reference.
@@ -222,6 +204,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // path produces the authoritative answer).
   @Test(expected = RecordNotFoundException.class)
   public void testReadRecordOptimisticNonExistentThrows() throws IOException {
+    // Insert at least one record so the collection is not empty (getLastPosition needs it)
+    var data = new byte[] {1};
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
     var lastPos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getLastPosition(op));
     var nonExistent = lastPos + 5000;
@@ -262,6 +249,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // optimistic path.
   @Test
   public void testGetPhysicalPositionOptimisticNonExistent() throws IOException {
+    // Insert at least one record so the collection is not empty
+    var data = new byte[] {1};
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
     var lastPos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getLastPosition(op));
 
@@ -317,6 +309,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // path.
   @Test
   public void testExistsOptimisticFalseNonExistent() throws IOException {
+    // Insert at least one record so the collection is not empty
+    var data = new byte[] {1};
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
     var lastPos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getLastPosition(op));
 
@@ -366,11 +363,10 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var last = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getLastPosition(op));
 
-    Assert.assertTrue("First position should be <= smallest created position",
-        first <= positions.get(0));
-    Assert.assertTrue("Last position should be >= largest created position",
-        last >= positions.get(positions.size() - 1));
-    Assert.assertTrue("First position should be <= last position", first <= last);
+    Assert.assertEquals("First position should equal smallest created position",
+        positions.get(0).longValue(), (long) first);
+    Assert.assertEquals("Last position should equal largest created position",
+        positions.get(positions.size() - 1).longValue(), (long) last);
   }
 
   // --- higherPositions / ceilingPositions / lowerPositions / floorPositions ---
@@ -393,7 +389,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var higher = atomicOps().calculateInsideAtomicOperation(
         op -> collection.higherPositions(query, Integer.MAX_VALUE, op));
 
-    Assert.assertTrue("Should have higher positions", higher.length > 0);
+    Assert.assertEquals("Should have exactly 4 higher positions",
+        4, higher.length);
     for (var pp : higher) {
       Assert.assertTrue("All positions should be strictly higher than the query",
           pp.collectionPosition > positions.get(0));
@@ -418,7 +415,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var ceiling = atomicOps().calculateInsideAtomicOperation(
         op -> collection.ceilingPositions(query, Integer.MAX_VALUE, op));
 
-    Assert.assertTrue("Should have ceiling positions", ceiling.length > 0);
+    Assert.assertEquals("Should have exactly 5 ceiling positions",
+        5, ceiling.length);
     Assert.assertEquals("First ceiling position should equal the query position",
         positions.get(0).longValue(), ceiling[0].collectionPosition);
   }
@@ -442,7 +440,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var lower = atomicOps().calculateInsideAtomicOperation(
         op -> collection.lowerPositions(query, Integer.MAX_VALUE, op));
 
-    Assert.assertTrue("Should have lower positions", lower.length > 0);
+    Assert.assertEquals("Should have exactly 4 lower positions",
+        4, lower.length);
     for (var pp : lower) {
       Assert.assertTrue("All positions should be strictly lower than the query",
           pp.collectionPosition < lastPos);
@@ -468,7 +467,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var floor = atomicOps().calculateInsideAtomicOperation(
         op -> collection.floorPositions(query, Integer.MAX_VALUE, op));
 
-    Assert.assertTrue("Should have floor positions", floor.length > 0);
+    Assert.assertEquals("Should have exactly 5 floor positions",
+        5, floor.length);
     var lastFloor = floor[floor.length - 1];
     Assert.assertEquals("Last floor position should equal the query position",
         lastPos.longValue(), (long) lastFloor.collectionPosition);
@@ -495,6 +495,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // the optimistic path.
   @Test
   public void testGetRecordStatusOptimisticNotExistent() throws IOException {
+    // Insert at least one record so the collection is not empty
+    var data = new byte[] {1};
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 1, null, op));
+
     var lastPos = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getLastPosition(op));
 
@@ -529,7 +534,6 @@ public class PaginatedCollectionV2OptimisticReadTest {
   // and returns the correct count of records.
   @Test
   public void testGetEntriesOptimistic() throws IOException {
-    // Insert several records in separate atomic operations
     var count = 7;
     for (var i = 0; i < count; i++) {
       var data = new byte[] {(byte) i, (byte) (i + 1)};
@@ -539,11 +543,10 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     flushToReadCache();
 
-    // Read entry count in a separate atomic operation
     var entries = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getEntries(op));
-    Assert.assertTrue("Should have at least the inserted records",
-        entries >= count);
+    Assert.assertEquals("Should have exactly the inserted records",
+        count, entries.longValue());
   }
 
   // Verifies that getEntries correctly reflects the count after deletions, exercising the
@@ -558,9 +561,6 @@ public class PaginatedCollectionV2OptimisticReadTest {
       positions.add(pos.collectionPosition);
     }
 
-    var entriesBefore = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.getEntries(op));
-
     // Delete 2 records
     atomicOps().executeInsideAtomicOperation(
         op -> collection.deleteRecord(op, positions.get(0)));
@@ -571,8 +571,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     var entriesAfter = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getEntries(op));
-    Assert.assertEquals("Entry count should decrease by 2 after deleting 2 records",
-        entriesBefore - 2L, entriesAfter.longValue());
+    Assert.assertEquals("Entry count should be 3 after inserting 5 and deleting 2",
+        3L, entriesAfter.longValue());
   }
 
   // --- nextPage optimistic path ---
@@ -604,8 +604,10 @@ public class PaginatedCollectionV2OptimisticReadTest {
           op -> collection.nextPage(nextStart, true, op));
     }
 
-    Assert.assertTrue("Should visit at least the created records",
+    Assert.assertTrue("Should visit all created records",
         visitedPositions.containsAll(createdPositions));
+    Assert.assertEquals("Should visit exactly the created records",
+        createdPositions.size(), visitedPositions.size());
   }
 
   // Verifies that backward page browsing via nextPage exercises the optimistic path in
@@ -670,33 +672,33 @@ public class PaginatedCollectionV2OptimisticReadTest {
       // getFirstPosition / getLastPosition
       var first = collection.getFirstPosition(op);
       var last = collection.getLastPosition(op);
-      Assert.assertTrue(first <= pos.collectionPosition);
-      Assert.assertTrue(last >= pos.collectionPosition);
+      Assert.assertEquals(pos.collectionPosition, first);
+      Assert.assertEquals(pos.collectionPosition, last);
 
       // getEntries
       var entries = collection.getEntries(op);
-      Assert.assertTrue("Should have at least 1 entry", entries >= 1);
+      Assert.assertEquals("Should have exactly 1 entry", 1L, entries);
 
-      // higherPositions from position 0 (should include our record)
+      // higherPositions from (first - 1) should include our record
       var higher = collection.higherPositions(
-          new PhysicalPosition(0), 10, op);
-      Assert.assertTrue("Should have positions above 0", higher.length > 0);
+          new PhysicalPosition(first - 1), 10, op);
+      Assert.assertEquals("Should have 1 position above (first - 1)", 1, higher.length);
 
       // ceilingPositions from our position (should include our record)
       var ceiling = collection.ceilingPositions(
           new PhysicalPosition(pos.collectionPosition), 10, op);
-      Assert.assertTrue("Should have ceiling positions", ceiling.length > 0);
+      Assert.assertEquals("Should have 1 ceiling position", 1, ceiling.length);
       Assert.assertEquals(pos.collectionPosition, ceiling[0].collectionPosition);
 
       // lowerPositions from Long.MAX_VALUE (should include our record)
       var lower = collection.lowerPositions(
           new PhysicalPosition(Long.MAX_VALUE), 10, op);
-      Assert.assertTrue("Should have lower positions", lower.length > 0);
+      Assert.assertEquals("Should have 1 lower position", 1, lower.length);
 
       // floorPositions from our position (should include our record)
       var floor = collection.floorPositions(
           new PhysicalPosition(pos.collectionPosition), 10, op);
-      Assert.assertTrue("Should have floor positions", floor.length > 0);
+      Assert.assertEquals("Should have 1 floor position", 1, floor.length);
     });
   }
 
@@ -792,7 +794,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Verify entry count through optimistic path
     var entries = atomicOps().calculateInsideAtomicOperation(
         op -> collection.getEntries(op));
-    Assert.assertTrue("Should have at least 50 entries", entries >= 50);
+    Assert.assertEquals("Should have exactly 50 entries", 50L, entries.longValue());
 
     // Navigate positions with ceiling/higher/lower/floor in a read-only op
     atomicOps().executeInsideAtomicOperation(op -> {
@@ -801,13 +803,13 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
       var ceiling = collection.ceilingPositions(
           new PhysicalPosition(first), Integer.MAX_VALUE, op);
-      Assert.assertTrue("Ceiling from first should cover all records",
-          ceiling.length >= 50);
+      Assert.assertEquals("Ceiling from first should cover all records",
+          50, ceiling.length);
 
       var floor = collection.floorPositions(
           new PhysicalPosition(last), Integer.MAX_VALUE, op);
-      Assert.assertTrue("Floor from last should cover all records",
-          floor.length >= 50);
+      Assert.assertEquals("Floor from last should cover all records",
+          50, floor.length);
     });
   }
 }
