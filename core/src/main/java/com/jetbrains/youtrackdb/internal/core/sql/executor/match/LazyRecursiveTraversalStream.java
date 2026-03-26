@@ -249,35 +249,41 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
    */
   private void pushFrame(Result startingPoint, int depth,
       @Nullable PathNode pathToHere) {
-    // Save current context and set for this depth
+    // Save current context and set for this depth. If filter evaluation or
+    // path materialization throws, restore the context to avoid leaving it
+    // in an inconsistent state.
     var previousMatch = ctx.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
     ctx.setSystemVariable(CommandContext.VAR_DEPTH, depth);
     ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
+    try {
+      var frame = new Frame(startingPoint, depth, pathToHere, previousMatch);
 
-    var frame = new Frame(startingPoint, depth, pathToHere, previousMatch);
-
-    // Evaluate self against filters
-    if (startingPoint != null
-        && MatchEdgeTraverser.matchesFilters(ctx, filter, startingPoint)
-        && MatchEdgeTraverser.matchesClass(ctx, className, startingPoint)
-        && MatchEdgeTraverser.matchesRid(ctx, targetRid, startingPoint)) {
-      ResultInternal rs;
-      if (startingPoint instanceof ResultInternal resultInternal) {
-        rs = resultInternal;
-      } else {
-        rs = ResultInternal.toResultInternal(startingPoint, session, null);
-      }
-      if (rs != null) {
-        rs.setMetadata("$depth", depth);
-        if (hasPathAlias) {
-          rs.setMetadata("$matchPath",
-              pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
+      // Evaluate self against filters
+      if (startingPoint != null
+          && MatchEdgeTraverser.matchesFilters(ctx, filter, startingPoint)
+          && MatchEdgeTraverser.matchesClass(ctx, className, startingPoint)
+          && MatchEdgeTraverser.matchesRid(ctx, targetRid, startingPoint)) {
+        ResultInternal rs;
+        if (startingPoint instanceof ResultInternal resultInternal) {
+          rs = resultInternal;
+        } else {
+          rs = ResultInternal.toResultInternal(startingPoint, session, null);
         }
-        frame.selfResult = rs;
+        if (rs != null) {
+          rs.setMetadata("$depth", depth);
+          if (hasPathAlias) {
+            rs.setMetadata("$matchPath",
+                pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
+          }
+          frame.selfResult = rs;
+        }
       }
-    }
 
-    stack.push(frame);
+      stack.push(frame);
+    } catch (Throwable t) {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
+      throw t;
+    }
   }
 
   private boolean shouldExpand(Frame frame) {
