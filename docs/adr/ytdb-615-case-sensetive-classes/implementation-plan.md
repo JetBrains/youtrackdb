@@ -282,6 +282,8 @@ themselves remain case-insensitive. This is a user-facing behavioral change.
   > `toLowerCase()` allocations exist in the SQL class resolution path.
   >
   > **Step file:** `tracks/track-3.md` (3 steps + 1 Phase C fix, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact. All tracks complete.
 
 ## Final Design Document
 - [ ] Phase 4: Final design document (`design-final.md`)
