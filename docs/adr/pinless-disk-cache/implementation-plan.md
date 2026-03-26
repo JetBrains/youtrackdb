@@ -1965,7 +1965,7 @@ Phase 5: Remove component-level read lock from happy path
   > **Strategy refresh:** CONTINUE — no downstream impact. Track 10 is the final track; all implementation work complete.
 
 ## Final Design Document
-- [ ] Phase 4: Final design document (`design-final.md`)
+- [>] Phase 4: Final design document (`design-final.md`)
 
 ## Testing Strategy
 
