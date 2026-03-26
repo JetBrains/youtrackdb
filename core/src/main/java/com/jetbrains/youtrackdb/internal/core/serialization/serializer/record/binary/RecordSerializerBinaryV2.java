@@ -441,6 +441,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       var nameAndType = readNameAndType(session, reference, bytes);
       names[i] = nameAndType.name;
       int valueLength = VarIntSerializer.readAsInteger(bytes);
+      validateValueLength(valueLength, names[i]);
       bytes.skip(valueLength);
     }
     return names;

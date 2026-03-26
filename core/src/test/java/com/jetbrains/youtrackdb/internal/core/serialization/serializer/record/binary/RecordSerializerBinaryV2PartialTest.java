@@ -890,6 +890,68 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     session.rollback();
   }
 
+  // --- Hash collision regression tests ---
+
+  @Test
+  public void partial_hashCollision_correctlySkipsNonMatchingEntry() {
+    // "f_67927" and "f_144759" produce the same MurmurHash3 hash with seed 0 (114566882).
+    // When we request only one of them, the collision guard must correctly skip the other
+    // entry after hash match + name mismatch, without returning wrong data.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("f_67927", "value_A");
+    entity.setString("f_144759", "value_B");
+    entity.setString("other", "value_C");
+
+    // Request only the first collision partner — must not get confused by the second
+    var deserialized1 = partialDeserialize(entity, "f_67927");
+    assertThat(deserialized1.getString("f_67927")).isEqualTo("value_A");
+    assertThat(deserialized1.hasProperty("f_144759")).isFalse();
+
+    // Request only the second collision partner
+    var deserialized2 = partialDeserialize(entity, "f_144759");
+    assertThat(deserialized2.getString("f_144759")).isEqualTo("value_B");
+    assertThat(deserialized2.hasProperty("f_67927")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void partial_hashCollision_bothRequestedFieldsReturned() {
+    // Regression test: when two requested fields have the same 32-bit MurmurHash3 hash
+    // ("f_67927" and "f_144759"), both must be found by deserializePartial. Before the fix,
+    // the second field was silently lost because the inner loop broke at the first hash match.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("f_67927", "value_A");
+    entity.setString("f_144759", "value_B");
+    entity.setString("other", "value_C");
+
+    var deserialized = partialDeserialize(entity, "f_67927", "f_144759");
+    assertThat(deserialized.getString("f_67927")).isEqualTo("value_A");
+    assertThat(deserialized.getString("f_144759")).isEqualTo("value_B");
+    assertThat(deserialized.hasProperty("other")).isFalse();
+    session.rollback();
+  }
+
+  @Test
+  public void field_hashCollision_correctFieldReturned() {
+    // Verify deserializeField handles hash collisions: "f_67927" and "f_144759" share
+    // the same hash. Requesting one must not return the other's data.
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    entity.setString("f_67927", "value_A");
+    entity.setString("f_144759", "value_B");
+
+    var field1 = deserializeFieldFromEntity(entity, "f_67927", false);
+    assertThat(field1).isNotNull();
+    assertThat(field1.name).isEqualTo("f_67927");
+
+    var field2 = deserializeFieldFromEntity(entity, "f_144759", false);
+    assertThat(field2).isNotNull();
+    assertThat(field2.name).isEqualTo("f_144759");
+    session.rollback();
+  }
+
   // ========================================================================================
   // Helpers
   // ========================================================================================
