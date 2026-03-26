@@ -494,6 +494,22 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
         .hasMessageContaining("negative property count");
   }
 
+  /**
+   * Verifies that a property count exceeding MAX_PROPERTY_COUNT (2048) is rejected with
+   * a clear SerializationException during deserialization.
+   */
+  @Test
+  public void deserialize_excessivePropertyCount_throwsSerializationException() {
+    session.begin();
+    var bytes = new BytesContainer();
+    VarIntSerializer.write(bytes, RecordSerializerBinaryV2.MAX_PROPERTY_COUNT + 1);
+    var target = (EntityImpl) session.newEntity();
+    assertThatThrownBy(
+        () -> v2.deserialize(session, target, new BytesContainer(bytes.bytes)))
+        .isInstanceOf(SerializationException.class)
+        .hasMessageContaining("exceeds maximum");
+  }
+
   // --- Moderate scale ---
 
   @Test
@@ -815,7 +831,7 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     assertThat(refListResult.get(0).getIdentity()).isEqualTo(targetRid);
   }
 
-  // --- Threshold boundary tests ---
+  // --- Various property count tests ---
 
   @Test
   public void roundTrip_twelveProperties() {
