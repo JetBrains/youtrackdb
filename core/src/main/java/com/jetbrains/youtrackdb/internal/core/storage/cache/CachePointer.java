@@ -109,6 +109,17 @@ public final class CachePointer {
 
     this.fileId = fileId;
     this.pageIndex = pageIndex;
+
+    // Propagate coordinates to the PageFrame so that the coordinate-verification
+    // guard in DurableComponent.loadPageOptimistic() can detect frame reuse.
+    if (this.pageFrame != null) {
+      long stamp = this.pageFrame.acquireExclusiveLock();
+      try {
+        this.pageFrame.setPageCoordinates(fileId, pageIndex);
+      } finally {
+        this.pageFrame.releaseExclusiveLock(stamp);
+      }
+    }
   }
 
   /**
@@ -149,6 +160,17 @@ public final class CachePointer {
 
     this.fileId = fileId;
     this.pageIndex = pageIndex;
+
+    // Propagate coordinates to the PageFrame so that the coordinate-verification
+    // guard in DurableComponent.loadPageOptimistic() can detect frame reuse.
+    if (this.pageFrame != null) {
+      long stamp = this.pageFrame.acquireExclusiveLock();
+      try {
+        this.pageFrame.setPageCoordinates(fileId, pageIndex);
+      } finally {
+        this.pageFrame.releaseExclusiveLock(stamp);
+      }
+    }
   }
 
   public void setWritersListener(WritersListener writersListener) {

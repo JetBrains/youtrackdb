@@ -171,4 +171,58 @@ public class CachePointerPageFrameTest {
     // Verifies that the PageFrame constructor rejects negative pageIndex.
     new CachePointer((PageFrame) null, null, 10, -1);
   }
+
+  @Test(expected = IllegalStateException.class)
+  public void testRejectsNegativeFileIdLegacyConstructor() {
+    // Verifies that the legacy Pointer+ByteBufferPool constructor rejects a negative fileId.
+    // The constructor must validate fileId >= 0 and throw IllegalStateException otherwise.
+    new CachePointer((Pointer) null, null, -1, 5);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testRejectsNegativePageIndexLegacyConstructor() {
+    // Verifies that the legacy Pointer+ByteBufferPool constructor rejects a negative pageIndex.
+    // The constructor must validate pageIndex >= 0 and throw IllegalStateException otherwise.
+    new CachePointer((Pointer) null, null, 10, -1);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testAcquireExclusiveLockOnSentinelThrows() {
+    // Verifies that acquireExclusiveLock() throws IllegalStateException on a sentinel
+    // CachePointer (one with null PageFrame), since there is no lock to acquire.
+    var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
+    sentinel.acquireExclusiveLock();
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testReleaseExclusiveLockOnSentinelThrows() {
+    // Verifies that releaseExclusiveLock() throws IllegalStateException on a sentinel
+    // CachePointer (one with null PageFrame), since there is no lock to release.
+    var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
+    sentinel.releaseExclusiveLock(42L);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testAcquireSharedLockOnSentinelThrows() {
+    // Verifies that acquireSharedLock() throws IllegalStateException on a sentinel
+    // CachePointer (one with null PageFrame), since there is no lock to acquire.
+    var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
+    sentinel.acquireSharedLock();
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testReleaseSharedLockOnSentinelThrows() {
+    // Verifies that releaseSharedLock() throws IllegalStateException on a sentinel
+    // CachePointer (one with null PageFrame), since there is no lock to release.
+    var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
+    sentinel.releaseSharedLock(42L);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testTryAcquireSharedLockOnSentinelThrows() {
+    // Verifies that tryAcquireSharedLock() throws IllegalStateException on a sentinel
+    // CachePointer (one with null PageFrame), since there is no lock to try.
+    var sentinel = new CachePointer((PageFrame) null, null, 10, 5);
+    sentinel.tryAcquireSharedLock();
+  }
 }
