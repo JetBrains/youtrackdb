@@ -410,7 +410,8 @@ public class MatchEdgeTraverser implements ExecutionStream {
       // declared the user wants all distinct paths, so we null out the
       // visited set to disable dedup entirely.
       assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
-      var dedupVisited = item.getFilter().getPathAlias() == null ? visited : null;
+      var hasPathAlias = item.getFilter().getPathAlias() != null;
+      var dedupVisited = hasPathAlias ? null : visited;
 
       // Evaluate the starting point against all filters
       if (startingPoint != null
@@ -426,8 +427,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
         if (rs != null) {
           // Store traversal metadata so the user can access it via depthAlias/pathAlias
           rs.setMetadata("$depth", depth);
-          rs.setMetadata("$matchPath",
-              pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
+          if (hasPathAlias) {
+            rs.setMetadata("$matchPath",
+                pathToHere == null ? PathNode.emptyPath() : pathToHere.toList());
+          }
           result.add(rs);
         }
       }
@@ -464,10 +467,10 @@ public class MatchEdgeTraverser implements ExecutionStream {
             }
           }
 
-          // Build the path by appending the current neighbor — O(1) cons-cell append
-          // instead of O(depth) ArrayList copy. The PathNode shares structure with
-          // all ancestor paths and is only materialized to a List when pathAlias is read.
-          var newPath = new PathNode(origin, pathToHere, depth);
+          // Only build the path when the user declared a pathAlias — otherwise skip
+          // all PathNode allocation entirely. For IS2 (no pathAlias) this eliminates
+          // all path-related allocations across the entire REPLY_OF chain.
+          var newPath = hasPathAlias ? new PathNode(origin, pathToHere, depth) : null;
 
           // Recursive call with incremented depth, sharing the visited set
           var subResult =
