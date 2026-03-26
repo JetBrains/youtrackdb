@@ -2318,6 +2318,239 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         pairs);
   }
 
+  // Verifies that the lazy recursive traversal correctly handles a deep linear
+  // chain (50 hops). The stack-based implementation should handle this without
+  // any stack depth issues, unlike a naive recursive approach.
+  @Test
+  public void testWhileDeepChainLazyTraversal() {
+    var clazz = "testWhileDeepChain";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    int chainLength = 50;
+    session.begin();
+    for (int i = 0; i <= chainLength; i++) {
+      session.execute("CREATE VERTEX " + clazz + " SET name = 'n" + i + "'").close();
+    }
+    for (int i = 0; i < chainLength; i++) {
+      session.execute(
+          "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'n" + i + "') "
+              + "TO (SELECT FROM " + clazz + " WHERE name = 'n" + (i + 1) + "')")
+          .close();
+    }
+    session.commit();
+
+    // Traverse the entire chain from n0 with WHILE(true)
+    var query =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'n0')} --> {as:dest, while:(true),"
+            + " depthAlias: d} RETURN dest.name as dname, d";
+
+    session.begin();
+    var result = session.query(query);
+
+    int count = 0;
+    int maxDepth = -1;
+    while (result.hasNext()) {
+      var item = result.next();
+      int depth = item.getProperty("d");
+      if (depth > maxDepth) {
+        maxDepth = depth;
+      }
+      count++;
+    }
+    result.close();
+    session.commit();
+
+    // All 51 nodes (n0 at depth 0 through n50 at depth 50)
+    Assert.assertEquals(
+        "Deep chain must yield all nodes including start",
+        chainLength + 1, count);
+    Assert.assertEquals(
+        "Deepest node must be at depth = chain length",
+        chainLength, maxDepth);
+  }
+
+  // Verifies that WHILE with LIMIT only pulls as many results as needed.
+  // The lazy stream enables this: after LIMIT is reached, remaining subtrees
+  // are not expanded. We verify correctness (not laziness directly) by checking
+  // that LIMIT produces a proper subset of the full result set.
+  @Test
+  public void testWhileWithLimit() {
+    var clazz = "testWhileLimit";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    session.begin();
+    for (int i = 0; i < 10; i++) {
+      session.execute("CREATE VERTEX " + clazz + " SET name = 'n" + i + "'").close();
+    }
+    for (int i = 0; i < 9; i++) {
+      session.execute(
+          "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'n" + i + "') "
+              + "TO (SELECT FROM " + clazz + " WHERE name = 'n" + (i + 1) + "')")
+          .close();
+    }
+    session.commit();
+
+    // Full traversal — should yield all 10 nodes
+    var fullQuery =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'n0')} --> {as:dest, while:(true)} "
+            + "RETURN dest.name as dname";
+
+    session.begin();
+    var fullResult = session.query(fullQuery);
+    int fullCount = 0;
+    while (fullResult.hasNext()) {
+      fullResult.next();
+      fullCount++;
+    }
+    fullResult.close();
+    session.commit();
+    Assert.assertEquals(10, fullCount);
+
+    // Limited traversal — should yield exactly 3 nodes
+    var limitedQuery =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'n0')} --> {as:dest, while:(true)} "
+            + "RETURN dest.name as dname LIMIT 3";
+
+    session.begin();
+    var limitedResult = session.query(limitedQuery);
+    int limitedCount = 0;
+    while (limitedResult.hasNext()) {
+      limitedResult.next();
+      limitedCount++;
+    }
+    limitedResult.close();
+    session.commit();
+    Assert.assertEquals(3, limitedCount);
+  }
+
+  // Verifies that the lazy traversal produces correct results on a branching
+  // (fan-out) graph: a root node with multiple children, each having their own
+  // children. This tests that the DFS stack correctly explores all branches.
+  //
+  //       root
+  //      / | \
+  //     a  b  c
+  //    /|    |
+  //   d  e   f
+  @Test
+  public void testWhileBranchingGraphLazyTraversal() {
+    var clazz = "testWhileBranching";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    session.begin();
+    for (var name : new String[] {"root", "a", "b", "c", "d", "e", "f"}) {
+      session.execute("CREATE VERTEX " + clazz + " SET name = '" + name + "'").close();
+    }
+    // root → a, b, c
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'root') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'a')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'root') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'b')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'root') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'c')")
+        .close();
+    // a → d, e
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'd')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'e')")
+        .close();
+    // b → f
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'b') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'f')")
+        .close();
+    session.commit();
+
+    var query =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'root')} --> {as:dest, while:(true),"
+            + " depthAlias: d} RETURN dest.name as dname, d";
+
+    session.begin();
+    var result = session.query(query);
+
+    var names = new java.util.ArrayList<String>();
+    while (result.hasNext()) {
+      var item = result.next();
+      names.add((String) item.getProperty("dname"));
+    }
+    result.close();
+    session.commit();
+
+    java.util.Collections.sort(names);
+    // All 7 nodes must appear exactly once (dedup active, no pathAlias)
+    Assert.assertEquals(
+        "Branching graph: all nodes must be visited exactly once",
+        java.util.List.of("a", "b", "c", "d", "e", "f", "root"),
+        names);
+  }
+
+  // Verifies that the lazy traversal respects maxDepth correctly, stopping
+  // expansion at the specified depth even in a deeper graph.
+  @Test
+  public void testWhileMaxDepthLazyTraversal() {
+    var clazz = "testWhileMaxDepth";
+    session.execute("CREATE CLASS " + clazz + " EXTENDS V").close();
+
+    session.begin();
+    // Chain: a → b → c → d → e
+    for (var name : new String[] {"a", "b", "c", "d", "e"}) {
+      session.execute("CREATE VERTEX " + clazz + " SET name = '" + name + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'a') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'b')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'b') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'c')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'c') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'd')")
+        .close();
+    session.execute(
+        "CREATE EDGE E FROM (SELECT FROM " + clazz + " WHERE name = 'd') "
+            + "TO (SELECT FROM " + clazz + " WHERE name = 'e')")
+        .close();
+    session.commit();
+
+    // maxDepth: 2 — should see a (depth 0), b (depth 1), c (depth 2) only
+    var query =
+        "MATCH { class: " + clazz
+            + ", as:start, where:(name = 'a')} --> {as:dest, while:(true),"
+            + " maxDepth: 2, depthAlias: d} RETURN dest.name as dname, d";
+
+    session.begin();
+    var result = session.query(query);
+
+    var pairs = new java.util.ArrayList<String>();
+    while (result.hasNext()) {
+      var item = result.next();
+      pairs.add(item.getProperty("dname") + ":" + item.getProperty("d"));
+    }
+    result.close();
+    session.commit();
+
+    java.util.Collections.sort(pairs);
+    Assert.assertEquals(
+        "maxDepth: 2 must stop at depth 2",
+        java.util.List.of("a:0", "b:1", "c:2"),
+        pairs);
+  }
+
   @Test
   public void testNegativePattern() {
     var clazz = "testNegativePattern";
