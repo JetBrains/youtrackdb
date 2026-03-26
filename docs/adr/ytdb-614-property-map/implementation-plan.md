@@ -657,6 +657,9 @@ graph LR
   > motivates Track 11 to explore a fundamentally different approach.
   >
   > **Step file:** `tracks/track-10.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 11 already accounts for
+  > Track 10's write path regression findings. No adjustments needed.
 
 - [ ] Track 11: Replace hash table with hash-accelerated linear scan
   > Replace the linear probing hash table in `RecordSerializerBinaryV2` with
