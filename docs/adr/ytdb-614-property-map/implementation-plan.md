@@ -634,64 +634,92 @@ graph LR
   > does not change allocation patterns. Track 10 GC optimization strategy
   > remains valid; line numbers need re-discovery due to code shifts.
 
-- [ ] Track 10: Reduce GC pressure in V2 serialization path
+- [x] Track 10: Reduce GC pressure in V2 serialization path
   > Investigate and fix excessive object allocation in
   > `RecordSerializerBinaryV2.serialize()` that causes high GC pressure
-  > observed in `RecordSerializerBenchmark` JMH runs. The benchmark
-  > measures serialization throughput, so per-invocation allocation noise
-  > directly distorts results and indicates real production overhead.
+  > observed in `RecordSerializerBenchmark` JMH runs.
   >
-  > **What**: Profile and reduce allocations in the V2 serialize hot path.
-  > Preliminary code analysis identified these allocation sources:
+  > **Track episode:**
+  > Reduced GC pressure through three targeted optimizations: (1) eliminated
+  > per-property `BytesContainer` allocation by adding `reset()` and reusing
+  > a single `tempBuffer` — discovered that `reset()` must zero used bytes
+  > due to V1 delegate serializers relying on zero-initialized memory;
+  > (2) eliminated `slotHash8[]` intermediate array by writing hash8 directly
+  > into `slotArray` during linear probing; (3) eliminated double UTF-8
+  > encoding for schema-less properties in hash table mode by passing
+  > pre-encoded `nameBytes[]` to `serializePropertyEntry()`. CCX33 benchmarks
+  > confirmed V2 linear mode (5 props) allocates 9% less than V1 (536 vs
+  > 592 B/op). Hash table mode (13-50 props) still allocates ~1.7× V1 —
+  > remaining gap is structural hash table construction overhead. Write path
+  > regression persists: 1.7-2× slower than V1 at 13-50 properties. Partial
+  > deserialize wins only at 50 properties (29% faster). Full deserialize
+  > shows no improvement. **Cross-track impact:** Write path regression
+  > motivates Track 11 to explore a fundamentally different approach.
   >
-  > 1. **Per-property `new BytesContainer()` in `serializePropertyEntry()`
-  >    (line 424)** — the biggest offender. For each property value, a
-  >    temporary BytesContainer (object + 64-byte array) is allocated just
-  >    to measure the serialized value length before writing the varint
-  >    size prefix. At 50 properties = 50 allocations per serialize call.
-  >    **Fix**: Reserve space for the max-width varint (5 bytes), serialize
-  >    the value directly into the main buffer, compute actual length, then
-  >    backpatch the varint and reclaim unused reserved bytes (shift or
-  >    compact). Alternatively, add a `VarIntSerializer.signedSize()` method
-  >    and pre-compute value sizes.
-  > 2. **Hash table construction arrays in `buildHashTable()` and
-  >    `serializeHashTableMode()`** — `byte[][] nameBytes`,
-  >    `Entry[] orderedFields`, `int[] propertyKvOffsets`,
-  >    `byte[] slotHash8`, `int[] slotPropertyIndex`. These are per-entity
-  >    arrays whose sizes depend on property count. **Fix**: Evaluate
-  >    whether a reusable thread-local or pre-sized scratch buffer can
-  >    eliminate repeated allocation. Alternatively, merge slotHash8 and
-  >    slotPropertyIndex into the slotArray construction loop to avoid
-  >    intermediate arrays.
-  > 3. **Per-property `fieldName.getBytes(UTF_8)` (line 317)** — allocates
-  >    a byte array for each property name during hash table construction.
-  >    **Fix**: Encode directly into the BytesContainer or use a shared
-  >    scratch buffer.
-  > 4. **`new BytesContainer()` at benchmark call sites (lines 154, 162)**
-  >    — one per invocation for the output buffer. This is inherent to the
-  >    API but could be mitigated by adding a `reset()` method to
-  >    BytesContainer and reusing it across invocations.
+  > **Step file:** `tracks/track-10.md` (4 steps, 0 failed)
+
+- [ ] Track 11: Replace hash table with hash-accelerated linear scan
+  > Replace the linear probing hash table in `RecordSerializerBinaryV2` with
+  > a simpler approach: keep V1's linear scan but prefix each property entry
+  > with a 4-byte MurmurHash3 hash of the property name. During partial
+  > deserialization, the hash is compared first — on mismatch, the entry is
+  > skipped without constructing a String or resolving the property ID.
   >
-  > **How**: All profiling and benchmark runs must be performed on a
-  > Hetzner CCX33 node (8 dedicated vCPUs, 32 GB RAM) to get stable,
-  > reproducible results free of noisy-neighbor effects. Run the benchmark
-  > with `-prof gc` (JMH GC profiler) to get precise allocation rates per
-  > operation. Profile V1 as a baseline. Implement fixes starting from the
-  > highest-impact source (#1). After each fix, re-run `-prof gc` on CCX33
-  > to verify reduction. Final verification: re-run the full benchmark
-  > suite on CCX33 comparing V1 vs V2 allocation rates — V2 should not
-  > allocate significantly more than V1 per operation.
+  > **Motivation**: CCX33 benchmarks (Track 10) showed V2's hash table mode
+  > is 1.7-2× slower than V1 on writes with only 29% partial deserialize
+  > improvement at 50 properties. The hash table construction overhead
+  > (arrays, probing, backpatching) dominates. A hash-accelerated linear
+  > scan eliminates all hash table construction cost while still avoiding
+  > the main read-path cost: String construction and comparison for
+  > non-matching entries.
   >
-  > **Constraints**: Fixes must not change the serialized binary format.
-  > Must pass all existing V2 tests. Must not regress throughput (the
-  > whole point is to improve it). Changes to `BytesContainer` must not
-  > break V1 serializer usage.
+  > **What**: Modify `RecordSerializerBinaryV2` to use a single linear
+  > format for all property counts:
+  > - **Serialization**: For each property, compute `MurmurHash3.hash32WithSeed`
+  >   of the name bytes and write 4 bytes before the name-encoding. Reuse the
+  >   UTF-8 bytes computed for hashing when writing schema-less names (avoids
+  >   double encoding). Remove all hash table code: `buildHashTable()`,
+  >   `HashTableResult`, `serializeHashTableMode()`, Fibonacci hashing,
+  >   slot arrays, capacity computation.
+  > - **Partial deserialization**: Pre-compute hash of requested field name(s).
+  >   For each entry: read 4-byte hash, compare as `int ==`. On mismatch:
+  >   skip name encoding (read varint, skip bytes), skip type byte, read
+  >   value-size varint, skip value bytes — no String construction. On match:
+  >   read name, verify string equality (collision guard), deserialize value.
+  > - **`deserializeField()`**: Same hash-first rejection.
+  > - **Full deserialization**: Skip 4-byte hash per entry, read normally.
+  > - **`getFieldNames()`**: Skip 4-byte hash per entry, read name normally.
   >
-  > **Interactions**: Modifies `RecordSerializerBinaryV2` internals and
-  > possibly `BytesContainer`. Does not affect the deserialization path,
-  > `RecordSerializerBinaryV1`, or the binary format.
+  > **Format**:
+  > ```
+  > [property count: varint]
+  > [for each property:]
+  >   [name hash: 4 bytes LE]
+  >   [name-encoding: varint len + UTF-8 (schema-less) or varint (id+1)*-1 (schema-aware)]
+  >   [type byte]
+  >   [value-size varint]
+  >   [value-bytes]
+  > ```
   >
-  > **Scope:** ~3-5 steps covering GC profiling baseline, per-property
-  > BytesContainer elimination, hash table array consolidation, benchmark
-  > verification with `-prof gc`
-  > **Depends on:** Track 9
+  > **Expected trade-offs**:
+  > - Write path: +4 bytes per property + one MurmurHash3 call (~3-5 ns).
+  >   No hash table construction. Should be near V1 write performance.
+  > - Read path (partial): Avoids String construction and property ID
+  >   resolution for non-matching entries. Single `int ==` comparison
+  >   instead of variable-length byte comparison.
+  > - Space: +4 bytes per property (200 bytes at 50 properties).
+  >
+  > **Constraints**: Must pass all existing V2 round-trip and partial
+  > deserialization tests (after adapting format-specific assertions).
+  > Must not change the `EntitySerializer` interface or affect V1.
+  > Final verification: run `RecordSerializerBenchmark` on CCX33 comparing
+  > V1 vs new V2 for serialize, full deserialize, and partial deserialize.
+  >
+  > **Interactions**: Modifies `RecordSerializerBinaryV2` and its tests.
+  > No changes to `RecordSerializerBinary`, `RecordSerializerBinaryV1`,
+  > `BytesContainer`, or any other file.
+  >
+  > **Scope:** ~3-4 steps covering serialization rewrite, deserialization
+  > rewrite (partial + field + full + getFieldNames), test updates, and
+  > CCX33 benchmark verification
+  > **Depends on:** Track 10
