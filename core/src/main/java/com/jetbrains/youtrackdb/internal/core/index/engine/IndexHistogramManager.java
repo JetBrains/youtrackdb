@@ -1534,7 +1534,8 @@ public class IndexHistogramManager extends DurableComponent {
 
   // ---- Internal: rebalance ----
 
-  private long computeRebalanceThreshold(HistogramSnapshot snapshot) {
+  // Package-private for testability (RebalanceTriggerTest).
+  long computeRebalanceThreshold(HistogramSnapshot snapshot) {
     long threshold =
         (long) (snapshot.totalCountAtLastBuild() * rebalanceMutationFraction);
     threshold = Math.min(threshold, maxRebalanceMutations);
