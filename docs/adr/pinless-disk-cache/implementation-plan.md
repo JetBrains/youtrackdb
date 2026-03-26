@@ -1961,6 +1961,11 @@ Phase 5: Remove component-level read lock from happy path
   > tests pass. No cross-track impact — this is the final track.
   >
   > **Step file:** `tracks/track-10.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact. Track 10 is the final track; all implementation work complete.
+
+## Final Design Document
+- [ ] Phase 4: Final design document (`design-final.md`)
 
 ## Testing Strategy
 
