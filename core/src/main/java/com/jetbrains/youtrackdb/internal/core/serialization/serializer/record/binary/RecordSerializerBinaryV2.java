@@ -139,9 +139,9 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
   /**
    * Serializes a single property entry: [name-encoding][type byte][value-size varint][value-bytes].
    *
-   * @param preEncodedName pre-computed UTF-8 bytes for the field name (from hash table
-   *     construction), or null if not available (linear mode). When non-null and the property
-   *     is schema-less, the name bytes are written directly, avoiding a second getBytes(UTF_8).
+   * @param preEncodedName pre-computed UTF-8 bytes for the field name (from hash prefix
+   *     computation). When non-null and the property is schema-less, the name bytes are
+   *     written directly, avoiding a second getBytes(UTF_8).
    */
   private void serializePropertyEntry(DatabaseSessionEmbedded session, BytesContainer bytes,
       Entry<String, EntityEntry> field, Map<String, SchemaProperty> props,
@@ -161,9 +161,9 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // Write name-encoding
     if (docEntry.property == null) {
       if (preEncodedName != null) {
-        // Reuse pre-computed UTF-8 bytes from hash table construction (avoids double encoding)
-        assert java.util.Arrays.equals(preEncodedName,
-            field.getKey().getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        // Reuse pre-computed UTF-8 bytes from hash prefix computation (avoids double encoding)
+        assert Arrays.equals(preEncodedName,
+            field.getKey().getBytes(StandardCharsets.UTF_8))
             : "preEncodedName does not match field key UTF-8 bytes for: " + field.getKey();
         VarIntSerializer.write(bytes, preEncodedName.length);
         int start = bytes.alloc(preEncodedName.length);
@@ -304,29 +304,31 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
 
     // Hash-accelerated partial deserialization: pre-compute hashes for requested fields,
-    // then scan entries comparing hash prefix before reading name strings
-    int[] fieldHashes = new int[iFields.length];
-    for (int fi = 0; fi < iFields.length; fi++) {
-      byte[] nameBytes = iFields[fi].getBytes(StandardCharsets.UTF_8);
+    // then scan entries comparing hash prefix before reading name strings.
+    // Defensive copy: we null out matched entries to handle hash collisions correctly.
+    String[] remaining = Arrays.copyOf(iFields, iFields.length);
+    int[] fieldHashes = new int[remaining.length];
+    for (int fi = 0; fi < remaining.length; fi++) {
+      byte[] nameBytes = remaining[fi].getBytes(StandardCharsets.UTF_8);
       fieldHashes[fi] = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
     }
 
     int found = 0;
-    for (int i = 0; i < propertyCount && found < iFields.length; i++) {
+    for (int i = 0; i < propertyCount && found < remaining.length; i++) {
       // Read 4-byte hash prefix
       int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
       bytes.skip(IntegerSerializer.INT_SIZE);
 
-      // Check if this entry's hash matches any requested field
-      int matchIndex = -1;
-      for (int j = 0; j < iFields.length; j++) {
-        if (iFields[j] != null && fieldHashes[j] == entryHash) {
-          matchIndex = j;
+      // Check if this entry's hash matches any remaining requested field
+      boolean hashMatches = false;
+      for (int j = 0; j < remaining.length; j++) {
+        if (remaining[j] != null && fieldHashes[j] == entryHash) {
+          hashMatches = true;
           break;
         }
       }
 
-      if (matchIndex < 0) {
+      if (!hashMatches) {
         // Hash mismatch — skip name, type, and value without constructing strings
         skipNameAndTypeAndValue(bytes);
         continue;
@@ -335,9 +337,21 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       // Hash match — read name and verify string equality (collision guard)
       var nameAndType = readNameAndType(db, entity, bytes);
       int valueLength = VarIntSerializer.readAsInteger(bytes);
+      validateValueLength(valueLength, nameAndType.name);
 
-      if (!iFields[matchIndex].equals(nameAndType.name)) {
-        // Hash collision — not the field we want, skip value
+      // Find which requested field matches this entry's name.
+      // Checks all remaining entries (not just the first hash match) to handle
+      // the case where two requested fields have the same 32-bit hash.
+      int matchIndex = -1;
+      for (int j = 0; j < remaining.length; j++) {
+        if (remaining[j] != null && remaining[j].equals(nameAndType.name)) {
+          matchIndex = j;
+          break;
+        }
+      }
+
+      if (matchIndex < 0) {
+        // Hash collision — not any field we want, skip value
         bytes.skip(valueLength);
         continue;
       }
@@ -350,6 +364,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       } else {
         entity.setDeserializedPropertyInternal(nameAndType.name, null, null);
       }
+      remaining[matchIndex] = null; // Prevent re-matching this field
       found++;
     }
   }
@@ -386,6 +401,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       // Hash match — read name and verify
       var nameAndType = readFieldName(bytes, schema);
       int valueLength = VarIntSerializer.readAsInteger(bytes);
+      validateValueLength(valueLength, nameAndType.name);
 
       if (!iFieldName.equals(nameAndType.name)) {
         bytes.skip(valueLength);
@@ -400,32 +416,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return new BinaryField(
           iFieldName, nameAndType.type, bytes,
           classProp != null ? classProp.getCollate() : null);
-    }
-    return null;
-  }
-
-  /**
-   * Field lookup in linear mode: scan entries sequentially.
-   */
-  @Nullable private BinaryField deserializeFieldLinear(BytesContainer bytes, SchemaClass iClass,
-      String iFieldName, ImmutableSchema schema, int propertyCount) {
-    for (int i = 0; i < propertyCount; i++) {
-      var nameAndType = readFieldName(bytes, schema);
-      int valueLength = VarIntSerializer.readAsInteger(bytes);
-
-      if (iFieldName.equals(nameAndType.name)) {
-        if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
-          return null;
-        }
-        // bytes is now positioned at the start of the value data
-        var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
-        return new BinaryField(
-            iFieldName, nameAndType.type, bytes,
-            classProp != null ? classProp.getCollate() : null);
-      }
-
-      // Skip value bytes
-      bytes.skip(valueLength);
     }
     return null;
   }
@@ -747,6 +737,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     // schema-aware (len <= 0): varint itself was the entire encoding
     bytes.skip(1); // type byte
     int valueLength = VarIntSerializer.readAsInteger(bytes);
+    validateValueLength(valueLength, "<skipped>");
     bytes.skip(valueLength);
   }
 
