@@ -2,7 +2,7 @@
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [ ] Step implementation (1/3 complete)
 - [ ] Track-level code review
 
 ## Base commit
@@ -14,53 +14,39 @@
 
 ## Steps
 
-- [ ] Step 1: Rewrite serialization — remove hash table, add 4-byte hash prefix per entry
-  Remove `buildHashTable()`, `HashTableResult`, `serializeHashTableMode()`,
-  `serializeLinearMode()`, and all hash table constants (`EMPTY_HASH8`,
-  `EMPTY_OFFSET`, `FIBONACCI_CONSTANT`, `SLOT_SIZE`, `MAX_LOG2_CAPACITY`,
-  `LINEAR_MODE_THRESHOLD`). Remove utility methods: `computeHash8()`,
-  `computeLog2Capacity()`, `fibonacciSlotIndex()`, `readAndValidateLog2Capacity()`,
-  `validateSlotOffset()`.
-
-  Replace with a single serialization path in `serializeEntity()`:
-  - For each property: compute `MurmurHash3.hash32WithSeed(nameBytes, 0, len, 0)`,
-    write 4 bytes LE, then write name-encoding + type + value (via existing
-    `serializePropertyEntry()`).
-  - Reuse Track 10's `preEncodedName` optimization: encode UTF-8 once for
-    schema-less properties, use for both hashing and name writing.
-  - Keep `MAX_KV_REGION_SIZE` (still limits entry region to 64 KB).
-
-  This step will break all deserialization and tests — they are fixed in
-  subsequent steps. The code must compile but tests will fail.
-
-  **Key files**: `RecordSerializerBinaryV2.java`
-
-- [ ] Step 2: Rewrite all deserialization paths — full, partial, field, getFieldNames
-  Update all four deserialization entry points to handle the new format:
-
-  - **Full deserialization** (`deserialize`): Remove `deserializeLinearMode` /
-    `deserializeHashTableModeFull` distinction. Single loop: for each entry,
-    skip 4-byte hash, then call existing `deserializeEntry()`.
-
-  - **Partial deserialization** (`deserializePartial`): Remove
-    `deserializePartialLinear` / `deserializePartialHashTable` distinction.
-    Single loop: for each entry, read 4-byte hash as int. Pre-compute hash of
-    each requested field name. On hash mismatch: skip name-encoding (read
-    varint, skip bytes for schema-less; read varint for schema-aware), skip
-    type byte, read value-size varint, skip value bytes. On hash match: read
-    name, verify string equality (collision guard), deserialize value.
-
-  - **`deserializeField()`**: Remove `deserializeFieldLinear` /
-    `deserializeFieldHashTable` distinction. Same hash-first rejection as
-    partial deserialization, but returns `BinaryField` on match.
-
-  - **`getFieldNames()`**: Remove `getFieldNamesLinear` /
-    `getFieldNamesHashTable` distinction. Single loop: skip 4-byte hash,
-    read name, skip type + value.
-
-  All existing round-trip tests should pass after this step.
-
-  **Key files**: `RecordSerializerBinaryV2.java`
+- [x] Step 1+2 (merged): Rewrite serialization and deserialization — remove hash table, add 4-byte hash prefix
+  - [x] Context: warning
+  > **What was done:** Merged Steps 1-2 into a single commit because Step 1
+  > alone cannot pass tests (serialization format change breaks deserialization).
+  > Replaced linear probing hash table with hash-accelerated linear scan: each
+  > property entry is now prefixed with a 4-byte MurmurHash3 hash. Removed all
+  > hash table code (buildHashTable, fibonacciSlotIndex, computeHash8,
+  > HashTableResult, slot arrays, linear/hash-table mode branching). Added
+  > skipNameAndTypeAndValue() helper for efficient entry skipping during
+  > hash-accelerated partial deserialization and field lookup. Deleted
+  > RecordSerializerBinaryV2HashTableTest.java (tests removed methods). Updated
+  > RecordSerializerBinaryV2RoundTripTest.java to replace hash-table-specific
+  > format verification tests with hash-prefix verification test. Net: -1,072 lines.
+  >
+  > **What was discovered:** A complete rewrite of the V2 file caused a subtle
+  > bug where database authentication failed (SecurityAccessException for all
+  > DB-dependent tests). The root cause was never fully isolated — the byte
+  > format was identical, but something in the rewritten code path broke entity
+  > deserialization during DB open. The fix was to apply changes incrementally
+  > to the existing file rather than a full rewrite: modify the 5 main methods
+  > (serialize, deserialize, deserializePartial, deserializeField, getFieldNames)
+  > in-place, then remove dead code. This incremental approach worked immediately.
+  >
+  > **What changed from the plan:** Steps 1 and 2 merged into a single commit.
+  > Step 3 (test updates) was partially absorbed — hash-table-specific tests in
+  > RoundTripTest were already updated, and HashTableTest was already deleted.
+  > Remaining Step 3 work: update PartialTest comments and add new hash-prefix-
+  > specific tests.
+  >
+  > **Key files:**
+  > - `RecordSerializerBinaryV2.java` (modified)
+  > - `RecordSerializerBinaryV2HashTableTest.java` (deleted)
+  > - `RecordSerializerBinaryV2RoundTripTest.java` (modified)
 
 - [ ] Step 3: Update unit tests — remove hash table tests, add hash-accelerated tests
   Delete or rewrite `RecordSerializerBinaryV2HashTableTest.java` — all
@@ -80,6 +66,8 @@
   reference hash table structure (slot arrays, seed, log2Capacity) and
   update property count tier tests (no more linear/hash-table distinction).
 
-  **Key files**: `RecordSerializerBinaryV2HashTableTest.java`,
-  `RecordSerializerBinaryV2RoundTripTest.java`,
+  **Note:** Much of this work was done in Step 1+2. Remaining work is
+  updating PartialTest comments and adding new hash-prefix-specific tests.
+
+  **Key files**: `RecordSerializerBinaryV2RoundTripTest.java`,
   `RecordSerializerBinaryV2PartialTest.java`
