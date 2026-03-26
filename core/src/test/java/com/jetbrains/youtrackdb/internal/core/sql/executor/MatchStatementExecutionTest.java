@@ -4531,4 +4531,353 @@ public class MatchStatementExecutionTest extends DbTestBase {
         plan.contains("intersection"));
     session.commit();
   }
+
+  /**
+   * IC6-style pattern with explicit class: constraints on targets.
+   * Post is the only root candidate (broadTag and selectiveTag have no class:
+   * in the query so the planner cannot make them roots). From post, two edges
+   * go out: one to broadTag (name <> 'targetTag') and one to selectiveTag
+   * (name = 'targetTag'). The planner should schedule the selective edge first.
+   *
+   * Edge schema LINK properties allow class inference for selectivity estimation.
+   */
+  @Test
+  public void testSelectiveWhereClauseIsPreferredOverBroadWhere() {
+    session.execute("CREATE class SelPost extends V").close();
+    session.execute("CREATE class SelTag extends V").close();
+    session.execute("CREATE class SelHasTag extends E").close();
+    session.execute("CREATE PROPERTY SelHasTag.out LINK SelPost").close();
+    session.execute("CREATE PROPERTY SelHasTag.in LINK SelTag").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX SelTag set name = 'targetTag'").close();
+    for (var i = 0; i < 250; i++) {
+      session.execute("CREATE VERTEX SelTag set name = 'tag" + i + "'").close();
+    }
+
+    for (var i = 0; i < 10; i++) {
+      session.execute("CREATE VERTEX SelPost set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE SelHasTag FROM"
+              + " (SELECT FROM SelPost WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM SelTag WHERE name = 'targetTag')")
+          .close();
+      for (var j = 0; j < 5; j++) {
+        session.execute(
+            "CREATE EDGE SelHasTag FROM"
+                + " (SELECT FROM SelPost WHERE title = 'post" + i + "')"
+                + " TO (SELECT FROM SelTag WHERE name = 'tag" + j + "')")
+            .close();
+      }
+    }
+    session.commit();
+
+    // Target nodes have no class: constraint — post is the only root candidate.
+    // The planner infers SelTag from SelHasTag.in and uses filter selectivity
+    // to order edges: selective (name = 'targetTag') before broad (name <> 'targetTag').
+    var matchQuery =
+        "MATCH"
+            + " {class: SelPost, as: post}"
+            + "   .out('SelHasTag'){as: broadTag,"
+            + "     where: (name <> 'targetTag')},"
+            + " {as: post}"
+            + "   .out('SelHasTag'){as: selectiveTag,"
+            + "     where: (name = 'targetTag')}"
+            + " RETURN post.title, broadTag.name, selectiveTag.name";
+
+    session.begin();
+    var result = session.query(matchQuery).toList();
+
+    assertFalse(result.isEmpty());
+    for (var r : result) {
+      assertEquals("targetTag", r.getProperty("selectiveTag.name"));
+      assertNotEquals("targetTag", r.getProperty("broadTag.name"));
+    }
+    assertEquals(50, result.size());
+
+    var explainResult = session.query("EXPLAIN " + matchQuery).toList();
+    assertEquals(1, explainResult.size());
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
+    assertTrue("selectiveTag should appear in plan", selectivePos >= 0);
+    assertTrue("broadTag should appear in plan", broadPos >= 0);
+    assertTrue(
+        "Selective edge (selectiveTag) should be scheduled before broad edge"
+            + " (broadTag) in the execution plan, but plan was:\n" + plan,
+        selectivePos < broadPos);
+
+    session.commit();
+  }
+
+  /**
+   * IC6-style pattern: target nodes have no explicit class: constraint, so
+   * the planner must infer the vertex class from the edge schema's linked
+   * property. The selective branch (name = 'X') should still be scheduled
+   * before the broad branch (name <> 'X').
+   */
+  @Test
+  public void testSelectivityInferredFromEdgeSchemaWithoutExplicitClass() {
+    session.execute("CREATE class IC6Post extends V").close();
+    session.execute("CREATE class IC6Tag extends V").close();
+    session.execute("CREATE class IC6HasTag extends E").close();
+    session.execute("CREATE PROPERTY IC6HasTag.out LINK IC6Post").close();
+    session.execute("CREATE PROPERTY IC6HasTag.in LINK IC6Tag").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IC6Tag set name = 'targetTag'").close();
+    for (var i = 0; i < 250; i++) {
+      session.execute("CREATE VERTEX IC6Tag set name = 'tag" + i + "'").close();
+    }
+    for (var i = 0; i < 10; i++) {
+      session.execute("CREATE VERTEX IC6Post set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC6HasTag FROM"
+              + " (SELECT FROM IC6Post WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM IC6Tag WHERE name = 'targetTag')")
+          .close();
+      for (var j = 0; j < 5; j++) {
+        session.execute(
+            "CREATE EDGE IC6HasTag FROM"
+                + " (SELECT FROM IC6Post WHERE title = 'post" + i + "')"
+                + " TO (SELECT FROM IC6Tag WHERE name = 'tag" + j + "')")
+            .close();
+      }
+    }
+    session.commit();
+
+    // No class: on target nodes — planner infers IC6Tag from IC6HasTag.in
+    var matchQuery =
+        "MATCH"
+            + " {class: IC6Post, as: post}"
+            + "   .out('IC6HasTag'){as: broadTag,"
+            + "     where: (name <> 'targetTag')},"
+            + " {as: post}"
+            + "   .out('IC6HasTag'){as: selectiveTag,"
+            + "     where: (name = 'targetTag')}"
+            + " RETURN post.title, broadTag.name, selectiveTag.name";
+
+    session.begin();
+    var result = session.query(matchQuery).toList();
+
+    assertFalse(result.isEmpty());
+    assertEquals(50, result.size());
+
+    var explainResult = session.query("EXPLAIN " + matchQuery).toList();
+    assertEquals(1, explainResult.size());
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    int selectivePos = plan.indexOf("{selectiveTag}");
+    int broadPos = plan.indexOf("{broadTag}");
+    assertTrue("selectiveTag should appear in plan", selectivePos >= 0);
+    assertTrue("broadTag should appear in plan", broadPos >= 0);
+    assertTrue(
+        "Selective edge (selectiveTag) should be scheduled before broad edge"
+            + " (broadTag) even without explicit class:, but plan was:\n"
+            + plan,
+        selectivePos < broadPos);
+
+    session.commit();
+  }
+
+  /**
+   * IC12-style pattern: a WHILE traversal with a selective WHERE filter on the
+   * recursive step should be costed higher (depth multiplier) than a simple
+   * one-hop edge, so the planner schedules the cheaper one-hop edges first.
+   *
+   * Pattern:
+   *   person -> comment -> post -> tag -> directClass -WHILE-> matchedClass
+   *
+   * The WHILE edge (IS_SUBCLASS_OF) with unbounded depth should have a higher
+   * cost than the one-hop edges, causing it to be scheduled last.
+   */
+  @Test
+  public void testWhileTraversalGetHigherCostThanOneHopEdge() {
+    session.execute("CREATE class IC12Person extends V").close();
+    session.execute("CREATE class IC12Comment extends V").close();
+    session.execute("CREATE class IC12Post extends V").close();
+    session.execute("CREATE class IC12Tag extends V").close();
+    session.execute("CREATE class IC12TagClass extends V").close();
+    session.execute("CREATE class IC12HasCreator extends E").close();
+    session.execute("CREATE class IC12ReplyOf extends E").close();
+    session.execute("CREATE class IC12HasTag extends E").close();
+    session.execute("CREATE class IC12HasType extends E").close();
+    session.execute("CREATE class IC12IsSubclassOf extends E").close();
+
+    session.begin();
+    // Build a small graph: person <- comment -> post -> tag -> tagClass chain
+    session.execute("CREATE VERTEX IC12Person set name = 'Alice'").close();
+    session.execute("CREATE VERTEX IC12TagClass set name = 'Science'").close();
+    session.execute("CREATE VERTEX IC12TagClass set name = 'BaseClass'").close();
+    session.execute(
+        "CREATE EDGE IC12IsSubclassOf FROM"
+            + " (SELECT FROM IC12TagClass WHERE name = 'Science')"
+            + " TO (SELECT FROM IC12TagClass WHERE name = 'BaseClass')")
+        .close();
+
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX IC12Tag set name = 'tag" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC12HasType FROM"
+              + " (SELECT FROM IC12Tag WHERE name = 'tag" + i + "')"
+              + " TO (SELECT FROM IC12TagClass WHERE name = 'Science')")
+          .close();
+      session.execute(
+          "CREATE VERTEX IC12Post set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC12HasTag FROM"
+              + " (SELECT FROM IC12Post WHERE title = 'post" + i + "')"
+              + " TO (SELECT FROM IC12Tag WHERE name = 'tag" + i + "')")
+          .close();
+      session.execute(
+          "CREATE VERTEX IC12Comment set text = 'comment" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IC12ReplyOf FROM"
+              + " (SELECT FROM IC12Comment WHERE text = 'comment" + i + "')"
+              + " TO (SELECT FROM IC12Post WHERE title = 'post" + i + "')")
+          .close();
+      session.execute(
+          "CREATE EDGE IC12HasCreator FROM"
+              + " (SELECT FROM IC12Comment WHERE text = 'comment" + i + "')"
+              + " TO (SELECT FROM IC12Person WHERE name = 'Alice')")
+          .close();
+    }
+    session.commit();
+
+    // IC12-style MATCH: the WHILE edge should be scheduled after the one-hop
+    // edges because of the depth multiplier.
+    var matchQuery =
+        "MATCH"
+            + " {class: IC12Person, as: p, where: (name = 'Alice')}"
+            + "   .in('IC12HasCreator'){class: IC12Comment, as: comment}"
+            + "   .out('IC12ReplyOf'){class: IC12Post, as: post}"
+            + "   .out('IC12HasTag'){as: tag}"
+            + "   .out('IC12HasType'){as: directClass}"
+            + "   .out('IC12IsSubclassOf'){while: (true),"
+            + "     where: (name = 'Science'), as: matchedClass}"
+            + " RETURN p.name, tag.name, matchedClass.name";
+
+    session.begin();
+    var result = session.query(matchQuery).toList();
+    assertFalse("IC12-style query should return results", result.isEmpty());
+
+    // Verify WHILE edge (matchedClass) appears after one-hop edges in the plan
+    var explainResult = session.query("EXPLAIN " + matchQuery).toList();
+    assertEquals(1, explainResult.size());
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    // The WHILE edge to matchedClass should be scheduled after the simple
+    // one-hop edge to directClass due to depth multiplier.
+    int directClassPos = plan.indexOf("{directClass}");
+    int matchedClassPos = plan.indexOf("{matchedClass}");
+    assertTrue("directClass should appear in plan", directClassPos >= 0);
+    assertTrue("matchedClass should appear in plan", matchedClassPos >= 0);
+    assertTrue(
+        "One-hop edge (directClass) should be scheduled before WHILE edge"
+            + " (matchedClass) in the execution plan, but plan was:\n" + plan,
+        directClassPos < matchedClassPos);
+    session.commit();
+  }
+
+  /**
+   * IC4-style pattern: compound range filter (creationDate >= X AND creationDate < Y)
+   * should still benefit from cost-based reordering via the estimatedRootEntries
+   * fallback, even though the heuristic cannot classify compound filters directly.
+   * The NOT pattern verifies that the planner correctly handles negative patterns
+   * alongside cost-based edge scheduling.
+   */
+  @Test
+  public void testCompoundRangeFilterWithNotPattern() {
+    session.execute("CREATE class IC4Person extends V").close();
+    session.execute("CREATE class IC4Post extends V").close();
+    session.execute("CREATE class IC4Tag extends V").close();
+    session.execute("CREATE class IC4Knows extends E").close();
+    session.execute("CREATE class IC4HasCreator extends E").close();
+    session.execute("CREATE class IC4HasTag extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IC4Person set name = 'Alice'").close();
+    session.execute("CREATE VERTEX IC4Person set name = 'Bob'").close();
+    session.execute(
+        "CREATE EDGE IC4Knows FROM"
+            + " (SELECT FROM IC4Person WHERE name = 'Alice')"
+            + " TO (SELECT FROM IC4Person WHERE name = 'Bob')")
+        .close();
+
+    for (var i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX IC4Tag set name = 'tag" + i + "'").close();
+    }
+    // Bob's recent posts (date >= 100)
+    for (var i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX IC4Post set title = 'recent" + i
+              + "', creationDate = " + (100 + i))
+          .close();
+      session.execute(
+          "CREATE EDGE IC4HasCreator FROM"
+              + " (SELECT FROM IC4Post WHERE title = 'recent" + i + "')"
+              + " TO (SELECT FROM IC4Person WHERE name = 'Bob')")
+          .close();
+      session.execute(
+          "CREATE EDGE IC4HasTag FROM"
+              + " (SELECT FROM IC4Post WHERE title = 'recent" + i + "')"
+              + " TO (SELECT FROM IC4Tag WHERE name = 'tag" + (i % 3) + "')")
+          .close();
+    }
+    // Bob's old posts (date < 100)
+    for (var i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX IC4Post set title = 'old" + i
+              + "', creationDate = " + (50 + i))
+          .close();
+      session.execute(
+          "CREATE EDGE IC4HasCreator FROM"
+              + " (SELECT FROM IC4Post WHERE title = 'old" + i + "')"
+              + " TO (SELECT FROM IC4Person WHERE name = 'Bob')")
+          .close();
+      session.execute(
+          "CREATE EDGE IC4HasTag FROM"
+              + " (SELECT FROM IC4Post WHERE title = 'old" + i + "')"
+              + " TO (SELECT FROM IC4Tag WHERE name = 'tag0')")
+          .close();
+    }
+    session.commit();
+
+    // IC4-style: find tags of recent posts by friends, excluding tags also used
+    // on old posts. The compound range filter (>= AND <) tests the fallback path.
+    var matchQuery =
+        "MATCH"
+            + " {class: IC4Person, as: p, where: (name = 'Alice')}"
+            + "   .out('IC4Knows'){as: friend}"
+            + "   .in('IC4HasCreator'){class: IC4Post, as: newPost,"
+            + "     where: (creationDate >= 100 AND creationDate < 200)}"
+            + "   .out('IC4HasTag'){as: tag},"
+            + " NOT {as: friend}"
+            + "   .in('IC4HasCreator'){class: IC4Post, as: oldPost,"
+            + "     where: (creationDate < 100)}"
+            + "   .out('IC4HasTag'){as: tag}"
+            + " RETURN tag.name as tagName, count(*) as postCount"
+            + " GROUP BY tag.name"
+            + " ORDER BY postCount DESC, tagName ASC";
+
+    session.begin();
+    var result = session.query(matchQuery).toList();
+
+    // tag1 and tag2 appear only in recent posts, tag0 appears in both old and
+    // recent so it should be excluded by the NOT pattern.
+    assertFalse("IC4-style query should return results", result.isEmpty());
+    for (var r : result) {
+      assertNotEquals(
+          "tag0 should be excluded by NOT pattern (also used on old posts)",
+          "tag0", r.getProperty("tagName"));
+    }
+    session.commit();
+  }
+
 }

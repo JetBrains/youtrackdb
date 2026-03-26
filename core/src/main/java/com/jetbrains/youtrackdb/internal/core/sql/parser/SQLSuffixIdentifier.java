@@ -524,6 +524,10 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return identifier;
   }
 
+  public SQLRecordAttribute getRecordAttribute() {
+    return recordAttribute;
+  }
+
   public void setIdentifier(SQLIdentifier identifier) {
     this.identifier = identifier;
   }
