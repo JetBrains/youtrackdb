@@ -75,9 +75,61 @@ Note files that should be skipped:
 - Generated Gremlin DSL classes
 - Files under `generated-sources/` or `generated-test-sources/`
 
-## Step 5: Dispatch to Test Review Agents
+## Step 5: Triage — Categorize Changes and Select Relevant Agents
 
-Launch all 5 test review agents **in parallel** using the Agent tool. Each agent receives the same context but reviews from its own dimension.
+Before dispatching agents, perform a quick triage pass over the **entire diff** (both production and test code) to determine which test review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
+
+### 5a: Categorize All Changed Files
+
+Scan the diff and assign one or more categories to **every** changed file — production code, test code, and other files alike:
+
+| Category | Signals |
+|---|---|
+| **storage-engine** | Files in `storage/`, `cache/`, `wal/`, `DurableComponent` subclasses, page read/write logic, `DiskStorage`, `WriteCache`, `ReadCache`, `LogSequenceNumber`, double-write log |
+| **concurrency** | `synchronized`, `Lock`, `Atomic*`, `volatile`, `StampedLock`, `ReentrantLock`, thread pools, `ConcurrentHashMap`, `CompletableFuture`, shared mutable state, `@GuardedBy`, `ConcurrentTestHelper`, `CountDownLatch`, `CyclicBarrier` |
+| **crash-durability** | WAL operations, crash simulation, `DurableComponent` recovery, page corruption handling, transaction atomicity under failure, `LogSequenceNumber` manipulation, double-write log, Java `assert` statements in production code |
+| **index-data-structures** | Files in `index/`, B-tree, hash index, `SBTree`, `CellBTree`, histogram, `IndexEngine` |
+| **serialization** | Record serializers, binary format, property map encoding/decoding |
+| **sql-query** | Files in `sql/` (excluding `parser/`), query execution, command handlers |
+| **gremlin** | Files in `gremlin/`, traversal steps, `YTDBGraph*` classes, TinkerPop integration |
+| **network-server** | Files in `server/`, `driver/`, Gremlin Server, protocol handling, authentication |
+| **public-api** | Files in `com.jetbrains.youtrackdb.api`, `YourTracks`, `YouTrackDB` interface |
+| **configuration** | `GlobalConfiguration`, config parameters, system properties |
+| **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
+| **docs-only** | Markdown, documentation, comments-only changes |
+
+A file can belong to multiple categories (e.g., a concurrent index test is both `concurrency` and `index-data-structures`). Production and test files in the same domain should share the same categories.
+
+### 5b: Map Categories to Agents
+
+Two agents **always run** because they catch general gaps regardless of domain. The remaining three are specialized and only launch when their domain is relevant. Categories from **both** production and test code count — for example, if production code adds a new `synchronized` block but tests don't exercise threading, `review-test-concurrency` should still launch to flag the gap.
+
+| Agent | When to launch |
+|---|---|
+| **review-test-behavior** | **Always** (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-test-completeness** | **Always** (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-test-structure** | Any test files are changed (reviews isolation, readability, setup/teardown of test code itself) |
+| **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
+| **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved), OR production code adds/modifies Java `assert` statements |
+
+### 5c: Log Your Triage Decision
+
+Before launching agents, output a brief triage summary so the user can see the reasoning:
+
+```
+### Triage Summary
+- **Categories detected**: storage-engine, index-data-structures
+- **Agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-crash-safety
+- **Agents skipped**: review-test-concurrency (no threading primitives or shared mutable state in changes)
+```
+
+### 5d: Edge Cases
+- If **all categories are `docs-only` or `build-config`** with no production or test code changes: Skip all agents. Report that no reviewable code was changed.
+- If **in doubt** about whether a specialized agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
+
+## Step 6: Dispatch Selected Test Review Agents
+
+Launch the selected agents **in parallel** using the Agent tool. Each agent receives the same context but reviews from its own dimension.
 
 For each agent, use this prompt template:
 
@@ -105,7 +157,7 @@ Review the following code changes from your specialized test quality perspective
 {DIFF}
 ```
 
-The 5 agents to launch (all in parallel):
+The 5 possible agents (launch only those selected in Step 5):
 1. **review-test-behavior** — behavior-driven quality, assertion precision, exception testing
 2. **review-test-completeness** — corner cases, boundary conditions, test data quality
 3. **review-test-structure** — isolation, independence, readability, documentation
@@ -114,9 +166,9 @@ The 5 agents to launch (all in parallel):
 
 Set `subagent_type` to the agent name and `model` to `opus` for each.
 
-## Step 6: Synthesize the Results
+## Step 7: Synthesize the Results
 
-After all 5 agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
+After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
 1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a missing test for a concurrent crash scenario flagged by both concurrency and crash-safety), merge into one finding and note which dimensions it affects.
 
@@ -167,7 +219,8 @@ If a priority level has no findings, omit it entirely.
 ## Important Rules
 
 - **Always use `gh` CLI** for GitHub API calls, not WebFetch.
-- **All 5 agents must run in parallel** — do not wait for one before launching the next.
+- **All selected agents must run in parallel** — do not wait for one before launching the next.
+- **Only launch agents selected by the triage step** — do not launch agents for irrelevant dimensions.
 - **Do not add your own review findings** — only synthesize what the agents report.
 - **Do not soften or dismiss agent findings** — if an agent flags something as a blocker, keep it as a blocker unless another agent's context clearly contradicts it.
 - **If the diff is very large** (>200 files or >5000 lines), warn the user and offer to review in batches.
