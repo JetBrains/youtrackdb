@@ -84,9 +84,63 @@ Before dispatching, note files that should be skipped:
 
 Include this filter note in the context passed to agents.
 
-## Step 5: Dispatch to Review Agents
+## Step 5: Triage — Categorize Changes and Select Relevant Agents
 
-Launch all 5 review agents **in parallel** using the Agent tool. Each agent receives the same context but reviews from its own dimension.
+Before dispatching agents, perform a quick triage pass over the diff to determine which review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
+
+### 5a: Categorize Each Changed File
+
+Scan the diff and assign one or more categories to each changed file:
+
+| Category | Signals |
+|---|---|
+| **storage-engine** | Files in `storage/`, `cache/`, `wal/`, `DurableComponent` subclasses, page read/write logic, `DiskStorage`, `WriteCache`, `ReadCache`, `LogSequenceNumber`, double-write log |
+| **concurrency** | `synchronized`, `Lock`, `Atomic*`, `volatile`, `StampedLock`, `ReentrantLock`, thread pools, `ConcurrentHashMap`, `CompletableFuture`, shared mutable state, `@GuardedBy` |
+| **index-data-structures** | Files in `index/`, B-tree, hash index, `SBTree`, `CellBTree`, histogram, `IndexEngine` |
+| **network-server** | Files in `server/`, `driver/`, Gremlin Server, protocol handling, TLS/SSL, authentication, session management |
+| **sql-query** | Files in `sql/` (excluding `parser/`), query execution, command handlers, `SELECT`/`INSERT`/`UPDATE`/`DELETE` logic |
+| **gremlin** | Files in `gremlin/`, traversal steps, `YTDBGraph*` classes, TinkerPop integration |
+| **public-api** | Files in `com.jetbrains.youtrackdb.api`, `YourTracks`, `YouTrackDB` interface |
+| **serialization** | Record serializers, binary format, property map encoding/decoding |
+| **configuration** | `GlobalConfiguration`, config parameters, system properties |
+| **tests-only** | Changes exclusively in test files with no production code changes |
+| **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
+| **docs-only** | Markdown, documentation, comments-only changes |
+
+A file can belong to multiple categories (e.g., a lock change in storage code is both `storage-engine` and `concurrency`).
+
+### 5b: Map Categories to Agents
+
+Use the following mapping to decide which agents to launch:
+
+| Agent | Launch when ANY of these categories are present |
+|---|---|
+| **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
+| **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
+| **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
+| **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
+| **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
+
+### 5c: Log Your Triage Decision
+
+Before launching agents, output a brief triage summary so the user can see the reasoning:
+
+```
+### Triage Summary
+- **Categories detected**: storage-engine, concurrency, index-data-structures
+- **Agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
+- **Agents skipped**: review-security (no network/API/SQL/config/dependency changes)
+```
+
+### 5d: Edge Cases
+- If **all categories are `docs-only`**: Skip all agents. Just report that only documentation changed and no code review is needed.
+- If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations).
+- If **all categories are `tests-only`**: Launch only `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too).
+- If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
+
+## Step 6: Dispatch Selected Review Agents
+
+Launch the selected agents **in parallel** using the Agent tool. Each agent receives the same context but reviews from its own dimension.
 
 For each agent, use this prompt template (fill in the agent-specific name):
 
@@ -114,7 +168,7 @@ Review the following code changes from your specialized perspective.
 {DIFF}
 ```
 
-The 5 agents to launch (all in parallel):
+The 5 possible agents (launch only those selected in Step 5):
 1. **review-code-quality** — code quality, conventions, readability
 2. **review-bugs-concurrency** — bugs, logic errors, concurrency, resource leaks
 3. **review-crash-safety** — WAL correctness, durability, crash recovery
@@ -123,9 +177,9 @@ The 5 agents to launch (all in parallel):
 
 Set `subagent_type` to the agent name and `model` to `opus` for each.
 
-## Step 6: Synthesize the Results
+## Step 7: Synthesize the Results
 
-After all 5 agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
+After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
 1. **Deduplicate**: If multiple agents flagged the same issue (e.g., a resource leak flagged by both bugs-concurrency and performance), merge into one finding and note which dimensions it affects.
 
@@ -176,7 +230,8 @@ If a priority level has no findings, omit it entirely.
 ## Important Rules
 
 - **Always use `gh` CLI** for GitHub API calls, not WebFetch.
-- **All 5 agents must run in parallel** — do not wait for one before launching the next.
+- **All selected agents must run in parallel** — do not wait for one before launching the next.
+- **Only launch agents selected by the triage step** — do not launch agents for irrelevant dimensions.
 - **Do not add your own review findings** — only synthesize what the agents report.
 - **Do not soften or dismiss agent findings** — if an agent flags something as a blocker, keep it as a blocker unless another agent's context clearly contradicts it.
 - **If the diff is very large** (>200 files or >5000 lines), warn the user and offer to review in batches by module or directory.
