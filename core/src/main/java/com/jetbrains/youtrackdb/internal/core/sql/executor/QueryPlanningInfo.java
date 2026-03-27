@@ -187,6 +187,12 @@ public class QueryPlanningInfo {
   }
 
   /**
+   * When non-null, the input to ORDER BY is sorted by this item (primary key).
+   * Passed to {@link OrderByStep} to enable early termination in the bounded heap.
+   */
+  @javax.annotation.Nullable public com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem primaryKeySortedInput;
+
+  /**
    * Set to {@code true} once projection steps have been appended to the plan.
    * Prevents double-appending (projections may be triggered from multiple code paths).
    */

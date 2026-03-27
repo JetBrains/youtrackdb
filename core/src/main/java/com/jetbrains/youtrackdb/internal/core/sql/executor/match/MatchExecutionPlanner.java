@@ -408,7 +408,8 @@ public class MatchExecutionPlanner {
       long limit,
       @Nullable MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
-      @Nullable String sourceClassName) {
+      @Nullable String sourceClassName,
+      boolean multiFieldOrderBy) {
   }
 
   /**
@@ -642,23 +643,30 @@ public class MatchExecutionPlanner {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
       }
 
-      // Suppress OrderByStep only when: candidate is active AND no DISTINCT
-      // (DISTINCT may reorder rows, breaking the index-scan order guarantee).
-      // GROUP BY is already rejected above for built-in return modes.
-      var orderSatisfied = indexOrderedCandidate != null && !this.returnDistinct;
-      if (this.orderBy != null && !orderSatisfied) {
-        // Compute bounded-heap size: keep only the top (skip + limit) rows
-        // during sorting to avoid materializing the full result set.
-        // Safe here because UNWIND (if present) has already run, so row
-        // cardinality is final and sort keys are scalar values.
-        // Skipped when indexOrderedCandidate is active — results are already ordered.
-        Integer maxResults = null;
-        if (this.limit != null && this.limit.getValue(context) >= 0) {
-          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
-              ? this.skip.getValue(context) : 0;
-          maxResults = skipSize + this.limit.getValue(context);
+      if (this.orderBy != null) {
+        // Single-field + candidate + no DISTINCT → fully suppress OrderByStep
+        // (index scan already produces results in ORDER BY order).
+        var singleFieldSatisfied = indexOrderedCandidate != null
+            && !indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct;
+        if (!singleFieldSatisfied) {
+          Integer maxResults = null;
+          if (this.limit != null && this.limit.getValue(context) >= 0) {
+            var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
+                ? this.skip.getValue(context) : 0;
+            maxResults = skipSize + this.limit.getValue(context);
+          }
+          // Multi-field + candidate → keep OrderByStep but with primary key
+          // cutoff hint for early termination in the bounded heap.
+          SQLOrderByItem primaryHint = null;
+          if (indexOrderedCandidate != null
+              && indexOrderedCandidate.multiFieldOrderBy()
+              && !this.returnDistinct) {
+            primaryHint = orderBy.getItems().getFirst();
+          }
+          result.chain(new OrderByStep(
+              orderBy, maxResults, primaryHint, context, -1, enableProfiling));
         }
-        result.chain(new OrderByStep(orderBy, maxResults, context, -1, enableProfiling));
       }
 
       if (this.skip != null && skip.getValue(context) >= 0) {
@@ -692,13 +700,17 @@ public class MatchExecutionPlanner {
       info.skip = this.skip;
       info.limit = this.limit;
 
-      // When index-ordered traversal is active AND no GROUP BY or DISTINCT
-      // (both can destroy the index-scan ordering), tell the SELECT planner
-      // to skip the OrderByStep.
+      // When index-ordered traversal is active AND no GROUP BY or DISTINCT:
+      // - Single-field: fully suppress OrderByStep (results already ordered)
+      // - Multi-field: keep OrderByStep with primary key cutoff hint
       if (indexOrderedCandidate != null
           && this.groupBy == null
           && !this.returnDistinct) {
-        info.setOrderApplied(true);
+        if (!indexOrderedCandidate.multiFieldOrderBy()) {
+          info.setOrderApplied(true);
+        } else {
+          info.primaryKeySortedInput = orderBy.getItems().getFirst();
+        }
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
@@ -4447,8 +4459,8 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> sortedEdges,
       Map<String, Long> estimatedRootEntries,
       CommandContext context) {
-    // 1. ORDER BY must have exactly one item, no modifier, no collate
-    if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().size() != 1) {
+    // 1. ORDER BY must have at least one item; first item must have no collate
+    if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
       return null;
     }
     var orderItem = orderBy.getItems().getFirst();
@@ -4600,10 +4612,13 @@ public class MatchExecutionPlanner {
         ? limit.getValue(context) : -1;
     long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
 
+    var multiFieldOrderBy = orderBy.getItems().size() > 1;
+
     return new IndexOrderedCandidate(
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
-        multiSourceMode, reverseFieldName, sourceClassName);
+        multiSourceMode, reverseFieldName, sourceClassName,
+        multiFieldOrderBy);
   }
 
   /**

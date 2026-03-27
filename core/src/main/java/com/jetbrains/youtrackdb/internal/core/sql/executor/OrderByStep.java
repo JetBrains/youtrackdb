@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
@@ -55,6 +56,19 @@ public class OrderByStep extends AbstractExecutionStep {
   private Integer maxResults;
 
   /**
+   * When non-null, the input stream is known to be sorted by this ORDER BY
+   * item (typically the first field). In the bounded heap path, the heap
+   * can stop reading when this item's value is strictly "worse" (sorts
+   * later) than the worst element in the heap — because all subsequent
+   * items will also be worse.
+   *
+   * <p>Set by the MATCH planner when IndexOrderedEdgeStep produces results
+   * sorted by the primary ORDER BY field, enabling early termination for
+   * multi-field ORDER BY queries.
+   */
+  @javax.annotation.Nullable private final SQLOrderByItem primaryKeySortedInput;
+
+  /**
    * @param orderBy          the ORDER BY clause defining sort keys and directions
    * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
    *                         When set, enables the bounded min-heap path.
@@ -68,12 +82,28 @@ public class OrderByStep extends AbstractExecutionStep {
       CommandContext ctx,
       long timeoutMillis,
       boolean profilingEnabled) {
+    this(orderBy, maxResults, null, ctx, timeoutMillis, profilingEnabled);
+  }
+
+  /**
+   * @param primaryKeySortedInput when non-null, enables early termination in
+   *        the bounded heap: stop reading when this item's value is strictly
+   *        worse than the worst in the heap.
+   */
+  public OrderByStep(
+      SQLOrderBy orderBy,
+      Integer maxResults,
+      @javax.annotation.Nullable SQLOrderByItem primaryKeySortedInput,
+      CommandContext ctx,
+      long timeoutMillis,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.orderBy = orderBy;
     this.maxResults = maxResults;
     if (this.maxResults != null && this.maxResults < 0) {
       this.maxResults = null;
     }
+    this.primaryKeySortedInput = primaryKeySortedInput;
     this.timeoutMillis = timeoutMillis;
   }
 
@@ -150,6 +180,16 @@ public class OrderByStep extends AbstractExecutionStep {
         }
         var item = upstream.next(ctx);
 
+        // Early termination: when the input is sorted by the primary ORDER BY
+        // field and the heap is full, stop reading as soon as the primary key
+        // of the new item is strictly worse than the heap's worst element.
+        // All subsequent items will also be worse (input is sorted).
+        if (primaryKeySortedInput != null
+            && heap.size() >= maxResults
+            && primaryKeySortedInput.compare(item, heap.peek(), ctx) > 0) {
+          break;
+        }
+
         if (heap.size() < maxResults) {
           heap.offer(item);
         } else if (orderBy.compare(item, heap.peek(), ctx) < 0) {
@@ -218,6 +258,8 @@ public class OrderByStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new OrderByStep(orderBy.copy(), maxResults, ctx, timeoutMillis, profilingEnabled);
+    return new OrderByStep(
+        orderBy.copy(), maxResults, primaryKeySortedInput,
+        ctx, timeoutMillis, profilingEnabled);
   }
 }
