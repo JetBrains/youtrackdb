@@ -75,6 +75,10 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
       Function<DatabasePoolInternal, DatabaseSessionEmbedded> sessionFactory) {
     var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
     var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    assert min >= 0 : "DB_POOL_MIN must be non-negative: " + min;
+    assert max > 0 : "DB_POOL_MAX must be positive: " + max;
+    assert min <= max : "DB_POOL_MIN (" + min + ") must be <= DB_POOL_MAX (" + max + ")";
+
     this.factory = factory;
     this.config = config;
     this.databaseName = database;
@@ -102,6 +106,8 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
                 return true;
               }
             }));
+
+    assert pool.get() != null : "Pool must be initialized after construction";
   }
 
   @Override

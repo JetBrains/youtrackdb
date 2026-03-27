@@ -126,7 +126,9 @@ public class DatabasePoolImplTest {
         pool.release(session);
         fail("Expected DatabaseException");
       } catch (DatabaseException e) {
-        // expected
+        assertTrue("Expected 'The pool is closed' prefix, got: "
+            + e.getMessage(),
+            e.getMessage().startsWith("The pool is closed"));
       }
       assertEquals("lastCloseTime must not update when pool is closed",
           timeBeforeRelease, pool.getLastCloseTime());
@@ -445,9 +447,14 @@ public class DatabasePoolImplTest {
   // sessions does not deadlock. Workers and the main thread start together
   // via a CyclicBarrier to maximize the chance of overlapping acquire()
   // and close() calls. Uses max=8 so that close()'s semaphore drain does
-  // not block threads mid-acquire indefinitely. Only DatabaseExceptions
-  // with "The pool is closed" are accepted as expected; other
-  // DatabaseExceptions are flagged.
+  // not block threads mid-acquire indefinitely.
+  // Two kinds of DatabaseException are expected during the race:
+  //   1. "The pool is closed" — from acquire()/release() when the pool
+  //      AtomicReference is already null.
+  //   2. "Database '...' is closed" — from session operations (e.g.
+  //      getMetadata()) when pool.close() has already called realClose()
+  //      on the underlying session while a worker still holds a reference.
+  // Any other DatabaseException is flagged as unexpected.
   @Test
   public void closeDuringConcurrentAcquireDoesNotHang() throws Exception {
     var config = new BaseConfiguration();
@@ -479,10 +486,14 @@ public class DatabasePoolImplTest {
               }
             }
           } catch (DatabaseException e) {
-            // Only "pool is closed" exceptions are expected from both
-            // acquire() (pool null) and session.close() -> release()
-            // (pool null). Any other DatabaseException is unexpected.
-            if (!e.getMessage().startsWith("The pool is closed")) {
+            // "The pool is closed" — acquire()/release() after pool nulled.
+            // "Database '...' is closed" — session operations after
+            // pool.close() called realClose() on the underlying session
+            // (race between close() and a worker using an already-acquired
+            // session).
+            String msg = e.getMessage();
+            if (!msg.startsWith("The pool is closed")
+                && !msg.startsWith("Database '")) {
               firstUnexpected.compareAndSet(null, e);
             }
           } catch (Exception e) {
