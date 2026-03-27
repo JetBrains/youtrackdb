@@ -2018,18 +2018,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.higherPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        },
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.higherPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        });
+        () -> doHigherPositions(position, limit, atomicOperation),
+        () -> doHigherPositions(position, limit, atomicOperation));
+  }
+
+  private PhysicalPosition[] doHigherPositions(final PhysicalPosition position, int limit,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var collectionPositions =
+        collectionPositionMap.higherPositions(position.collectionPosition,
+            atomicOperation, limit);
+    return convertToPhysicalPositions(collectionPositions);
   }
 
   @Override
@@ -2038,18 +2036,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.ceilingPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        },
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.ceilingPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        });
+        () -> doCeilingPositions(position, limit, atomicOperation),
+        () -> doCeilingPositions(position, limit, atomicOperation));
+  }
+
+  private PhysicalPosition[] doCeilingPositions(final PhysicalPosition position, int limit,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var collectionPositions =
+        collectionPositionMap.ceilingPositions(position.collectionPosition,
+            atomicOperation, limit);
+    return convertToPhysicalPositions(collectionPositions);
   }
 
   @Override
@@ -2058,18 +2054,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.lowerPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        },
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.lowerPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        });
+        () -> doLowerPositions(position, limit, atomicOperation),
+        () -> doLowerPositions(position, limit, atomicOperation));
+  }
+
+  private PhysicalPosition[] doLowerPositions(final PhysicalPosition position, int limit,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var collectionPositions =
+        collectionPositionMap.lowerPositions(position.collectionPosition,
+            atomicOperation, limit);
+    return convertToPhysicalPositions(collectionPositions);
   }
 
   @Override
@@ -2078,18 +2072,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     return executeOptimisticStorageRead(
         atomicOperation,
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.floorPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        },
-        () -> {
-          final var collectionPositions =
-              collectionPositionMap.floorPositions(position.collectionPosition,
-                  atomicOperation, limit);
-          return convertToPhysicalPositions(collectionPositions);
-        });
+        () -> doFloorPositions(position, limit, atomicOperation),
+        () -> doFloorPositions(position, limit, atomicOperation));
+  }
+
+  private PhysicalPosition[] doFloorPositions(final PhysicalPosition position, int limit,
+      @Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var collectionPositions =
+        collectionPositionMap.floorPositions(position.collectionPosition,
+            atomicOperation, limit);
+    return convertToPhysicalPositions(collectionPositions);
   }
 
   @Override

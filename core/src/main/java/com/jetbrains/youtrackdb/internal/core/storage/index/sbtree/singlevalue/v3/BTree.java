@@ -1066,28 +1066,25 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (!ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-          },
-          () -> {
-            if (!ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-          });
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during iteration of sbtree with name " + getName(), this),
           e, storage.getName());
     }
+  }
+
+  private Stream<RawPair<K, RID>> doIterateEntriesMinor(
+      final K key, final boolean inclusive, final boolean ascSortOrder,
+      @Nonnull AtomicOperation atomicOperation) {
+    if (!ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
   }
 
   @Override
@@ -1097,22 +1094,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-          },
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-          });
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
@@ -1121,43 +1104,24 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  private Stream<RawPair<K, RID>> doIterateEntriesMajor(
+      final K key, final boolean inclusive, final boolean ascSortOrder,
+      @Nonnull AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
+  }
+
   @Override
   @Nullable public K firstKey(@Nonnull AtomicOperation atomicOperation) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            final var searchResult = firstItem(atomicOperation);
-            if (searchResult.isEmpty()) {
-              return null;
-            }
-
-            final var result = searchResult.get();
-
-            try (final var cacheEntry =
-                loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-              final var bucket =
-                  new CellBTreeSingleValueBucketV3<K>(cacheEntry);
-              return bucket.getKey(
-                  result.getItemIndex(), keySerializer, serializerFactory);
-            }
-          },
-          () -> {
-            final var searchResult = firstItem(atomicOperation);
-            if (searchResult.isEmpty()) {
-              return null;
-            }
-
-            final var result = searchResult.get();
-
-            try (final var cacheEntry =
-                loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-              final var bucket =
-                  new CellBTreeSingleValueBucketV3<K>(cacheEntry);
-              return bucket.getKey(
-                  result.getItemIndex(), keySerializer, serializerFactory);
-            }
-          });
+          () -> doFirstKey(atomicOperation),
+          () -> doFirstKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
@@ -1166,41 +1130,30 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Nullable private K doFirstKey(@Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = firstItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket =
+          new CellBTreeSingleValueBucketV3<K>(cacheEntry);
+      return bucket.getKey(
+          result.getItemIndex(), keySerializer, serializerFactory);
+    }
+  }
+
   @Override
   @Nullable public K lastKey(@Nonnull AtomicOperation atomicOperation) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            final var searchResult = lastItem(atomicOperation);
-            if (searchResult.isEmpty()) {
-              return null;
-            }
-
-            final var result = searchResult.get();
-            try (final var cacheEntry =
-                loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-              final var bucket =
-                  new CellBTreeSingleValueBucketV3<K>(cacheEntry);
-              return bucket.getKey(
-                  result.getItemIndex(), keySerializer, serializerFactory);
-            }
-          },
-          () -> {
-            final var searchResult = lastItem(atomicOperation);
-            if (searchResult.isEmpty()) {
-              return null;
-            }
-
-            final var result = searchResult.get();
-            try (final var cacheEntry =
-                loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-              final var bucket =
-                  new CellBTreeSingleValueBucketV3<K>(cacheEntry);
-              return bucket.getKey(
-                  result.getItemIndex(), keySerializer, serializerFactory);
-            }
-          });
+          () -> doLastKey(atomicOperation),
+          () -> doLastKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
@@ -1209,21 +1162,29 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Nullable private K doLastKey(@Nonnull AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = lastItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket =
+          new CellBTreeSingleValueBucketV3<K>(cacheEntry);
+      return bucket.getKey(
+          result.getItemIndex(), keySerializer, serializerFactory);
+    }
+  }
+
   @Override
   public Stream<K> keyStream(@Nonnull AtomicOperation atomicOperation) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> StreamSupport.stream(
-              new SpliteratorForward<>(this, null, null,
-                  false, false, atomicOperation),
-              false)
-              .map(RawPair::first),
-          () -> StreamSupport.stream(
-              new SpliteratorForward<>(this, null, null,
-                  false, false, atomicOperation),
-              false)
-              .map(RawPair::first));
+          () -> doKeyStream(atomicOperation),
+          () -> doKeyStream(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
@@ -1232,25 +1193,34 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  private Stream<K> doKeyStream(@Nonnull AtomicOperation atomicOperation) {
+    return StreamSupport.stream(
+        new SpliteratorForward<>(this, null, null,
+            false, false, atomicOperation),
+        false)
+        .map(RawPair::first);
+  }
+
   @Override
   public Stream<RawPair<K, RID>> allEntries(@Nonnull AtomicOperation atomicOperation) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> StreamSupport.stream(
-              new SpliteratorForward<>(this, null, null, false,
-                  false, atomicOperation),
-              false),
-          () -> StreamSupport.stream(
-              new SpliteratorForward<>(this, null, null, false,
-                  false, atomicOperation),
-              false));
+          () -> doAllEntries(atomicOperation),
+          () -> doAllEntries(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during iteration of sbtree with name " + getName(), this),
           e, storage.getName());
     }
+  }
+
+  private Stream<RawPair<K, RID>> doAllEntries(@Nonnull AtomicOperation atomicOperation) {
+    return StreamSupport.stream(
+        new SpliteratorForward<>(this, null, null, false,
+            false, atomicOperation),
+        false);
   }
 
   @Override
@@ -1263,37 +1233,32 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            } else {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            }
-          },
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            } else {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            }
-          });
+          () -> doIterateEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation),
+          () -> doIterateEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new CellBTreeSingleValueV3Exception(
               "Error during iteration of sbtree with name " + getName(), this),
           e, storage.getName());
+    }
+  }
+
+  private Stream<RawPair<K, RID>> doIterateEntriesBetween(
+      final K keyFrom, final boolean fromInclusive,
+      final K keyTo, final boolean toInclusive,
+      final boolean ascSortOrder, @Nonnull AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
+    } else {
+      return StreamSupport.stream(
+          iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
     }
   }
 

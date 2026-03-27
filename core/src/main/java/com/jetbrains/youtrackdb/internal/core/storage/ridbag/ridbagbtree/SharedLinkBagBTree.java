@@ -1534,22 +1534,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (!ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-          },
-          () -> {
-            if (!ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-          });
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -1558,34 +1544,42 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doIterateEntriesMinor(
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
+    if (!ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
+  }
+
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-          },
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-            }
-            return StreamSupport.stream(
-                iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-          });
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during iteration of btree [" + getName() + "]"),
           e, storage.getName());
     }
+  }
+
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doIterateEntriesMajor(
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
@@ -1597,37 +1591,32 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            } else {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            }
-          },
-          () -> {
-            if (ascSortOrder) {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            } else {
-              return StreamSupport.stream(
-                  iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                      atomicOperation),
-                  false);
-            }
-          });
+          () -> doStreamEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation),
+          () -> doStreamEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during iteration of btree [" + getName() + "]"),
           e, storage.getName());
+    }
+  }
+
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doStreamEntriesBetween(
+      final EdgeKey keyFrom, final boolean fromInclusive,
+      final EdgeKey keyTo, final boolean toInclusive,
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
+    } else {
+      return StreamSupport.stream(
+          iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
     }
   }
 
@@ -1640,29 +1629,28 @@ public final class SharedLinkBagBTree extends DurableComponent {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> {
-            if (ascSortOrder) {
-              return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-            } else {
-              return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-            }
-          },
-          () -> {
-            if (ascSortOrder) {
-              return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-            } else {
-              return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                  atomicOperation);
-            }
-          });
+          () -> doSpliteratorEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation),
+          () -> doSpliteratorEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during iteration of btree [" + getName() + "]"),
           e, storage.getName());
+    }
+  }
+
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> doSpliteratorEntriesBetween(
+      final EdgeKey keyFrom, final boolean fromInclusive,
+      final EdgeKey keyTo, final boolean toInclusive,
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+          atomicOperation);
+    } else {
+      return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+          atomicOperation);
     }
   }
 
