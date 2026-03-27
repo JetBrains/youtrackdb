@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
@@ -167,4 +168,28 @@ public interface AtomicOperation {
 
   @SuppressWarnings("unused")
   boolean isActive();
+
+  /**
+   * Returns whether this atomic operation has uncommitted WAL changes for the given page.
+   * Used by the optimistic read path to force a fallback to the CAS-pinned path when
+   * the current transaction has in-progress modifications for the requested page,
+   * ensuring optimistic reads never return stale committed data.
+   *
+   * @param fileId    the file ID
+   * @param pageIndex the page index within the file
+   * @return true if this operation has local changes for the page
+   */
+  boolean hasChangesForPage(long fileId, long pageIndex);
+
+  /**
+   * Returns the optimistic read scope for accumulating page stamps during multi-page
+   * optimistic reads. The scope is reused across attempts within the same operation.
+   *
+   * <p>Default implementation throws UnsupportedOperationException as a defensive guard
+   * for any external implementations that don't support optimistic reads.
+   */
+  default OptimisticReadScope getOptimisticReadScope() {
+    throw new UnsupportedOperationException(
+        "Optimistic read scope not supported by " + getClass().getSimpleName());
+  }
 }

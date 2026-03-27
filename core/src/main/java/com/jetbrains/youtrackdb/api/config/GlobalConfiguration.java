@@ -104,6 +104,15 @@ public enum GlobalConfiguration {
       Integer.class,
       Integer.MAX_VALUE),
 
+  PAGE_FRAME_POOL_LIMIT(
+      "youtrackdb.memory.pageFramePool.limit",
+      "Maximum number of PageFrame objects retained in the pool. Default -1 means"
+          + " auto-size to 2x the disk cache page count (DISK_CACHE_SIZE / PAGE_SIZE)."
+          + " Set explicitly to override. Excessively large values cause heap pressure"
+          + " from the allocatedFrames tracking set.",
+      Integer.class,
+      -1),
+
   DIRECT_MEMORY_PREALLOCATE(
       "youtrackdb.memory.directMemory.preallocate",
       "Preallocate amount of direct memory which is needed for the disk cache",

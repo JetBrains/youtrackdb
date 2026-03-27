@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 public final class EntryPoint extends DurablePage {
@@ -11,6 +12,10 @@ public final class EntryPoint extends DurablePage {
 
   public EntryPoint(CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public EntryPoint(PageView pageView) {
+    super(pageView);
   }
 
   public void init() {

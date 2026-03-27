@@ -28,10 +28,13 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import javax.annotation.Nullable;
 
 /**
  * Base page class for all durable data structures, that is data structures state of which can be
@@ -68,12 +71,22 @@ public class DurablePage {
   public static final int NEXT_FREE_POSITION = WAL_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 
   private final WALChanges changes;
-  private final CacheEntry cacheEntry;
+  @Nullable private final CacheEntry cacheEntry;
   private final ByteBuffer buffer;
+
+  // True when this page was created from a PageView (optimistic read).
+  // When true, cacheEntry is null and buffer contents are speculative.
+  private final boolean speculativeRead;
+
+  // Stored locally for null-safe getPageIndex() in speculative mode
+  // (cacheEntry is null, so we cannot delegate to it).
+  private final int pageIndex;
 
   public DurablePage(final CacheEntry cacheEntry) {
     assert cacheEntry != null;
     this.cacheEntry = cacheEntry;
+    this.speculativeRead = false;
+    this.pageIndex = cacheEntry.getPageIndex();
     var pointer = cacheEntry.getCachePointer();
     this.changes = cacheEntry.getChanges();
     this.buffer = pointer.getBuffer();
@@ -93,11 +106,39 @@ public class DurablePage {
     }
   }
 
-  public final int getPageIndex() {
-    return cacheEntry.getPageIndex();
+  /**
+   * Creates a DurablePage from a PageView obtained via an optimistic read. The buffer
+   * contents are speculative — they may be stale if the page was evicted or modified.
+   * Callers must validate the stamp after reading data.
+   *
+   * <p>No WAL changes are available in this mode (changes == null). Read methods that
+   * encounter potentially corrupted sizes throw {@link OptimisticReadFailedException}
+   * via {@link #guardSize(long)} when {@code speculativeRead == true}.
+   */
+  public DurablePage(final PageView pageView) {
+    assert pageView != null;
+    this.cacheEntry = null;
+    this.changes = null;
+    this.buffer = pageView.buffer();
+    this.speculativeRead = true;
+    this.pageIndex = pageView.pageFrame().getPageIndex();
+
+    assert buffer != null;
+    assert buffer.position() == 0;
+    assert buffer.isDirect();
   }
 
-  public final LogSequenceNumber getLsn() {
+  public final int getPageIndex() {
+    return pageIndex;
+  }
+
+  /**
+   * Returns the LSN of the page, or null if this is a speculative read (no cacheEntry).
+   */
+  @Nullable public final LogSequenceNumber getLsn() {
+    if (cacheEntry == null) {
+      return null;
+    }
     final var segment = getLongValue(WAL_SEGMENT_OFFSET);
     final var position = getIntValue(WAL_POSITION_OFFSET);
 
@@ -151,7 +192,43 @@ public class DurablePage {
     return new LogSequenceNumber(segment, position);
   }
 
+  /**
+   * Guards a size value read from the page buffer during a speculative read. If the size
+   * is negative or exceeds the buffer capacity, the data is likely stale (page was evicted
+   * or modified). Throws {@link OptimisticReadFailedException} to trigger fallback.
+   *
+   * <p>No-op when {@code speculativeRead == false} (normal CAS-pinned path).
+   */
+  protected final void guardSize(final long sizeInBytes) {
+    if (speculativeRead && (sizeInBytes < 0 || sizeInBytes > buffer.capacity())) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+  }
+
+  /**
+   * Guards a page offset + access width during a speculative read. If the offset is out of
+   * bounds for the given access width, the offset was likely read from stale data.
+   * Throws {@link OptimisticReadFailedException} to trigger fallback.
+   *
+   * <p>No-op when {@code speculativeRead == false} (normal CAS-pinned path).
+   */
+  private void guardOffset(final int pageOffset, final int accessWidth) {
+    if (speculativeRead
+        && (pageOffset < 0 || (long) pageOffset + accessWidth > buffer.capacity())) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+  }
+
+  /**
+   * Asserts that this page is not in speculative read mode. Called by setter methods to
+   * catch accidental writes to a shared buffer during optimistic reads.
+   */
+  private void assertNotSpeculative() {
+    assert !speculativeRead : "Write operations are not allowed on speculative-read pages";
+  }
+
   protected final int getIntValue(final int pageOffset) {
+    guardOffset(pageOffset, IntegerSerializer.INT_SIZE);
     if (changes == null) {
 
       assert buffer != null;
@@ -163,7 +240,8 @@ public class DurablePage {
     return changes.getIntValue(buffer, pageOffset);
   }
 
-  protected final int[] getIntArray(final int pageOffset, int size) {
+  protected final int[] getIntArray(final int pageOffset, final int size) {
+    guardSize((long) size * IntegerSerializer.INT_SIZE);
     var values = new int[size];
     var bytes = getBinaryValue(pageOffset, size * IntegerSerializer.INT_SIZE);
     for (var i = 0; i < size; i++) {
@@ -173,7 +251,9 @@ public class DurablePage {
     return values;
   }
 
-  protected final void setIntArray(final int pageOffset, int[] values, int offset) {
+  protected final void setIntArray(final int pageOffset, final int[] values, final int offset) {
+    assertNotSpeculative();
+
     var bytes = new byte[(values.length - offset) * IntegerSerializer.INT_SIZE];
     for (var i = offset; i < values.length; i++) {
       IntegerSerializer.serializeNative(
@@ -183,6 +263,7 @@ public class DurablePage {
   }
 
   protected final short getShortValue(final int pageOffset) {
+    guardOffset(pageOffset, ShortSerializer.SHORT_SIZE);
     if (changes == null) {
       assert buffer != null;
 
@@ -194,6 +275,7 @@ public class DurablePage {
   }
 
   protected final long getLongValue(final int pageOffset) {
+    guardOffset(pageOffset, LongSerializer.LONG_SIZE);
     if (changes == null) {
       assert buffer != null;
 
@@ -205,6 +287,7 @@ public class DurablePage {
   }
 
   protected final byte[] getBinaryValue(final int pageOffset, final int valLen) {
+    guardSize(valLen);
     if (changes == null) {
       assert buffer != null;
       assert buffer.order() == ByteOrder.nativeOrder();
@@ -225,7 +308,10 @@ public class DurablePage {
       assert buffer != null;
       assert buffer.order() == ByteOrder.nativeOrder();
 
-      return binarySerializer.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
+      final var size =
+          binarySerializer.getObjectSizeInByteBuffer(serializerFactory, offset, buffer);
+      guardSize(size);
+      return size;
     }
 
     return binarySerializer.getObjectSizeInByteBuffer(buffer, changes, offset);
@@ -265,6 +351,7 @@ public class DurablePage {
   }
 
   protected final byte getByteValue(final int pageOffset) {
+    guardOffset(pageOffset, ByteSerializer.BYTE_SIZE);
     if (changes == null) {
 
       assert buffer != null;
@@ -277,6 +364,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setIntValue(final int pageOffset, final int value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setIntValue(buffer, value, pageOffset);
     } else {
@@ -289,7 +377,7 @@ public class DurablePage {
   }
 
   protected final int setShortValue(final int pageOffset, final short value) {
-
+    assertNotSpeculative();
     if (changes != null) {
       changes.setIntValue(buffer, value, pageOffset);
     } else {
@@ -303,6 +391,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setByteValue(final int pageOffset, final byte value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setByteValue(buffer, value, pageOffset);
     } else {
@@ -316,6 +405,7 @@ public class DurablePage {
 
   @SuppressWarnings("SameReturnValue")
   protected final int setLongValue(final int pageOffset, final long value) {
+    assertNotSpeculative();
     if (changes != null) {
       changes.setLongValue(buffer, value, pageOffset);
     } else {
@@ -328,6 +418,7 @@ public class DurablePage {
   }
 
   protected final int setBinaryValue(final int pageOffset, final byte[] value) {
+    assertNotSpeculative();
     if (value.length == 0) {
       return 0;
     }
@@ -344,6 +435,7 @@ public class DurablePage {
   }
 
   protected final void moveData(final int from, final int to, final int len) {
+    assertNotSpeculative();
     if (len == 0) {
       return;
     }
@@ -367,6 +459,7 @@ public class DurablePage {
   }
 
   public final void restoreChanges(final WALChanges changes) {
+    assertNotSpeculative();
     final var buffer = cacheEntry.getCachePointer().getBuffer();
     assert buffer != null;
 
@@ -374,6 +467,7 @@ public class DurablePage {
   }
 
   public final void setLsn(final LogSequenceNumber lsn) {
+    assertNotSpeculative();
     assert buffer != null;
 
     assert buffer.order() == ByteOrder.nativeOrder();

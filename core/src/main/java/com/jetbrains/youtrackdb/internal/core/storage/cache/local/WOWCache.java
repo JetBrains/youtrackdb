@@ -29,6 +29,8 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -393,6 +395,7 @@ public final class WOWCache extends AbstractWriteCache
    * not have deallocator.
    */
   private final ByteBufferPool bufferPool;
+  private final PageFramePool pageFramePool;
 
   private final String storageName;
   private final String doubleWriteLogFileName;
@@ -492,6 +495,7 @@ public final class WOWCache extends AbstractWriteCache
       this.pageSize = pageSize;
       this.writeAheadLog = writeAheadLog;
       this.bufferPool = bufferPool;
+      this.pageFramePool = bufferPool.pageFramePool();
 
       this.checksumMode = checksumMode;
       this.exclusiveWriteCacheMaxSize = normalizeMemory(exclusiveWriteCacheMaxSize, pageSize);
@@ -2419,8 +2423,8 @@ public final class WOWCache extends AbstractWriteCache
 
         // if page is not stored in the file may be page is stored in double write log
         if (fileClassic.getFileSize() >= pageEndPosition) {
-          var pointer = bufferPool.acquireDirect(true, Intention.LOAD_PAGE_FROM_DISK);
-          var buffer = pointer.getNativeByteBuffer();
+          var pageFrame = pageFramePool.acquire(true, Intention.LOAD_PAGE_FROM_DISK);
+          var buffer = pageFrame.getBuffer();
 
           assert buffer.position() == 0;
           assert buffer.order() == ByteOrder.nativeOrder();
@@ -2437,23 +2441,23 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                assertPageIsBroken(pageIndex, fileId, pointer);
+                assertPageIsBroken(pageIndex, fileId, pageFrame);
               } else {
-                bufferPool.release(pointer);
-
-                buffer = doubleWritePointer.getNativeByteBuffer();
-                assert buffer.position() == 0;
-                pointer = doubleWritePointer;
+                // Copy recovered data from double-write log into the PageFrame's buffer
+                // and release the temporary double-write pointer back to ByteBufferPool.
+                var dblBuffer = doubleWritePointer.getNativeByteBuffer();
+                buffer.put(0, dblBuffer, 0, dblBuffer.capacity());
+                bufferPool.release(doubleWritePointer);
 
                 if (!verifyMagicChecksumAndDecryptPage(buffer, internalFileId, pageIndex)) {
-                  assertPageIsBroken(pageIndex, fileId, pointer);
+                  assertPageIsBroken(pageIndex, fileId, pageFrame);
                 }
               }
             }
           }
 
           buffer.position(0);
-          return new CachePointer(pointer, bufferPool, fileId, (int) pageIndex);
+          return new CachePointer(pageFrame, pageFramePool, fileId, (int) pageIndex);
         } else {
           final var pointer =
               doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
@@ -2483,13 +2487,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void assertPageIsBroken(long pageIndex, long fileId, Pointer pointer) {
-    final var message =
-        "Magic number or check sum verification failed for page `"
-            + pageIndex
-            + "` of `"
-            + fileNameById(fileId)
-            + "`.";
-    LogManager.instance().error(this, "%s", null, message);
+    final var message = formatPageBrokenMessage(pageIndex, fileId);
 
     if (checksumMode == ChecksumMode.StoreAndThrow) {
       bufferPool.release(pointer);
@@ -2498,6 +2496,33 @@ public final class WOWCache extends AbstractWriteCache
       dumpStackTrace(message);
       callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
     }
+    // StoreAndVerify: log only (via formatPageBrokenMessage), return broken page
+    // to caller for best-effort use.
+  }
+
+  private void assertPageIsBroken(long pageIndex, long fileId, PageFrame pageFrame) {
+    final var message = formatPageBrokenMessage(pageIndex, fileId);
+
+    if (checksumMode == ChecksumMode.StoreAndThrow) {
+      pageFramePool.release(pageFrame);
+      throw new StorageException(storageName, message);
+    } else if (checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode) {
+      dumpStackTrace(message);
+      callPageIsBrokenListeners(fileNameById(fileId), pageIndex);
+    }
+    // StoreAndVerify: log only (via formatPageBrokenMessage), return broken page
+    // to caller for best-effort use.
+  }
+
+  private String formatPageBrokenMessage(long pageIndex, long fileId) {
+    final var message =
+        "Magic number or check sum verification failed for page `"
+            + pageIndex
+            + "` of `"
+            + fileNameById(fileId)
+            + "`.";
+    LogManager.instance().error(this, "%s", null, message);
+    return message;
   }
 
   private void addMagicChecksumAndEncryption(
@@ -2674,16 +2699,24 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = entry.getValue();
         final var groupLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          pagePointer.acquireExclusiveLock();
+          long exclusiveStamp = pagePointer.acquireExclusiveLock();
           try {
-            pagePointer.decrementWritersReferrer();
             pagePointer.setWritersListener(null);
             writeCacheSize.decrementAndGet();
 
             removeFromDirtyPages(pageKey);
           } finally {
-            pagePointer.releaseExclusiveLock();
+            pagePointer.releaseExclusiveLock(exclusiveStamp);
           }
+
+          // Decrement writers referrer AFTER releasing the exclusive lock.
+          // decrementWritersReferrer() → decrementReferrer() may call
+          // pageFramePool.release() which acquires the same PageFrame's
+          // exclusive lock. StampedLock is non-reentrant, so calling this
+          // under the exclusive lock would deadlock.
+          // The group lock (lockManager) is still held, preventing concurrent
+          // modifications to this page key.
+          pagePointer.decrementWritersReferrer();
 
           entryIterator.remove();
         } finally {
@@ -2881,8 +2914,8 @@ public final class WOWCache extends AbstractWriteCache
           break flushCycle;
         }
 
-        if (pointer.tryAcquireSharedLock()) {
-          final long version;
+        long sharedStamp = pointer.tryAcquireSharedLock();
+        if (sharedStamp != 0) {
           final LogSequenceNumber fullLogLSN;
 
           final var directPointer =
@@ -2890,7 +2923,6 @@ public final class WOWCache extends AbstractWriteCache
           final var copy = directPointer.getNativeByteBuffer();
           assert copy.position() == 0;
           try {
-            version = pointer.getVersion();
             final var buffer = pointer.getBuffer();
 
             fullLogLSN = pointer.getEndLSN();
@@ -2905,7 +2937,7 @@ public final class WOWCache extends AbstractWriteCache
 
             copiedPages++;
           } finally {
-            pointer.releaseSharedLock();
+            pointer.releaseSharedLock(sharedStamp);
           }
 
           if (fullLogLSN != null
@@ -2915,7 +2947,11 @@ public final class WOWCache extends AbstractWriteCache
 
           copy.position(0);
 
-          chunk.add(new WritePageContainer(version, copy, directPointer, pointer));
+          // Store the shared lock stamp for later validation in removeWrittenPagesFromCache.
+          // validate(stamp) returns false if any exclusive lock was acquired since the stamp
+          // was issued — semantically identical to a version mismatch, since the version only
+          // incremented under exclusive lock.
+          chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
 
           if (chunksSize + chunk.size() >= pagesFlushLimit) {
             chunks.add(chunk);
@@ -3069,37 +3105,41 @@ public final class WOWCache extends AbstractWriteCache
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final List<WritePageContainer> chunk : chunks) {
       for (var chunkPage : chunk) {
-        // Always release the page copy's direct memory, even if the shared lock on the
-        // original page pointer cannot be acquired. Without this, the `continue` below
-        // would skip the release call, leaking the buffer pool allocation made during
-        // the flush copy phase (e.g., in executeFileFlush).
+        // Always release the page copy's direct memory, even if stamp validation
+        // fails. Without this, the buffer pool allocation made during the flush copy
+        // phase (e.g., in executeFileFlush) would leak.
         try {
           final var pointer = chunkPage.originalPagePointer;
 
           final var pageKey =
               new PageKey(internalFileId(pointer.getFileId()), pointer.getPageIndex());
-          final var version = chunkPage.pageVersion;
 
           final var lock = lockManager.acquireExclusiveLock(pageKey);
           try {
-            if (!pointer.tryAcquireSharedLock()) {
-              continue;
-            }
-
-            try {
-              if (version == pointer.getVersion()) {
-                var removed = writeCachePages.remove(pageKey);
-                if (removed == null) {
-                  throw new IllegalStateException("Page is not found in write cache");
-                }
-
-                writeCacheSize.decrementAndGet();
-
-                pointer.decrementWritersReferrer();
-                pointer.setWritersListener(null);
+            // Validate the stamp captured during the copy phase. If no exclusive lock was
+            // acquired on the PageFrame since the copy, the page data is still consistent
+            // and the write cache entry can be removed. This is semantically identical to
+            // the old version comparison: version only incremented under exclusive lock,
+            // and validate(stamp) detects any exclusive lock acquisition since the stamp.
+            final var pageFrame = pointer.getPageFrame();
+            assert pageFrame != null : "Write cache page must have a PageFrame";
+            // validate() works on released read stamps — it checks only the write-lock
+            // sequence counter, not whether the read lock is still held.
+            if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)) {
+              var removed = writeCachePages.remove(pageKey);
+              if (removed == null) {
+                throw new IllegalStateException("Page is not found in write cache");
               }
-            } finally {
-              pointer.releaseSharedLock();
+
+              writeCacheSize.decrementAndGet();
+
+              // Decrement BEFORE nulling the listener: the page was flushed
+              // successfully, so the listener notification should fire.
+              // (Contrast with doRemoveCachePages where the listener is nulled
+              // first because the file is being deleted and notification must
+              // be suppressed.)
+              pointer.decrementWritersReferrer();
+              pointer.setWritersListener(null);
             }
           } finally {
             lock.unlock();
@@ -3267,6 +3307,11 @@ public final class WOWCache extends AbstractWriteCache
 
     var flushedPages = 0;
     var copiedPages = 0;
+    // Tracks flushedPages at the start of each cycle to detect infinite loops:
+    // if a flushCycle reset occurs but no pages were flushed since the last reset,
+    // the same conditions will repeat forever (e.g., pages in exclusiveWritePages
+    // with no corresponding writeCachePages entry and file too small to extend).
+    var flushedPagesAtCycleStart = 0;
 
     // total amount of pages in chunks that precedes current/active chunk
     var prevChunksSize = 0;
@@ -3288,7 +3333,14 @@ public final class WOWCache extends AbstractWriteCache
       final var pageKeyToFlush = iterator.next();
       var fileSize = fileSizeMap.get(pageKeyToFlush.fileId);
       if (fileSize < 0) {
-        fileSize = files.get(externalFileId(pageKeyToFlush.fileId)).getUnderlyingFileSize();
+        var file = files.get(externalFileId(pageKeyToFlush.fileId));
+        // File may have been deleted (e.g., during backup restore). Skip pages for
+        // deleted files — they will be cleaned up by doRemoveCachePages or the next
+        // flush cycle.
+        if (file == null) {
+          continue;
+        }
+        fileSize = file.getUnderlyingFileSize();
         fileSizeMap.put(pageKeyToFlush.fileId, fileSize);
       }
 
@@ -3317,6 +3369,10 @@ public final class WOWCache extends AbstractWriteCache
         // truth.
         if (pointer == null) {
           var file = files.get(externalFileId(pageKey.fileId));
+          // File may have been deleted — skip pages for deleted files.
+          if (file == null) {
+            continue;
+          }
           if (file.getUnderlyingFileSize() < (pageKey.pageIndex + 1) * pageSize) {
             // if we can not write at least one page outside the size of the file on disk
             // we should stop the process because otherwise hole in the file during restore
@@ -3332,7 +3388,30 @@ public final class WOWCache extends AbstractWriteCache
               latch.countDown();
             }
 
+            // If no pages were flushed since the last cycle reset, the same conditions
+            // will repeat: pages exist in exclusiveWritePages with null writeCachePages
+            // entries and the file is too small to extend. Break to avoid an infinite
+            // loop that would monopolize the commitExecutor thread and deadlock callers
+            // waiting to submit tasks (e.g., deleteFile).
+            if (flushedPages == flushedPagesAtCycleStart) {
+              LogManager.instance()
+                  .warn(
+                      this,
+                      storageName
+                          + ": flushExclusiveWriteCache: no progress in flush cycle, breaking."
+                          + " exclusiveWritePages.size=%d, pageKey=(%d,%d)",
+                      (Throwable) null,
+                      exclusiveWritePages.size(),
+                      pageKey.fileId,
+                      pageKey.pageIndex);
+              break flushCycle;
+            }
+
             // reset flush cycle
+            assert flushedPages > flushedPagesAtCycleStart
+                : "Expected flush progress: flushedPages=" + flushedPages
+                    + " flushedPagesAtCycleStart=" + flushedPagesAtCycleStart;
+            flushedPagesAtCycleStart = flushedPages;
             chunks.clear();
             prevChunksSize = 0;
             iterator = exclusiveWritePages.iterator();
@@ -3340,16 +3419,15 @@ public final class WOWCache extends AbstractWriteCache
             continue flushCycle;
           }
         } else {
-          if (pointer.tryAcquireSharedLock()) {
+          long sharedStamp = pointer.tryAcquireSharedLock();
+          if (sharedStamp != 0) {
             final LogSequenceNumber fullLSN;
 
             final var directPointer =
                 bufferPool.acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
             final var copy = directPointer.getNativeByteBuffer();
             assert copy.position() == 0;
-            long version;
             try {
-              version = pointer.getVersion();
               final var buffer = pointer.getBuffer();
 
               fullLSN = pointer.getEndLSN();
@@ -3364,7 +3442,7 @@ public final class WOWCache extends AbstractWriteCache
 
               copiedPages++;
             } finally {
-              pointer.releaseSharedLock();
+              pointer.releaseSharedLock(sharedStamp);
             }
 
             if (fullLSN != null
@@ -3395,7 +3473,7 @@ public final class WOWCache extends AbstractWriteCache
               prevChunksSize = 0;
             }
 
-            chunk.add(new WritePageContainer(version, copy, directPointer, pointer));
+            chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
 
             lastFileId = pointer.getFileId();
             lastPageIndex = pointer.getPageIndex();
@@ -3407,8 +3485,12 @@ public final class WOWCache extends AbstractWriteCache
               chunk = new ArrayList<>(16);
             }
 
-            var underlyingFileSize =
-                files.get(externalFileId(pageKey.fileId)).getUnderlyingFileSize();
+            var fileForSize = files.get(externalFileId(pageKey.fileId));
+            // File may have been deleted — skip pages for deleted files.
+            if (fileForSize == null) {
+              continue;
+            }
+            var underlyingFileSize = fileForSize.getUnderlyingFileSize();
             // chunk size is reached flush limit, or we have a risk to have a hole in the file
             // that will lead to error during restore after crash process
             // we need to check only prevChunksSize because current chunk is empty
@@ -3425,7 +3507,26 @@ public final class WOWCache extends AbstractWriteCache
             }
 
             if (underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
+              // Break if no progress was made — same reasoning as the first
+              // flushCycle reset above.
+              if (flushedPages == flushedPagesAtCycleStart) {
+                LogManager.instance()
+                    .warn(
+                        this,
+                        storageName
+                            + ": flushExclusiveWriteCache: no progress in flush cycle, breaking."
+                            + " exclusiveWritePages.size=%d, pageKey=(%d,%d)",
+                        (Throwable) null,
+                        exclusiveWritePages.size(),
+                        pageKey.fileId,
+                        pageKey.pageIndex);
+                break flushCycle;
+              }
               // reset flush cycle, we can not afford holes in files
+              assert flushedPages > flushedPagesAtCycleStart
+                  : "Expected flush progress: flushedPages=" + flushedPages
+                      + " flushedPagesAtCycleStart=" + flushedPagesAtCycleStart;
+              flushedPagesAtCycleStart = flushedPages;
               iterator = exclusiveWritePages.iterator();
               fileSizeMap.clear();
               continue flushCycle;
@@ -3477,7 +3578,10 @@ public final class WOWCache extends AbstractWriteCache
         final var pagePointer = writeCachePages.get(pageKey);
         final var pageLock = lockManager.acquireExclusiveLock(pageKey);
         try {
-          pagePointer.acquireSharedLock();
+          long sharedStamp = pagePointer.tryAcquireSharedLock();
+          if (sharedStamp == 0) {
+            continue;
+          }
           try {
             final var buffer = pagePointer.getBuffer();
 
@@ -3497,12 +3601,12 @@ public final class WOWCache extends AbstractWriteCache
 
             var chunk = new ArrayList<WritePageContainer>(1);
             chunk.add(
-                new WritePageContainer(pagePointer.getVersion(), copy, directPointer, pagePointer));
+                new WritePageContainer(sharedStamp, copy, directPointer, pagePointer));
             chunks.add(chunk);
 
             removeFromDirtyPages(pageKey);
           } finally {
-            pagePointer.releaseSharedLock();
+            pagePointer.releaseSharedLock(sharedStamp);
           }
         } finally {
           pageLock.unlock();
@@ -3735,7 +3839,7 @@ public final class WOWCache extends AbstractWriteCache
     return null;
   }
 
-  private record WritePageContainer(long pageVersion, ByteBuffer copyOfPage,
+  private record WritePageContainer(long pageStamp, ByteBuffer copyOfPage,
       Pointer pageCopyDirectMemoryPointer,
       CachePointer originalPagePointer) {
 

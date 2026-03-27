@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -68,50 +69,50 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
+  public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data)
+      throws IOException {
   }
 
   @Override
-  public void delete(AtomicOperation atomicOperation) {
+  public void delete(@Nonnull AtomicOperation atomicOperation) {
   }
 
   @Override
-  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
+  public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
   }
 
   @Override
-  public boolean remove(Storage storage, AtomicOperation atomicOperation, Object key) {
+  public boolean remove(Storage storage, @Nonnull AtomicOperation atomicOperation, Object key) {
     return false;
   }
 
   @Override
-  public void clear(Storage storage, AtomicOperation atomicOperation) {
+  public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
   }
 
   @Override
   public void close() {
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Object get(DatabaseSessionEmbedded db, Object key) {
     return null;
   }
 
   @Override
-  public void put(DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionEmbedded db, @Nonnull AtomicOperation atomicOperation, Object key,
       Object value) {
   }
 
   @Override
   public void update(
-      DatabaseSessionEmbedded db, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionEmbedded db, @Nonnull AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
   }
 
   @Override
   public boolean validatedPut(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       Object key,
       RID value,
       IndexEngineValidator<Object, RID> validator) {
@@ -125,7 +126,7 @@ public class RemoteIndexEngine implements IndexEngine {
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -134,7 +135,7 @@ public class RemoteIndexEngine implements IndexEngine {
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -143,35 +144,35 @@ public class RemoteIndexEngine implements IndexEngine {
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
   public long size(Storage storage, IndexEngineValuesTransformer transformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     return 0;
   }
 
   @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
+  public Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("keyStream");
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+  public boolean acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException(
         "atomic locking is not supported by remote index engine");
   }

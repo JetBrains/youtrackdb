@@ -187,6 +187,149 @@ public class ByteBufferPoolTest {
     allocator.checkMemoryLeaks();
   }
 
+  // --- pageFramePool() auto-sizing tests (Q1, Q2, Q5 from track-level review) ---
+
+  @Test
+  public void testPageFramePoolAutoSizeDerivedFromDiskCacheSize() {
+    // Verify that auto-sizing (PAGE_FRAME_POOL_LIMIT = -1) derives maxPoolSize
+    // from 2 * DISK_CACHE_SIZE / pageSize.
+    var origLimit = GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValue();
+    var origCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
+    try {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(-1);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(16); // 16 MB
+
+      int pageSize = 8192;
+      var allocator = new DirectMemoryAllocator();
+      var pool = new ByteBufferPool(pageSize, allocator, 0);
+
+      PageFramePool framePool = pool.pageFramePool();
+      Assert.assertNotNull(framePool);
+
+      // Expected: 2 * (16 MB / 8192) = 2 * 2048 = 4096 frames
+      // Verify by filling the pool beyond the limit and checking excess is deallocated
+      var frames = new ArrayList<PageFrame>();
+      for (int i = 0; i < 4097; i++) {
+        frames.add(framePool.acquire(false, Intention.TEST));
+      }
+      for (var f : frames) {
+        framePool.release(f);
+      }
+      // Pool should hold at most 4096 frames (the auto-computed limit)
+      Assert.assertEquals(4096, framePool.getPoolSize());
+
+      framePool.clear();
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    } finally {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(origLimit);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(origCacheSize);
+    }
+  }
+
+  @Test
+  public void testPageFramePoolExplicitLimitOverridesAutoSize() {
+    // Verify that an explicit PAGE_FRAME_POOL_LIMIT overrides the auto-sizing.
+    // Set DISK_CACHE_SIZE to 16 MB so auto-size would be 4096 — the explicit
+    // limit of 5 clearly overrides it.
+    var origLimit = GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValue();
+    var origCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
+    try {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(5);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(16);
+
+      int pageSize = 8192;
+      var allocator = new DirectMemoryAllocator();
+      var pool = new ByteBufferPool(pageSize, allocator, 0);
+
+      PageFramePool framePool = pool.pageFramePool();
+
+      var frames = new ArrayList<PageFrame>();
+      for (int i = 0; i < 7; i++) {
+        frames.add(framePool.acquire(false, Intention.TEST));
+      }
+      for (var f : frames) {
+        framePool.release(f);
+      }
+      // Explicit limit of 5 should cap the pool (not auto-size of 4096)
+      Assert.assertEquals(5, framePool.getPoolSize());
+
+      framePool.clear();
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    } finally {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(origLimit);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(origCacheSize);
+    }
+  }
+
+  @Test
+  public void testPageFramePoolExplicitZeroLimitCreatesZeroCapacityPool() {
+    // Verify that PAGE_FRAME_POOL_LIMIT = 0 creates a pool where every release
+    // immediately deallocates.
+    var origLimit = GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValue();
+    try {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(0);
+
+      int pageSize = 8192;
+      var allocator = new DirectMemoryAllocator();
+      var pool = new ByteBufferPool(pageSize, allocator, 0);
+
+      PageFramePool framePool = pool.pageFramePool();
+
+      var frame = framePool.acquire(false, Intention.TEST);
+      framePool.release(frame);
+      // With limit 0, nothing stays pooled
+      Assert.assertEquals(0, framePool.getPoolSize());
+      Assert.assertEquals(0, allocator.getMemoryConsumption());
+
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    } finally {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(origLimit);
+    }
+  }
+
+  @Test
+  public void testPageFramePoolAutoSizeWithZeroDiskCacheSize() {
+    // Verify that DISK_CACHE_SIZE = 0 produces maxFrames = 0 (immediate deallocation).
+    var origLimit = GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValue();
+    var origCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
+    try {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(-1);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(0); // 0 MB
+
+      var allocator = new DirectMemoryAllocator();
+      var pool = new ByteBufferPool(8192, allocator, 0);
+      PageFramePool framePool = pool.pageFramePool();
+
+      var frame = framePool.acquire(false, Intention.TEST);
+      framePool.release(frame);
+      // With 0 MB cache, auto-size produces maxFrames = 0
+      Assert.assertEquals(0, framePool.getPoolSize());
+      Assert.assertEquals(0, allocator.getMemoryConsumption());
+
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    } finally {
+      GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.setValue(origLimit);
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(origCacheSize);
+    }
+  }
+
+  @Test
+  public void testPageFramePoolReturnsSameInstance() {
+    // Verify the double-checked locking: two calls return the same instance.
+    var allocator = new DirectMemoryAllocator();
+    var pool = new ByteBufferPool(8192, allocator, 0);
+    var fp1 = pool.pageFramePool();
+    var fp2 = pool.pageFramePool();
+    Assert.assertSame(fp1, fp2);
+    fp1.clear();
+    pool.clear();
+    allocator.checkMemoryLeaks();
+  }
+
   private void assertBufferIsClear(ByteBuffer bufferTwo) {
     while (bufferTwo.position() < bufferTwo.capacity()) {
       Assert.assertEquals(0, bufferTwo.get());

@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
@@ -84,7 +86,7 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final int pageSize;
 
-  private final ByteBufferPool bufferPool;
+  private final PageFramePool pageFramePool;
 
   private final Ratio cacheHitRatio;
 
@@ -95,7 +97,7 @@ public final class LockFreeReadCache implements ReadCache {
     evictionLock.lock();
     try {
       this.pageSize = pageSize;
-      this.bufferPool = bufferPool;
+      this.pageFramePool = bufferPool.pageFramePool();
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
       this.data = new ConcurrentHashMap<>(this.maxCacheSize, 0.5f, N_CPU << 1);
@@ -304,11 +306,11 @@ public final class LockFreeReadCache implements ReadCache {
 
   private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
 
-    final var pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final var cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
+    final var pageFrame = pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
+    final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, pageIndex);
     cachePointer.incrementReadersReferrer();
     DurablePage.setLogSequenceNumberForPage(
-        pointer.getNativeByteBuffer(), new LogSequenceNumber(-1, -1));
+        pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
 
     final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
     cacheEntry.acquireEntry();
@@ -331,6 +333,35 @@ public final class LockFreeReadCache implements ReadCache {
       policy.setMaxSize((int) (maxMemory / pageSize));
     } finally {
       evictionLock.unlock();
+    }
+  }
+
+  @Override
+  @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
+    final var pageKey = new PageKey(fileId, (int) pageIndex);
+    final var cacheEntry = data.get(pageKey);
+
+    if (cacheEntry == null || !cacheEntry.isAlive()) {
+      return null;
+    }
+
+    final var cachePointer = cacheEntry.getCachePointer();
+    if (cachePointer == null) {
+      return null;
+    }
+
+    return cachePointer.getPageFrame();
+  }
+
+  @Override
+  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
+    final var pageKey = new PageKey(fileId, (int) pageIndex);
+    final var cacheEntry = data.get(pageKey);
+
+    // Entry may have been evicted between stamp validation and this call.
+    // One missed frequency bump is harmless — skip silently.
+    if (cacheEntry != null) {
+      afterRead(cacheEntry);
     }
   }
 
@@ -382,7 +413,7 @@ public final class LockFreeReadCache implements ReadCache {
     // it is treated as flushed during fuzzy checkpoint and portion of write ahead log which
     // contains not flushed changes is removed.
     // This can lead to the data loss after restore and corruption of data structures
-    cachePointer.releaseExclusiveLock();
+    cacheEntry.releaseExclusiveLock();
     cacheEntry.releaseEntry();
   }
 

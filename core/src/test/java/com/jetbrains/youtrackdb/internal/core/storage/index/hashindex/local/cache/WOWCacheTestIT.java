@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -43,9 +42,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
 
-@Category(SequentialTest.class)
 public class WOWCacheTestIT {
 
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
@@ -191,7 +188,7 @@ public class WOWCacheTestIT {
       final var pageIndex = wowCache.allocateNewPage(fileId);
       Assert.assertEquals(i, pageIndex);
       final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
 
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
@@ -199,7 +196,7 @@ public class WOWCacheTestIT {
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(0, 0));
 
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, i, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -296,13 +293,13 @@ public class WOWCacheTestIT {
       final var pageIndex = wowCache.allocateNewPage(fileId);
       Assert.assertEquals(i, pageIndex);
       final var cachePointer = wowCache.load(fileId, i, new ModifiableBoolean(), false);
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
 
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, i, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -379,7 +376,7 @@ public class WOWCacheTestIT {
 
       final var cachePointer =
           wowCache.load(fileId, pageIndex, new ModifiableBoolean(), false);
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
 
@@ -387,7 +384,7 @@ public class WOWCacheTestIT {
           new LogSequenceNumber(0, 0), DurablePage.getLogSequenceNumberFromPage(buffer));
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -422,12 +419,12 @@ public class WOWCacheTestIT {
       final var cachePointer =
           wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
 
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -540,13 +537,13 @@ public class WOWCacheTestIT {
             new LogSequenceNumber(0, 0), DurablePage.getLogSequenceNumberFromPage(bufferDuplicate));
       }
 
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
       DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(0, 0));
 
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -582,13 +579,13 @@ public class WOWCacheTestIT {
       final var cachePointer =
           wowCache.load(fileId, pageIndex, new ModifiableBoolean(), true);
 
-      cachePointer.acquireExclusiveLock();
+      long exclusiveStamp = cachePointer.acquireExclusiveLock();
       var buffer = cachePointer.getBuffer();
       assert buffer != null;
 
       buffer.put(DurablePage.NEXT_FREE_POSITION, data);
 
-      cachePointer.releaseExclusiveLock();
+      cachePointer.releaseExclusiveLock(exclusiveStamp);
 
       wowCache.store(fileId, pageIndex, cachePointer);
       cachePointer.decrementReadersReferrer();
@@ -687,13 +684,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();
@@ -728,13 +725,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();
@@ -767,13 +764,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();
@@ -803,13 +800,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();
@@ -839,13 +836,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();
@@ -875,13 +872,13 @@ public class WOWCacheTestIT {
     Assert.assertEquals(0, wowCache.allocateNewPage(fileId));
     final var cachePointer = wowCache.load(fileId, 0, new ModifiableBoolean(), true);
 
-    cachePointer.acquireExclusiveLock();
+    long exclusiveStamp = cachePointer.acquireExclusiveLock();
     final var buffer = cachePointer.getBuffer();
     assert buffer != null;
 
     buffer.put(DurablePage.NEXT_FREE_POSITION,
         new byte[buffer.remaining() - DurablePage.NEXT_FREE_POSITION]);
-    cachePointer.releaseExclusiveLock();
+    cachePointer.releaseExclusiveLock(exclusiveStamp);
 
     wowCache.store(fileId, 0, cachePointer);
     cachePointer.decrementReadersReferrer();

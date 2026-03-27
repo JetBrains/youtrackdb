@@ -30,23 +30,22 @@ import javax.annotation.Nonnull;
 public interface StorageCollection {
 
   enum ATTRIBUTES {
-    NAME,
-    CONFLICTSTRATEGY,
+    NAME, CONFLICTSTRATEGY,
   }
 
   void configure(int iId, String iCollectionName) throws IOException;
 
   void configure(Storage iStorage, StorageCollectionConfiguration iConfig) throws IOException;
 
-  void create(AtomicOperation atomicOperation) throws IOException;
+  void create(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
-  void open(AtomicOperation atomicOperation) throws IOException;
+  void open(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
   void close() throws IOException;
 
   void close(boolean flush) throws IOException;
 
-  void delete(AtomicOperation atomicOperation) throws IOException;
+  void delete(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
   void setCollectionName(String name);
 
@@ -62,7 +61,8 @@ public interface StorageCollection {
    * @param recordType the type of record of which allocate the position.
    * @return the allocated position.
    */
-  PhysicalPosition allocatePosition(final byte recordType, final AtomicOperation atomicOperation)
+  PhysicalPosition allocatePosition(final byte recordType,
+      @Nonnull final AtomicOperation atomicOperation)
       throws IOException;
 
   /**
@@ -78,28 +78,30 @@ public interface StorageCollection {
       byte[] content,
       byte recordType,
       PhysicalPosition allocatedPosition,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
-  boolean deleteRecord(AtomicOperation atomicOperation, long collectionPosition);
+  boolean deleteRecord(@Nonnull AtomicOperation atomicOperation, long collectionPosition);
 
   void updateRecord(
       long collectionPosition,
       byte[] content,
       byte recordType,
-      AtomicOperation atomicOperation);
+      @Nonnull AtomicOperation atomicOperation);
 
-  void updateRecordVersion(long collectionPosition, AtomicOperation atomicOperation);
+  void updateRecordVersion(long collectionPosition, @Nonnull AtomicOperation atomicOperation);
 
   @Nonnull
-  RawBuffer readRecord(long collectionPosition, AtomicOperation atomicOperation) throws IOException;
+  RawBuffer readRecord(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
+      throws IOException;
 
-  boolean exists(AtomicOperation atomicOperation);
+  boolean exists(@Nonnull AtomicOperation atomicOperation);
 
   /**
    * Fills and return the PhysicalPosition object received as parameter with the physical position
    * of logical record iPosition
    */
-  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition, AtomicOperation atomicOperation)
+  PhysicalPosition getPhysicalPosition(PhysicalPosition iPPosition,
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException;
 
   /**
@@ -107,15 +109,16 @@ public interface StorageCollection {
    *
    * @return true if the record is deleted or not existent
    */
-  boolean exists(long collectionPosition, AtomicOperation atomicOperation) throws IOException;
+  boolean exists(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
+      throws IOException;
 
-  long getEntries(AtomicOperation atomicOperation);
+  long getEntries(@Nonnull AtomicOperation atomicOperation);
 
   long getApproximateRecordsCount();
 
-  long getFirstPosition(AtomicOperation atomicOperation) throws IOException;
+  long getFirstPosition(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
-  long getLastPosition(AtomicOperation atomicOperation) throws IOException;
+  long getLastPosition(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
   String getFileName();
 
@@ -128,16 +131,16 @@ public interface StorageCollection {
   boolean isSystemCollection();
 
   PhysicalPosition[] higherPositions(PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation) throws IOException;
+      @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   PhysicalPosition[] ceilingPositions(PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation) throws IOException;
+      @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   PhysicalPosition[] lowerPositions(PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation) throws IOException;
+      @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   PhysicalPosition[] floorPositions(PhysicalPosition position, int limit,
-      AtomicOperation atomicOperation) throws IOException;
+      @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   RecordConflictStrategy getRecordConflictStrategy();
 
@@ -145,9 +148,10 @@ public interface StorageCollection {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * collection.
    */
-  void acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
+  void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
 
-  CollectionBrowsePage nextPage(long lastPosition, boolean forward, AtomicOperation atomicOperation)
+  CollectionBrowsePage nextPage(long lastPosition, boolean forward,
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException;
 
   default Meters meters() {
@@ -159,15 +163,13 @@ public interface StorageCollection {
       TimeRate read,
       TimeRate update,
       TimeRate delete,
-      TimeRate conflict
-  ) {
+      TimeRate conflict) {
 
     public static final Meters NOOP = new Meters(
         TimeRate.NOOP,
         TimeRate.NOOP,
         TimeRate.NOOP,
         TimeRate.NOOP,
-        TimeRate.NOOP
-    );
+        TimeRate.NOOP);
   }
 }

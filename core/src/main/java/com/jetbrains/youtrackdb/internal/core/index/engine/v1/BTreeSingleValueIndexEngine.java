@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.C
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public final class BTreeSingleValueIndexEngine
@@ -67,7 +68,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void create(AtomicOperation atomicOperation, IndexEngineData data) {
+  public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) {
     @SuppressWarnings("unchecked")
     var keySerializer =
         (BinarySerializer<Object>) storage.resolveObjectSerializer(data.getKeySerializedId());
@@ -82,7 +83,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void delete(final AtomicOperation atomicOperation) {
+  public void delete(@Nonnull final AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
       sbTree.delete(atomicOperation);
@@ -97,7 +98,7 @@ public final class BTreeSingleValueIndexEngine
     }
   }
 
-  private void doClearTree(AtomicOperation atomicOperation) throws IOException {
+  private void doClearTree(@Nonnull AtomicOperation atomicOperation) throws IOException {
     try (var stream = sbTree.keyStream(atomicOperation)) {
       stream.forEach(
           (key) -> {
@@ -114,7 +115,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void load(IndexEngineData data, AtomicOperation atomicOperation) {
+  public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     @SuppressWarnings("unchecked")
@@ -124,7 +125,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public boolean remove(AtomicOperation atomicOperation, Object key) {
+  public boolean remove(@Nonnull AtomicOperation atomicOperation, Object key) {
     try {
       var removed = sbTree.remove(atomicOperation, key) != null;
       if (removed) {
@@ -144,7 +145,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void clear(Storage storage, AtomicOperation atomicOperation) {
+  public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
       var mgr = histogramManager;
@@ -168,7 +169,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key, AtomicOperation atomicOperation) {
+  public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     final var rid = sbTree.get(key, atomicOperation);
     if (rid == null) {
       return Stream.empty();
@@ -178,7 +179,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = sbTree.firstKey(atomicOperation);
     if (firstKey == null) {
       return Stream.empty();
@@ -188,7 +189,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RawPair<Object, RID>> descStream(
-      IndexEngineValuesTransformer valuesTransformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
     final var lastKey = sbTree.lastKey(atomicOperation);
     if (lastKey == null) {
       return Stream.empty();
@@ -197,12 +198,12 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<Object> keyStream(AtomicOperation atomicOperation) {
+  public Stream<Object> keyStream(@Nonnull AtomicOperation atomicOperation) {
     return sbTree.keyStream(atomicOperation);
   }
 
   @Override
-  public boolean put(AtomicOperation atomicOperation, Object key, RID value) {
+  public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
       boolean wasInsert = sbTree.put(atomicOperation, key, value);
       var mgr = histogramManager;
@@ -221,7 +222,7 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public boolean validatedPut(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       Object key,
       RID value,
       IndexEngineValidator<Object, RID> validator) {
@@ -252,7 +253,7 @@ public final class BTreeSingleValueIndexEngine
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     return sbTree.iterateEntriesBetween(
         rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, atomicOperation);
   }
@@ -262,7 +263,7 @@ public final class BTreeSingleValueIndexEngine
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     return sbTree.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, atomicOperation);
   }
 
@@ -271,18 +272,18 @@ public final class BTreeSingleValueIndexEngine
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer, AtomicOperation atomicOperation) {
+      IndexEngineValuesTransformer transformer, @Nonnull AtomicOperation atomicOperation) {
     return sbTree.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, atomicOperation);
   }
 
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
-      AtomicOperation atomicOperation) {
+      @Nonnull AtomicOperation atomicOperation) {
     return sbTree.size(atomicOperation);
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+  public boolean acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation) {
     sbTree.acquireAtomicExclusiveLock(atomicOperation);
     return true;
   }

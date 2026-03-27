@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 
 public interface CellBTreeMultiValue<K> {
 
@@ -14,16 +15,16 @@ public interface CellBTreeMultiValue<K> {
       BinarySerializer<K> keySerializer,
       PropertyTypeInternal[] keyTypes,
       int keySize,
-      AtomicOperation atomicOperation)
+      @Nonnull AtomicOperation atomicOperation)
       throws IOException;
 
   Stream<RID> get(K key);
 
-  void put(AtomicOperation atomicOperation, K key, RID value) throws IOException;
+  void put(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
   void close();
 
-  void delete(AtomicOperation atomicOperation) throws IOException;
+  void delete(@Nonnull AtomicOperation atomicOperation) throws IOException;
 
   void load(
       String name,
@@ -33,7 +34,7 @@ public interface CellBTreeMultiValue<K> {
 
   long size();
 
-  boolean remove(AtomicOperation atomicOperation, K key, RID value) throws IOException;
+  boolean remove(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 
   Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder);
 

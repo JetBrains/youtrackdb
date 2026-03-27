@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -122,6 +124,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Edge snapshot: local overlay buffers — lazily allocated.
   @Nullable private TreeMap<EdgeSnapshotKey, LinkBagValue> localEdgeSnapshotBuffer;
   @Nullable private HashMap<EdgeVisibilityKey, EdgeSnapshotKey> localEdgeVisibilityBuffer;
+
+  // Optimistic read scope — reused across optimistic read attempts within
+  // the same atomic operation. Eagerly allocated since optimistic reads are
+  // the hot path this class is designed to support.
+  private final OptimisticReadScope optimisticReadScope = new OptimisticReadScope();
 
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -333,7 +340,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         new CacheEntryImpl(
             fileId,
             (int) filledUpTo,
-            new CachePointer(null, null, fileId, (int) filledUpTo),
+            new CachePointer((Pointer) null, null, fileId, (int) filledUpTo),
             false,
             readCache);
     return pageChangesContainer;
@@ -364,8 +371,38 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     if (cacheEntry.getCachePointer().getBuffer() != null) {
       readCache.releaseFromRead(real.getDelegate());
     } else {
-      assert real.isNew || !cacheEntry.isLockAcquiredByCurrentThread();
+      assert real.isNew;
     }
+  }
+
+  @Override
+  public boolean hasChangesForPage(long fileId, final long pageIndex) {
+    // Intentionally skips checkIfActive() — this is called on the optimistic
+    // hot path and the caller is always within an active operation context.
+    fileId = checkFileIdCompatibility(fileId, storageId);
+
+    // Deleted file: force fallback so the pinned path raises StorageException
+    if (deletedFiles.contains(fileId)) {
+      return true;
+    }
+
+    final var changesContainer = fileChanges.get(fileId);
+    if (changesContainer == null) {
+      return false;
+    }
+
+    // Truncated file: all pre-existing pages are logically gone, force fallback
+    // so the pinned path handles filledUpTo correctly
+    if (changesContainer.truncate) {
+      return true;
+    }
+
+    // New file: all pages up to maxNewPageIndex have local changes
+    if (changesContainer.isNew) {
+      return pageIndex <= changesContainer.maxNewPageIndex;
+    }
+
+    return changesContainer.pageChangesMap.containsKey(pageIndex);
   }
 
   @Override
@@ -682,6 +719,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       histogramDeltas = new HistogramDeltaHolder();
     }
     return histogramDeltas;
+  }
+
+  @Override
+  public OptimisticReadScope getOptimisticReadScope() {
+    return optimisticReadScope;
   }
 
   @Override

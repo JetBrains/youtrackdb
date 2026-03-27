@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -1240,5 +1241,190 @@ public class AtomicOperationSnapshotProxyTest {
       keys.add(entry.getKey());
     }
     return keys;
+  }
+
+  // --- hasChangesForPage ---
+
+  @Test
+  public void testHasChangesForPageReturnsFalseWhenNoChanges() {
+    // A fresh operation has no file changes, so hasChangesForPage returns false.
+    assertThat(operation.hasChangesForPage(1, 0)).isFalse();
+    assertThat(operation.hasChangesForPage(1, 42)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueAfterPageWrite() throws IOException {
+    // After loadPageForWrite creates a change entry for a page, hasChangesForPage
+    // returns true for that page and false for other pages in the same file.
+    var mockCacheEntry = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    when(mockCacheEntry.getCachePointer()).thenReturn(null);
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
+        .thenReturn(mockCacheEntry);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    // Simulate a write to page 10 — loadPageForWrite creates change tracking
+    op.loadPageForWrite(5, 10, 1, false);
+
+    // hasChangesForPage uses checkFileIdCompatibility internally,
+    // so pass the same raw file ID
+    assertThat(op.hasChangesForPage(5, 10)).isTrue();
+    assertThat(op.hasChangesForPage(5, 11)).isFalse();
+    assertThat(op.hasChangesForPage(5, 0)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueForNewFilePages() throws IOException {
+    // When a file is added (isNew=true), pages up to maxNewPageIndex have changes.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    // addNewFile returns a composed fileId with storageId in upper 32 bits
+    long composedFileId = (1L << 32) | 99;
+    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long fid = op.addFile("test-new.dat");
+
+    // Add a page to the new file
+    when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
+    op.addPage(fid);
+
+    // Page 0 exists in the new file
+    assertThat(op.hasChangesForPage(fid, 0)).isTrue();
+    // Page 1 doesn't exist yet
+    assertThat(op.hasChangesForPage(fid, 1)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsFalseForUnknownFile() {
+    // A file ID that was never touched returns false.
+    assertThat(operation.hasChangesForPage(999, 0)).isFalse();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueForTruncatedFile() throws IOException {
+    // After truncation, all pages are logically gone — hasChangesForPage must return
+    // true so the pinned path handles filledUpTo correctly.
+    var mockCacheEntry = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
+        .thenReturn(mockCacheEntry);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    // Write a page to establish the file in fileChanges
+    op.loadPageForWrite(5, 10, 1, false);
+    assertThat(op.hasChangesForPage(5, 10)).isTrue();
+
+    // Truncate the file
+    op.truncateFile(5);
+
+    // All page indices should return true after truncation
+    assertThat(op.hasChangesForPage(5, 0)).isTrue();
+    assertThat(op.hasChangesForPage(5, 10)).isTrue();
+    assertThat(op.hasChangesForPage(5, 999)).isTrue();
+  }
+
+  @Test
+  public void testHasChangesForPageReturnsTrueForDeletedFile() throws IOException {
+    // After deletion, hasChangesForPage returns true so the pinned path raises
+    // the proper StorageException.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long composedFileId = (1L << 32) | 7;
+    op.deleteFile(composedFileId);
+
+    assertThat(op.hasChangesForPage(composedFileId, 0)).isTrue();
+    assertThat(op.hasChangesForPage(composedFileId, 42)).isTrue();
+  }
+
+  @Test
+  public void testHasChangesForPageNewFileMultiplePages() throws IOException {
+    // Tests the boundary for new files with multiple pages: hasChangesForPage returns
+    // true for pages up to maxNewPageIndex and false for indices beyond it.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 99;
+    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long fid = op.addFile("test-multi.dat");
+
+    // Add two pages
+    when(writeCache.getFilledUpTo(fid)).thenReturn(0L);
+    op.addPage(fid);
+    when(writeCache.getFilledUpTo(fid)).thenReturn(1L);
+    op.addPage(fid);
+
+    // Pages 0 and 1 have changes
+    assertThat(op.hasChangesForPage(fid, 0)).isTrue();
+    assertThat(op.hasChangesForPage(fid, 1)).isTrue();
+    // Page 2 does not exist yet
+    assertThat(op.hasChangesForPage(fid, 2)).isFalse();
+  }
+
+  // --- getOptimisticReadScope ---
+
+  @Test
+  public void testOptimisticReadScopeAccessible() {
+    // AtomicOperationBinaryTracking should provide an OptimisticReadScope.
+    var scope = operation.getOptimisticReadScope();
+    assertThat(scope).isNotNull();
+    assertThat(scope.count()).isEqualTo(0);
+  }
+
+  @Test
+  public void testOptimisticReadScopeReturnsSameInstance() {
+    // The scope should be reused across calls (not re-allocated).
+    var scope1 = operation.getOptimisticReadScope();
+    var scope2 = operation.getOptimisticReadScope();
+    assertThat(scope1).isSameAs(scope2);
+  }
+
+  @Test
+  public void testOptimisticReadScopeDefaultMethodThrows() {
+    // The default method on the AtomicOperation interface should throw for
+    // implementations that don't override it. Use a Mockito mock with CALLS_REAL_METHODS
+    // to trigger the actual default method implementation.
+    AtomicOperation mockOp = mock(AtomicOperation.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS);
+
+    assertThatThrownBy(mockOp::getOptimisticReadScope)
+        .isInstanceOf(UnsupportedOperationException.class);
   }
 }

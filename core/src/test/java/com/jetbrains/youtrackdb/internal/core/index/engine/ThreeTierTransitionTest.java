@@ -289,7 +289,7 @@ public class ThreeTierTransitionTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, count)
+        atomicOp -> IntStream.range(0, count)
             .mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
@@ -631,8 +631,9 @@ public class ThreeTierTransitionTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

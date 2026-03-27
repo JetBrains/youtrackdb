@@ -225,7 +225,7 @@ public class IncrementalMaintenanceTest {
     installSnapshot(fixture, 2000, 2000, 0, histogram, 1500, 2000, 0);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -266,7 +266,7 @@ public class IncrementalMaintenanceTest {
 
     // Key stream is uniform [0..2000) — rebalance should produce equi-depth
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -304,7 +304,7 @@ public class IncrementalMaintenanceTest {
 
     var rebalanceStarted = new CountDownLatch(1);
     var putsCompleted = new CountDownLatch(1);
-    fixture.manager.setKeyStreamSupplier(() -> {
+    fixture.manager.setKeyStreamSupplier(atomicOp -> {
       rebalanceStarted.countDown();
       try {
         // Block until concurrent puts are done
@@ -542,7 +542,7 @@ public class IncrementalMaintenanceTest {
     var rebalanceProceeds = new CountDownLatch(1);
     var rebalanceCount = new AtomicInteger(0);
 
-    fixture.manager.setKeyStreamSupplier(() -> {
+    fixture.manager.setKeyStreamSupplier(atomicOp -> {
       rebalanceCount.incrementAndGet();
       rebalanceBlocked.countDown();
       try {
@@ -636,7 +636,7 @@ public class IncrementalMaintenanceTest {
         System.nanoTime() - TimeUnit.SECONDS.toNanos(120));
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -667,7 +667,7 @@ public class IncrementalMaintenanceTest {
     var histogram = create4BucketHistogram();
     installSnapshot(fixture, 2000, 2000, 0, histogram, 5000, 2000, 0);
 
-    fixture.manager.setKeyStreamSupplier(() -> {
+    fixture.manager.setKeyStreamSupplier(atomicOp -> {
       throw new RuntimeException("Engine closed");
     });
     setFileId(fixture.manager, 42);
@@ -705,7 +705,7 @@ public class IncrementalMaintenanceTest {
     // Set up a key stream that blocks until we release it
     var rebalanceStarted = new CountDownLatch(1);
     var allowRebalanceFinish = new CountDownLatch(1);
-    fixture.manager.setKeyStreamSupplier(() -> {
+    fixture.manager.setKeyStreamSupplier(atomicOp -> {
       rebalanceStarted.countDown();
       try {
         allowRebalanceFinish.await(10, TimeUnit.SECONDS);
@@ -867,7 +867,7 @@ public class IncrementalMaintenanceTest {
     fixture.cache.put(fixture.engineId, driftedSnap);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -940,7 +940,7 @@ public class IncrementalMaintenanceTest {
       fixtures[i].manager.setRebalanceSemaphore(sem);
       setFileId(fixtures[i].manager, 42 + i);
 
-      fixtures[i].manager.setKeyStreamSupplier(() -> {
+      fixtures[i].manager.setKeyStreamSupplier(atomicOp -> {
         int cur = concurrentRebalances.incrementAndGet();
         peakConcurrent.updateAndGet(old -> Math.max(old, cur));
         if (isFirst.compareAndSet(false, true)) {
@@ -1146,8 +1146,9 @@ public class IncrementalMaintenanceTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

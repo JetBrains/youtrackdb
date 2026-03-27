@@ -36,21 +36,25 @@ public class CacheEntryImpl implements CacheEntry {
   // @GuardedBy cannot resolve cross-class instance locks, so we suppress the
   // checker and keep the annotation as a documentation safeguard.
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry next;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry next;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private CacheEntry prev;
+  @GuardedBy("LockFreeReadCache.evictionLock") private CacheEntry prev;
 
   @SuppressWarnings("GuardedBy")
-  @GuardedBy("LockFreeReadCache.evictionLock")
-  private LRUList container;
+  @GuardedBy("LockFreeReadCache.evictionLock") private LRUList container;
 
   /**
    * Protected by page lock inside disk cache
    */
   private boolean allocatedPage;
+
+  // Stamp from the last acquireExclusiveLock() call. Safe to store because the exclusive lock
+  // is single-writer — only one thread holds it at a time. Not volatile: the StampedLock's
+  // memory barriers provide happens-before between acquire and release on the same thread.
+  // Shared lock stamps are NOT stored because multiple threads can hold shared locks
+  // on the same CacheEntry concurrently.
+  private long exclusiveLockStamp;
 
   private final boolean insideCache;
   private final ReadCache readCache;
@@ -113,23 +117,27 @@ public class CacheEntryImpl implements CacheEntry {
   }
 
   @Override
-  public void acquireExclusiveLock() {
-    dataPointer.acquireExclusiveLock();
+  public long acquireExclusiveLock() {
+    exclusiveLockStamp = dataPointer.acquireExclusiveLock();
+    return exclusiveLockStamp;
   }
 
   @Override
   public void releaseExclusiveLock() {
-    dataPointer.releaseExclusiveLock();
+    long stamp = exclusiveLockStamp;
+    assert stamp != 0 : "releaseExclusiveLock() called without a prior acquireExclusiveLock()";
+    exclusiveLockStamp = 0;
+    dataPointer.releaseExclusiveLock(stamp);
   }
 
   @Override
-  public void acquireSharedLock() {
-    dataPointer.acquireSharedLock();
+  public long acquireSharedLock() {
+    return dataPointer.acquireSharedLock();
   }
 
   @Override
-  public void releaseSharedLock() {
-    dataPointer.releaseSharedLock();
+  public void releaseSharedLock(long stamp) {
+    dataPointer.releaseSharedLock(stamp);
   }
 
   @Override
@@ -142,23 +150,12 @@ public class CacheEntryImpl implements CacheEntry {
     USAGES_COUNT_UPDATER.incrementAndGet(this);
   }
 
-  /**
-   * DEBUG only !!
-   *
-   * @return Whether lock acquired on current entry
-   */
-  @Override
-  public boolean isLockAcquiredByCurrentThread() {
-    return dataPointer.isLockAcquiredByCurrentThread();
-  }
-
   @Override
   public void decrementUsages() {
     USAGES_COUNT_UPDATER.decrementAndGet(this);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public WALChanges getChanges() {
     return null;
   }

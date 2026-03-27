@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -277,7 +278,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 2000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     // When setBackgroundExecutor() is called
@@ -395,7 +396,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
+        atomicOp -> IntStream.range(0, 5000).mapToObj(i -> (Object) i).sorted());
     setFileId(fixture.manager, 42);
 
     // Use a custom executor that captures background task errors.
@@ -572,7 +573,7 @@ public class RebalanceTriggerTest {
     fixture.cache.put(fixture.engineId, snapshot);
 
     fixture.manager.setKeyStreamSupplier(
-        () -> IntStream.range(0, (int) totalCount)
+        atomicOp -> IntStream.range(0, (int) totalCount)
             .mapToObj(i -> (Object) i)
             .sorted());
     setFileId(fixture.manager, 42);
@@ -616,8 +617,9 @@ public class RebalanceTriggerTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    when(storage.getAtomicOperationsManager())
-        .thenReturn(mock(AtomicOperationsManager.class));
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

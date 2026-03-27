@@ -85,7 +85,7 @@ public final class FreeSpaceMap extends DurableComponent {
       (int) Math.floor(DurablePage.MAX_PAGE_SIZE_BYTES / 256.0);
 
   /** Internal file ID assigned by the disk cache when the .fsm file is opened/created. */
-  private long fileId;
+  private volatile long fileId;
 
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,
@@ -135,9 +135,47 @@ public final class FreeSpaceMap extends DurableComponent {
     // The +1 ensures we round up, so we never return a page with slightly less space than needed.
     final var normalizedSize = requiredSize / NORMALIZATION_INTERVAL + 1;
 
-    final int localSecondLevelPageIndex;
+    return executeOptimisticStorageRead(
+        atomicOperation,
+        () -> findFreePageOptimistic(atomicOperation, normalizedSize),
+        () -> findFreePagePinned(atomicOperation, normalizedSize));
+  }
+
+  /**
+   * Optimistic path: reads both FSM levels using loadPageOptimistic() with per-level
+   * stamp validation. No CAS-based page pinning on success.
+   */
+  private int findFreePageOptimistic(
+      final AtomicOperation atomicOperation, final int normalizedSize) {
+    final var scope = atomicOperation.getOptimisticReadScope();
 
     // Step 1: search the first-level page for a second-level page with enough max free space.
+    final var firstLevelView = loadPageOptimistic(atomicOperation, fileId, 0);
+    final var firstLevelPage = new FreeSpaceMapPage(firstLevelView);
+    final var localSecondLevelPageIndex = firstLevelPage.findPage(normalizedSize);
+    // Validate before trusting the result — speculative garbage from a concurrent eviction
+    // could produce a false -1 ("no space"), causing unnecessary page allocation.
+    scope.validateLastOrThrow();
+    if (localSecondLevelPageIndex < 0) {
+      return -1;
+    }
+
+    // Step 2: search within the identified second-level page for the actual data page.
+    final var secondLevelPageIndex = localSecondLevelPageIndex + 1;
+    final var leafView =
+        loadPageOptimistic(atomicOperation, fileId, secondLevelPageIndex);
+    final var leafPage = new FreeSpaceMapPage(leafView);
+    return leafPage.findPage(normalizedSize)
+        + localSecondLevelPageIndex * FreeSpaceMapPage.CELLS_PER_PAGE;
+  }
+
+  /**
+   * CAS-pinned fallback path: uses loadPageForRead() with try-with-resources as before.
+   */
+  private int findFreePagePinned(
+      final AtomicOperation atomicOperation, final int normalizedSize) throws IOException {
+    final int localSecondLevelPageIndex;
+
     try (final var firstLevelEntry = loadPageForRead(atomicOperation, fileId, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelEntry);
       localSecondLevelPageIndex = page.findPage(normalizedSize);
@@ -146,13 +184,10 @@ public final class FreeSpaceMap extends DurableComponent {
       }
     }
 
-    // Step 2: search within the identified second-level page for the actual data page.
-    // Second-level pages start at file page index 1 (page 0 is the first level).
     final var secondLevelPageIndex = localSecondLevelPageIndex + 1;
     try (final var leafEntry =
         loadPageForRead(atomicOperation, fileId, secondLevelPageIndex)) {
       final var page = new FreeSpaceMapPage(leafEntry);
-      // Convert the local leaf index to a global data-page index.
       return page.findPage(normalizedSize)
           + localSecondLevelPageIndex * FreeSpaceMapPage.CELLS_PER_PAGE;
     }

@@ -125,10 +125,7 @@ public final class WTinyLFUPolicy {
               cacheSize.decrementAndGet();
             }
 
-            final var pointer = victim.getCachePointer();
-
-            pointer.decrementReadersReferrer();
-            victim.clearCachePointer();
+            invalidateStampsAndRelease(victim);
           } else {
             eden.moveToTheTail(victim);
           }
@@ -141,10 +138,7 @@ public final class WTinyLFUPolicy {
               cacheSize.decrementAndGet();
             }
 
-            final var pointer = candidate.getCachePointer();
-
-            pointer.decrementReadersReferrer();
-            candidate.clearCachePointer();
+            invalidateStampsAndRelease(candidate);
           } else {
             eden.moveToTheTail(candidate);
           }
@@ -167,10 +161,24 @@ public final class WTinyLFUPolicy {
     }
 
     cacheEntry.makeDead();
+    invalidateStampsAndRelease(cacheEntry);
+  }
 
-    final var cachePointer = cacheEntry.getCachePointer();
-    cachePointer.decrementReadersReferrer();
-    cacheEntry.clearCachePointer();
+  /**
+   * Invalidates outstanding optimistic stamps on the entry's PageFrame and releases the
+   * ReadCache's referrer. The exclusive lock cycle bumps the StampedLock state, causing any
+   * concurrent optimistic reader's {@code validate()} to fail. This is the first invalidation
+   * barrier. {@code PageFramePool.release()} provides a second barrier when the referrer count
+   * reaches 0.
+   *
+   * <p>Must be called after the entry is marked dead ({@code makeDead()}).
+   */
+  private static void invalidateStampsAndRelease(CacheEntry entry) {
+    final var pointer = entry.getCachePointer();
+    long stamp = pointer.acquireExclusiveLock();
+    pointer.releaseExclusiveLock(stamp);
+    pointer.decrementReadersReferrer();
+    entry.clearCachePointer();
   }
 
   private void calculateMaxSizes() {

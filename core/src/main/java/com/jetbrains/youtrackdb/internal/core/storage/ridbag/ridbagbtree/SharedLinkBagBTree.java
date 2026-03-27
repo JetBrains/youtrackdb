@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
@@ -119,7 +120,10 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return atomicOperationsManager.executeReadOperation(this,
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> findCurrentEntryOptimistic(
+              atomicOperation, ridBagId, targetCollection, targetPosition),
           () -> findCurrentEntryInternal(atomicOperation, ridBagId, targetCollection,
               targetPosition));
     } catch (final IOException e) {
@@ -182,6 +186,74 @@ public final class SharedLinkBagBTree extends DurableComponent {
         return checkEntryPrefix(
             siblingBucket, 0, ridBagId, targetCollection, targetPosition);
       }
+    }
+  }
+
+  /**
+   * Optimistic path for findCurrentEntry: traverses the B-tree using
+   * loadPageOptimistic() with per-level stamp validation, then performs the
+   * prefix match on the leaf (including right-sibling hop if needed).
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findCurrentEntryOptimistic(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    final var searchKey =
+        new EdgeKey(ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+    var pageIndex = (long) ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var bucket = new Bucket(pageView);
+      final var index = bucket.find(searchKey, serializerFactory);
+
+      if (bucket.isLeaf()) {
+        final int candidateIndex = index >= 0 ? index : -index - 1;
+
+        if (candidateIndex < bucket.size()) {
+          return checkEntryPrefix(
+              bucket, candidateIndex, ridBagId, targetCollection, targetPosition);
+        }
+
+        // Candidate is past the end of this leaf — check right sibling.
+        final long rightSibling = bucket.getRightSibling();
+        // Validate before following the sibling pointer.
+        scope.validateLastOrThrow();
+
+        if (rightSibling < 0) {
+          return null;
+        }
+
+        final var siblingView =
+            loadPageOptimistic(atomicOperation, fileId, rightSibling);
+        final var siblingBucket = new Bucket(siblingView);
+        if (siblingBucket.isEmpty()) {
+          return null;
+        }
+        return checkEntryPrefix(
+            siblingBucket, 0, ridBagId, targetCollection, targetPosition);
+      }
+
+      // Internal node — follow child pointer.
+      if (index >= 0) {
+        pageIndex = bucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= bucket.size()) {
+          pageIndex = bucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = bucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
     }
   }
 
@@ -309,22 +381,12 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var current = findCurrentEntryInternal(
-            atomicOperation, ridBagId, targetCollection, targetPosition);
-        if (current == null) {
-          // No B-tree entry at all — check snapshot index directly.
-          // This can happen if a concurrent transaction replaced an entry
-          // that was moved to the snapshot index and the new entry is also
-          // invisible.
-          final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
-          final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
-          return findVisibleSnapshotEntry(
-              ridBagId, targetCollection, targetPosition,
-              currentOperationTs, snapshot, atomicOperation);
-        }
-        return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> findVisibleEntryOptimistic(
+              atomicOperation, ridBagId, targetCollection, targetPosition),
+          () -> findVisibleEntryInternal(atomicOperation, ridBagId, targetCollection,
+              targetPosition));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -333,27 +395,126 @@ public final class SharedLinkBagBTree extends DurableComponent {
     }
   }
 
+  /**
+   * Optimistic path for findVisibleEntry: uses the optimistic B-tree traversal
+   * for the prefix lookup, then performs in-memory visibility resolution.
+   * The visibility resolution (resolveVisibleEntry / findVisibleSnapshotEntry)
+   * operates on in-memory data structures, so no additional page I/O is needed.
+   */
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleEntryOptimistic(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) {
+    final var current = findCurrentEntryOptimistic(
+        atomicOperation, ridBagId, targetCollection, targetPosition);
+    if (current == null) {
+      final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+      final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+      return findVisibleSnapshotEntry(
+          ridBagId, targetCollection, targetPosition,
+          currentOperationTs, snapshot, atomicOperation);
+    }
+    return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
+  }
+
+  @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleEntryInternal(
+      final AtomicOperation atomicOperation,
+      final long ridBagId,
+      final int targetCollection,
+      final long targetPosition) throws IOException {
+    final var current = findCurrentEntryInternal(
+        atomicOperation, ridBagId, targetCollection, targetPosition);
+    if (current == null) {
+      // No B-tree entry at all — check snapshot index directly.
+      // This can happen if a concurrent transaction replaced an entry
+      // that was moved to the snapshot index and the new entry is also
+      // invisible.
+      final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
+      final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
+      return findVisibleSnapshotEntry(
+          ridBagId, targetCollection, targetPosition,
+          currentOperationTs, snapshot, atomicOperation);
+    }
+    return resolveVisibleEntry(current.first(), current.second(), atomicOperation);
+  }
+
   public LinkBagValue get(final EdgeKey key, AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var bucketSearchResult = findBucket(key, atomicOperation);
-        if (bucketSearchResult.getItemIndex() < 0) {
-          return null;
-        }
-
-        final var pageIndex = bucketSearchResult.getPageIndex();
-
-        try (final var keyBucketCacheEntry =
-            loadPageForRead(atomicOperation, fileId, pageIndex)) {
-          final var keyBucket = new Bucket(keyBucketCacheEntry);
-          return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
-        }
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> getOptimistic(key, atomicOperation),
+          () -> getPinned(key, atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during retrieving  of value for rid bag with name " + getName()),
           e, storage.getName());
+    }
+  }
+
+  /**
+   * Optimistic path for get: traverses the link bag B-tree using loadPageOptimistic()
+   * with per-level stamp validation, then reads the value from the leaf page.
+   */
+  private LinkBagValue getOptimistic(
+      final EdgeKey key, final AtomicOperation atomicOperation) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    var pageIndex = (long) ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        // Under the optimistic path, a concurrent tree restructuring could cause
+        // transient depth overflow from following stale pointers. Fall back to the
+        // pinned path which will either find the key or report genuine corruption.
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var keyBucket = new Bucket(pageView);
+      final var index = keyBucket.find(key, serializerFactory);
+
+      if (keyBucket.isLeaf()) {
+        if (index < 0) {
+          return null;
+        }
+        return keyBucket.getValue(index, serializerFactory);
+      }
+
+      // Internal node: follow child pointer, then validate the stamp to catch eviction
+      // before chasing a potentially stale page index.
+      if (index >= 0) {
+        pageIndex = keyBucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= keyBucket.size()) {
+          pageIndex = keyBucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = keyBucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
+    }
+  }
+
+  /**
+   * CAS-pinned fallback path for get: uses findBucket() + loadPageForRead() as before.
+   */
+  private LinkBagValue getPinned(
+      final EdgeKey key, final AtomicOperation atomicOperation) throws IOException {
+    final var bucketSearchResult = findBucket(key, atomicOperation);
+    if (bucketSearchResult.getItemIndex() < 0) {
+      return null;
+    }
+
+    final var pageIndex = bucketSearchResult.getPageIndex();
+
+    try (final var keyBucketCacheEntry =
+        loadPageForRead(atomicOperation, fileId, pageIndex)) {
+      final var keyBucket = new Bucket(keyBucketCacheEntry);
+      return keyBucket.getValue(bucketSearchResult.getItemIndex(), serializerFactory);
     }
   }
 
@@ -511,26 +672,31 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable public EdgeKey firstKey(AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var searchResult = firstItem(atomicOperation);
-        if (searchResult.isEmpty()) {
-          return null;
-        }
-
-        final var result = searchResult.get();
-
-        try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-          final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.getItemIndex(), serializerFactory);
-        }
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doFirstKey(atomicOperation),
+          () -> doFirstKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding first key in btree [" + getName() + "]"),
           e,
           storage.getName());
+    }
+  }
+
+  @Nullable private EdgeKey doFirstKey(AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = firstItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+      return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
   }
 
@@ -596,25 +762,30 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
   @Nullable public EdgeKey lastKey(AtomicOperation atomicOperation) {
     try {
-      return atomicOperationsManager.executeReadOperation(this, () -> {
-        final var searchResult = lastItem(atomicOperation);
-        if (searchResult.isEmpty()) {
-          return null;
-        }
-
-        final var result = searchResult.get();
-
-        try (final var cacheEntry =
-            loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
-          final var bucket = new Bucket(cacheEntry);
-          return bucket.getKey(result.getItemIndex(), serializerFactory);
-        }
-      });
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doLastKey(atomicOperation),
+          () -> doLastKey(atomicOperation));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during finding last key in btree [" + getName() + "]"),
           e, storage.getName());
+    }
+  }
+
+  @Nullable private EdgeKey doLastKey(AtomicOperation atomicOperation) throws IOException {
+    final var searchResult = lastItem(atomicOperation);
+    if (searchResult.isEmpty()) {
+      return null;
+    }
+
+    final var result = searchResult.get();
+
+    try (final var cacheEntry =
+        loadPageForRead(atomicOperation, fileId, result.getPageIndex())) {
+      final var bucket = new Bucket(cacheEntry);
+      return bucket.getKey(result.getItemIndex(), serializerFactory);
     }
   }
 
@@ -1360,28 +1531,55 @@ public final class SharedLinkBagBTree extends DurableComponent {
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (!ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
-      }
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMinor(key, inclusive, ascSortOrder, atomicOperation));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
 
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doIterateEntriesMinor(
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
+    if (!ascSortOrder) {
       return StreamSupport.stream(
-          iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
-    });
+          iterateEntriesMinorDesc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMinorAsc(key, inclusive, atomicOperation), false);
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMajor(
       final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
       AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
-      }
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation),
+          () -> doIterateEntriesMajor(key, inclusive, ascSortOrder, atomicOperation));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
+
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doIterateEntriesMajor(
+      final EdgeKey key, final boolean inclusive, final boolean ascSortOrder,
+      AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
       return StreamSupport.stream(
-          iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
-    });
+          iterateEntriesMajorAsc(key, inclusive, atomicOperation), false);
+    }
+    return StreamSupport.stream(
+        iterateEntriesMajorDesc(key, inclusive, atomicOperation), false);
   }
 
   public Stream<RawPair<EdgeKey, LinkBagValue>> streamEntriesBetween(
@@ -1390,19 +1588,36 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return StreamSupport.stream(
-            iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation),
-            false);
-      } else {
-        return StreamSupport.stream(
-            iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-                atomicOperation),
-            false);
-      }
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doStreamEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation),
+          () -> doStreamEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
+
+  private Stream<RawPair<EdgeKey, LinkBagValue>> doStreamEntriesBetween(
+      final EdgeKey keyFrom, final boolean fromInclusive,
+      final EdgeKey keyTo, final boolean toInclusive,
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return StreamSupport.stream(
+          iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
+    } else {
+      return StreamSupport.stream(
+          iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+              atomicOperation),
+          false);
+    }
   }
 
   public Spliterator<RawPair<EdgeKey, LinkBagValue>> spliteratorEntriesBetween(
@@ -1411,15 +1626,32 @@ public final class SharedLinkBagBTree extends DurableComponent {
       final EdgeKey keyTo,
       final boolean toInclusive,
       final boolean ascSortOrder, AtomicOperation atomicOperation) {
-    return atomicOperationsManager.readUnderLock(this, () -> {
-      if (ascSortOrder) {
-        return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-            atomicOperation);
-      } else {
-        return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
-            atomicOperation);
-      }
-    });
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> doSpliteratorEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation),
+          () -> doSpliteratorEntriesBetween(keyFrom, fromInclusive, keyTo, toInclusive,
+              ascSortOrder, atomicOperation));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(storage.getName(),
+              "Error during iteration of btree [" + getName() + "]"),
+          e, storage.getName());
+    }
+  }
+
+  private Spliterator<RawPair<EdgeKey, LinkBagValue>> doSpliteratorEntriesBetween(
+      final EdgeKey keyFrom, final boolean fromInclusive,
+      final EdgeKey keyTo, final boolean toInclusive,
+      final boolean ascSortOrder, AtomicOperation atomicOperation) {
+    if (ascSortOrder) {
+      return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+          atomicOperation);
+    } else {
+      return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive,
+          atomicOperation);
+    }
   }
 
   private Spliterator<RawPair<EdgeKey, LinkBagValue>> iterateEntriesMinorDesc(
@@ -1459,6 +1691,8 @@ public final class SharedLinkBagBTree extends DurableComponent {
         atomicOperation);
   }
 
+  // Cursor fetch methods mutate spliterator state and cannot be safely retried,
+  // so we acquire the shared lock directly rather than using executeOptimisticStorageRead.
   public void fetchNextCachePortionForward(SpliteratorForward iter,
       AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
@@ -1470,64 +1704,64 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
+    acquireSharedLock();
     try {
-      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
-        if (iter.getPageIndex() > -1) {
-          if (readKeysFromBucketsForward(iter, atomicOperation)) {
-            return null;
-          }
+      if (iter.getPageIndex() > -1) {
+        if (readKeysFromBucketsForward(iter, atomicOperation)) {
+          return;
         }
+      }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of
-        // current iterated page equals to -1
-        // so we only started iteration
-        if (iter.getDataCache().isEmpty()) {
-          // iteration just started
-          if (lastKey == null) {
-            if (iter.getFromKey() != null) {
-              final var searchResult =
-                  findBucket(iter.getFromKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.getPageIndex());
+      // this can only happen if page LSN does not equal to stored LSN or index of
+      // current iterated page equals to -1
+      // so we only started iteration
+      if (iter.getDataCache().isEmpty()) {
+        // iteration just started
+        if (lastKey == null) {
+          if (iter.getFromKey() != null) {
+            final var searchResult =
+                findBucket(iter.getFromKey(), atomicOperation);
+            iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.getItemIndex() >= 0) {
-                if (iter.isFromKeyInclusive()) {
-                  iter.setItemIndex(searchResult.getItemIndex());
-                } else {
-                  iter.setItemIndex(searchResult.getItemIndex() + 1);
-                }
-              } else {
-                iter.setItemIndex(-searchResult.getItemIndex() - 1);
-              }
-            } else {
-              final var bucketSearchResult = firstItem(atomicOperation);
-              if (bucketSearchResult.isPresent()) {
-                final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.getPageIndex());
+            if (searchResult.getItemIndex() >= 0) {
+              if (iter.isFromKeyInclusive()) {
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return null;
+                iter.setItemIndex(searchResult.getItemIndex() + 1);
               }
-            }
-
-          } else {
-            final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-            if (bucketSearchResult.getItemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
             } else {
-              iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
+              iter.setItemIndex(-searchResult.getItemIndex() - 1);
+            }
+          } else {
+            final var bucketSearchResult = firstItem(atomicOperation);
+            if (bucketSearchResult.isPresent()) {
+              final var searchResult = bucketSearchResult.get();
+              iter.setPageIndex((int) searchResult.getPageIndex());
+              iter.setItemIndex(searchResult.getItemIndex());
+            } else {
+              return;
             }
           }
-          iter.setLastLSN(null);
-          readKeysFromBucketsForward(iter, atomicOperation);
+
+        } else {
+          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
+
+          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+          if (bucketSearchResult.getItemIndex() >= 0) {
+            iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
+          } else {
+            iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
+          }
         }
-        return null;
-      });
+        iter.setLastLSN(null);
+        readKeysFromBucketsForward(iter, atomicOperation);
+      }
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
+    } finally {
+      releaseSharedLock();
     }
   }
 
@@ -1610,6 +1844,7 @@ public final class SharedLinkBagBTree extends DurableComponent {
     return false;
   }
 
+  // See comment on fetchNextCachePortionForward for why acquireSharedLock is used directly.
   public void fetchNextCachePortionBackward(SpliteratorBackward iter,
       AtomicOperation atomicOperation) {
     final EdgeKey lastKey;
@@ -1621,63 +1856,63 @@ public final class SharedLinkBagBTree extends DurableComponent {
 
     iter.clearCache();
 
+    acquireSharedLock();
     try {
-      atomicOperationsManager.executeReadOperation(SharedLinkBagBTree.this, () -> {
-        if (iter.getPageIndex() > -1) {
-          if (readKeysFromBucketsBackward(iter, atomicOperation)) {
-            return null;
-          }
+      if (iter.getPageIndex() > -1) {
+        if (readKeysFromBucketsBackward(iter, atomicOperation)) {
+          return;
         }
+      }
 
-        // this can only happen if page LSN does not equal to stored LSN or index of
-        // current iterated page equals to -1
-        // so we only started iteration
-        if (iter.getDataCache().isEmpty()) {
-          // iteration just started
-          if (lastKey == null) {
-            if (iter.getToKey() != null) {
-              final var searchResult = findBucket(iter.getToKey(), atomicOperation);
-              iter.setPageIndex((int) searchResult.getPageIndex());
+      // this can only happen if page LSN does not equal to stored LSN or index of
+      // current iterated page equals to -1
+      // so we only started iteration
+      if (iter.getDataCache().isEmpty()) {
+        // iteration just started
+        if (lastKey == null) {
+          if (iter.getToKey() != null) {
+            final var searchResult = findBucket(iter.getToKey(), atomicOperation);
+            iter.setPageIndex((int) searchResult.getPageIndex());
 
-              if (searchResult.getItemIndex() >= 0) {
-                if (iter.isToKeyInclusive()) {
-                  iter.setItemIndex(searchResult.getItemIndex());
-                } else {
-                  iter.setItemIndex(searchResult.getItemIndex() - 1);
-                }
-              } else {
-                iter.setItemIndex(-searchResult.getItemIndex() - 2);
-              }
-            } else {
-              final var bucketSearchResult = lastItem(atomicOperation);
-              if (bucketSearchResult.isPresent()) {
-                final var searchResult = bucketSearchResult.get();
-                iter.setPageIndex((int) searchResult.getPageIndex());
+            if (searchResult.getItemIndex() >= 0) {
+              if (iter.isToKeyInclusive()) {
                 iter.setItemIndex(searchResult.getItemIndex());
               } else {
-                return null;
+                iter.setItemIndex(searchResult.getItemIndex() - 1);
               }
-            }
-
-          } else {
-            final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-            iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-            if (bucketSearchResult.getItemIndex() >= 0) {
-              iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
             } else {
-              iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
+              iter.setItemIndex(-searchResult.getItemIndex() - 2);
+            }
+          } else {
+            final var bucketSearchResult = lastItem(atomicOperation);
+            if (bucketSearchResult.isPresent()) {
+              final var searchResult = bucketSearchResult.get();
+              iter.setPageIndex((int) searchResult.getPageIndex());
+              iter.setItemIndex(searchResult.getItemIndex());
+            } else {
+              return;
             }
           }
-          iter.setLastLSN(null);
-          readKeysFromBucketsBackward(iter, atomicOperation);
+
+        } else {
+          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
+
+          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
+          if (bucketSearchResult.getItemIndex() >= 0) {
+            iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
+          } else {
+            iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
+          }
         }
-        return null;
-      });
+        iter.setLastLSN(null);
+        readKeysFromBucketsBackward(iter, atomicOperation);
+      }
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
+    } finally {
+      releaseSharedLock();
     }
   }
 

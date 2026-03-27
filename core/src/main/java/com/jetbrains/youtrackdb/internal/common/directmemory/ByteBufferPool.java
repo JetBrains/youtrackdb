@@ -46,6 +46,12 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
       GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.getValueAsBoolean();
 
   /**
+   * Lazily-initialized PageFramePool backed by the same page size and allocator.
+   * Guarded by double-checked locking via volatile.
+   */
+  private volatile PageFramePool pageFramePool;
+
+  /**
    * Holder for singleton instance. We use {@link AtomicReference} instead of static constructor to
    * avoid throwing of exceptions in static initializers.
    */
@@ -194,13 +200,51 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
   }
 
   /**
+   * Returns a {@link PageFramePool} backed by the same page size and allocator.
+   * The pool's max size is derived from the disk cache capacity ({@code DISK_CACHE_SIZE /
+   * pageSize}) rather than {@link GlobalConfiguration#DIRECT_MEMORY_POOL_LIMIT}, which
+   * defaults to {@code Integer.MAX_VALUE} and would cause unbounded growth of the
+   * {@code allocatedFrames} tracking set.
+   * The pool is created lazily on first call and cached for subsequent calls.
+   */
+  public PageFramePool pageFramePool() {
+    var pool = this.pageFramePool;
+    if (pool != null) {
+      return pool;
+    }
+    synchronized (this) {
+      pool = this.pageFramePool;
+      if (pool != null) {
+        return pool;
+      }
+      int configuredLimit =
+          GlobalConfiguration.PAGE_FRAME_POOL_LIMIT.getValueAsInteger();
+      int maxFrames;
+      if (configuredLimit >= 0) {
+        maxFrames = configuredLimit;
+      } else {
+        // Auto-size: 2x the disk cache page count. The disk cache size is a soft
+        // limit — transient over-allocation is possible during concurrent loads and
+        // evictions, so the 2x headroom avoids premature frame deallocation.
+        long diskCacheSizeBytes =
+            GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024L * 1024L;
+        maxFrames = (int) Math.min(
+            2L * diskCacheSizeBytes / pageSize, Integer.MAX_VALUE);
+      }
+      assert maxFrames >= 0 : "maxFrames must be non-negative, was " + maxFrames;
+      this.pageFramePool = new PageFramePool(pageSize, allocator, maxFrames);
+      return this.pageFramePool;
+    }
+  }
+
+  /**
    * Checks whether there are not released buffers in the pool
    */
   public void checkMemoryLeaks() {
     var detected = false;
     if (TRACK) {
       for (var entry : pointerMapping.entrySet()) {
-        final var iAdditionalArgs = new Object[]{System.identityHashCode(entry.getKey())};
+        final var iAdditionalArgs = new Object[] {System.identityHashCode(entry.getKey())};
         LogManager.instance()
             .error(
                 this,
@@ -230,6 +274,11 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
     }
 
     pointerMapping.clear();
+
+    var framePool = this.pageFramePool;
+    if (framePool != null) {
+      framePool.clear();
+    }
   }
 
   /**

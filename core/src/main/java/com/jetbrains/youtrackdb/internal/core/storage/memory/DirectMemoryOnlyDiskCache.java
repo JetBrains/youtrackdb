@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -80,8 +81,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   /**
    * {@inheritDoc}
    */
-  @Nullable
-  @Override
+  @Nullable @Override
   public Path getRootDirectory() {
     return null;
   }
@@ -184,8 +184,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry loadForWrite(
       final long fileId,
       final long pageIndex,
@@ -203,8 +202,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return cacheEntry;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public CacheEntry loadForRead(
       final long fileId,
       final long pageIndex,
@@ -217,8 +215,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
       return null;
     }
 
-    cacheEntry.acquireSharedLock();
-
     return cacheEntry;
   }
 
@@ -228,8 +224,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return loadForRead(extFileId, pageIndex, writeCache, verifyChecksums);
   }
 
-  @Nullable
-  private CacheEntry doLoad(final long fileId, final long pageIndex) {
+  @Nullable private CacheEntry doLoad(final long fileId, final long pageIndex) {
     final var intId = extractFileId(fileId);
 
     final var memoryFile = getFile(intId);
@@ -285,8 +280,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public void releaseFromRead(final CacheEntry cacheEntry) {
-    cacheEntry.releaseSharedLock();
-
     doRelease(cacheEntry);
   }
 
@@ -294,9 +287,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     //noinspection SynchronizationOnLocalVariableOrMethodParameter
     synchronized (cacheEntry) {
       cacheEntry.decrementUsages();
-      assert cacheEntry.getUsagesCount() > 0
-          || cacheEntry.getCachePointer().getBuffer() == null
-          || !cacheEntry.isLockAcquiredByCurrentThread();
     }
   }
 
@@ -416,6 +406,18 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public void changeMaximumAmountOfMemory(final long calculateReadCacheMaxMemory) {
+  }
+
+  @Override
+  @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
+    // In-memory cache does not support optimistic reads — always returns null
+    // so the caller falls back to the CAS-pinned path.
+    return null;
+  }
+
+  @Override
+  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
+    // No-op: in-memory cache has no eviction policy to update.
   }
 
   @Override
@@ -625,8 +627,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     return firstIntId == secondIntId;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public String restoreFileById(final long fileId) {
     return null;
   }

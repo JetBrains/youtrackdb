@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
@@ -16,6 +17,10 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
 
   public CellBTreeSingleValueEntryPointV3(final CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  public CellBTreeSingleValueEntryPointV3(final PageView pageView) {
+    super(pageView);
   }
 
   public void init() {

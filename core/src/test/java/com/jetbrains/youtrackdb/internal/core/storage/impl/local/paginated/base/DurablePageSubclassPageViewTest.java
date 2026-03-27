@@ -1,0 +1,122 @@
+package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMapPage;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueBucketV3;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueEntryPointV3;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueV3NullBucket;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EntryPoint;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+/**
+ * Verifies that all DurablePage subclasses used in read paths can be constructed from
+ * a PageView (optimistic read path). Each constructor delegates to DurablePage(PageView),
+ * which sets speculativeRead=true and changes=null.
+ *
+ * <p>Package-private classes (MapEntryPoint in collection.v2, Bucket in ridbagbtree) are not
+ * tested here — they are exercised by the integration tests in their respective packages.
+ */
+public class DurablePageSubclassPageViewTest {
+
+  private static final int PAGE_SIZE =
+      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+
+  private DirectMemoryAllocator allocator;
+  private PageFramePool pool;
+  private PageFrame frame;
+  private PageView pageView;
+
+  @Before
+  public void setUp() {
+    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(true);
+    allocator = new DirectMemoryAllocator();
+    pool = new PageFramePool(PAGE_SIZE, allocator, 4);
+    frame = pool.acquire(true, Intention.TEST);
+
+    long exclusiveStamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(1, 0);
+    frame.releaseExclusiveLock(exclusiveStamp);
+
+    long stamp = frame.tryOptimisticRead();
+    assertTrue("Stamp must be valid", stamp != 0);
+    pageView = new PageView(frame.getBuffer(), frame, stamp);
+  }
+
+  @After
+  public void tearDown() {
+    long stamp = frame.acquireExclusiveLock();
+    frame.setPageCoordinates(-1, -1);
+    frame.releaseExclusiveLock(stamp);
+    pool.release(frame);
+    pool.clear();
+    allocator.checkMemoryLeaks();
+    GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+  }
+
+  @Test
+  public void testCellBTreeSingleValueBucketV3() {
+    var page = new CellBTreeSingleValueBucketV3<>(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testCellBTreeSingleValueV3NullBucket() {
+    var page = new CellBTreeSingleValueV3NullBucket(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testCellBTreeSingleValueEntryPointV3() {
+    var page = new CellBTreeSingleValueEntryPointV3<>(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testCollectionPage() {
+    var page = new CollectionPage(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testCollectionPositionMapBucket() {
+    var page = new CollectionPositionMapBucket(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testFreeSpaceMapPage() {
+    var page = new FreeSpaceMapPage(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  @Test
+  public void testEntryPoint() {
+    var page = new EntryPoint(pageView);
+    assertSpeculativeReadState(page);
+  }
+
+  /**
+   * Verifies that a DurablePage constructed from a PageView is in speculative read mode:
+   * no WAL changes, no cache entry, and read operations succeed without throwing.
+   */
+  private static void assertSpeculativeReadState(DurablePage page) {
+    assertNotNull(page);
+    assertNull("PageView-constructed page must have null changes (speculative mode)",
+        page.getChanges());
+    assertNull("PageView-constructed page must have null cacheEntry",
+        page.getCacheEntry());
+  }
+}

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -30,6 +31,10 @@ final class MapEntryPoint extends DurablePage {
 
   MapEntryPoint(CacheEntry cacheEntry) {
     super(cacheEntry);
+  }
+
+  MapEntryPoint(PageView pageView) {
+    super(pageView);
   }
 
   /** Returns the number of bucket pages currently in use (pages 1..N). */

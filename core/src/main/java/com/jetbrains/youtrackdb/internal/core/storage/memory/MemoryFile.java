@@ -49,11 +49,11 @@ public final class MemoryFile {
           index = lastIndex + 1;
         }
 
-        final var bufferPool = ByteBufferPool.instance(null);
-        final var pointer =
-            bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_MEMORY_STORAGE);
+        final var framePool = ByteBufferPool.instance(null).pageFramePool();
+        final var pageFrame =
+            framePool.acquire(true, Intention.ADD_NEW_PAGE_IN_MEMORY_STORAGE);
 
-        final var cachePointer = new CachePointer(pointer, bufferPool, id, (int) index);
+        final var cachePointer = new CachePointer(pageFrame, framePool, id, (int) index);
         cachePointer.incrementReferrer();
 
         cacheEntry =

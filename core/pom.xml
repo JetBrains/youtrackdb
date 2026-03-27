@@ -143,6 +143,57 @@
         </plugins>
       </build>
     </profile>
+
+    <!-- Run DurableComponent integration tests with a small disk cache (4 MB)
+         to exercise optimistic read fallback under heavy eviction pressure.
+         Command: ./mvnw -pl core clean verify -P small-cache-it -->
+    <profile>
+      <id>small-cache-it</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <skipTests>true</skipTests>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <systemPropertyVariables>
+                <youtrackdb.storage.diskCache.bufferSize>4
+                </youtrackdb.storage.diskCache.bufferSize>
+                <youtrackdb.test.env>ci</youtrackdb.test.env>
+                <!-- Reduce BTree dataset sizes for fast eviction testing -->
+                <youtrackdb.test.btree.keysCount>10000
+                </youtrackdb.test.btree.keysCount>
+                <youtrackdb.test.btree.maxPower>14
+                </youtrackdb.test.btree.maxPower>
+              </systemPropertyVariables>
+              <includes>
+                <include>**/index/sbtree/singlevalue/v3/BTreeTestIT.java</include>
+                <include>**/index/edgebtree/btree/BTreeTestIT.java</include>
+                <include>**/collection/v2/LocalPaginatedCollectionV2TestIT.java</include>
+                <!-- FreeSpaceMapTestIT: included for completeness; its small page
+                     count does not trigger eviction, so it tests correctness only. -->
+                <include>**/collection/v2/FreeSpaceMapTestIT.java</include>
+              </includes>
+            </configuration>
+            <executions>
+              <execution>
+                <id>small-cache-integration-test</id>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
 
 

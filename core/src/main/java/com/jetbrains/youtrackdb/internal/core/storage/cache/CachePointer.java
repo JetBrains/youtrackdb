@@ -20,16 +20,31 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
 
 /**
  * Reference-counted pointer to a cached page in the disk cache.
+ *
+ * <p>Lock methods delegate to the underlying {@link PageFrame}'s {@code StampedLock}.
+ * Lock ordering (must be respected to avoid deadlock):
+ * <ol>
+ *   <li>Component-level SharedResource lock (e.g., B-tree, collection)</li>
+ *   <li>lockManager group lock (per pageKey, in WOWCache)</li>
+ *   <li>PageFrame StampedLock (via CachePointer/CacheEntry lock methods)</li>
+ * </ol>
+ *
+ * <p>{@code StampedLock} is non-reentrant — the same PageFrame must never be locked twice
+ * in the same call chain. All code paths acquire at most one PageFrame lock at a time.
+ *
+ * <p>Lifetime invariant: each active CachePointer has at most one PageFrame. The PageFrame
+ * is returned to the {@link PageFramePool} when all referrers release (referrersCount → 0).
  *
  * @since 05.08.13
  */
@@ -48,8 +63,6 @@ public final class CachePointer {
   private static final int WRITERS_OFFSET = 32;
   private static final long READERS_MASK = 0xFFFFFFFFL;
 
-  private final ReentrantReadWriteLock readWriteLock = new ReentrantReadWriteLock();
-
   private volatile int referrersCount;
 
   @SuppressWarnings("UnusedVariable")
@@ -60,7 +73,12 @@ public final class CachePointer {
   private final Pointer pointer;
   private final ByteBufferPool bufferPool;
 
-  private long version;
+  // pageFrame is null only for sentinel CachePointers (null pointer). For legacy
+  // Pointer+ByteBufferPool constructor with non-null pointer, a standalone PageFrame
+  // is created for lock delegation.
+  // framePool is null for both sentinels and legacy-constructed CachePointers.
+  @Nullable private final PageFrame pageFrame;
+  @Nullable private final PageFramePool framePool;
 
   private final long fileId;
   private final int pageIndex;
@@ -76,6 +94,10 @@ public final class CachePointer {
       final int pageIndex) {
     this.pointer = pointer;
     this.bufferPool = bufferPool;
+    // Create a standalone PageFrame for lock delegation. Not pooled — the frame is owned
+    // by this CachePointer and released via ByteBufferPool when referrers reach 0.
+    this.pageFrame = pointer != null ? new PageFrame(pointer) : null;
+    this.framePool = null;
 
     if (fileId < 0) {
       throw new IllegalStateException("File id has invalid value " + fileId);
@@ -87,6 +109,56 @@ public final class CachePointer {
 
     this.fileId = fileId;
     this.pageIndex = pageIndex;
+
+    propagateCoordinatesToFrame();
+    assert pageFrame == null
+        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
+        : "PageFrame coordinates diverge from CachePointer";
+  }
+
+  /**
+   * Creates a CachePointer backed by a {@link PageFrame}. The pointer is derived from the
+   * PageFrame's underlying Pointer. When {@code referrersCount} reaches 0, the frame is
+   * released back to the {@link PageFramePool} instead of the ByteBufferPool.
+   *
+   * <p>The {@code pageFrame} and {@code framePool} parameters may both be {@code null} for
+   * sentinel CachePointers (e.g., in AtomicOperationBinaryTracking for metadata-only entries).
+   *
+   * @param pageFrame the page frame wrapping native memory (nullable for sentinel)
+   * @param framePool the pool to return the frame to on release (nullable for sentinel)
+   * @param fileId    file identifier (must be >= 0)
+   * @param pageIndex page index within file (must be >= 0)
+   */
+  public CachePointer(
+      @Nullable final PageFrame pageFrame,
+      @Nullable final PageFramePool framePool,
+      final long fileId,
+      final int pageIndex) {
+    if ((pageFrame == null) != (framePool == null)) {
+      throw new IllegalArgumentException(
+          "pageFrame and framePool must both be null or both non-null");
+    }
+
+    this.pointer = pageFrame != null ? pageFrame.getPointer() : null;
+    this.bufferPool = null;
+    this.pageFrame = pageFrame;
+    this.framePool = framePool;
+
+    if (fileId < 0) {
+      throw new IllegalStateException("File id has invalid value " + fileId);
+    }
+
+    if (pageIndex < 0) {
+      throw new IllegalStateException("Page index has invalid value " + pageIndex);
+    }
+
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
+
+    propagateCoordinatesToFrame();
+    assert pageFrame == null
+        || (pageFrame.getFileId() == fileId && pageFrame.getPageIndex() == pageIndex)
+        : "PageFrame coordinates diverge from CachePointer";
   }
 
   public void setWritersListener(WritersListener writersListener) {
@@ -209,15 +281,6 @@ public final class CachePointer {
     decrementReferrer();
   }
 
-  /**
-   * DEBUG only !!!
-   *
-   * @return Whether pointer lock (read or write )is acquired
-   */
-  boolean isLockAcquiredByCurrentThread() {
-    return readWriteLock.getReadHoldCount() > 0 || readWriteLock.isWriteLockedByCurrentThread();
-  }
-
   public void incrementReferrer() {
     REFERRERS_COUNT_UPDATER.incrementAndGet(this);
   }
@@ -225,7 +288,11 @@ public final class CachePointer {
   public void decrementReferrer() {
     final var rf = REFERRERS_COUNT_UPDATER.decrementAndGet(this);
     if (rf == 0 && pointer != null) {
-      bufferPool.release(pointer);
+      if (pageFrame != null && framePool != null) {
+        framePool.release(pageFrame);
+      } else if (bufferPool != null) {
+        bufferPool.release(pointer);
+      }
     }
 
     if (rf < 0) {
@@ -234,8 +301,7 @@ public final class CachePointer {
     }
   }
 
-  @Nullable
-  public ByteBuffer getBuffer() {
+  @Nullable public ByteBuffer getBuffer() {
     if (pointer == null) {
       return null;
     }
@@ -247,29 +313,75 @@ public final class CachePointer {
     return pointer;
   }
 
-  public void acquireExclusiveLock() {
-    readWriteLock.writeLock().lock();
-    version++;
+  /**
+   * Returns the underlying PageFrame, or {@code null} for sentinel CachePointers
+   * (those created with a null pointer).
+   */
+  @Nullable public PageFrame getPageFrame() {
+    return pageFrame;
   }
 
-  public long getVersion() {
-    return version;
+  /**
+   * Acquires the exclusive lock on the underlying PageFrame, blocking until available.
+   * Returns a stamp for use in {@link #releaseExclusiveLock(long)}.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long acquireExclusiveLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    return pageFrame.acquireExclusiveLock();
   }
 
-  public void releaseExclusiveLock() {
-    readWriteLock.writeLock().unlock();
+  /**
+   * Releases the exclusive lock using the given stamp.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public void releaseExclusiveLock(long stamp) {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    pageFrame.releaseExclusiveLock(stamp);
   }
 
-  public void acquireSharedLock() {
-    readWriteLock.readLock().lock();
+  /**
+   * Acquires a shared (read) lock on the underlying PageFrame, blocking until available.
+   * Returns a stamp for use in {@link #releaseSharedLock(long)}.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long acquireSharedLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    return pageFrame.acquireSharedLock();
   }
 
-  public void releaseSharedLock() {
-    readWriteLock.readLock().unlock();
+  /**
+   * Releases the shared lock using the given stamp.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public void releaseSharedLock(long stamp) {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    pageFrame.releaseSharedLock(stamp);
   }
 
-  public boolean tryAcquireSharedLock() {
-    return readWriteLock.readLock().tryLock();
+  /**
+   * Tries to acquire a shared (read) lock without blocking. Returns a non-zero stamp on
+   * success, or zero if the lock could not be acquired immediately.
+   *
+   * @throws IllegalStateException if this is a sentinel CachePointer (null PageFrame)
+   */
+  public long tryAcquireSharedLock() {
+    if (pageFrame == null) {
+      throw new IllegalStateException("Lock on sentinel CachePointer");
+    }
+    return pageFrame.tryAcquireSharedLock();
   }
 
   @Override
@@ -306,6 +418,18 @@ public final class CachePointer {
   @Override
   public String toString() {
     return "CachePointer{" + "referrersCount=" + referrersCount + '}';
+  }
+
+  /**
+   * Propagates this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame.
+   * Called at construction time — the frame is thread-local at this point (not yet published
+   * to any shared data structure), so no lock is needed. The subsequent publication of this
+   * CachePointer via a volatile write or CAS provides the necessary happens-before edge.
+   */
+  private void propagateCoordinatesToFrame() {
+    if (this.pageFrame != null) {
+      this.pageFrame.initPageCoordinates(fileId, pageIndex);
+    }
   }
 
   private static long composeReadersWriters(int readers, int writers) {

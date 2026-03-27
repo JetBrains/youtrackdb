@@ -6,14 +6,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import java.io.IOException;
+import javax.annotation.Nonnull;
 
 public abstract class PaginatedCollection extends DurableComponent implements StorageCollection {
 
   public enum RECORD_STATUS {
-    NOT_EXISTENT,
-    PRESENT,
-    ALLOCATED,
-    REMOVED
+    NOT_EXISTENT, PRESENT, ALLOCATED, REMOVED
   }
 
   public static final String DEF_EXTENSION = ".pcl";
@@ -32,7 +30,7 @@ public abstract class PaginatedCollection extends DurableComponent implements St
   }
 
   public abstract RECORD_STATUS getRecordStatus(final long collectionPosition,
-      AtomicOperation atomicOperation) throws IOException;
+      @Nonnull AtomicOperation atomicOperation) throws IOException;
 
   public abstract StoragePaginatedCollectionConfiguration generateCollectionConfig();
 

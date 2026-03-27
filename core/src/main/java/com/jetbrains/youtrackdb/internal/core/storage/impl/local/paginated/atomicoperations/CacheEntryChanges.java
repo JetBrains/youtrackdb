@@ -49,8 +49,8 @@ public class CacheEntryChanges implements CacheEntry {
   }
 
   @Override
-  public void acquireExclusiveLock() {
-    delegate.acquireExclusiveLock();
+  public long acquireExclusiveLock() {
+    return delegate.acquireExclusiveLock();
   }
 
   @Override
@@ -59,13 +59,13 @@ public class CacheEntryChanges implements CacheEntry {
   }
 
   @Override
-  public void acquireSharedLock() {
-    delegate.acquireSharedLock();
+  public long acquireSharedLock() {
+    return delegate.acquireSharedLock();
   }
 
   @Override
-  public void releaseSharedLock() {
-    delegate.releaseSharedLock();
+  public void releaseSharedLock(long stamp) {
+    delegate.releaseSharedLock(stamp);
   }
 
   @Override
@@ -76,11 +76,6 @@ public class CacheEntryChanges implements CacheEntry {
   @Override
   public void incrementUsages() {
     delegate.incrementUsages();
-  }
-
-  @Override
-  public boolean isLockAcquiredByCurrentThread() {
-    return delegate.isLockAcquiredByCurrentThread();
   }
 
   @Override
