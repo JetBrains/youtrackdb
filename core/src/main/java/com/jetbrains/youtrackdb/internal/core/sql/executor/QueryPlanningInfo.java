@@ -177,9 +177,14 @@ public class QueryPlanningInfo {
 
   /**
    * Set to {@code true} when the ORDER BY has been satisfied by an index scan
-   * (so no in-memory sort is needed).
+   * or index-ordered MATCH traversal (so no in-memory sort is needed).
    */
   protected boolean orderApplied = false;
+
+  /** Marks the ORDER BY as already satisfied (e.g., by an index-ordered scan). */
+  public void setOrderApplied(boolean orderApplied) {
+    this.orderApplied = orderApplied;
+  }
 
   /**
    * Set to {@code true} once projection steps have been appended to the plan.
