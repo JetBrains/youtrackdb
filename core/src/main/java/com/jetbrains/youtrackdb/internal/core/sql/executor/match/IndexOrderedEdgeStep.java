@@ -124,6 +124,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
+    int maxRidSetSize =
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
+    if (ridSet.size() > maxRidSetSize) {
+      // RidSet too large for index scan — load all and sort instead
+      return loadAllAndSort(ridSet, session, upstreamRow);
+    }
+
     if (shouldUseIndexScan(ridSet.size(), session)) {
       return indexScanFiltered(ridSet, ctx, upstreamRow);
     } else {
@@ -247,19 +254,45 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private ExecutionStream filteredUnbound(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
+    int maxRidSetSize =
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
 
+    // Collect upstream source RIDs + build union RidSet simultaneously.
+    // If union exceeds maxRidSetSize, stop adding to union but keep collecting
+    // source RIDs for the fallback path.
+    var sourceRids = new ArrayList<RID>();
     var unionRidSet = new RidSet();
+    boolean ridSetOverflow = false;
     var upstream = prev.start(ctx);
     while (upstream.hasNext(ctx)) {
       var row = upstream.next(ctx);
-      var ridSet = resolveEdgeRidSet(row, session);
-      if (ridSet != null) {
-        for (var rid : ridSet) {
-          unionRidSet.add(rid);
+      var sourceRid = extractSourceRid(row);
+      if (sourceRid != null) {
+        sourceRids.add(sourceRid);
+      }
+      if (!ridSetOverflow) {
+        var ridSet = resolveEdgeRidSet(row, session);
+        if (ridSet != null) {
+          for (var rid : ridSet) {
+            unionRidSet.add(rid);
+          }
+          if (unionRidSet.size() > maxRidSetSize) {
+            ridSetOverflow = true;
+            unionRidSet = new RidSet(); // release partial set
+          }
         }
       }
     }
     upstream.close(ctx);
+
+    if (sourceRids.isEmpty()) {
+      return ExecutionStream.empty();
+    }
+
+    // If union overflowed, fall back to load-all from source LinkBags
+    if (ridSetOverflow) {
+      return loadAllFromSourcesUnbound(sourceRids, session);
+    }
 
     if (unionRidSet.isEmpty()) {
       return ExecutionStream.empty();
@@ -296,6 +329,50 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         loaded.add(record);
       }
     }
+    loaded.sort(propertyComparator(propertyName));
+    return ExecutionStream.resultIterator(
+        loaded.stream()
+            .map(record -> {
+              var emptyUpstream = new ResultInternal(session);
+              return (Result) new MatchResultRow(
+                  session, emptyUpstream, targetAlias, record);
+            })
+            .iterator());
+  }
+
+  /**
+   * Mode B overflow fallback: iterate source LinkBags directly, load all
+   * targets, sort, emit without source binding. Used when union RidSet
+   * exceeds maxRidSetSize.
+   */
+  private ExecutionStream loadAllFromSourcesUnbound(
+      List<RID> sourceRids, DatabaseSessionEmbedded session) {
+    var propertyName = index.getDefinition().getProperties().get(0);
+    var loaded = new ArrayList<Result>();
+
+    for (var sourceRid : sourceRids) {
+      EntityImpl entity;
+      try {
+        var rec = session.getActiveTransaction().load(sourceRid);
+        if (!(rec instanceof EntityImpl e)) {
+          continue;
+        }
+        entity = e;
+      } catch (Exception e) {
+        continue;
+      }
+      var fieldValue = entity.getPropertyInternal(linkBagFieldName);
+      if (!(fieldValue instanceof LinkBag linkBag)) {
+        continue;
+      }
+      for (RidPair pair : linkBag) {
+        var record = loadRecord(pair.secondaryRid(), session);
+        if (record != null) {
+          loaded.add(record);
+        }
+      }
+    }
+
     loaded.sort(propertyComparator(propertyName));
     return ExecutionStream.resultIterator(
         loaded.stream()
@@ -414,9 +491,16 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
 
-    // Build union RidSet from all sources' LinkBags
+    // Build union RidSet from all sources' LinkBags.
+    // If union exceeds maxRidSetSize, fall back to loadAllMultiSource.
+    int maxRidSetSize =
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
     var unionRidSet = new RidSet();
+    boolean overflow = false;
     for (var sourceRid : sourceMap.keySet()) {
+      if (overflow) {
+        break;
+      }
       EntityImpl entity;
       try {
         var rec = session.getActiveTransaction().load(sourceRid);
@@ -432,7 +516,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         for (RidPair pair : linkBag) {
           unionRidSet.add(pair.secondaryRid());
         }
+        if (unionRidSet.size() > maxRidSetSize) {
+          overflow = true;
+        }
       }
+    }
+
+    if (overflow) {
+      return loadAllMultiSource(sourceMap, session);
     }
 
     if (unionRidSet.isEmpty()) {
