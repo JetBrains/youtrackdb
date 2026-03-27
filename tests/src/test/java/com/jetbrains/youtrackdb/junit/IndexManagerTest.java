@@ -61,7 +61,7 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
             "propertyone",
             SchemaClass.INDEX_TYPE.UNIQUE.toString(),
             new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-            new int[] {session.getCollectionIdByName(CLASS_NAME)},
+            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
             null,
             null);
 
@@ -92,7 +92,7 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
                 Arrays.asList(
                     new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
                     new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
-            new int[] {session.getCollectionIdByName(CLASS_NAME)},
+            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
             null,
             null);
 
@@ -223,14 +223,19 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
   @Test
   @Order(9)
   void testAreIndexedThreePropertiesBrokenClassNameCase() {
+    // With case-sensitive class names, wrong-case lookups should not find indexes.
     final var indexManager = session.getSharedContext().getIndexManager();
+
+    // Guard: correct case must be indexed (ensures test setup is valid)
+    assertTrue(indexManager.areIndexed(session, CLASS_NAME,
+        Arrays.asList("fTwo", "fOne", "fThree")));
 
     final var result =
         indexManager.areIndexed(
             session, "ClaSSForIndeXManagerTeST",
             Arrays.asList("fTwo", "fOne", "fThree"));
 
-    assertTrue(result);
+    assertFalse(result);
   }
 
   @Test
@@ -420,17 +425,18 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
   @Test
   @Order(26)
   void testGetClassInvolvedIndexesOnePropertyBrokenClassNameCase() {
+    // With case-sensitive class names, wrong-case lookups should return no indexes.
     final var indexManager = session.getSharedContext().getIndexManager();
+
+    // Guard: correct case must return indexes (ensures test setup is valid)
+    assertFalse(
+        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, List.of("fOne")).isEmpty());
 
     final var result =
         indexManager.getClassInvolvedIndexes(session, "ClaSSforindeXmanagerTEST",
             List.of("fOne"));
 
-    assertEquals(3, result.size());
-
-    assertTrue(containsIndex(result, "propertyone"));
-    assertTrue(containsIndex(result, "compositeone"));
-    assertTrue(containsIndex(result, "compositetwo"));
+    assertTrue(result.isEmpty());
   }
 
   @Test
@@ -609,41 +615,15 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
   @Test
   @Order(34)
   void testGetClassIndexesBrokenClassNameCase() {
+    // With case-sensitive class names, wrong-case lookups should return no indexes.
     final var indexManager = session.getSharedContext().getIndexManager();
 
+    // Guard: correct case must return indexes (ensures test setup is valid)
+    assertFalse(indexManager.getClassIndexes(session, CLASS_NAME).isEmpty());
+
     final var indexes = indexManager.getClassIndexes(session, "ClassforindeXMaNAgerTeST");
-    final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<IndexDefinition>();
 
-    final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
-
-    compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
-    compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
-    compositeIndexOne.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(compositeIndexOne);
-
-    final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
-
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
-    compositeIndexTwo.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(compositeIndexTwo);
-
-    final var propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
-    propertyIndex.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(propertyIndex);
-
-    assertEquals(3, indexes.size());
-
-    for (final var index : indexes) {
-      assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
-    }
+    assertTrue(indexes.isEmpty());
   }
 
   @Test
@@ -656,7 +636,7 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
         "anotherproperty",
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-        new int[] {session.getCollectionIdByName(CLASS_NAME)},
+        session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
         null,
         null);
 
@@ -684,7 +664,7 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
             PropertyTypeInternal.INTEGER),
-        new int[] {session.getCollectionIdByName("indexManagerTestClassTwo")},
+        session.getSchema().getClass("indexManagerTestClassTwo").getCollectionIds(),
         null,
         null);
 
@@ -716,12 +696,15 @@ public class IndexManagerTest extends BaseDBJUnit5Test {
   @Test
   @Order(39)
   void testGetClassIndexBrokenClassNameCase() {
+    // With case-sensitive class names, wrong-case lookups should return null.
     final var indexManager = session.getSharedContext().getIndexManager();
+
+    // Guard: correct case must find the index (ensures test setup is valid)
+    assertNotNull(indexManager.getClassIndex(session, CLASS_NAME, "propertyone"));
 
     final var result =
         indexManager.getClassIndex(session, "ClaSSforindeXManagerTeST", "propertyone");
-    assertNotNull(result);
-    assertEquals("propertyone", result.getName());
+    assertNull(result);
   }
 
   @Test

@@ -190,28 +190,35 @@ public class SchemaTest extends BaseDBJUnit5Test {
     final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
+    // Collection names now use a numeric suffix (e.g., "droptestclass_N"),
+    // so we look up via collectionId rather than class name.
+    var collectionName = session.getCollectionNameById(collectionId);
+    assertNotNull(collectionName);
+    assertTrue(collectionName.matches("droptestclass_\\d+"),
+        "Expected collection name like 'droptestclass_N' but got: " + collectionName);
+
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);
     assertEquals(collectionId,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNotNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);
     assertEquals(collectionId,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNotNull(session.getCollectionNameById(collectionId));
     session.getMetadata().getSchema().dropClass(testClassName);
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNull(dropTestClass);
     assertEquals(-1,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNull(dropTestClass);
     assertEquals(-1,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNull(session.getCollectionNameById(collectionId));
   }
 
@@ -222,29 +229,36 @@ public class SchemaTest extends BaseDBJUnit5Test {
     final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
+    // Collection names now use a numeric suffix (e.g., "droptestclass_N"),
+    // so we look up via collectionId rather than class name.
+    var collectionName = session.getCollectionNameById(collectionId);
+    assertNotNull(collectionName);
+    assertTrue(collectionName.matches("droptestclass_\\d+"),
+        "Expected collection name like 'droptestclass_N' but got: " + collectionName);
+
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);
     assertEquals(collectionId,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNotNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);
     assertEquals(collectionId,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNotNull(session.getCollectionNameById(collectionId));
     session.execute("drop class " + testClassName).close();
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNull(dropTestClass);
     assertEquals(-1,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNull(session.getCollectionNameById(collectionId));
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNull(dropTestClass);
     assertEquals(-1,
-        session.getStorage().getCollectionIdByName(testClassName));
+        session.getStorage().getCollectionIdByName(collectionName));
     assertNull(session.getCollectionNameById(collectionId));
   }
 

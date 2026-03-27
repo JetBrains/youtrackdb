@@ -272,7 +272,7 @@ public class SecurityTest extends BaseDBJUnit5Test {
     session.commit();
 
     session.begin();
-    assertTrue(session.browseCollection("OUser").hasNext());
+    assertTrue(session.browseClass("OUser").hasNext());
     session.commit();
   }
 

@@ -150,7 +150,7 @@ public class TransactionAtomicTest extends BaseDBJUnit5Test {
     }
 
     session.begin();
-    assertEquals(0, session.countCollectionElements("Fruit"));
+    assertEquals(0, session.countClass("Fruit"));
     session.rollback();
 
     try {
@@ -184,7 +184,7 @@ public class TransactionAtomicTest extends BaseDBJUnit5Test {
     }
 
     session.begin();
-    assertEquals(0, session.countCollectionElements("Fruit"));
+    assertEquals(0, session.countClass("Fruit"));
     session.rollback();
   }
 }

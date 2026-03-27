@@ -129,7 +129,10 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
     var i = new int[1];
 
     session.executeInTx(tx -> {
-      var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
+      // Use browseClass (non-polymorphic) instead of browseCollection because
+      // collection names now use a numeric suffix and no longer match the class name.
+      var iterator =
+          (Iterator<EntityImpl>) session.<EntityImpl>browseClass("Account", false);
       session.forEachInTx(iterator, (session, rec) -> {
         rec = session.load(rec);
         if (i[0] % 2 == 0) {
@@ -147,7 +150,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
   @Order(5)
   void testUpdate() {
     session.begin();
-    var entityIterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Account");
+    var entityIterator =
+        (Iterator<EntityImpl>) session.<EntityImpl>browseClass("Account", false);
     while (entityIterator.hasNext()) {
       var rec = entityIterator.next();
       var price = ((Number) rec.getProperty("price")).intValue();
@@ -275,7 +279,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBJUnit5Test {
   @Test
   @Order(9)
   void testUpdateLazyDirtyPropagation() {
-    var iterator = (Iterator<EntityImpl>) session.<EntityImpl>browseCollection("Profile");
+    var iterator =
+        (Iterator<EntityImpl>) session.<EntityImpl>browseClass("Profile", false);
     session.forEachInTx(iterator, (transaction, rec) -> {
       assertFalse(rec.isDirty());
       Collection<?> followers = rec.getProperty("followers");

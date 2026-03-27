@@ -55,7 +55,7 @@ public class SQLCreateLinkTest extends BaseDBJUnit5Test {
         5,
         ((Number) session
             .execute(
-                "CREATE LINK comments TYPE LINKSET FROM comment.postId TO post.id"
+                "CREATE LINK comments TYPE LINKSET FROM COMMENT.postId TO POST.id"
                     + " INVERSE")
             .next()
             .getProperty("count"))
@@ -65,7 +65,7 @@ public class SQLCreateLinkTest extends BaseDBJUnit5Test {
     session.begin();
     assertEquals(
         5,
-        ((Number) session.execute("UPDATE comment REMOVE postId").next().getProperty("count"))
+        ((Number) session.execute("UPDATE COMMENT REMOVE postId").next().getProperty("count"))
             .intValue());
     session.commit();
   }
@@ -139,7 +139,7 @@ public class SQLCreateLinkTest extends BaseDBJUnit5Test {
         5,
         ((Number) session
             .execute(
-                "CREATE LINK comments TYPE LINKSET FROM comment2.postId TO post2.id"
+                "CREATE LINK comments TYPE LINKSET FROM COMMENT2.postId TO POST2.id"
                     + " INVERSE")
             .next()
             .getProperty("count"))
@@ -149,7 +149,7 @@ public class SQLCreateLinkTest extends BaseDBJUnit5Test {
     session.begin();
     assertEquals(
         5,
-        ((Number) session.execute("UPDATE comment2 REMOVE postId").next()
+        ((Number) session.execute("UPDATE COMMENT2 REMOVE postId").next()
             .getProperty("count"))
             .intValue());
     session.commit();
