@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResult;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultSet;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.List;
@@ -2889,6 +2890,657 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.begin();
     try (var rs = session.query(query)) {
       Assert.assertEquals(1L, rs.stream().count());
+    }
+    session.commit();
+  }
+
+  // =====================================================================
+  // Index-ordered MATCH tests
+  //
+  // Schema: TestPerson -[TEST_HAS_CREATOR]-> TestMessage
+  //   TestMessage has creationDate (DATETIME, indexed NOTUNIQUE) and msgId (LONG)
+  //   Each TestPerson has multiple TestMessages with distinct creationDates.
+  // =====================================================================
+
+  /**
+   * Sets up schema and data for index-ordered MATCH tests.
+   * Creates the schema (TestPerson, TestMessage, TEST_HAS_CREATOR edge, index)
+   * and optionally 1 or 2 persons depending on the parameter.
+   *
+   * @param includeSecondPerson if true, creates person2 with 10 additional messages
+   */
+  private void initIndexOrderedMatchData(boolean includeSecondPerson) {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+
+    // person1: messages with creationDate = day 1..10, msgId = 100..109
+    for (var i = 1; i <= 10; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + (99 + i))
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + (99 + i)
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+
+    if (includeSecondPerson) {
+      session.execute("CREATE VERTEX TestPerson SET name = 'person2'").close();
+      // person2: messages with creationDate = day 11..20, msgId = 200..209
+      for (var i = 11; i <= 20; i++) {
+        session.execute(
+            "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+                + String.format("%02d", i) + " 00:00:00', msgId = " + (189 + i))
+            .close();
+        session.execute(
+            "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+                + (189 + i) + ") TO (SELECT FROM TestPerson WHERE name = 'person2')")
+            .close();
+      }
+    }
+    session.commit();
+  }
+
+  private void initIndexOrderedMatchData() {
+    initIndexOrderedMatchData(true);
+  }
+
+  /**
+   * Multi-source setup: 5 persons, 10 messages each. Ensures estimated cardinality > 1
+   * so the planner selects a multi-source mode. Each person's messages span a different
+   * 10-day range (person1: Feb 1-10, person2: Feb 11-20, ..., person5: Mar 11-20)
+   * so global ordering can be verified.
+   */
+  private void initIndexOrderedMatchMultiSourceData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    var msgCounter = 0;
+    for (var p = 1; p <= 5; p++) {
+      session.execute("CREATE VERTEX TestPerson SET name = 'person" + p + "'").close();
+      for (var d = 1; d <= 10; d++) {
+        msgCounter++;
+        // Distribute across Feb and Mar to get distinct days per person
+        var month = msgCounter <= 28 ? "02" : "03";
+        var day = msgCounter <= 28 ? msgCounter : msgCounter - 28;
+        session.execute(
+            "CREATE VERTEX TestMessage SET creationDate = '2025-"
+                + month + "-" + String.format("%02d", day)
+                + " 00:00:00', msgId = " + msgCounter)
+            .close();
+        session.execute(
+            "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+                + msgCounter
+                + ") TO (SELECT FROM TestPerson WHERE name = 'person" + p + "')")
+            .close();
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Large single-source setup: 1 person with 200 messages.
+   * High edge count relative to index size should make the cost model choose
+   * indexScanFiltered over loadAllAndSort.
+   */
+  private void initIndexOrderedMatchLargeData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    for (var i = 1; i <= 200; i++) {
+      // Monotonically increasing timestamps: msgId i → hour i/60, minute i%60
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+  }
+
+  /** Extract the day-of-month from a Date result property. */
+  private int dayOfMonth(Object dateValue) {
+    if (dateValue instanceof java.util.Date date) {
+      var cal = java.util.Calendar.getInstance();
+      cal.setTime(date);
+      return cal.get(java.util.Calendar.DAY_OF_MONTH);
+    }
+    throw new AssertionError("Expected Date but got: " + dateValue.getClass() + " = " + dateValue);
+  }
+
+  private String getPlan(ResultSet result) {
+    var plan = result.getExecutionPlan();
+    Assert.assertNotNull("Execution plan should be present", plan);
+    return plan.prettyPrint(0, 2);
+  }
+
+  // --- Test 1: Single-source, single-field ORDER BY + index ---
+  // A single person's messages ordered by creationDate DESC LIMIT 3.
+  // The plan should use IndexOrderedEdgeStep and suppress OrderByStep.
+  @Test
+  public void testIndexOrderedMatchSingleSourceSingleField() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      Assert.assertFalse(
+          "OrderByStep should be suppressed for single-field ORDER BY, but plan was:\n" + plan,
+          plan.contains("ORDER BY"));
+
+      Assert.assertTrue("Expected results but got none. Plan:\n" + plan, result.hasNext());
+      var r1 = result.next();
+      Assert.assertTrue(dayOfMonth(r1.getProperty("cd")) == 10);
+
+      Assert.assertTrue(result.hasNext());
+      var r2 = result.next();
+      Assert.assertTrue(dayOfMonth(r2.getProperty("cd")) == 9);
+
+      Assert.assertTrue(result.hasNext());
+      var r3 = result.next();
+      Assert.assertTrue(dayOfMonth(r3.getProperty("cd")) == 8);
+
+      Assert.assertFalse("Should have exactly 3 results", result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 2: Single-source, no index → standard plan ---
+  // ORDER BY a property with no index should NOT use IndexOrderedEdgeStep.
+  @Test
+  public void testIndexOrderedMatchNoIndex() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    // ORDER BY msgId — no index on msgId, so standard MatchStep + OrderByStep
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.msgId as mid ORDER BY mid DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "Should NOT use INDEX ORDERED MATCH when no index, but plan was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // Verify correct results: msgIds 109, 108, 107
+      var r1 = result.next();
+      Assert.assertEquals(109L, ((Number) r1.getProperty("mid")).longValue());
+      var r2 = result.next();
+      Assert.assertEquals(108L, ((Number) r2.getProperty("mid")).longValue());
+      var r3 = result.next();
+      Assert.assertEquals(107L, ((Number) r3.getProperty("mid")).longValue());
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 3: Single-source, WHILE edge → optimization NOT applied ---
+  // WHILE traversals cannot be index-ordered because the result set is recursive.
+  @Test
+  public void testIndexOrderedMatchWhileEdge() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){while: ($depth < 2), as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "WHILE edges should NOT use INDEX ORDERED MATCH, but plan was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+    }
+    session.commit();
+  }
+
+  // --- Test 4: Single-source, both() direction → optimization NOT applied ---
+  // both() direction is not supported because we don't know which LinkBag to scan.
+  @Test
+  public void testIndexOrderedMatchBothDirection() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".both('TEST_HAS_CREATOR'){as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "both() direction should NOT use INDEX ORDERED MATCH, but plan was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+    }
+    session.commit();
+  }
+
+  // --- Test 5: Multi-field ORDER BY (creationDate DESC, msgId ASC) ---
+  // OrderByStep should be KEPT with cutoff hint for composite sort, but
+  // IndexOrderedEdgeStep should still be present for scanning by primary field.
+  @Test
+  public void testIndexOrderedMatchMultiFieldOrderBy() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid"
+            + " ORDER BY cd DESC, mid ASC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      // Multi-field: OrderByStep should be kept (with cutoff)
+      Assert.assertTrue(
+          "OrderByStep should be kept for multi-field ORDER BY, but plan was:\n" + plan,
+          plan.contains("ORDER BY"));
+
+      // Results: creationDate DESC, then msgId ASC for ties.
+      // No ties in our data, so effectively: days 10, 9, 8
+      var r1 = result.next();
+      Assert.assertTrue(dayOfMonth(r1.getProperty("cd")) == 10);
+      var r2 = result.next();
+      Assert.assertTrue(dayOfMonth(r2.getProperty("cd")) == 9);
+      var r3 = result.next();
+      Assert.assertTrue(dayOfMonth(r3.getProperty("cd")) == 8);
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 6: ORDER BY with SKIP + LIMIT ---
+  // Verifies correct pagination: SKIP 2 LIMIT 3 should return rows 3-5.
+  @Test
+  public void testIndexOrderedMatchSkipLimit() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC SKIP 2 LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // person1 has dates: 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 (DESC)
+      // SKIP 2 → skip 10, 9; LIMIT 3 → return 8, 7, 6
+      var r1 = result.next();
+      Assert.assertEquals(8, dayOfMonth(r1.getProperty("cd")));
+      var r2 = result.next();
+      Assert.assertEquals(7, dayOfMonth(r2.getProperty("cd")));
+      var r3 = result.next();
+      Assert.assertEquals(6, dayOfMonth(r3.getProperty("cd")));
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 7: ORDER BY with DISTINCT ---
+  // DISTINCT can change the result set, so OrderByStep must NOT be suppressed.
+  @Test
+  public void testIndexOrderedMatchWithDistinct() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN DISTINCT m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      // With DISTINCT, OrderByStep must be present (not suppressed)
+      Assert.assertTrue(
+          "OrderByStep should NOT be suppressed when DISTINCT is used, plan was:\n" + plan,
+          plan.contains("ORDER BY"));
+
+      // Results should still be correct
+      var r1 = result.next();
+      Assert.assertTrue(dayOfMonth(r1.getProperty("cd")) == 10);
+      Assert.assertTrue(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 8: ORDER BY with GROUP BY ---
+  // GROUP BY changes the result set, so OrderByStep must NOT be suppressed.
+  @Test
+  public void testIndexOrderedMatchWithGroupBy() {
+    initIndexOrderedMatchData();
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN p.name as pname, count(*) as cnt"
+            + " GROUP BY pname ORDER BY pname ASC";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      // GROUP BY → OrderByStep must NOT be suppressed even if index exists
+      Assert.assertTrue(
+          "OrderByStep should NOT be suppressed when GROUP BY is used, plan was:\n" + plan,
+          plan.contains("ORDER BY"));
+
+      // 2 persons: person1 (10 messages), person2 (10 messages)
+      var r1 = result.next();
+      Assert.assertEquals("person1", r1.getProperty("pname"));
+      Assert.assertEquals(10L, ((Number) r1.getProperty("cnt")).longValue());
+      var r2 = result.next();
+      Assert.assertEquals("person2", r2.getProperty("pname"));
+      Assert.assertEquals(10L, ((Number) r2.getProperty("cnt")).longValue());
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 9: Multi-source, filtered bound ---
+  // Many source persons with WHERE filter, source alias in RETURN.
+  // Uses 5 persons (>THRESHOLD cardinality) to force multi-source FILTERED_BOUND.
+  // Verifies correct global order across all sources.
+  @Test
+  public void testIndexOrderedMatchMultiSourceFilteredBound() {
+    initIndexOrderedMatchMultiSourceData();
+
+    session.begin();
+    // WHERE filter selects all 5 persons; p.name in RETURN → FILTERED_BOUND
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      Assert.assertTrue(
+          "Plan should use FILTERED_BOUND mode, but was:\n" + plan,
+          plan.contains("FILTERED_BOUND"));
+
+      // 5 persons × 10 messages each, days 1-10, 11-20, 21-30, 31-40, 41-50.
+      // Top 5 DESC: days from person5 (days 41-50): 50, 49, 48, 47, 46.
+      var days = new java.util.ArrayList<Integer>();
+      var names = new java.util.ArrayList<String>();
+      while (result.hasNext()) {
+        var row = result.next();
+        days.add(dayOfMonth(row.getProperty("cd")));
+        names.add(row.getProperty("pname"));
+      }
+      Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
+      for (var i = 0; i < days.size() - 1; i++) {
+        Assert.assertTrue(
+            "Results should be in DESC order: " + days,
+            days.get(i) >= days.get(i + 1));
+      }
+    }
+    session.commit();
+  }
+
+  // --- Test 10: Multi-source, unfiltered unbound ---
+  // All TestPerson vertices as sources (no WHERE), source alias NOT in RETURN.
+  // With 5 persons this forces multi-source UNFILTERED_UNBOUND mode.
+  @Test
+  public void testIndexOrderedMatchMultiSourceUnfilteredUnbound() {
+    initIndexOrderedMatchMultiSourceData();
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd ASC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      Assert.assertTrue(
+          "Plan should use UNFILTERED_UNBOUND mode, but was:\n" + plan,
+          plan.contains("UNFILTERED_UNBOUND"));
+
+      // ASC: first 5 results should be in ascending order
+      var days = new java.util.ArrayList<Integer>();
+      while (result.hasNext()) {
+        days.add(dayOfMonth(result.next().getProperty("cd")));
+      }
+      Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
+      for (var i = 0; i < days.size() - 1; i++) {
+        Assert.assertTrue(
+            "Results should be in ASC order: " + days,
+            days.get(i) <= days.get(i + 1));
+      }
+    }
+    session.commit();
+  }
+
+  // --- Test 11: Projection alias resolution ---
+  // ORDER BY uses an alias defined in RETURN, not the dot notation.
+  // Verifies that alias resolution works for the optimization.
+  @Test
+  public void testIndexOrderedMatchProjectionAlias() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    // ORDER BY uses "messageDate" which is an alias for m.creationDate
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as messageDate ORDER BY messageDate DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Alias resolution should enable INDEX ORDERED MATCH, but plan was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      var r1 = result.next();
+      Assert.assertEquals(10, dayOfMonth(r1.getProperty("messageDate")));
+      var r2 = result.next();
+      Assert.assertEquals(9, dayOfMonth(r2.getProperty("messageDate")));
+      var r3 = result.next();
+      Assert.assertEquals(8, dayOfMonth(r3.getProperty("messageDate")));
+      Assert.assertFalse(result.hasNext());
+    }
+    session.commit();
+  }
+
+  // --- Test 12: Fallback correctness ---
+  // Verifies that index-ordered scan and load-all-and-sort produce identical results.
+  // Uses the same query and data, comparing with a non-optimizable baseline.
+  @Test
+  public void testIndexOrderedMatchFallbackCorrectness() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    // Optimizable query: ORDER BY creationDate DESC (indexed)
+    var optimizedQuery =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC";
+
+    // Baseline: MATCH without class constraint on m (no IndexOrderedEdgeStep)
+    var baselineQuery =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC";
+
+    var optimizedResults = new java.util.ArrayList<Long>();
+    try (var result = session.query(optimizedQuery)) {
+      while (result.hasNext()) {
+        var row = result.next();
+        optimizedResults.add(((Number) row.getProperty("mid")).longValue());
+      }
+    }
+
+    var baselineResults = new java.util.ArrayList<Long>();
+    try (var result = session.query(baselineQuery)) {
+      while (result.hasNext()) {
+        var row = result.next();
+        baselineResults.add(((Number) row.getProperty("mid")).longValue());
+      }
+    }
+
+    Assert.assertEquals("Both paths should return the same number of results",
+        baselineResults.size(), optimizedResults.size());
+    Assert.assertEquals("Both paths should return results in the same order",
+        baselineResults, optimizedResults);
+    session.commit();
+  }
+
+  // --- Test 13: Multi-source UNFILTERED_BOUND ---
+  // Source alias in RETURN, no WHERE filter on source.
+  // Forces UNFILTERED_BOUND mode (class check + lazy load).
+  @Test
+  public void testIndexOrderedMatchMultiSourceUnfilteredBound() {
+    initIndexOrderedMatchMultiSourceData();
+
+    session.begin();
+    // No WHERE on p, but p.name in RETURN → binding needed → UNFILTERED_BOUND
+    var query =
+        "MATCH {class: TestPerson, as: p}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      Assert.assertTrue(
+          "Plan should use UNFILTERED_BOUND mode, but was:\n" + plan,
+          plan.contains("UNFILTERED_BOUND"));
+
+      var days = new java.util.ArrayList<Integer>();
+      while (result.hasNext()) {
+        days.add(dayOfMonth(result.next().getProperty("cd")));
+      }
+      Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
+      // Verify DESC order
+      for (var i = 0; i < days.size() - 1; i++) {
+        Assert.assertTrue(
+            "Results should be in DESC order: " + days,
+            days.get(i) >= days.get(i + 1));
+      }
+    }
+    session.commit();
+  }
+
+  // --- Test 14: Large data set — exercises indexScanFiltered path ---
+  // With 200 messages for 1 person and LIMIT 3, the cost model should prefer
+  // index scan over load-all-and-sort because only ~3 records need to be loaded
+  // vs loading all 200.
+  @Test
+  public void testIndexOrderedMatchIndexScanPath() {
+    initIndexOrderedMatchLargeData();
+
+    session.begin();
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // Should return 3 results in DESC order by creationDate
+      var mids = new java.util.ArrayList<Long>();
+      while (result.hasNext()) {
+        mids.add(((Number) result.next().getProperty("mid")).longValue());
+      }
+      Assert.assertEquals("Should have 3 results", 3, mids.size());
+      // The msgIds with latest timestamps should come first
+      // All 3 should be from the highest msgId range (close to 200)
+      for (var mid : mids) {
+        Assert.assertTrue("msgId should be > 100 for top-3, got: " + mid, mid > 100);
+      }
+    }
+    session.commit();
+  }
+
+  // --- Test 15: NULL ordering ---
+  // Messages with NULL creationDate should appear first in ASC and last in DESC,
+  // matching the B-tree index NULL ordering.
+  @Test
+  public void testIndexOrderedMatchNullOrdering() {
+    initIndexOrderedMatchData(false);
+    // Add 2 messages with NULL creationDate
+    session.begin();
+    session.execute(
+        "CREATE VERTEX TestMessage SET creationDate = null, msgId = 500").close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = 500)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.execute(
+        "CREATE VERTEX TestMessage SET creationDate = null, msgId = 501").close();
+    session.execute(
+        "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = 501)"
+            + " TO (SELECT FROM TestPerson WHERE name = 'person1')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // ASC order: NULLs should come first
+    var queryAsc =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd ASC LIMIT 4";
+    try (var result = session.query(queryAsc)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // First 2 results should have NULL creationDate
+      var r1 = result.next();
+      Assert.assertNull("First result should have NULL cd", r1.getProperty("cd"));
+      var r2 = result.next();
+      Assert.assertNull("Second result should have NULL cd", r2.getProperty("cd"));
+      // Next results should have non-NULL dates
+      var r3 = result.next();
+      Assert.assertNotNull("Third result should have non-NULL cd", r3.getProperty("cd"));
+      var r4 = result.next();
+      Assert.assertNotNull("Fourth result should have non-NULL cd", r4.getProperty("cd"));
+      Assert.assertFalse(result.hasNext());
     }
     session.commit();
   }
