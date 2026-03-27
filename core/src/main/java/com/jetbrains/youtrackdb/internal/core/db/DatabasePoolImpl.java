@@ -27,10 +27,13 @@ import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.ResourcePoolListener;
 import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 public class DatabasePoolImpl implements DatabasePoolInternal {
 
-  private volatile ResourcePool<Void, DatabaseSessionEmbedded> pool;
+  private final AtomicReference<ResourcePool<Void, DatabaseSessionEmbedded>> pool =
+      new AtomicReference<>();
   private final YouTrackDBInternal factory;
   private final YouTrackDBConfigImpl config;
   private final String databaseName;
@@ -38,42 +41,14 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
 
   private volatile long lastCloseTime = System.currentTimeMillis();
 
-
   public DatabasePoolImpl(
       YouTrackDBInternal factory,
       String database,
       String user,
       String password,
       YouTrackDBConfigImpl config) {
-    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
-    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
-    this.factory = factory;
-    this.config = config;
-    this.databaseName = database;
-    this.userName = user;
-
-    pool =
-        new ResourcePool<>(
-            min,
-            max,
-            new ResourcePoolListener<>() {
-              @Override
-              public DatabaseSessionEmbedded createNewResource(
-                  Void iKey, Object... iAdditionalArgs) {
-                return factory.poolOpen(database, user, password, DatabasePoolImpl.this);
-              }
-
-              @Override
-              public boolean reuseResource(
-                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionEmbedded iValue) {
-                var polledSession = (PooledSession) iValue;
-                if (polledSession.isBackendClosed()) {
-                  return false;
-                }
-                polledSession.reuse();
-                return true;
-              }
-            });
+    this(factory, database, user, config,
+        pool -> factory.poolOpen(database, user, password, pool));
   }
 
   public DatabasePoolImpl(
@@ -81,7 +56,23 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
       String database,
       String user,
       YouTrackDBConfigImpl config) {
+    this(factory, database, user, config,
+        pool -> {
+          if (factory instanceof YouTrackDBInternalEmbedded embedded) {
+            return embedded.poolOpenNoAuthenticate(database, user, pool);
+          } else {
+            throw new UnsupportedOperationException(
+                "Opening database without password is not supported");
+          }
+        });
+  }
 
+  private DatabasePoolImpl(
+      YouTrackDBInternal factory,
+      String database,
+      String user,
+      YouTrackDBConfigImpl config,
+      Function<DatabasePoolInternal, DatabaseSessionEmbedded> sessionFactory) {
     var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
     var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
     this.factory = factory;
@@ -89,7 +80,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     this.databaseName = database;
     this.userName = user;
 
-    pool =
+    pool.set(
         new ResourcePool<>(
             min,
             max,
@@ -97,13 +88,7 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
               @Override
               public DatabaseSessionEmbedded createNewResource(
                   Void iKey, Object... iAdditionalArgs) {
-                if (factory instanceof YouTrackDBInternalEmbedded embedded) {
-                  return embedded.poolOpenNoAuthenticate(database, user,
-                      DatabasePoolImpl.this);
-                } else {
-                  throw new UnsupportedOperationException(
-                      "Opening database without password is not supported");
-                }
+                return sessionFactory.apply(DatabasePoolImpl.this);
               }
 
               @Override
@@ -113,20 +98,15 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
                 if (pooledSession.isBackendClosed()) {
                   return false;
                 }
-
                 pooledSession.reuse();
                 return true;
               }
-            });
+            }));
   }
-
 
   @Override
   public DatabaseSessionEmbedded acquire() throws AcquireTimeoutException {
-    ResourcePool<Void, DatabaseSessionEmbedded> p;
-    synchronized (this) {
-      p = pool;
-    }
+    var p = pool.get();
     if (p != null) {
       return p.getResource(
           null, config.getConfiguration().getValueAsLong(DB_POOL_ACQUIRE_TIMEOUT));
@@ -136,12 +116,8 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
   }
 
   @Override
-  public synchronized void close() {
-    ResourcePool<Void, DatabaseSessionEmbedded> p;
-    synchronized (this) {
-      p = pool;
-      pool = null;
-    }
+  public void close() {
+    var p = pool.getAndSet(null);
     if (p != null) {
       for (var res : p.getAllResources()) {
         ((PooledSession) res).realClose();
@@ -153,12 +129,9 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
 
   @Override
   public void release(DatabaseSessionEmbedded database) {
-    ResourcePool<Void, DatabaseSessionEmbedded> p;
-    synchronized (this) {
-      p = pool;
-    }
+    var p = pool.get();
     if (p != null) {
-      pool.returnResource(database);
+      p.returnResource(database);
     } else {
       throw new DatabaseException(database.getDatabaseName(), "The pool is closed");
     }
@@ -167,15 +140,20 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
 
   @Override
   public boolean isUnused() {
-    if (pool == null) {
+    var p = pool.get();
+    if (p == null) {
       return true;
     } else {
-      return pool.getResourcesOutCount() == 0;
+      return p.getResourcesOutCount() == 0;
     }
   }
 
   public int getAvailableResources() {
-    return pool.getAvailableResources();
+    var p = pool.get();
+    if (p == null) {
+      throw new DatabaseException("The pool is closed");
+    }
+    return p.getAvailableResources();
   }
 
   @Override
@@ -200,6 +178,6 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
 
   @Override
   public boolean isClosed() {
-    return pool == null;
+    return pool.get() == null;
   }
 }
