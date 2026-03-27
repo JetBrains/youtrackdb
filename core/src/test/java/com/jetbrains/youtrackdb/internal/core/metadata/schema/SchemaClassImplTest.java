@@ -48,7 +48,8 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     oClass.setAbstract(false);
 
     assertNotEquals(-1, oClass.getCollectionIds()[0]);
-    assertEquals(oClass.getCollectionIds()[0], session.getCollectionIdByName("Test2"));
+    var collectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
+    assertEquals(oClass.getCollectionIds()[0], session.getCollectionIdByName(collectionName));
   }
 
   @Test
@@ -485,7 +486,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertNotNull(oSchema.createClass("$OClassImplTesttestCla23ssNameSyntax_12"));
     assertNotNull(oSchema.createClass("OClassImplTesttestC$la23ssNameSyntax_12"));
     assertNotNull(oSchema.createClass("oOClassImplTesttestC$la23ssNameSyntax_12"));
-    var validClassNamesSince30 = new String[]{
+    var validClassNamesSince30 = new String[] {
         "foo bar",
         "12",
         "#12",

@@ -2166,7 +2166,7 @@ public class CRUDTest extends BaseDBJUnit5Test {
     session = createSessionInstance();
     try {
       session.begin();
-      startRecordNumber = session.countCollectionElements("Profile");
+      startRecordNumber = session.countClass("Profile");
       session.rollback();
       session.begin();
       var bObama = session.newInstance("Profile");

@@ -25,8 +25,8 @@ public class HookReadTest extends DbTestBase {
               @Nonnull DBRecord iRecord) {
             if (iType == TYPE.READ
                 && !((EntityImpl) iRecord)
-                .getSchemaClassName()
-                .equalsIgnoreCase(SecurityPolicy.class.getSimpleName())) {
+                    .getSchemaClassName()
+                    .equals(SecurityPolicy.class.getSimpleName())) {
               ((EntityImpl) iRecord).setProperty("read", "test");
             }
           }

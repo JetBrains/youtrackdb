@@ -37,7 +37,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -72,7 +71,7 @@ public class ImmutableSchema implements SchemaInternal {
     for (var oClass : schemaShared.getClasses(session)) {
       final var immutableClass = new SchemaImmutableClass(session, oClass, this);
 
-      classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
+      classes.put(immutableClass.getName(), immutableClass);
 
       for (var collectionId : immutableClass.getCollectionIds()) {
         collectionsToClasses.put(collectionId, immutableClass);
@@ -108,7 +107,7 @@ public class ImmutableSchema implements SchemaInternal {
         //do nothing
       }
 
-      indexes.put(indexName.toLowerCase(Locale.ROOT),
+      indexes.put(indexName,
           new IndexDefinition(indexName, indexDefinition.getClassName(),
               Collections.unmodifiableList(indexDefinition.getProperties()),
               SchemaClass.INDEX_TYPE.valueOf(index.getType()),
@@ -183,10 +182,9 @@ public class ImmutableSchema implements SchemaInternal {
     throw new UnsupportedOperationException();
   }
 
-
   @Override
   public boolean existsClass(String iClassName) {
-    return classes.containsKey(iClassName.toLowerCase(Locale.ROOT));
+    return classes.containsKey(iClassName);
   }
 
   @Override
@@ -203,21 +201,13 @@ public class ImmutableSchema implements SchemaInternal {
     return getClassInternal(iClassName);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     if (iClassName == null) {
       return null;
     }
 
-    // Fast path: try exact match first (class names are usually already lowercased
-    // in the map, and callers often pass the canonical name). Avoids a
-    // String.toLowerCase() allocation on every lookup.
-    var result = classes.get(iClassName);
-    if (result != null) {
-      return result;
-    }
-    return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+    return classes.get(iClassName);
   }
 
   @Override
@@ -247,12 +237,12 @@ public class ImmutableSchema implements SchemaInternal {
 
   @Override
   public boolean indexExists(String indexName) {
-    return indexes.containsKey(indexName.toLowerCase(Locale.ROOT));
+    return indexes.containsKey(indexName);
   }
 
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
-    var indexDefinition = indexes.get(indexName.toLowerCase(Locale.ROOT));
+    var indexDefinition = indexes.get(indexName);
     if (indexDefinition == null) {
       throw new IllegalArgumentException("Index '" + indexName + "' not found");
     }
@@ -296,9 +286,7 @@ public class ImmutableSchema implements SchemaInternal {
     return collectionsToClasses.get(collectionId);
   }
 
-
-  @Nullable
-  @Override
+  @Nullable @Override
   public GlobalProperty getGlobalPropertyById(int id) {
     if (id >= properties.size()) {
       return null;

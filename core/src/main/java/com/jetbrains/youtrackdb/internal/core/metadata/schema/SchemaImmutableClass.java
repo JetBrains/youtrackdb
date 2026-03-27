@@ -93,7 +93,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   @Nonnull
   private final SchemaClassImpl original;
 
-
   public SchemaImmutableClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassImpl oClass,
       final ImmutableSchema schema) {
@@ -286,7 +285,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     throw new UnsupportedOperationException();
   }
 
-
   @Override
   public SchemaProperty createProperty(String iPropertyName,
       PropertyType iType,
@@ -321,12 +319,10 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return collectionSelection.getCollection(entity.getBoundedToSession(), this, entity);
   }
 
-
   @Override
   public int[] getCollectionIds() {
     return collectionIds;
   }
-
 
   @Override
   public CollectionSelectionStrategy getCollectionSelection() {
@@ -374,7 +370,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       superClass.getAllSuperClasses(set);
     }
   }
-
 
   @Override
   public long count(DatabaseSessionEmbedded session) {
@@ -436,7 +431,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       return false;
     }
 
-    if (iClassName.equalsIgnoreCase(name)) {
+    if (iClassName.equals(name)) {
       return true;
     }
 
@@ -480,7 +475,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public SchemaClass setDescription(String iDescription) {
     throw new UnsupportedOperationException();
   }
-
 
   public Object get(ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
@@ -737,7 +731,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
   }
 
-
   @Override
   public SchemaClass set(ATTRIBUTES attribute, Object value) {
     throw new UnsupportedOperationException();
@@ -819,8 +812,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return false;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DatabaseSessionEmbedded getBoundToSession() {
     return null;
   }

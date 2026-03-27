@@ -35,9 +35,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -100,8 +100,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       DatabaseSessionEmbedded session,
       final String collectionName,
       final String indexName,
-      boolean requireEmpty
-  ) {
+      boolean requireEmpty) {
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
@@ -199,7 +198,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         storage, transaction, indexIdentifiable.getIdentity());
   }
 
-
   protected void releaseExclusiveLock(DatabaseSessionEmbedded session, boolean notifyChanges) {
     var val = writeLockNesting.decrementAndGet();
     try {
@@ -227,7 +225,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
   }
 
-
   void addIndexInternal(DatabaseSessionEmbedded session, FrontendTransaction transaction,
       final Index index, boolean updateEntity) {
     acquireExclusiveLock(transaction);
@@ -237,7 +234,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       releaseExclusiveLock(session, true);
     }
   }
-
 
   /**
    * Create a new index with default algorithm.
@@ -420,7 +416,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       try (var stream = allFilteredProperties.stream()) {
         indexedAndFilteredProperties =
             stream
-                .filter(x -> x.getClassName().equalsIgnoreCase(className))
+                .filter(x -> x.isAllClasses() || className.equals(x.getClassName()))
                 .filter(x -> indexedFields.contains(x.getPropertyName()))
                 .collect(Collectors.toSet());
       }
@@ -432,14 +428,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                   + indexClass
                   + "["
                   + stream
-                  .map(SecurityResourceProperty::getPropertyName)
-                  .collect(Collectors.joining(", "))
+                      .map(SecurityResourceProperty::getPropertyName)
+                      .collect(Collectors.joining(", "))
                   + " because of existing column security rules");
         }
       }
     }
   }
-
 
   private static Set<String> findCollectionsByIds(
       int[] collectionIdsToIndex, DatabaseSessionEmbedded database) {
@@ -490,7 +485,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       releaseSharedLock();
     }
   }
-
 
   public void recreateIndexes(DatabaseSessionEmbedded session) {
     session.executeInTxInternal(transaction -> {
@@ -551,7 +545,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return false;
   }
 
-
   public void removeClassPropertyIndex(DatabaseSessionEmbedded session, final Index idx) {
     session.executeInTxInternal(transaction -> {
       acquireExclusiveLock(transaction);
@@ -570,7 +563,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     var map =
-        classPropertyIndex.get(indexDefinition.getClassName().toLowerCase(Locale.ROOT));
+        classPropertyIndex.get(indexDefinition.getClassName());
 
     if (map == null) {
       return;
@@ -600,9 +593,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     if (map.isEmpty()) {
-      classPropertyIndex.remove(indexDefinition.getClassName().toLowerCase(Locale.ROOT));
+      classPropertyIndex.remove(indexDefinition.getClassName());
     } else {
-      classPropertyIndex.put(indexDefinition.getClassName().toLowerCase(Locale.ROOT),
+      classPropertyIndex.put(indexDefinition.getClassName(),
           copyPropertyMap(map));
     }
   }

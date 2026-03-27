@@ -224,7 +224,6 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-
   @Override
   protected void setSuperClassesInternal(DatabaseSessionEmbedded session,
       final List<SchemaClassImpl> classes, boolean validateIndexes) {
@@ -379,7 +378,6 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   protected SchemaPropertyEmbedded createPropertyInstance(GlobalPropertyImpl global) {
     return new SchemaPropertyEmbedded(this, global);
   }
-
 
   @Override
   public void setStrictMode(DatabaseSessionEmbedded session, final boolean isStrict) {
@@ -552,7 +550,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
             ((SchemaEmbedded) owner).removeCollectionForClass(database, collectionId);
           }
 
-          setCollectionIds(new int[]{NOT_EXISTENT_COLLECTION_ID});
+          setCollectionIds(new int[] {NOT_EXISTENT_COLLECTION_ID});
 
           defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
         }
@@ -561,10 +559,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           return;
         }
 
-        var collectionId = database.getCollectionIdByName(name);
-        if (collectionId == -1) {
-          collectionId = database.addCollection(name);
-        }
+        var collectionName = name.toLowerCase(Locale.ENGLISH) + "_"
+            + ((SchemaEmbedded) owner).nextCollectionIndex();
+        var collectionId = database.addCollection(collectionName);
 
         this.defaultCollectionId = collectionId;
         this.collectionIds[0] = this.defaultCollectionId;

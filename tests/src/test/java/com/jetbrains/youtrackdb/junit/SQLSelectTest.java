@@ -142,7 +142,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
         executeQuery("select * from Profile where name like 'Gi%'", session);
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().startsWith("Gi"));
     }
 
@@ -159,14 +159,14 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     result1 = executeQuery("select * from Profile where name like '%Gi%'", session);
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
 
     result1 = executeQuery("select * from Profile where name like ?", session, "%Gi%");
 
     for (var record : result1) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertTrue(record.getProperty("name").toString().contains("Gi"));
     }
     session.commit();
@@ -404,7 +404,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
             session);
 
     for (var record : result) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
       assertNotNull(record.getProperty("races"));
 
       Collection<EntityImpl> races = record.getProperty("races");
@@ -446,7 +446,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
       record = (EntityImpl) result.get(i).asEntityOrNull();
 
       assertTrue(
-          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+          Objects.requireNonNull(record.getSchemaClassName()).equals("Animal"));
       assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
@@ -474,7 +474,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
       record = (EntityImpl) result.get(i).asEntityOrNull();
 
       assertTrue(
-          Objects.requireNonNull(record.getSchemaClassName()).equalsIgnoreCase("animal"));
+          Objects.requireNonNull(record.getSchemaClassName()).equals("Animal"));
       assertNotNull(record.getProperty("races"));
 
       races = record.getProperty("races");
@@ -557,7 +557,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     for (var i = 0; i < result.size() && !found; ++i) {
       record = result.get(i).asEntityOrNull();
 
-      assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      assertTrue(record.getSchemaClassName().equals("Animal"));
       assertNotNull(record.getProperty("rates"));
 
       rates = record.getProperty("rates");
@@ -578,7 +578,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     for (var i = 0; i < result.size() && !found; ++i) {
       record = result.get(i).asEntity();
 
-      assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
+      assertTrue(record.getSchemaClassName().equals("Animal"));
       assertNotNull(record.getProperty("rates"));
 
       rates = record.getProperty("rates");
@@ -640,7 +640,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   @Test
   @Order(19)
   void queryInAsParameter() {
-    var roles = executeQuery("select from orole limit 1", session);
+    var roles = executeQuery("select from ORole limit 1", session);
 
     var result = executeQuery("select * from OUser where roles in ?", session,
         roles);
@@ -657,7 +657,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     assertFalse(result.isEmpty());
 
     for (var record : result) {
-      assertTrue(record.asEntityOrNull().getSchemaClassName().equalsIgnoreCase("Profile"));
+      assertTrue(record.asEntityOrNull().getSchemaClassName().equals("Profile"));
 
       var found = false;
       for (var fieldValue : record.getPropertyNames().stream().map(record::getProperty).toArray()) {
@@ -1046,7 +1046,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   @Order(46)
   void queryBetween() {
     session.begin();
-    var result = executeQuery("select * from account where nr between 10 and 20");
+    var result = executeQuery("select * from Account where nr between 10 and 20");
 
     for (var record : result) {
       assertTrue(
@@ -1061,11 +1061,11 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   void queryParenthesisInStrings() {
 
     session.begin();
-    session.execute("INSERT INTO account (name) VALUES ('test (demo)')");
+    session.execute("INSERT INTO Account (name) VALUES ('test (demo)')");
     session.commit();
 
     session.begin();
-    var result = executeQuery("select * from account where name = 'test (demo)'");
+    var result = executeQuery("select * from Account where name = 'test (demo)'");
 
     assertEquals(1, result.size());
 
@@ -1079,7 +1079,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   @Order(48)
   void queryMathOperators() {
     session.begin();
-    var result = executeQuery("select * from account where id < 3 + 4");
+    var result = executeQuery("select * from Account where id < 3 + 4");
     assertFalse(result.isEmpty());
     for (var document : result) {
       assertTrue(((Number) document.getProperty("id")).intValue() < 3 + 4);
@@ -1087,7 +1087,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
 
     session.begin();
-    result = executeQuery("select * from account where id < 10 - 3");
+    result = executeQuery("select * from Account where id < 10 - 3");
     assertFalse(result.isEmpty());
     for (var document : result) {
       assertTrue(((Number) document.getProperty("id")).intValue() < 10 - 3);
@@ -1095,7 +1095,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
 
     session.begin();
-    result = executeQuery("select * from account where id < 3 * 2");
+    result = executeQuery("select * from Account where id < 3 * 2");
     assertFalse(result.isEmpty());
     for (var document : result) {
       assertTrue(((Number) document.getProperty("id")).intValue() < 3 << 1);
@@ -1103,7 +1103,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
 
     session.begin();
-    result = executeQuery("select * from account where id < 120 / 20");
+    result = executeQuery("select * from Account where id < 120 / 20");
     assertFalse(result.isEmpty());
     for (var document : result) {
       assertTrue(((Number) document.getProperty("id")).intValue() < 120 / 20);
@@ -1111,7 +1111,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
 
     session.begin();
-    result = executeQuery("select * from account where id < 27 % 10");
+    result = executeQuery("select * from Account where id < 27 % 10");
     assertFalse(result.isEmpty());
     for (var document : result) {
       assertTrue(((Number) document.getProperty("id")).intValue() < 27 % 10);
@@ -1119,9 +1119,9 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     session.commit();
 
     session.begin();
-    result = executeQuery("select * from account where id = id * 1");
+    result = executeQuery("select * from Account where id = id * 1");
     assertFalse(result.isEmpty());
-    var result2 = executeQuery("select count(*) as tot from account where id >= 0");
+    var result2 = executeQuery("select count(*) as tot from Account where id >= 0");
     assertEquals(
         ((Number) result2.getFirst().getProperty("tot")).intValue(), result.size());
     session.commit();
@@ -1134,7 +1134,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
 
     final var result =
         executeQuery(
-            "select * from company where id between ? and ? and salary is not null",
+            "select * from Company where id between ? and ? and salary is not null",
             session,
             4,
             7);
@@ -1365,7 +1365,8 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
   @Order(60)
   void queryWithTwoRidInWhere() {
     session.begin();
-    var collectionId = session.getCollectionIdByName("profile");
+    var collectionId =
+        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
 
     var positions = getValidPositions(collectionId);
 
@@ -1430,7 +1431,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     inputValues.add("lecco");
     params.put("place", inputValues);
 
-    var result = executeQuery("select from place where id in :place", session,
+    var result = executeQuery("select from Place where id in :place", session,
         params);
     assertEquals(1, result.size());
     session.commit();
@@ -1468,7 +1469,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
     params.put("place", inputValues);
 
     var result =
-        executeQuery("select from place where @rid in :place", session, params);
+        executeQuery("select from Place where @rid in :place", session, params);
     assertEquals(2, result.size());
     session.commit();
 
@@ -1520,7 +1521,7 @@ class SQLSelectTest extends AbstractSelectJUnit5Test {
 
     final var result =
         executeQuery(
-            "select * from company where id = :id and salary is not null", session, params);
+            "select * from Company where id = :id and salary is not null", session, params);
 
     assertEquals(1, result.size());
   }

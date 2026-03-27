@@ -28,8 +28,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.STATUS;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.STATUS;
 import com.jetbrains.youtrackdb.internal.core.db.EntityFieldWalker;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -191,9 +191,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     } else if (option.equalsIgnoreCase("-rebuildIndexes")) {
       rebuildIndexes = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-backwardCompatMode")) {
-      jsonSerializer = Boolean.parseBoolean(items.getFirst()) ?
-          JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE :
-          JSONSerializerJackson.IMPORT_INSTANCE;
+      jsonSerializer = Boolean.parseBoolean(items.getFirst())
+          ? JSONSerializerJackson.IMPORT_BACKWARDS_COMPAT_INSTANCE
+          : JSONSerializerJackson.IMPORT_INSTANCE;
     } else {
       super.parseSetting(option, items);
     }
@@ -214,8 +214,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       removeDefaultNonSecurityClasses();
       session.getSharedContext().getIndexManager().reload(session);
 
-      for (final var index :
-          session.getSharedContext().getIndexManager().getIndexes()) {
+      for (final var index : session.getSharedContext().getIndexManager().getIndexes()) {
         if (index.isAutomatic()) {
           indexesToRebuild.add(index.getName());
         }
@@ -275,7 +274,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       } catch (final IOException e1) {
         throw new DatabaseExportException(
             "Error on importing database '" + session.getDatabaseName() + "' from file: "
-                + fileName, e1);
+                + fileName,
+            e1);
       }
       throw new DatabaseExportException(
           "Error on importing database '" + session.getDatabaseName() + "' from file: " + fileName,
@@ -441,7 +441,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       if (!dbClass.isSuperClassOf(role)
           && !dbClass.isSuperClassOf(user)
           && !dbClass.isSuperClassOf(
-          identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
+              identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
         indexNames.addAll(((SchemaClassInternal) dbClass).getIndexes());
       }
@@ -462,7 +462,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           final var parentClasses = dbClass.getSuperClasses();
           if (parentClasses != null) {
             for (var parentClass : parentClasses) {
-              if (className.equalsIgnoreCase(parentClass.getName())) {
+              if (className.equals(parentClass.getName())) {
                 isSuperClass = true;
                 break;
               }
@@ -532,9 +532,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       if (!blobCollectionIds.isEmpty()) {
         // READ BLOB COLLECTION IDS
-        for (var i :
-            StringSerializerHelper.split(
-                blobCollectionIds, StringSerializerHelper.RECORD_SEPARATOR)) {
+        for (var i : StringSerializerHelper.split(
+            blobCollectionIds, StringSerializerHelper.RECORD_SEPARATOR)) {
           var collection = Integer.parseInt(i.trim());
           if (!ArrayUtils.contains(session.getBlobCollectionIds(), collection)) {
             var name = session.getCollectionNameById(collection);
@@ -559,10 +558,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       // but if the dump was created by an older version of the export tool,
       // it won't work.
       final var schema = session.getMetadata().getSchema();
-      final var vertexClass = schema.existsClass(Vertex.CLASS_NAME) ?
-          schema.getClass(Vertex.CLASS_NAME) : schema.createClass(Vertex.CLASS_NAME);
-      final var edgeClass = schema.existsClass(Edge.CLASS_NAME) ?
-          schema.getClass(Edge.CLASS_NAME) : schema.createClass(Edge.CLASS_NAME);
+      final var vertexClass = schema.existsClass(Vertex.CLASS_NAME)
+          ? schema.getClass(Vertex.CLASS_NAME) : schema.createClass(Vertex.CLASS_NAME);
+      final var edgeClass = schema.existsClass(Edge.CLASS_NAME) ? schema.getClass(Edge.CLASS_NAME)
+          : schema.createClass(Edge.CLASS_NAME);
       do {
         jsonReader.readNext(JSONReader.BEGIN_OBJECT);
         var className =
@@ -670,7 +669,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
             }
             case "\"cluster-selection\"" ->
-              // ignoring old property
+                // ignoring old property
                 jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
             case "\"customFields\"" -> {
               customFields = importCustomFields();
@@ -691,18 +690,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 + "' exists but is not a vertex class. It can't be made a vertex class.");
           } else if (isEdge && !cls.isEdgeType()) {
             throw new DatabaseImportException("Class '" + className
-                + "' exists but is not an edge class. It can't be made an edge class."
-            );
+                + "' exists but is not an edge class. It can't be made an edge class.");
           }
         } else {
           if (collectionsImported) {
             // other superclasses will be added later.
             final var superClassesToAdd =
-                isVertex ? new SchemaClass[]{vertexClass} :
-                    isEdge ? new SchemaClass[]{edgeClass} :
-                        new SchemaClass[]{};
+                isVertex ? new SchemaClass[] {vertexClass}
+                    : isEdge ? new SchemaClass[] {edgeClass} : new SchemaClass[] {};
             cls = schema.createClass(className, newCollectionIds, superClassesToAdd);
-          } else if (className.equalsIgnoreCase("ORestricted")) {
+          } else if (className.equals("ORestricted")) {
             cls = schema.createAbstractClass(className);
           } else {
             cls = schema.createClass(className);
@@ -976,11 +973,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
    * type String, and thus has to be converted to InputStream, which can only be avoided by
    * introducing a new interface method.
    */
-  @Nullable
-  private RID importRecord(
+  @Nullable private RID importRecord(
       HashSet<RID> recordsBeforeImport,
-      Schema beforeImportSchemaSnapshot
-  ) throws Exception {
+      Schema beforeImportSchemaSnapshot) throws Exception {
 
     session.disableLinkConsistencyCheck();
     session.begin();
@@ -1388,7 +1383,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
 
     // drop automatically created indexes
-    if (!indexName.equalsIgnoreCase(EXPORT_IMPORT_INDEX_NAME)) {
+    if (!indexName.equals(EXPORT_IMPORT_INDEX_NAME)) {
       listener.onMessage("\n- Index '" + indexName + "'...");
 
       indexManager.dropIndex(session, indexName);
@@ -1470,8 +1465,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       final var indexDefClass = Class.forName(className);
       indexDefinition = (IndexDefinition) indexDefClass.getDeclaredConstructor().newInstance();
       indexDefinition.fromMap(indexDefinitionMap);
-    } catch (final ClassNotFoundException | NoSuchMethodException | InvocationTargetException |
-                   InstantiationException | IllegalAccessException e) {
+    } catch (final ClassNotFoundException | NoSuchMethodException | InvocationTargetException
+        | InstantiationException | IllegalAccessException e) {
       throw new IOException("Error during deserialization of index definition", e);
     }
 
@@ -1483,8 +1478,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private void migrateLinksInImportedDocuments(Set<RID> brokenRids) {
     listener.onMessage(
         """
-            
-            
+
+
             Started migration of links (-migrateLinks=true). Links are going to be updated\
              according to new RIDs:""");
 
@@ -1499,14 +1494,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
-            (colName, colSize, seenInCol, colDone, seenTotal, speed) ->
-                listener.onMessage(
-                    String.format(
-                        "\n--- Migrated %,d of %,d records (%,.2f/sec) in collection '%s', done: %s",
-                        seenInCol, colSize, speed, colName, colDone
-                    )
-                )
-        )
+            (colName, colSize, seenInCol, colDone, seenTotal, speed) -> listener.onMessage(
+                String.format(
+                    "\n--- Migrated %,d of %,d records (%,.2f/sec) in collection '%s', done: %s",
+                    seenInCol, colSize, speed, colName, colDone)))
         .walkEntitiesInTx(true, entity -> {
           rewriteLinksInDocument(session, entity, brokenRids);
           entity.clearSystemProps();
@@ -1518,14 +1509,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         session, ridMapCollections)
         .onProgressPeriodically(
             IMPORT_RECORD_DUMP_LAP_EVERY_MS,
-            (colName, colSize, seenInCol, colDone, seenTotal, speed) ->
-                listener.onMessage(
-                    String.format(
-                        "\n--- Recovered links for %,d of %,d records (%,.2f/sec) in collection '%s', done: %s",
-                        seenInCol, colSize, speed, colName, colDone
-                    )
-                )
-        )
+            (colName, colSize, seenInCol, colDone, seenTotal, speed) -> listener.onMessage(
+                String.format(
+                    "\n--- Recovered links for %,d of %,d records (%,.2f/sec) in collection '%s', done: %s",
+                    seenInCol, colSize, speed, colName, colDone)))
         .walkEntitiesInTx(entity -> {
           entity.markAllLinksAsChanged();
           return true;

@@ -80,13 +80,13 @@ public class CommandExecutorSQLDeleteVertexTest extends DbTestBase {
     session.execute("create vertex User set name = 'foo1'").close();
     session.execute("create vertex User set name = 'foo2'").close();
     session.execute(
-            "create edge E from (select from user where name = 'foo1') to (select from user where"
-                + " name = 'foo2')")
+        "create edge E from (select from User where name = 'foo1') to (select from User where"
+            + " name = 'foo2')")
         .close();
     session.commit();
 
     session.begin();
-    try (var edges = session.query("select from e limit 1")) {
+    try (var edges = session.query("select from E limit 1")) {
       session.execute("delete vertex [" + edges.next().getIdentity() + "]").close();
       Assert.fail("Error on deleting a vertex with a rid of an edge");
     }

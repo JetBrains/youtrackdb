@@ -786,7 +786,7 @@ public class UpdateStatementExecutionTest {
     session.begin();
     try (var result =
         session.execute(
-            "update v set first='value' where @rid in (select @rid from [" + identity + "]) ")) {
+            "update V set first='value' where @rid in (select @rid from [" + identity + "]) ")) {
 
       assertEquals((long) result.next().getProperty("count"), 1L);
     }
@@ -795,7 +795,7 @@ public class UpdateStatementExecutionTest {
     session.begin();
     try (var result =
         session.execute(
-            "update v set other='value' where @rid in (select * from [" + identity + "]) ")) {
+            "update V set other='value' where @rid in (select * from [" + identity + "]) ")) {
       assertEquals((long) result.next().getProperty("count"), 1L);
     }
     session.commit();

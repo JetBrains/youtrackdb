@@ -321,7 +321,7 @@ public class StorageBackupMTStateTest {
       do {
         linkedClassName = CLASS_PREFIX + random.nextInt(classes);
 
-        if (linkedClassName.equalsIgnoreCase(className)) {
+        if (linkedClassName.equals(className)) {
           continue;
         }
 

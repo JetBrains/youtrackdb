@@ -95,9 +95,9 @@ class SQLCommandsTest extends BaseDBJUnit5Test {
   @Order(5)
   void testSQLScript() {
     var cmd = "";
-    cmd += "select from ouser limit 1;begin;";
+    cmd += "select from OUser limit 1;begin;";
     cmd += "let a = create vertex set script = true;";
-    cmd += "let b = select from v limit 1;";
+    cmd += "let b = select from V limit 1;";
     cmd += "create edge from $a to $b;";
     cmd += "commit;";
     cmd += "return $a;";

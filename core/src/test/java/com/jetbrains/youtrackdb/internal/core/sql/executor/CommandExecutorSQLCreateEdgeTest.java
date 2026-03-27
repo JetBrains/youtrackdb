@@ -39,12 +39,12 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   public void testParametersBinding() {
     session.begin();
     session.execute(
-            "CREATE EDGE link from "
-                + owner1.getIdentity()
-                + " TO "
-                + owner2.getIdentity()
-                + " SET foo = ?",
-            "123")
+        "CREATE EDGE link from "
+            + owner1.getIdentity()
+            + " TO "
+            + owner2.getIdentity()
+            + " SET foo = ?",
+        "123")
         .close();
     session.commit();
 
@@ -66,9 +66,9 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
     session.begin();
     session.execute(
-            "CREATE EDGE link from (select from Owner where id = :fromId) TO (select from Owner"
-                + " where id = :toId) SET foo = :foo",
-            params)
+        "CREATE EDGE link from (select from Owner where id = :fromId) TO (select from Owner"
+            + " where id = :toId) SET foo = :foo",
+        params)
         .close();
     session.commit();
 
@@ -96,15 +96,15 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
     session.begin();
     var edges =
         session.execute(
-            "CREATE EDGE link from (select from owner where testbatch = true and id > 0) TO (select"
-                + " from owner where testbatch = true and id = 0) batch 10",
+            "CREATE EDGE link from (select from Owner where testbatch = true and id > 0) TO (select"
+                + " from Owner where testbatch = true and id = 0) batch 10",
             "456");
     session.commit();
 
     Assert.assertEquals(edges.stream().count(), 19);
 
     session.begin();
-    var list = session.query("select from owner where testbatch = true and id = 0");
+    var list = session.query("select from Owner where testbatch = true and id = 0");
 
     var res = list.next();
     Assert.assertEquals(
@@ -116,34 +116,34 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   @Test
   public void testEdgeConstraints() {
     session.computeScript(
-            "sql",
-            "create class E2 extends E;"
-                + "create property E2.x LONG;"
-                + "create property E2.in LINK;"
-                + "alter property E2.in MANDATORY true;"
-                + "create property E2.out LINK;"
-                + "alter property E2.out MANDATORY true;"
-                + "create class E1 extends E;"
-                + "create property E1.x LONG;"
-                + "alter property E1.x MANDATORY true;"
-                + "create property E1.in LINK;"
-                + "alter property E1.in MANDATORY true;"
-                + "create property E1.out LINK;"
-                + "alter property E1.out MANDATORY true;"
-                + "create class FooType extends V;"
-                + "create property FooType.name STRING;"
-                + "alter property FooType.name MANDATORY true;")
+        "sql",
+        "create class E2 extends E;"
+            + "create property E2.x LONG;"
+            + "create property E2.in LINK;"
+            + "alter property E2.in MANDATORY true;"
+            + "create property E2.out LINK;"
+            + "alter property E2.out MANDATORY true;"
+            + "create class E1 extends E;"
+            + "create property E1.x LONG;"
+            + "alter property E1.x MANDATORY true;"
+            + "create property E1.in LINK;"
+            + "alter property E1.in MANDATORY true;"
+            + "create property E1.out LINK;"
+            + "alter property E1.out MANDATORY true;"
+            + "create class FooType extends V;"
+            + "create property FooType.name STRING;"
+            + "alter property FooType.name MANDATORY true;")
         .close();
 
     session.computeScript(
-            "sql",
-            "begin;"
-                + "let $v1 = create vertex FooType content {'name':'foo1'};"
-                + "let $v2 = create vertex FooType content {'name':'foo2'};"
-                + "create edge E1 from $v1 to $v2 content {'x':22};"
-                + "create edge E1 from $v1 to $v2 set x=22;"
-                + "create edge E2 from $v1 to $v2 content {'x':345};"
-                + "commit;")
+        "sql",
+        "begin;"
+            + "let $v1 = create vertex FooType content {'name':'foo1'};"
+            + "let $v2 = create vertex FooType content {'name':'foo2'};"
+            + "create edge E1 from $v1 to $v2 content {'x':22};"
+            + "create edge E1 from $v1 to $v2 set x=22;"
+            + "create edge E2 from $v1 to $v2 content {'x':345};"
+            + "commit;")
         .close();
   }
 }

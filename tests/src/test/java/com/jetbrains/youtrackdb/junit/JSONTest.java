@@ -547,17 +547,17 @@ public class JSONTest extends BaseDBJUnit5Test {
   void testNestedJsonCollection() {
     session.executeInTx(tx -> session
         .command(
-            "insert into device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
+            "insert into Device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
                 + " 'domain' : 'pqr' } ])"));
 
     session.executeInTx(tx -> {
-      var result = session.query("select from device where domainset.domain contains 'abc'");
+      var result = session.query("select from Device where domainset.domain contains 'abc'");
       assertTrue(result.stream().findAny().isPresent());
 
-      result = session.query("select from device where domainset[domain = 'abc'] is not null");
+      result = session.query("select from Device where domainset[domain = 'abc'] is not null");
       assertTrue(result.stream().findAny().isPresent());
 
-      result = session.query("select from device where domainset.domain contains 'pqr'");
+      result = session.query("select from Device where domainset.domain contains 'pqr'");
       assertTrue(result.stream().findAny().isPresent());
     });
   }
@@ -565,10 +565,10 @@ public class JSONTest extends BaseDBJUnit5Test {
   @Test
   void testNestedEmbeddedJson() {
     session.executeInTx(tx -> session.command(
-        "insert into device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })"));
+        "insert into Device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })"));
 
     session.executeInTx(tx -> {
-      final var result = session.query("select from device where domainset.domain = 'eee'");
+      final var result = session.query("select from Device where domainset.domain = 'eee'");
       assertTrue(result.stream().findAny().isPresent());
     });
   }
@@ -577,12 +577,12 @@ public class JSONTest extends BaseDBJUnit5Test {
   void testNestedMultiLevelEmbeddedJson() {
     session.executeInTx(tx -> session
         .command(
-            "insert into device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
+            "insert into Device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
                 + " } )"));
 
     session.executeInTx(tx -> {
       final var result =
-          session.query("select from device where domainset.domain.lvlone.value = 'five'");
+          session.query("select from Device where domainset.domain.lvlone.value = 'five'");
 
       assertTrue(result.stream().findAny().isPresent());
     });

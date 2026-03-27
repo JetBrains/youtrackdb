@@ -34,7 +34,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -66,7 +65,6 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return delegate.countClasses(session);
   }
 
-
   @Override
   @Nonnull
   public SchemaClass createClass(final String iClassName) {
@@ -80,14 +78,13 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  @Nullable
-  public SchemaClass getOrCreateClass(final String iClassName, final SchemaClass iSuperClass) {
+  @Nullable public SchemaClass getOrCreateClass(final String iClassName, final SchemaClass iSuperClass) {
     assert session.assertIfNotActive();
     if (iClassName == null) {
       return null;
     }
 
-    var cls = delegate.getClass(iClassName.toLowerCase(Locale.ENGLISH));
+    var cls = delegate.getClass(iClassName);
     if (cls != null) {
       return new SchemaClassProxy(cls, session);
     }
@@ -201,8 +198,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  @Nullable
-  public SchemaClass getClass(final Class<?> iClass) {
+  @Nullable public SchemaClass getClass(final Class<?> iClass) {
     assert session.assertIfNotActive();
     if (iClass == null) {
       return null;
@@ -213,8 +209,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  @Nullable
-  public SchemaClass getClass(final String iClassName) {
+  @Nullable public SchemaClass getClass(final String iClassName) {
     if (iClassName == null) {
       return null;
     }
@@ -341,15 +336,13 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
         session);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaClass getClassByCollectionId(int collectionId) {
     assert session.assertIfNotActive();
 
     var cls = delegate.getClassByCollectionId(collectionId);
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
-
 
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
@@ -376,8 +369,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     return delegate.getCollectionSelectionFactory();
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     assert session.assertIfNotActive();
     var cls = delegate.getClass(iClassName);

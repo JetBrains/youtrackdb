@@ -470,7 +470,7 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
     var chunkSize = 10;
     for (var initialValue = 0; initialValue < 10; initialValue++) {
       session.begin();
-      assertEquals(0, session.countCollectionElements("MyFruit"));
+      assertEquals(0, session.countClass("MyFruit"));
       session.rollback();
 
       System.out.println(
@@ -516,7 +516,7 @@ public class TransactionConsistencyTest extends BaseDBJUnit5Test {
       System.out.println("[testTransactionPopulateDelete] Deleted executed successfully");
 
       session.begin();
-      assertEquals(0, session.countCollectionElements("MyFruit"));
+      assertEquals(0, session.countClass("MyFruit"));
       session.rollback();
     }
 

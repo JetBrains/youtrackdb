@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -58,7 +57,6 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     this.storage = storage;
   }
 
-
   public abstract Index createIndex(
       DatabaseSessionEmbedded session,
       final String iName,
@@ -82,7 +80,6 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
   public abstract void reload(DatabaseSessionEmbedded session);
 
-
   public abstract void load(DatabaseSessionEmbedded session);
 
   public void getClassRawIndexes(DatabaseSessionEmbedded session,
@@ -99,7 +96,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   protected Map<MultiKey, Set<Index>> getIndexOnProperty(final String className) {
-    return classPropertyIndex.get(className.toLowerCase(Locale.ROOT));
+    return classPropertyIndex.get(className);
   }
 
   public Set<Index> getClassInvolvedIndexes(
@@ -124,7 +121,6 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
     return result;
   }
-
 
   public Set<Index> getClassInvolvedIndexes(
       DatabaseSessionEmbedded session, final String className, final String... fields) {
@@ -155,16 +151,13 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return coll;
   }
 
-  @Nullable
-  public Index getClassIndex(
+  @Nullable public Index getClassIndex(
       DatabaseSessionEmbedded session, String className, String indexName) {
-    className = className.toLowerCase(Locale.ROOT);
-
     final var index = indexes.get(indexName);
     if (index != null
         && index.getDefinition() != null
         && index.getDefinition().getClassName() != null
-        && className.equals(index.getDefinition().getClassName().toLowerCase(Locale.ROOT))) {
+        && className.equals(index.getDefinition().getClassName())) {
       return index;
     }
     return null;
@@ -183,11 +176,9 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     }
   }
 
-
   public Collection<? extends Index> getIndexes() {
     return indexes.values();
   }
-
 
   public Index getIndex(final String iName) {
     return indexes.get(iName);
@@ -258,7 +249,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     }
 
     classPropertyIndex.put(
-        indexDefinition.getClassName().toLowerCase(Locale.ROOT), copyPropertyMap(propertyIndex));
+        indexDefinition.getClassName(), copyPropertyMap(propertyIndex));
   }
 
   public RID getIdentity() {

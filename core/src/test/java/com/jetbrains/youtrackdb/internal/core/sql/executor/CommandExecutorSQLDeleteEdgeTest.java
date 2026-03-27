@@ -86,7 +86,7 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
   @Test
   public void testDeleteEdgeWithVertexRid() {
     session.begin();
-    var vertexes = session.execute("select from v limit 1");
+    var vertexes = session.execute("select from V limit 1");
     try {
       session.execute("delete edge [" + vertexes.next().getIdentity() + "]").close();
       session.commit();
@@ -104,10 +104,10 @@ public class CommandExecutorSQLDeleteEdgeTest extends DbTestBase {
       session.begin();
       session.execute("create vertex User set name = 'foo" + i + "'").close();
       session.execute(
-              "create edge CanAccess from (select from User where name = 'foo"
-                  + i
-                  + "') to "
-                  + folderId1)
+          "create edge CanAccess from (select from User where name = 'foo"
+              + i
+              + "') to "
+              + folderId1)
           .close();
       session.commit();
     }

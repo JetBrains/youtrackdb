@@ -18,15 +18,15 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
     super.beforeTest();
 
     session.computeScript(
-            "sql",
-            """
-                create class Address abstract;
-                create property Address.street String;
-                create property Address.city String;
-                create class Client;
-                create property Client.name String;
-                create property Client.phones embeddedSet String;
-                create property Client.addresses embeddedList Address;""")
+        "sql",
+        """
+            create class Address abstract;
+            create property Address.street String;
+            create property Address.city String;
+            create class Client;
+            create property Client.name String;
+            create property Client.phones embeddedSet String;
+            create property Client.addresses embeddedList Address;""")
         .close();
   }
 
@@ -36,10 +36,10 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
     try (var result =
         session.computeScript(
             "sql",
-            "let res = insert into client set name = 'James Bond', phones = ['1234',"
+            "let res = insert into Client set name = 'James Bond', phones = ['1234',"
                 + " '34567'], addresses = [{'@class':'Address','city':'Shanghai', 'zip':'3999'},"
                 + " {'@class':'Address','city':'New York', 'street':'57th Ave'}]\n"
-                + ";update client set addresses = addresses ||"
+                + ";update Client set addresses = addresses ||"
                 + " [{'@type':'d','@class':'Address','city':'London', 'zip':'67373'}];"
                 + " return $res")) {
       Assert.assertTrue(result.hasNext());
@@ -56,7 +56,7 @@ public class TestTypeGuessingWorkingWithSQLAndMultiValues extends DbTestBase {
     session.begin();
     try (var resultSet =
         session.execute(
-            "update client set addresses = addresses || [{'city':'London', 'zip':'67373'}] return"
+            "update Client set addresses = addresses || [{'city':'London', 'zip':'67373'}] return"
                 + " after")) {
       Assert.assertTrue(resultSet.hasNext());
 

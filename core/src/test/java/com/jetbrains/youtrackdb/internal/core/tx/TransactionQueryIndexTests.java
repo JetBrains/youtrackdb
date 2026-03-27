@@ -40,11 +40,11 @@ public class TransactionQueryIndexTests {
     database.begin();
     EntityImpl doc = database.newInstance("test");
     doc.setProperty("test", "abcdefg");
-    var res = database.query("select from Test where test='abcdefg' ");
+    var res = database.query("select from test where test='abcdefg' ");
 
     assertEquals(1L, res.stream().count());
     res.close();
-    res = database.query("select from Test where test='aaaaa' ");
+    res = database.query("select from test where test='aaaaa' ");
 
     assertEquals(0L, res.stream().count());
     res.close();
