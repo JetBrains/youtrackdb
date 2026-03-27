@@ -2342,6 +2342,7 @@ public class SelectExecutionPlanner {
           new OrderByStep(
               info.orderBy,
               maxResults,
+              info.primaryKeySortedInput,
               ctx,
               info.timeout != null ? info.timeout.getVal().longValue() : -1,
               profilingEnabled));
