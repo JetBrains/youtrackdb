@@ -477,7 +477,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     });
   }
 
-  private enum MultiSourceStrategy {
+  enum MultiSourceStrategy {
     UNION_RIDSET_SCAN, GLOBAL_SCAN, LOAD_ALL_SORT
   }
 
@@ -645,7 +645,19 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, DatabaseSessionEmbedded session) {
-    var costs = computeCosts(totalEdges, indexSize, session);
+    var histogram = index.getHistogram(session);
+    return pickMultiSourceStrategyStatic(
+        totalEdges, indexSize, limit, histogram, orderAsc);
+  }
+
+  /**
+   * Pure multi-source strategy selection. Package-private for direct unit testing.
+   */
+  static MultiSourceStrategy pickMultiSourceStrategyStatic(
+      int totalEdges, long indexSize, long limit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    var costs = computeCostsStatic(
+        totalEdges, indexSize, limit, histogram, orderAsc);
     if (costs == null) {
       return MultiSourceStrategy.LOAD_ALL_SORT;
     }
@@ -653,23 +665,16 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     double costBias =
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
 
-    // Strategy 1: Union RidSet scan
-    // Build union: totalEdges × cpu
-    // Scan index: expectedScanLength × seqRead (bitmap check, no load)
-    // Load matches + reverse lookup: k × (randRead + cpu)
     double costUnion = totalEdges * costs.cpu
         + costs.seekCost
         + costs.expectedScanLength * (costs.seqRead + costs.cpu)
         + costs.k * (costs.randRead + costs.cpu);
     costUnion *= costBias;
 
-    // Strategy 2: Global scan (no union, load every entry)
-    // Scan: expectedScanLength × randRead (load each record + check reverse)
     double costGlobal = costs.seekCost
         + costs.expectedScanLength * (costs.randRead + costs.cpu);
     costGlobal *= costBias;
 
-    // Strategy 3: Load all + sort
     double costSort = costs.costLoadSort;
 
     if (costSort <= costUnion && costSort <= costGlobal) {
@@ -682,7 +687,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /** Shared cost computation for both single-source and multi-source. */
-  private record CostEstimate(
+  record CostEstimate(
       double expectedScanLength,
       long k,
       double seqRead,
@@ -695,6 +700,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   @Nullable private CostEstimate computeCosts(
       int linkBagSize, long indexSize, DatabaseSessionEmbedded session) {
+    var histogram = index.getHistogram(session);
+    return computeCostsStatic(
+        linkBagSize, indexSize, limit, histogram, orderAsc);
+  }
+
+  /**
+   * Pure cost computation — no dependencies on instance fields or database session.
+   * Package-private for direct unit testing.
+   */
+  @Nullable static CostEstimate computeCostsStatic(
+      int linkBagSize, long indexSize, long limit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
     int minLinkBag =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValueAsInteger();
     if (linkBagSize < minLinkBag || indexSize <= 0) {
@@ -708,10 +725,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
     double expectedScanLength = k / density;
 
-    var histogram = index.getHistogram(session);
     if (histogram != null && histogram.nonNullCount() > 0) {
-      expectedScanLength = applyHistogramSkew(
-          expectedScanLength, indexSize, histogram);
+      expectedScanLength = applyHistogramSkewStatic(
+          expectedScanLength, indexSize, histogram, orderAsc);
     }
 
     long maxScan =
@@ -746,9 +762,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         costUnionScan, costLoadSort);
   }
 
+  /** Instance wrapper for histogram skew correction. */
   private double applyHistogramSkew(
       double expectedScanLength, long indexSize,
       EquiDepthHistogram histogram) {
+    return applyHistogramSkewStatic(
+        expectedScanLength, indexSize, histogram, orderAsc);
+  }
+
+  /**
+   * Pure histogram skew correction. Package-private for unit testing.
+   *
+   * @param orderAsc true for ASC scan (use first buckets), false for DESC
+   *     (use last buckets)
+   */
+  static double applyHistogramSkewStatic(
+      double expectedScanLength, long indexSize,
+      EquiDepthHistogram histogram, boolean orderAsc) {
     double targetFraction = Math.min(expectedScanLength / indexSize, 1.0);
     int bucketsToScan = Math.max(1,
         (int) Math.ceil(targetFraction * histogram.bucketCount()));
@@ -974,7 +1004,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return x <= 1.0 ? 0.0 : Math.log(x) / Math.log(2.0);
   }
 
-  private static long sumFrequencies(long[] frequencies, int from, int to) {
+  static long sumFrequencies(long[] frequencies, int from, int to) {
     long sum = 0;
     for (int i = from; i < to; i++) {
       sum += Math.max(frequencies[i], 0);

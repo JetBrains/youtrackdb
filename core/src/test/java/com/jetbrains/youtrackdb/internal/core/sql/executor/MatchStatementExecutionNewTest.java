@@ -3316,6 +3316,42 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  // --- Test 9b: Multi-source FILTERED_UNBOUND ---
+  // WHERE filter on source, but source alias NOT in RETURN.
+  // This is the union-RidSet-only mode (no reverse edge lookup needed).
+  @Test
+  public void testIndexOrderedMatchMultiSourceFilteredUnbound() {
+    initIndexOrderedMatchMultiSourceData();
+
+    session.begin();
+    // WHERE filter on p, but p NOT in RETURN → FILTERED_UNBOUND
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      Assert.assertTrue(
+          "Plan should use FILTERED_UNBOUND mode, but was:\n" + plan,
+          plan.contains("FILTERED_UNBOUND"));
+
+      var days = new java.util.ArrayList<Integer>();
+      while (result.hasNext()) {
+        days.add(dayOfMonth(result.next().getProperty("cd")));
+      }
+      Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
+      for (var i = 0; i < days.size() - 1; i++) {
+        Assert.assertTrue(
+            "Results should be in DESC order: " + days,
+            days.get(i) >= days.get(i + 1));
+      }
+    }
+    session.commit();
+  }
+
   // --- Test 10: Multi-source, unfiltered unbound ---
   // All TestPerson vertices as sources (no WHERE), source alias NOT in RETURN.
   // With 5 persons this forces multi-source UNFILTERED_UNBOUND mode.
