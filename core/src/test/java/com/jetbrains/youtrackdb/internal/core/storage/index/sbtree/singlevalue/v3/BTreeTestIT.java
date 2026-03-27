@@ -874,9 +874,8 @@ public class BTreeTestIT {
       final var fromKeyIndex = random.nextInt(keys.length);
       var fromKey = keys[fromKeyIndex];
 
-      if (random.nextBoolean()) {
-        fromKey =
-            fromKey.substring(0, fromKey.length() - 2) + (fromKey.charAt(fromKey.length() - 1) - 1);
+      if (random.nextBoolean() && fromKey.length() >= 2) {
+        fromKey = perturbKey(fromKey, -1);
       }
 
       final Iterator<RawPair<String, RID>> indexIterator;
@@ -928,8 +927,8 @@ public class BTreeTestIT {
     for (var i = 0; i < 100; i++) {
       var toKeyIndex = random.nextInt(keys.length);
       var toKey = keys[toKeyIndex];
-      if (random.nextBoolean()) {
-        toKey = toKey.substring(0, toKey.length() - 2) + (toKey.charAt(toKey.length() - 1) + 1);
+      if (random.nextBoolean() && toKey.length() >= 2) {
+        toKey = perturbKey(toKey, +1);
       }
 
       final Iterator<RawPair<String, RID>> indexIterator;
@@ -984,13 +983,12 @@ public class BTreeTestIT {
       var fromKey = keys[fromKeyIndex];
       var toKey = keys[toKeyIndex];
 
-      if (random.nextBoolean()) {
-        fromKey =
-            fromKey.substring(0, fromKey.length() - 2) + (fromKey.charAt(fromKey.length() - 1) - 1);
+      if (random.nextBoolean() && fromKey.length() >= 2) {
+        fromKey = perturbKey(fromKey, -1);
       }
 
-      if (random.nextBoolean()) {
-        toKey = toKey.substring(0, toKey.length() - 2) + (toKey.charAt(toKey.length() - 1) + 1);
+      if (random.nextBoolean() && toKey.length() >= 2) {
+        toKey = perturbKey(toKey, +1);
       }
 
       if (fromKey.compareTo(toKey) > 0) {
@@ -1057,6 +1055,24 @@ public class BTreeTestIT {
         Assert.assertTrue(indexIterator.hasNext());
       }
     }
+  }
+
+  /**
+   * Perturbs a key by dropping the second-to-last character and shifting the last
+   * character by {@code delta}. The result is one character shorter than the original
+   * and is very likely not present in the map, which lets the iteration tests exercise
+   * keys that fall between actual B-tree entries.
+   *
+   * <p>The cast to {@code (char)} is critical: without it, Java promotes the
+   * {@code char + int} arithmetic to {@code int}, and string concatenation appends the
+   * decimal representation (e.g. {@code "99998" + 48} instead of {@code "99998" + '0'}).
+   *
+   * @param key   the original key (must have {@code length >= 2})
+   * @param delta the amount to shift the last character (typically {@code -1} or {@code +1})
+   */
+  private static String perturbKey(String key, int delta) {
+    return key.substring(0, key.length() - 2)
+        + (char) (key.charAt(key.length() - 1) + delta);
   }
 
   static final class RollbackException extends BaseException implements HighLevelException {
