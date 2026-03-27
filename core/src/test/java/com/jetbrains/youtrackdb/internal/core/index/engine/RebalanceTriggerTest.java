@@ -8,6 +8,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -16,6 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -26,6 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -40,6 +44,39 @@ import org.junit.Test;
  * </ul>
  */
 public class RebalanceTriggerTest {
+
+  // GlobalConfiguration is JVM-global mutable state. Other test classes
+  // (e.g. IndexHistogramManagerUnitTest) override rebalance-related config
+  // values. Because surefire runs classes in parallel, we must pin the
+  // values we depend on and restore them after each test.
+  private final Map<GlobalConfiguration, Object> configOverrides =
+      new LinkedHashMap<>();
+
+  @After
+  public void tearDown() {
+    for (var entry : configOverrides.entrySet()) {
+      entry.getKey().setValue(entry.getValue());
+    }
+    configOverrides.clear();
+  }
+
+  private void setConfig(GlobalConfiguration key, Object value) {
+    if (!configOverrides.containsKey(key)) {
+      configOverrides.put(key, key.getValue());
+    }
+    key.setValue(value);
+  }
+
+  /**
+   * Pins rebalance-related GlobalConfiguration values to the documented
+   * defaults. Call this at the start of any test that asserts specific
+   * threshold values computed from these settings.
+   */
+  private void pinRebalanceDefaults() {
+    setConfig(GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.3);
+    setConfig(GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 1000L);
+    setConfig(GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 10_000_000L);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // getHistogram() returns cached value
@@ -98,7 +135,9 @@ public class RebalanceTriggerTest {
   public void getHistogram_schedulesRebalanceWhenMutationsExceedThreshold()
       throws Exception {
     // Given a manager with a histogram, a key stream supplier, fileId set,
-    // and mutations exceeding the rebalance threshold
+    // and mutations exceeding the rebalance threshold.
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createRebalanceCapableFixture(2000, 10000);
 
     var executor = Executors.newSingleThreadExecutor();
@@ -152,7 +191,9 @@ public class RebalanceTriggerTest {
 
   @Test
   public void getHistogram_doesNotScheduleRebalanceWhenBelowThreshold() {
-    // Given a manager with mutations below the threshold
+    // Given a manager with mutations below the threshold.
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createManagerFixture();
     var histogram = createTestHistogram();
     var stats = new IndexStatistics(2000, 2000, 0);
@@ -193,7 +234,9 @@ public class RebalanceTriggerTest {
   public void setBackgroundExecutor_triggersProactiveRebalanceWhenThresholdExceeded()
       throws Exception {
     // Given a manager with a snapshot whose mutationsSinceRebalance
-    // exceeds the threshold (simulating accumulated mutations before crash)
+    // exceeds the threshold (simulating accumulated mutations before crash).
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createRebalanceCapableFixture(5000, 5000);
 
     // When setBackgroundExecutor() is called with a non-null executor
@@ -217,7 +260,9 @@ public class RebalanceTriggerTest {
 
   @Test
   public void setBackgroundExecutor_doesNotScheduleRebalanceWhenBelowThreshold() {
-    // Given a manager with mutations below threshold
+    // Given a manager with mutations below threshold.
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createManagerFixture();
     var stats = new IndexStatistics(2000, 2000, 0);
     var snapshot = new HistogramSnapshot(
@@ -340,6 +385,8 @@ public class RebalanceTriggerTest {
   public void computeRebalanceThreshold_halvesThresholdWhenDrifted() {
     // Verify the drift-biased threshold computation directly, without
     // relying on background executor timing.
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createManagerFixture();
 
     // Normal snapshot (no drift): threshold = max(min(5000*0.3, 10M), 1000) = 1500
@@ -384,8 +431,8 @@ public class RebalanceTriggerTest {
       throws Exception {
     // Given a manager with hasDriftedBuckets=true and mutations that exceed
     // the halved threshold but not the normal threshold.
-    // Uses createRebalanceCapableFixture-style setup for robustness, then
-    // modifies the snapshot to add drift.
+    // Pin config values because parallel test classes may override them.
+    pinRebalanceDefaults();
     var fixture = createManagerFixture();
     var histogram = createTestHistogram();
     var stats = new IndexStatistics(5000, 5000, 0);
