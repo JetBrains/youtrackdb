@@ -10,7 +10,7 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 - **Group ID**: `io.youtrackdb`
 - **Version**: `0.5.0-SNAPSHOT` (CI-friendly: `${revision}${sha1}${changelist}`)
 - **Issue tracker**: https://youtrack.jetbrains.com/issues/YTDB
-- **Repository**: https://github.com/JetBrains/youtrackdb
+- **Repository**: https://github.com/youtrackdb/youtrackdb
 
 ## Build Commands
 
@@ -45,48 +45,6 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 
 The `docs/` folder contains project documentation. See `docs/README.md` for the index.
 
-## Module Structure
-
-| Module | Artifact | Purpose |
-|---|---|---|
-| `core` | `youtrackdb-core` | Core database engine, public API, Gremlin integration, SQL parser, storage engine |
-| `server` | `youtrackdb-server` | Gremlin Server implementation (Docker image) |
-| `driver` | `youtrackdb-driver` | Remote Gremlin driver for server connections |
-| `console` | `youtrackdb-console` | Gremlin REPL console (Docker image) |
-| `lucene` | `youtrackdb-lucene` | **Excluded from build.** Kept as reference code for future reimplementation of Lucene full-text and spatial indexing. |
-| `gremlin-annotations` | `youtrackdb-gremlin-annotations` | Annotation processor for Gremlin DSL code generation |
-| `tests` | `youtrackdb-tests` | Integration/functional test suite (JUnit 5 with JUnit Platform Suite) |
-| `test-commons` | `youtrackdb-test-commons` | Shared test utilities (JUnit 4, Mockito, AssertJ) |
-| `embedded` | `youtrackdb-embedded` | Uber-jar with relocated third-party deps; includes TinkerPop Cucumber feature tests |
-| `docker-tests` | `youtrackdb-docker-tests` | Docker image tests (Testcontainers) |
-| `examples` | `youtrackdb-examples` | Example applications |
-| `jmh-ldbc` | `youtrackdb-jmh-ldbc` | LDBC SNB read query benchmarks (JMH). Also contains `grafana/` (Grafana+InfluxDB infra) and `jmh-to-influxdb.py`. See `jmh-ldbc/README.md` |
-
-## Package Structure
-
-Root package: `com.jetbrains.youtrackdb`
-
-### Public API (`com.jetbrains.youtrackdb.api`)
-- `YourTracks` - Factory entry point, creates `YouTrackDB` instances (embedded or remote)
-- `YouTrackDB` - Main interface for database lifecycle (create, drop, list, openTraversal, restore)
-- `DatabaseType` - Enum: `DISK` or `MEMORY`
-- `api/config/GlobalConfiguration` - All configuration parameters
-- `api/gremlin/` - Custom Gremlin DSL: `YTDBGraphTraversalSourceDSL`, `YTDBGraphTraversalDSL`
-- `api/gremlin/embedded/` - Embedded graph elements: `YTDBVertex`, `YTDBEdge`, schema classes
-- `api/exception/` - Public exceptions: `ConcurrentModificationException`, `RecordDuplicatedException`, `RecordNotFoundException`
-
-### Internal (`com.jetbrains.youtrackdb.internal`)
-- `internal/common/` - Low-level utilities (collections, concurrency, direct memory, I/O, hashing, serialization)
-- `internal/core/engine/` - Storage engine abstraction (SPI via `Engine` interface)
-- `internal/core/storage/` - Page-based storage: disk cache, WAL, collections, indices
-- `internal/core/gremlin/` - Gremlin graph implementation (`YTDBGraphEmbedded`, `YTDBGraphFactory`)
-- `internal/core/sql/parser/` - JavaCC-generated SQL parser (from `core/src/main/grammar/YouTrackDBSql.jjt`)
-- `internal/core/tx/` - Transaction management
-- `internal/core/index/` - Index implementations (B-tree based)
-- `internal/core/metadata/` - Schema and metadata management
-- `internal/server/` - Server implementation (`ServerMain`, `YouTrackDBServer`)
-- `internal/driver/` - Remote driver (`YouTrackDBRemote`)
-
 ## Key Architecture Concepts
 
 ### Storage Engine
@@ -113,13 +71,11 @@ Root package: `com.jetbrains.youtrackdb`
 
 ## Code Style
 
-Java code style is defined in `.idea/codeStyles/Project.xml`:
-
 - **Indent**: 2 spaces (Java, XML, JSON, etc.)
 - **Continuation indent**: 4 spaces
 - **Line width**: 100 characters
 - **Braces**: Always required for `if`, `while`, `for`, `do-while` (force braces = always)
-- **Imports**: No wildcard imports (threshold set to 999); import order: module imports, static imports, blank line, regular imports
+- **Imports**: No wildcard imports (threshold set to 999); import order: static imports first, then regular imports (enforced by Spotless)
 - **Wrapping**: Wrap if long for parameters, extends, throws, method chains, binary/ternary operations
 - **Binary operators**: Sign on next line when wrapping
 - **Blank lines**: 1 blank line after class header, max 1 blank line in code
@@ -133,7 +89,7 @@ Java code style is defined in `.idea/codeStyles/Project.xml`:
 
 Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) (`com.diffplug.spotless:spotless-maven-plugin`), which runs the `check` goal automatically during the `process-sources` phase of every build. Builds will fail if formatting violations are found.
 
-- **Formatter**: Eclipse formatter configured in `config/eclipse-formatter.xml`
+- **Formatter**: Eclipse formatter configured in `project-config/eclipse-formatter.xml`
 - **Ratchet mode**: Only files changed since the `spotless-baseline` git tag are checked — existing code is not reformatted
 - **Import order**: Static imports first (`\#`), then regular imports
 - **Excludes**: Generated code (`**/internal/core/sql/parser/**`, `**/generated-sources/**`, `**/generated-test-sources/**`)
@@ -159,7 +115,6 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
-- **Do not create separate `*MutationTest` classes.** When writing tests to kill pitest mutations, add the test methods directly to the existing domain test class for that component (e.g., `HyperLogLogSketchTest`, `EquiDepthHistogramTest`). Mutation-killing tests are just regular unit tests that happen to target specific boundary conditions — they belong alongside the other tests for the same class.
 - **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code (enforced by CI coverage gate).
 - **Coverage verification**: Always use the `coverage-gate.py` script (see [Pre-Commit Verification](#pre-commit-verification)) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
 
@@ -201,18 +156,15 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 ### Branches
 - **`develop` is the default development branch** for this project, not `main`.
 - `main` - Used for delivery of artifacts once all tests on `develop` have passed (auto-merged from develop nightly after integration tests pass)
-- Feature branches: `ytdb-NNN-description` or `YTDB-NNN/description`
 
 ### Commit Messages
-- **Must** contain a YTDB issue prefix: `YTDB-123: Fix description`
-- Enforced by `check-commit-prefix.yml` CI workflow
-- Git hook `.githooks/prepare-commit-msg` auto-prepends prefix based on branch name
+- Git hook `.githooks/prepare-commit-msg` auto-prepends YTDB issue prefix based on branch name
 - **Format**:
   ```
-  YTDB-123: <imperative summary, under 50 chars>
+  [Imperative summary, under 50 chars]
 
-  <detailed explanation of WHY this change was made — motivation, context,
-  trade-offs. Not a restatement of the diff.>
+  [Detailed explanation of WHY this change was made — motivation, context,
+  trade-offs. Not a restatement of the diff.]
   ```
 
 ### Force Pushing
@@ -224,48 +176,6 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - Target branch: `develop`
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
-
-## CI/CD
-
-### Primary Pipeline (`maven-pipeline.yml`)
-Runs on `develop` pushes and PRs:
-- **Change detection**: Skips CI for non-build-relevant changes (markdown, docs, etc.)
-- **Concurrency**: Cancels in-progress builds when new commits arrive on the same PR/branch
-- **Test matrix**: JDK 21+25, 2 distributions (temurin, oracle), 3 configurations (Linux x86, Linux arm, Windows x64)
-- **Disk-based unit tests**: All unit tests run with `-Dyoutrackdb.test.env=ci` so they use disk storage instead of memory. Integration tests are not run on PRs — they have a separate nightly pipeline.
-- **Coverage gate**: Enforces 85% line coverage and 70% branch coverage on new/changed code for all PRs. Uses a unified script (`coverage-gate.py`) that parses git diff + JaCoCo XML and posts a PR comment with per-file coverage tables. Coverage data collected on Linux x86, JDK 21, temurin.
-- **Test count gate**: Detects unintentional test removal or disabling by comparing per-module test counts against the develop baseline stored in git notes (`refs/notes/test-counts`). Fails if any module's test count drops by more than 5%. Posts a PR comment with a per-module comparison table. Baseline is automatically updated on every successful develop build. Bypassed when the PR title contains `[no-test-number-check]` (useful for intentional test refactorings). Scripts: `collect-test-counts.py` (collection) and `test-count-gate.py` (comparison).
-- **Deploy**: Publishes `-dev-SNAPSHOT` artifacts to Maven Central on develop pushes
-- **Test count baseline save**: On successful develop builds, saves current test counts as a git note on the develop HEAD commit. Future PRs compare against this baseline.
-- **CI Status gate**: Consolidates all checks (test-linux, test-windows, coverage-gate, test-count-gate) into a single required status for branch protection
-- **Notifications**: Sends Zulip messages on build failure/recovery
-
-### Nightly Integration Tests (`maven-integration-tests-pipeline.yml`)
-- Runs at 2 AM UTC, skips if current SHA was already tested successfully
-- Tests on Linux (x86+arm) and Windows with JDK 21+25, 2 distributions (temurin, oracle)
-- Auto-merges `develop` to `main` (fast-forward only) on success
-- Sends Zulip notifications on failure/recovery
-
-### Nightly LDBC JMH Benchmarks (`ldbc-jmh-nightly.yml`)
-- Runs at 3 AM UTC on `develop` (after integration tests), also supports `workflow_dispatch`
-- Provisions an ephemeral Hetzner CCX33 (8 dedicated vCPUs, 32 GB RAM) in fsn1
-- Builds `jmh-ldbc`, pre-loads the LDBC SF 0.1 dataset, runs all 40 benchmarks (20 queries x 2 suites)
-- Pushes results to InfluxDB via `jmh-ldbc/jmh-to-influxdb.py`, uploads JSON as artifact (90-day retention)
-- **Always** destroys the CCX33 server after completion
-- **Grafana dashboard**: https://bench.youtrackdb.io (anonymous read access)
-- **Infrastructure**: Persistent CX23 VM (`grafana-bench`, 116.203.166.137 floating IP) in nbg1 running Caddy + Grafana + InfluxDB 2.x via Docker Compose. Config in `jmh-ldbc/grafana/`.
-- **Secrets**: `HCLOUD_TOKEN`, `INFLUXDB_URL`, `INFLUXDB_TOKEN`, `STORAGEBOX_USER`, `STORAGEBOX_PASSWORD`
-
-### Main Deploy (`maven-main-deploy-pipeline.yml`)
-- Triggered on `main` pushes
-- Deploys snapshot and timestamped artifacts to Maven Central
-- Builds and pushes multi-arch (x64+arm64) Docker images to Docker Hub
-- Sends Zulip notifications on failure/recovery
-
-### Guard Workflows
-- **check-commit-prefix.yml**: Enforces `YTDB-NNN:` prefix on commit messages
-- **block-merge-commits.yml**: Prevents merge commits in PRs
-- **pr-title-prefix.yml**: Auto-prefixes PR titles with YTDB issue number from branch name
 
 ## Key Entry Points
 
@@ -281,16 +191,6 @@ Runs on `develop` pushes and PRs:
 | `GlobalConfiguration` | core | All configurable parameters |
 | `DiskStorage` | core | Disk-based paginated storage implementation |
 | `AbstractStorage` | core | Base class for storage implementations |
-
-## Key Dependencies
-
-- Apache TinkerPop Gremlin (custom fork: `io.youtrackdb:gremlin-*` v3.8.1). Version is published as a `-<commitSHA>-SNAPSHOT` (e.g. `3.8.1-fccfc5a-SNAPSHOT`); the commit SHA suffix changes with each fork update - check the `gremlin.version` property in the root `pom.xml` for the current value.
-- GraalVM (JavaScript scripting via Gremlin)
-- Jackson 2.21.x (JSON serialization)
-- SLF4J 2.x + Log4j 2.25.x (logging)
-- Guava, fastutil (collections)
-- LZ4 (compression)
-- BouncyCastle (TLS in server)
 
 ## Pre-Commit Verification
 
@@ -341,19 +241,6 @@ Runs on `develop` pushes and PRs:
    - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (includes Cucumber feature tests)
    - Changes to `tests` module: run `./mvnw -pl tests clean test`
    - If in doubt, run the full test suite: `./mvnw clean package`
-
-## Investigating Coverage Gate Failures
-
-When the coverage gate fails on a PR, check the coverage gate PR comment for the list of uncovered lines. Cross-reference those lines with existing tests to determine whether coverage is genuinely missing or the lines are tested indirectly. Write new tests targeting any genuinely uncovered code paths.
-
-## File Modification Rules
-
-- **Always use the `Edit` and `Write` tools** to create or modify files. Do not use shell commands (`cat`, `echo`, `sed`, `awk`, `tee`, or redirection operators `>`, `>>`) to write or modify files.
-- **Use the `Read` tool** to read file contents instead of `cat`, `head`, or `tail`.
-- **Use `Glob` and `Grep` tools** for file search instead of `find`, `grep`, or `rg` shell commands.
-- **Shell utilities in pipelines**: Commands like `grep`, `cat`, `head`, `find`, `sed`, `awk` are permitted when used in shell pipelines (e.g., `git log | grep ...`, `find ... | xargs ...`) where dedicated tools cannot substitute. Prefer dedicated tools for standalone file reads and searches.
-- **Temporary files**: Use `/tmp/claude-code-*` for scratch files, intermediate build artifacts, or staging data. This is the only `/tmp` path with read/write/edit permissions.
-- Reserve `Bash` exclusively for build commands (`./mvnw`), git operations, `gh` CLI, `docker`, and other tools that genuinely require shell execution.
 
 ## Tips for Working with This Codebase
 
