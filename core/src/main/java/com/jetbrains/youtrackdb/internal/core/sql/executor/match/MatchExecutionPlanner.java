@@ -396,6 +396,8 @@ public class MatchExecutionPlanner {
    * @param reverseFieldName LinkBag field on the target vertex that points back
    *                         to the source (e.g., "out_HAS_CREATOR" on Message)
    * @param sourceClassName  source vertex class name (for class-check modes)
+   * @param targetFilter     WHERE clause on target alias, or null if none
+   * @param targetClassName  class constraint on target alias, or null if none
    */
   private record IndexOrderedCandidate(
       EdgeTraversal edgeTraversal,
@@ -409,7 +411,9 @@ public class MatchExecutionPlanner {
       @Nullable MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
-      boolean multiFieldOrderBy) {
+      boolean multiFieldOrderBy,
+      @Nullable SQLWhereClause targetFilter,
+      @Nullable String targetClassName) {
   }
 
   /**
@@ -4423,6 +4427,8 @@ public class MatchExecutionPlanner {
           candidate.multiSourceMode(),
           candidate.reverseFieldName(),
           candidate.sourceClassName(),
+          candidate.targetFilter(),
+          candidate.targetClassName(),
           profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
@@ -4591,16 +4597,24 @@ public class MatchExecutionPlanner {
       // connected vertices.
       var hasReverseField = schema.existsClass(edgeClassName);
       var hasSourceFilter = aliasFilters.get(sourceAlias) != null;
+      // If the source alias is the target of an earlier edge in the schedule,
+      // it is implicitly filtered by those earlier edges. UNFILTERED modes
+      // only check source class, which is too permissive when earlier edges
+      // constrain which source vertices are valid (e.g., Message subclasses
+      // include both Post and Comment).
+      var sourceConstrainedByEarlierEdges =
+          isTargetOfEarlierEdge(sourceAlias, sortedEdges, matchedEdge);
+      var effectivelyFiltered = hasSourceFilter || sourceConstrainedByEarlierEdges;
       var sourceBindingNeeded = isSourceAliasUsedDownstream(
           sourceAlias, sortedEdges, matchedEdge);
 
-      if (hasSourceFilter && sourceBindingNeeded) {
+      if (effectivelyFiltered && sourceBindingNeeded) {
         // Need sourceMap + reverse lookup → reverse field required
         if (!hasReverseField) {
           return null;
         }
         multiSourceMode = MultiSourceMode.FILTERED_BOUND;
-      } else if (hasSourceFilter) {
+      } else if (effectivelyFiltered) {
         // Union RidSet, no reverse lookup needed
         multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
       } else if (sourceBindingNeeded) {
@@ -4628,11 +4642,15 @@ public class MatchExecutionPlanner {
 
     var multiFieldOrderBy = orderBy.getItems().size() > 1;
 
+    // Extract target WHERE filter from the edge's path item filter.
+    // filter is the SQLMatchFilterItem; filter.getFilter() is the WHERE clause.
+    var targetFilter = filter != null ? filter.getFilter() : null;
+
     return new IndexOrderedCandidate(
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
         multiSourceMode, reverseFieldName, sourceClassName,
-        multiFieldOrderBy);
+        multiFieldOrderBy, targetFilter, targetClassName);
   }
 
   /**
@@ -4698,6 +4716,28 @@ public class MatchExecutionPlanner {
     }
 
     return null;
+  }
+
+  /**
+   * Checks whether the source alias is the target of any edge scheduled before
+   * the matched edge. When true, the source is implicitly constrained by those
+   * earlier traversals, and UNFILTERED modes (which only check source class)
+   * are unsafe — they would include vertices not reachable from the pattern root.
+   */
+  private static boolean isTargetOfEarlierEdge(
+      String sourceAlias,
+      List<EdgeTraversal> sortedEdges,
+      EdgeTraversal matchedEdge) {
+    for (var edge : sortedEdges) {
+      if (edge.edge == matchedEdge.edge) {
+        break;
+      }
+      var target = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+      if (sourceAlias.equals(target)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

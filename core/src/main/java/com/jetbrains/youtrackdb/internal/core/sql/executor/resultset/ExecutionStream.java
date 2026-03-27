@@ -13,12 +13,14 @@ import javax.annotation.Nullable;
 
 public interface ExecutionStream {
 
+  /** Filter that passes non-null results and skips nulls. */
+  FilterResult SKIP_NULLS = (result, ctx) -> result;
+
   boolean hasNext(CommandContext ctx);
 
   Result next(CommandContext ctx);
 
   void close(CommandContext ctx);
-
 
   default ExecutionStream map(ResultMapper mapper) {
     return new MapperExecutionStream(this, mapper);
@@ -79,34 +81,33 @@ public interface ExecutionStream {
 
   default Stream<Result> stream(CommandContext ctx) {
     return StreamSupport.stream(
-            new Spliterator<Result>() {
+        new Spliterator<Result>() {
 
-              @Override
-              public boolean tryAdvance(Consumer<? super Result> action) {
-                if (hasNext(ctx)) {
-                  action.accept(next(ctx));
-                  return true;
-                }
-                return false;
-              }
+          @Override
+          public boolean tryAdvance(Consumer<? super Result> action) {
+            if (hasNext(ctx)) {
+              action.accept(next(ctx));
+              return true;
+            }
+            return false;
+          }
 
-              @Nullable
-              @Override
-              public Spliterator<Result> trySplit() {
-                return null;
-              }
+          @Nullable @Override
+          public Spliterator<Result> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return 0;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return 0;
+          }
+        },
+        false)
         .onClose(() -> this.close(ctx));
   }
 }
