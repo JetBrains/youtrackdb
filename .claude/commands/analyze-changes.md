@@ -51,8 +51,8 @@ If a PR is found:
 - Read the PR **title**, **description/body**, and **URL**
 - Read all **review comments** and **issue comments** via:
   ```bash
-  gh pr view <number> --json comments,reviews,reviewDecision
-  gh api repos/{owner}/{repo}/pulls/<number>/comments
+  gh pr view <number> --json comments,reviews,reviewDecision # Fetches top-level issue comments, review summaries, and decision
+  gh api repos/{owner}/{repo}/pulls/<number>/comments # Fetches detailed line-level review comments
   ```
 - Include the PR context in your analysis
 
@@ -127,6 +127,15 @@ sequenceDiagram
     participant B as ComponentB
     A->>B: methodCall()
     B-->>A: response
+```
+
+#### State Diagram
+```mermaid
+stateDiagram
+    [*] --> StateA
+    StateA --> StateB: Event1
+    StateB --> StateC: Event2
+    StateC --> [*]
 ```
 
 <Repeat sections for each logical group of non-trivial changes.>
