@@ -27,6 +27,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -35,10 +36,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
+import org.junit.After;
 import org.junit.Test;
 
 /**
@@ -64,6 +68,38 @@ import org.junit.Test;
  * </ul>
  */
 public class ThreeTierTransitionTest {
+
+  // GlobalConfiguration is JVM-global mutable state. Other test classes
+  // (e.g. IndexHistogramManagerUnitTest, HistogramConfigurationTest) override
+  // histogram-related config values. Because surefire runs classes in
+  // parallel, we must pin the values we depend on and restore them after
+  // each test.
+  private final Map<GlobalConfiguration, Object> configOverrides =
+      new LinkedHashMap<>();
+
+  @After
+  public void tearDown() {
+    for (var entry : configOverrides.entrySet()) {
+      entry.getKey().setValue(entry.getValue());
+    }
+    configOverrides.clear();
+  }
+
+  private void setConfig(GlobalConfiguration key, Object value) {
+    if (!configOverrides.containsKey(key)) {
+      configOverrides.put(key, key.getValue());
+    }
+    key.setValue(value);
+  }
+
+  /**
+   * Pins histogram-related GlobalConfiguration values to the documented
+   * defaults. Call this at the start of any test that creates a manager
+   * and asserts behavior that depends on HISTOGRAM_MIN_SIZE.
+   */
+  private void pinHistogramDefaults() {
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 1000);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // Tier 1 (Empty): all estimate methods return 0
@@ -143,7 +179,7 @@ public class ThreeTierTransitionTest {
     assertNotNull(snapshot);
     assertEquals(1, snapshot.stats().totalCount());
     assertEquals(1, snapshot.stats().distinctCount());
-    assertNull("Histogram should not exist below min size",
+    assertNull("Histogram should not exist — only 1 entry",
         snapshot.histogram());
   }
 
@@ -280,7 +316,9 @@ public class ThreeTierTransitionTest {
   public void uniformToHistogram_buildTriggeredAtMinSize()
       throws Exception {
     // Given a manager in uniform tier with totalCount >= HISTOGRAM_MIN_SIZE
-    // but no histogram built yet (totalCountAtLastBuild == 0)
+    // but no histogram built yet (totalCountAtLastBuild == 0).
+    // Pin config values because parallel test classes may override them.
+    pinHistogramDefaults();
     var fixture = createManagerFixture();
     int count = 2000;
     var stats = new IndexStatistics(count, count, 0);
@@ -326,7 +364,9 @@ public class ThreeTierTransitionTest {
   public void uniformToHistogram_belowMinSizeDoesNotBuild()
       throws Exception {
     // Given a manager with totalCount below HISTOGRAM_MIN_SIZE (default
-    // 1000)
+    // 1000).
+    // Pin config values because parallel test classes may override them.
+    pinHistogramDefaults();
     var fixture = createManagerFixture();
     var stats = new IndexStatistics(500, 500, 0);
     var snapshot = new HistogramSnapshot(
