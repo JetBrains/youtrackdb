@@ -28,7 +28,6 @@ import java.util.concurrent.Future;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -80,8 +79,6 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
     youTrackDB.close();
   }
 
-  @Ignore("YTDB-510: Disabled until LinkBag is SI-aware. updateOppositeLinks loads linked "
-      + "entities that may not exist in the reader's snapshot, causing RecordNotFoundException.")
   @Test
   public void testConcurrency() throws Exception {
     try (var session = (DatabaseSessionEmbedded) youTrackDB.open(
@@ -121,7 +118,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
         latch.countDown();
 
-        Thread.sleep(30 * 60_000);
+        Thread.sleep(60_000);
         cont = false;
 
         for (var future : addFutures) {
