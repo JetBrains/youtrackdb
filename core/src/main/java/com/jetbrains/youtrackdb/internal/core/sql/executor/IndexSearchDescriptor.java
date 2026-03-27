@@ -101,37 +101,28 @@ public class IndexSearchDescriptor {
   }
 
   /**
-   * Estimates the I/O cost of this index lookup. Consults {@link QueryStats} first
-   * (volatile EMA of past query counts); falls back to persistent histogram-based
-   * estimation when QueryStats has no data for this index/condition combination.
-   * Returns {@link Integer#MAX_VALUE} if neither source can provide an estimate.
+   * Estimates the I/O cost of this index lookup using persistent histogram-based
+   * estimation. For unique indexes with exact-match on all fields, returns a
+   * cost of 1 (single-row lookup). Returns {@link Integer#MAX_VALUE} if no
+   * statistics are available.
    */
   public int cost(CommandContext ctx) {
     if (keyCondition == null) {
       return Integer.MAX_VALUE;
     }
 
-    var session = ctx.getDatabaseSession();
-    var stats = QueryStats.get(session);
-
-    var indexName = index.getName();
-    var subBlocks = getSubBlocks();
-    var size = subBlocks.size();
-    var range = false;
-    var lastOp = subBlocks.get(size - 1);
-    if (lastOp instanceof SQLBinaryCondition binCond) {
-      var op = binCond.getOperator();
-      range = op.isRangeOperator();
+    // Unique index with exact equality on all key fields → single-row lookup.
+    // Every sub-block must be an equality condition (SQLEqualsOperator) to
+    // guarantee at most one matching row. IN, range, LIKE, and other operators
+    // can match multiple rows even on a unique index.
+    if (index.isUnique() && additionalRangeCondition == null) {
+      var subBlocks = getSubBlocks();
+      if (index.getDefinition().getProperties().size() == subBlocks.size()
+          && allEquality(subBlocks)) {
+        return (int) CostModel.indexEqualityCost(1);
+      }
     }
 
-    var val =
-        stats.getIndexStats(
-            indexName, size, range, additionalRangeCondition != null, session);
-    if (val >= 0) {
-      return val > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) val;
-    }
-
-    // QueryStats has no data — try histogram-based estimation.
     return estimateFromHistogram(ctx);
   }
 
@@ -304,6 +295,17 @@ public class IndexSearchDescriptor {
       return bc.getOperator().isRangeOperator();
     }
     return false;
+  }
+
+  /** Returns true if every sub-block is a strict equality condition (SQLEqualsOperator). */
+  private static boolean allEquality(List<SQLBooleanExpression> subBlocks) {
+    for (var block : subBlocks) {
+      if (!(block instanceof SQLBinaryCondition bc)
+          || !(bc.getOperator() instanceof SQLEqualsOperator)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Unwraps the key condition into its sub-blocks (AND block -> sub-blocks, else singleton). */

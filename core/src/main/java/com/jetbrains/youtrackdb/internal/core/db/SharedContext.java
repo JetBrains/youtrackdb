@@ -19,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryI
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOps;
 import com.jetbrains.youtrackdb.internal.core.schedule.SchedulerImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -43,7 +42,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected GqlStatementCache gqlStatementCache;
   protected YqlExecutionPlanCache yqlExecutionPlanCache;
   protected GqlExecutionPlanCache gqlExecutionPlanCache;
-  protected QueryStats queryStats;
   protected volatile boolean loaded = false;
   protected Map<String, Object> resources;
   protected StringCache stringCache;
@@ -99,7 +97,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
                 .getValueAsInteger(GlobalConfiguration.STATEMENT_CACHE_SIZE));
     this.registerListener(gqlExecutionPlanCache);
 
-    queryStats = new QueryStats();
     storage
         .setStorageConfigurationUpdateListener(
             update -> {
@@ -269,10 +266,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public GqlExecutionPlanCache getGqlExecutionPlanCache() {
     return gqlExecutionPlanCache;
-  }
-
-  public QueryStats getQueryStats() {
-    return queryStats;
   }
 
   public AbstractStorage getStorage() {
