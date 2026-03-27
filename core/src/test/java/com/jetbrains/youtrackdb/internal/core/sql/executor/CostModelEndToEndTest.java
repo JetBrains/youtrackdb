@@ -32,12 +32,10 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
@@ -93,7 +91,6 @@ public class CostModelEndToEndTest {
 
   private DatabaseSessionEmbedded session;
   private CommandContext ctx;
-  private QueryStats queryStats;
   private ImmutableSchema schema;
 
   // Large table: 100,000 entries for meaningful cost comparison
@@ -119,14 +116,6 @@ public class CostModelEndToEndTest {
         .getValue();
 
     session = mock(DatabaseSessionEmbedded.class);
-    var sharedContext = mock(SharedContext.class);
-    var indexManager = mock(IndexManagerEmbedded.class);
-    queryStats = new QueryStats();
-    when(session.getSharedContext()).thenReturn(sharedContext);
-    when(sharedContext.getQueryStats()).thenReturn(queryStats);
-    when(sharedContext.getIndexManager()).thenReturn(indexManager);
-    when(indexManager.getIndex(any())).thenReturn(null);
-
     var metadata = mock(MetadataDefault.class);
     schema = mock(ImmutableSchema.class);
     when(session.getMetadata()).thenReturn(metadata);
@@ -317,9 +306,11 @@ public class CostModelEndToEndTest {
     var result = invokeEstimateRootEntries(
         aliasClasses, Map.of(), Map.of());
 
-    // City (50) should have a lower estimate than Person (10000).
+    // No filter → classCount + 1 bias for both aliases.
+    assertEquals(10_001L, (long) result.get("p"));
+    assertEquals(51L, (long) result.get("c"));
     assertTrue(
-        "City (50) should have lower estimate than Person (10000)",
+        "City (51) should have lower estimate than Person (10001)",
         result.get("c") < result.get("p"));
   }
 

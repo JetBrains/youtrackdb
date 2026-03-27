@@ -118,9 +118,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   /** Sort direction for the index scan (true = ascending, false = descending). */
   private boolean orderAsc;
 
-  /** Running count of results produced (reported to {@link QueryStats} on close). */
-  private long count = 0;
-
   public FetchFromIndexStep(
       IndexSearchDescriptor desc, boolean orderAsc, CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
@@ -167,11 +164,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             }
           }
         };
-    return new MultipleExecutionStream(res).onClose(this::close);
-  }
-
-  private void close(CommandContext context) {
-    updateIndexStats();
+    return new MultipleExecutionStream(res);
   }
 
   private Result readResult(CommandContext ctx, RawPair<Object, RID> nextEntry) {
@@ -179,7 +172,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       throw new CommandInterruptedException(ctx.getDatabaseSession(),
           "The command has been interrupted");
     }
-    count++;
     var key = nextEntry.first();
     Identifiable value = nextEntry.second();
 
@@ -195,32 +187,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       return new ArrayList<>(ck.getKeys());
     }
     return key;
-  }
-
-  private void updateIndexStats() {
-    // stats
-    var stats = QueryStats.get(ctx.getDatabaseSession());
-    var index = desc.getIndex();
-    var condition = desc.getKeyCondition();
-    var additionalRangeCondition = desc.getAdditionalRangeCondition();
-    if (index == null) {
-      return; // this could happen, if not inited yet
-    }
-    var indexName = index.getName();
-    var range = false;
-    var size = 0;
-
-    if (condition != null) {
-      var andBlock = (SQLAndBlock) condition;
-      size = andBlock.getSubBlocks().size();
-      var lastOp = andBlock.getSubBlocks().getLast();
-      if (lastOp instanceof SQLBinaryCondition binCond) {
-        var op = binCond.getOperator();
-        range = op.isRangeOperator();
-      }
-    }
-
-    stats.pushIndexStats(indexName, size, range, additionalRangeCondition != null, count);
   }
 
   /**
@@ -1007,7 +973,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   @Override
   public void reset() {
     desc = null;
-    count = 0;
   }
 
   /** Cacheable: the index descriptor captures the lookup conditions structurally. */

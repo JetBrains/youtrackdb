@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
@@ -29,11 +28,9 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
@@ -55,11 +52,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests for the histogram-based cost estimation fallback in
+ * Tests for the histogram-based cost estimation in
  * {@link IndexSearchDescriptor#cost(CommandContext)}.
  *
- * <p>Verifies that when {@link QueryStats} has no data (returns -1),
- * cost() falls back to persistent histogram-based estimation using
+ * <p>Verifies that cost() uses persistent histogram-based estimation via
  * {@link SelectivityEstimator}. Also tests combined range conditions,
  * composite index handling, and various fallback paths.
  */
@@ -67,7 +63,6 @@ public class IndexSearchDescriptorCostTest {
 
   private DatabaseSessionEmbedded session;
   private CommandContext ctx;
-  private QueryStats queryStats;
   private Index index;
 
   // Uniform histogram: 4 buckets [0,25), [25,50), [50,75), [75,100]
@@ -78,15 +73,6 @@ public class IndexSearchDescriptorCostTest {
   @Before
   public void setUp() {
     session = mock(DatabaseSessionEmbedded.class);
-    var sharedContext = mock(SharedContext.class);
-    var indexManager = mock(IndexManagerEmbedded.class);
-    queryStats = new QueryStats();
-    when(session.getSharedContext()).thenReturn(sharedContext);
-    when(sharedContext.getQueryStats()).thenReturn(queryStats);
-    // QueryStats.getIndexStats() checks unique indexes via IndexManager
-    when(sharedContext.getIndexManager()).thenReturn(indexManager);
-    when(indexManager.getIndex(any())).thenReturn(null);
-
     ctx = mock(CommandContext.class);
     when(ctx.getDatabaseSession()).thenReturn(session);
 
@@ -110,30 +96,181 @@ public class IndexSearchDescriptorCostTest {
     when(index.getHistogram(session)).thenReturn(histogram);
   }
 
-  // ── QueryStats takes priority ──────────────────────────────────
+  // ── Unique index shortcut ──────────────────────────────────
 
   @Test
-  public void queryStatsAvailable_usesQueryStatsInsteadOfHistogram() {
-    // Given: QueryStats has data for this index (returns 42)
-    queryStats.pushIndexStats("idx_age", 1, false, false, 42L);
+  public void uniqueIndex_exactEqualityOnAllFields_returnsCostOne() {
+    // Unique single-field index with exact equality on all fields
+    // should return the single-row lookup cost.
+    when(index.isUnique()).thenReturn(true);
 
     var desc = new IndexSearchDescriptor(
         index,
         binaryCondition("age", new SQLEqualsOperator(-1), 30),
         null, null);
 
-    // When
+    assertEquals((int) CostModel.indexEqualityCost(1), desc.cost(ctx));
+  }
+
+  @Test
+  public void uniqueIndex_rangeOnLastField_fallsBackToHistogram() {
+    // Unique index with a range operator should NOT use the shortcut;
+    // it falls through to histogram estimation.
+    when(index.isUnique()).thenReturn(true);
+
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLGtOperator(-1), 30),
+        null, null);
+
     var cost = desc.cost(ctx);
 
-    // Then: should use QueryStats value, not histogram
-    assertEquals(42, cost);
+    var expectedSel =
+        SelectivityEstimator.estimateGreaterThan(stats, histogram, 30);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void uniqueIndex_partialKeyMatch_fallsBackToHistogram() {
+    // Unique composite index on [age, name] with only 1 of 2 fields
+    // matched should NOT use the shortcut.
+    when(index.isUnique()).thenReturn(true);
+    var compositeDef = mock(IndexDefinition.class);
+    when(compositeDef.getProperties()).thenReturn(List.of("age", "name"));
+    when(index.getDefinition()).thenReturn(compositeDef);
+
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 30);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void uniqueIndex_withAdditionalRange_skipsShortcut() {
+    // Unique index with additionalRangeCondition != null should skip
+    // the shortcut and fall through to histogram estimation.
+    when(index.isUnique()).thenReturn(true);
+
+    var lower = binaryCondition("age", new SQLGeOperator(-1), 20);
+    var upper = binaryCondition("age", new SQLLtOperator(-1), 60);
+    var desc = new IndexSearchDescriptor(index, lower, upper, null);
+
+    var cost = desc.cost(ctx);
+
+    var expectedSel = SelectivityEstimator.estimateRange(
+        stats, histogram, 20, 60, true, false);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void uniqueCompositeIndex_exactMatchAllFields_returnsCostOne() {
+    // Unique composite index on [age, name] with equality on ALL fields
+    // should return the single-row lookup cost.
+    when(index.isUnique()).thenReturn(true);
+    var compositeDef = mock(IndexDefinition.class);
+    when(compositeDef.getProperties()).thenReturn(List.of("age", "name"));
+    when(index.getDefinition()).thenReturn(compositeDef);
+
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.addSubBlock(
+        binaryCondition("age", new SQLEqualsOperator(-1), 30));
+    andBlock.addSubBlock(
+        binaryCondition("name", new SQLEqualsOperator(-1), "Alice"));
+
+    var desc = new IndexSearchDescriptor(index, andBlock, null, null);
+
+    assertEquals((int) CostModel.indexEqualityCost(1), desc.cost(ctx));
+  }
+
+  @Test
+  public void uniqueCompositeIndex_equalityPlusRangeOnLast_skipsShortcut() {
+    // Unique composite index on [a, b] with equality on the leading field
+    // and a range on the last field should NOT use the shortcut — the
+    // allEquality check rejects it because the last sub-block uses GT.
+    when(index.isUnique()).thenReturn(true);
+    var compositeDef = mock(IndexDefinition.class);
+    when(compositeDef.getProperties()).thenReturn(List.of("a", "b"));
+    when(index.getDefinition()).thenReturn(compositeDef);
+
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.addSubBlock(
+        binaryCondition("a", new SQLEqualsOperator(-1), 1));
+    andBlock.addSubBlock(
+        binaryCondition("b", new SQLGtOperator(-1), 5));
+
+    var desc = new IndexSearchDescriptor(index, andBlock, null, null);
+
+    var cost = desc.cost(ctx);
+
+    // Shortcut skipped → histogram estimation. Leading field (a=1) uses
+    // histogram equality, second field uses defaultSelectivity. isRangeEstimate
+    // checks the FIRST sub-block (equality) so the cost model uses
+    // indexEqualityCost.
+    var leadingSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 1);
+    var combinedSel = leadingSel * SelectivityEstimator.defaultSelectivity();
+    long estimatedRows =
+        Math.max(1, (long) (stats.totalCount() * combinedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void uniqueIndex_inCondition_doesNotTriggerShortcut() {
+    // An IN condition on a unique index can match multiple rows (one per
+    // IN value). The shortcut must NOT fire because SQLInOperator is not
+    // SQLEqualsOperator.
+    when(index.isUnique()).thenReturn(true);
+
+    var bc = new SQLBinaryCondition(-1);
+    bc.setLeft(fieldExpr("age"));
+    bc.setOperator(new SQLInOperator(-1));
+    bc.setRight(valueExpr(List.of(10, 30, 70)));
+
+    var desc = new IndexSearchDescriptor(index, bc, null, null);
+
+    var cost = desc.cost(ctx);
+
+    // Should fall through to histogram IN estimation, not the unique shortcut.
+    var expectedSel = SelectivityEstimator.estimateIn(
+        stats, histogram, List.of(10, 30, 70));
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
+  }
+
+  @Test
+  public void nonUniqueIndex_equalityOnAllFields_doesNotReturnCostOne() {
+    // Non-unique index with exact equality should NOT use the unique
+    // shortcut — guards against accidental removal of the isUnique() check.
+    when(index.isUnique()).thenReturn(false);
+
+    var desc = new IndexSearchDescriptor(
+        index,
+        binaryCondition("age", new SQLEqualsOperator(-1), 30),
+        null, null);
+
+    var cost = desc.cost(ctx);
+
+    // Should fall through to histogram estimation, not the unique shortcut.
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 30);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   // ── Equality: f = X ──────────────────────────────────────────
 
   @Test
   public void equalityCondition_usesHistogramEstimation() {
-    // Given: WHERE age = 30 (no QueryStats data)
+    // Given: WHERE age = 30
     var desc = new IndexSearchDescriptor(
         index,
         binaryCondition("age", new SQLEqualsOperator(-1), 30),
@@ -499,17 +636,21 @@ public class IndexSearchDescriptorCostTest {
   // ── Minimum cost floor ──────────────────────────────────────
 
   @Test
-  public void estimateNeverReturnsBelowOne() {
-    // Given: a value far outside histogram range (selectivity near zero)
+  public void estimateNeverReturnsBelowOne_nearBoundary() {
+    // Value just above the histogram upper bound (100). The near-boundary
+    // out-of-range path uses 1/NDV selectivity, producing a small but
+    // positive cost that must be at least 1.
     var desc = new IndexSearchDescriptor(
         index,
-        binaryCondition("age", new SQLEqualsOperator(-1), 999),
+        binaryCondition("age", new SQLEqualsOperator(-1), 101),
         null, null);
 
     var cost = desc.cost(ctx);
 
-    // Selectivity is tiny but cost must be at least 1
-    assertTrue("Cost should be at least 1", cost >= 1);
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 101);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   // ── Combined range: non-binary first expression falls back ───
@@ -578,78 +719,17 @@ public class IndexSearchDescriptorCostTest {
   @Test
   public void cost_nullKeyCondition_returnsMaxValue() {
     // When keyCondition is null, cost() should short-circuit to MAX_VALUE
-    // without consulting QueryStats or histogram.
+    // without consulting histogram.
     var desc = new IndexSearchDescriptor(index);
 
     assertEquals(Integer.MAX_VALUE, desc.cost(ctx));
   }
 
-  // ── isLowerBound / isUpperBound operators ─────────────────
-
-  @Test
-  public void isRangeEstimate_withGtOperator_returnsTrue() {
-    // A single GT condition should be detected as a range estimate.
-    var desc = new IndexSearchDescriptor(
-        index,
-        binaryCondition("age", new SQLGtOperator(-1), 50),
-        null, null);
-
-    var cost = desc.cost(ctx);
-
-    // GT is a range operator → should use indexRangeCost (not equality cost).
-    var expectedSel =
-        SelectivityEstimator.estimateGreaterThan(stats, histogram, 50);
-    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
-    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
-  }
-
-  @Test
-  public void isRangeEstimate_withGeOperator_returnsTrue() {
-    // A single GE condition should be detected as a range estimate.
-    var desc = new IndexSearchDescriptor(
-        index,
-        binaryCondition("age", new SQLGeOperator(-1), 50),
-        null, null);
-
-    var cost = desc.cost(ctx);
-
-    var expectedSel =
-        SelectivityEstimator.estimateGreaterOrEqual(stats, histogram, 50);
-    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
-    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
-  }
-
-  @Test
-  public void isRangeEstimate_withLtOperator_returnsTrue() {
-    // A single LT condition should be detected as a range estimate.
-    var desc = new IndexSearchDescriptor(
-        index,
-        binaryCondition("age", new SQLLtOperator(-1), 50),
-        null, null);
-
-    var cost = desc.cost(ctx);
-
-    var expectedSel =
-        SelectivityEstimator.estimateLessThan(stats, histogram, 50);
-    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
-    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
-  }
-
-  @Test
-  public void isRangeEstimate_withLeOperator_returnsTrue() {
-    // A single LE condition should be detected as a range estimate.
-    var desc = new IndexSearchDescriptor(
-        index,
-        binaryCondition("age", new SQLLeOperator(-1), 50),
-        null, null);
-
-    var cost = desc.cost(ctx);
-
-    var expectedSel =
-        SelectivityEstimator.estimateLessOrEqual(stats, histogram, 50);
-    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
-    assertEquals((int) CostModel.indexRangeCost(estimatedRows), cost);
-  }
+  // ── isRangeEstimate: equality vs range cost model selection ──
+  // Note: GT, GE, LT, LE → indexRangeCost is already verified by the
+  // operator-specific tests above. These tests verify the two distinct
+  // outcomes: equality uses indexEqualityCost, and additionalRange
+  // forces indexRangeCost.
 
   @Test
   public void isRangeEstimate_withEquality_returnsFalse() {
@@ -732,7 +812,10 @@ public class IndexSearchDescriptorCostTest {
 
     var cost = desc.cost(ctx);
 
-    assertTrue("Cost must be at least 1, was: " + cost, cost >= 1);
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 999_999);
+    long estimatedRows = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals((int) CostModel.indexEqualityCost(estimatedRows), cost);
   }
 
   // ── estimateCombinedRange: f >= 20 AND f < 30 ─────────────
@@ -771,14 +854,14 @@ public class IndexSearchDescriptorCostTest {
 
   // ── estimateHits() ─────────────────────────────────────────
 
-  /** estimateHits with null key condition returns -1. */
+  // estimateHits with null key condition returns -1.
   @Test
   public void estimateHits_nullKeyCondition_returnsNegative() {
     var desc = new IndexSearchDescriptor(index);
     assertEquals(-1, desc.estimateHits(ctx));
   }
 
-  /** estimateHits with null statistics returns -1. */
+  // estimateHits with null statistics returns -1.
   @Test
   public void estimateHits_nullStats_returnsNegative() {
     when(index.getStatistics(session)).thenReturn(null);
@@ -789,7 +872,7 @@ public class IndexSearchDescriptorCostTest {
     assertEquals(-1, desc.estimateHits(ctx));
   }
 
-  /** estimateHits with zero totalCount returns -1. */
+  // estimateHits with zero totalCount returns -1.
   @Test
   public void estimateHits_zeroTotalCount_returnsNegative() {
     when(index.getStatistics(session))
@@ -801,7 +884,7 @@ public class IndexSearchDescriptorCostTest {
     assertEquals(-1, desc.estimateHits(ctx));
   }
 
-  /** estimateHits with unsupported operator returns -1. */
+  // estimateHits with unsupported operator returns -1.
   @Test
   public void estimateHits_unsupportedOperator_returnsNegative() {
     var bc = new SQLBinaryCondition(-1);
@@ -815,7 +898,7 @@ public class IndexSearchDescriptorCostTest {
     assertEquals(-1, desc.estimateHits(ctx));
   }
 
-  /** estimateHits with equality condition returns positive estimate. */
+  // estimateHits with equality condition returns positive estimate.
   @Test
   public void estimateHits_equality_returnsPositive() {
     var desc = new IndexSearchDescriptor(
@@ -823,7 +906,6 @@ public class IndexSearchDescriptorCostTest {
         binaryCondition("age", new SQLEqualsOperator(-1), 30),
         null, null);
     var hits = desc.estimateHits(ctx);
-    assertTrue("estimateHits should be positive, was: " + hits, hits >= 1);
 
     var expectedSel =
         SelectivityEstimator.estimateEquality(stats, histogram, 30);
@@ -831,7 +913,7 @@ public class IndexSearchDescriptorCostTest {
         Math.max(1, (long) (stats.totalCount() * expectedSel)), hits);
   }
 
-  /** estimateHits with combined range uses tighter estimate. */
+  // estimateHits with combined range uses tighter estimate.
   @Test
   public void estimateHits_combinedRange_usesRangeEstimate() {
     var lower = binaryCondition("age", new SQLGeOperator(-1), 20);
@@ -846,7 +928,7 @@ public class IndexSearchDescriptorCostTest {
         Math.max(1, (long) (stats.totalCount() * expectedSel)), hits);
   }
 
-  /** estimateHits with composite index multiplies default selectivity. */
+  // estimateHits with composite index multiplies default selectivity.
   @Test
   public void estimateHits_compositeIndex_multipliesDefaultSelectivity() {
     var compositeDef = mock(IndexDefinition.class);
@@ -871,7 +953,7 @@ public class IndexSearchDescriptorCostTest {
         Math.max(1, (long) (stats.totalCount() * combinedSel)), hits);
   }
 
-  /** estimateHits always returns at least 1 even for tiny selectivity. */
+  // estimateHits always returns at least 1 even for tiny selectivity.
   @Test
   public void estimateHits_floorIsOne() {
     var desc = new IndexSearchDescriptor(
@@ -879,7 +961,11 @@ public class IndexSearchDescriptorCostTest {
         binaryCondition("age", new SQLEqualsOperator(-1), 999_999),
         null, null);
     var hits = desc.estimateHits(ctx);
-    assertTrue("estimateHits floor should be 1, was: " + hits, hits >= 1);
+
+    var expectedSel =
+        SelectivityEstimator.estimateEquality(stats, histogram, 999_999);
+    long expectedHits = Math.max(1, (long) (stats.totalCount() * expectedSel));
+    assertEquals(expectedHits, hits);
   }
 
   // ── Helpers ──────────────────────────────────────────────────
