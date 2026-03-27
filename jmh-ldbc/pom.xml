@@ -176,9 +176,18 @@
                   <excludes>
                     <exclude>**/LdbcBenchmarkState.class</exclude>
                     <exclude>**/LdbcBenchmarkState$*.class</exclude>
-                    <exclude>**/LdbcReadBenchmarkBase.class</exclude>
-                    <exclude>**/LdbcMultiThreadBenchmark.class</exclude>
-                    <exclude>**/LdbcSingleThreadBenchmark.class</exclude>
+                    <exclude>**/LdbcISBenchmarkBase.class</exclude>
+                    <exclude>**/LdbcICBenchmarkBase.class</exclude>
+                    <exclude>**/LdbcSingleThreadISBenchmark.class</exclude>
+                    <exclude>**/LdbcMultiThreadISBenchmark.class</exclude>
+                    <exclude>**/LdbcSingleThreadICBenchmark.class</exclude>
+                    <exclude>**/LdbcMultiThreadICBenchmark.class</exclude>
+                    <exclude>**/LdbcICSlowBenchmarkBase.class</exclude>
+                    <exclude>**/LdbcSingleThreadICSlowBenchmark.class</exclude>
+                    <exclude>**/LdbcMultiThreadICSlowBenchmark.class</exclude>
+                    <exclude>**/LdbcICUltraSlowBenchmarkBase.class</exclude>
+                    <exclude>**/LdbcSingleThreadICUltraSlowBenchmark.class</exclude>
+                    <exclude>**/LdbcMultiThreadICUltraSlowBenchmark.class</exclude>
                     <exclude>**/LdbcDatabaseTool.class</exclude>
                     <exclude>**/LdbcExplainTool.class</exclude>
                   </excludes>
