@@ -587,7 +587,7 @@ public class MatchExecutionPlanner {
       var probeEdges = getTopologicalSortedSchedule(
           estimatedRootEntries, pattern, aliasClasses, context.getDatabaseSession());
       indexOrderedCandidate =
-          detectIndexOrderedCandidate(probeEdges, estimatedRootEntries, context);
+          detectIndexOrderedCandidate(probeEdges, context);
     }
 
     // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
@@ -4461,7 +4461,6 @@ public class MatchExecutionPlanner {
    */
   @Nullable private IndexOrderedCandidate detectIndexOrderedCandidate(
       List<EdgeTraversal> sortedEdges,
-      Map<String, Long> estimatedRootEntries,
       CommandContext context) {
     // 1. ORDER BY must have at least one item; first item must have no collate
     if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
@@ -4575,10 +4574,16 @@ public class MatchExecutionPlanner {
     }
 
     // 9. Determine multi-source mode (null = single-source).
-    var sourceCardinality =
-        estimatedRootEntries.getOrDefault(sourceAlias, Long.MAX_VALUE);
+    // Single-source is safe ONLY when the source has a RID constraint (guaranteed
+    // exactly 1 row). With class + WHERE filter, the estimator may undercount
+    // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,
+    // flatMap concatenates per-source results — but OrderByStep is suppressed,
+    // so the output would be incorrectly ordered if >1 source rows arrive.
+    // Multi-source mode always produces globally sorted results, so it is the
+    // safe default whenever the source is not pinned to a single RID.
+    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null;
     MultiSourceMode multiSourceMode = null;
-    if (sourceCardinality > 1) {
+    if (!sourceHasRidConstraint) {
       // Verify reverse field can exist on target class. The in_/out_ LinkBag
       // fields are created implicitly by the edge system — they won't appear as
       // schema properties via getPropertyInternal(). Instead, verify that the edge

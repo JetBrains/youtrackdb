@@ -3623,6 +3623,45 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  // --- Test 16: Cardinality mis-estimation safety ---
+  // With 2 persons and a LIKE filter, the estimator may return cardinality ≤ 1.
+  // The optimization must still produce globally sorted results because the
+  // planner uses multi-source mode (not single-source flatMap) whenever the
+  // source is not pinned to a single RID.
+  @Test
+  public void testIndexOrderedMatchCardinalityMisEstimation() {
+    initIndexOrderedMatchData();
+
+    session.begin();
+    // LIKE filter on 2 persons — estimator might say cardinality=1,
+    // but runtime has 2 sources. Global DESC must be correct.
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertTrue(
+          "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // person1: days 1-10, person2: days 11-20
+      // Global DESC LIMIT 5 → days 20, 19, 18, 17, 16 (all from person2)
+      var days = new java.util.ArrayList<Integer>();
+      while (result.hasNext()) {
+        days.add(dayOfMonth(result.next().getProperty("cd")));
+      }
+      Assert.assertEquals("Should have 5 results: " + days, 5, days.size());
+      Assert.assertEquals("Top result must be day 20 (global order)", 20, (int) days.get(0));
+      for (var i = 0; i < days.size() - 1; i++) {
+        Assert.assertTrue(
+            "Results should be in DESC order: " + days,
+            days.get(i) >= days.get(i + 1));
+      }
+    }
+    session.commit();
+  }
+
   // =====================================================================
   // EXPLAIN-based plan structure tests
   //

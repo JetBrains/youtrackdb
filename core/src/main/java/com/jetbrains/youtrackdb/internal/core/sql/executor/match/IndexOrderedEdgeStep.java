@@ -107,6 +107,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (multiSourceMode != null) {
       return multiSourceDispatch(ctx);
     }
+    // Guaranteed single-source: exactly 1 upstream row (source has RID constraint).
+    // Safe to use flatMap — results from the single call are already globally sorted.
     var resultSet = prev.start(ctx);
     return resultSet.flatMap(this::processUpstreamRow);
   }
