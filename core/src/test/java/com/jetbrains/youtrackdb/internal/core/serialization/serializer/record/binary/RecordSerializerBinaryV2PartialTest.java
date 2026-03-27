@@ -833,17 +833,22 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     assertThat(deserialized.hasProperty("alpha")).isFalse();
     assertThat(deserialized.hasProperty("epsilon")).isFalse();
 
-    // Direct byte inspection: verify the first entry's 4-byte hash prefix is computed
+    // Direct byte inspection: verify the hash table entry is computed
     // from the property name string, not the encoded property ID
     var bytes = new BytesContainer();
     v2.serialize(session, entity, bytes);
     var readBytes = new BytesContainer(bytes.bytes);
-    VarIntSerializer.readAsInteger(readBytes); // skip property count
+    int propCount = VarIntSerializer.readAsInteger(readBytes);
+    // Read first hash from the hash table
     int storedHash = com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
         .deserializeLiteral(readBytes.bytes, readBytes.offset);
-    // The first property name varies by serialization order, but we can verify
-    // the stored hash matches the MurmurHash3 of whichever name is first
-    readBytes.skip(4); // skip hash
+    // Read first offset from the offset table
+    int firstOffset = com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
+        .deserializeLiteral(readBytes.bytes,
+            readBytes.offset + propCount * 4); // offset table starts after hash table
+    // Skip hash table + offset table to reach data area
+    int dataAreaStart = readBytes.offset + propCount * 4 * 2;
+    readBytes.offset = dataAreaStart + firstOffset;
     int nameLen = VarIntSerializer.readAsInteger(readBytes);
     String firstName;
     if (nameLen > 0) {
@@ -859,7 +864,7 @@ public class RecordSerializerBinaryV2PartialTest extends DbTestBase {
     byte[] firstNameBytes = firstName.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     int expectedHash = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3
         .hash32WithSeed(firstNameBytes, 0, firstNameBytes.length, 0);
-    assertThat(storedHash).as("Hash prefix for '%s'", firstName).isEqualTo(expectedHash);
+    assertThat(storedHash).as("Hash table entry for '%s'", firstName).isEqualTo(expectedHash);
     session.rollback();
   }
 

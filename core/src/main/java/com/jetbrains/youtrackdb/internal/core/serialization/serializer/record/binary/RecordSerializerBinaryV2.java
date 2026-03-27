@@ -36,18 +36,20 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * V2 entity serializer with hash-accelerated linear scan for faster partial deserialization.
+ * V2 entity serializer with header-separated hash table for O(1) partial deserialization.
  *
- * <p>Each property entry is prefixed with a 4-byte MurmurHash3 hash of the property name.
- * During partial deserialization, the hash is compared first — on mismatch, the entry is
- * skipped without constructing a String or resolving the property ID.
+ * <p>Property hashes and offsets are stored in a compact header, separate from the data area.
+ * During partial deserialization, only the hash table (4 bytes × N) is scanned; on a hash
+ * match the corresponding offset is read and the cursor jumps directly to the entry in the
+ * data area — no value bytes are touched for non-matching properties.
  *
  * <p>Binary format:
  * <pre>
  * [class name: varint len + UTF-8 bytes]  (0 len = no class, only for embedded mode)
  * [property count: varint]
- * [for each property:]
- *   [name hash: 4 bytes — MurmurHash3 of property name UTF-8 bytes with seed 0]
+ * [hash table:   propertyCount × 4 bytes — MurmurHash3 of property name UTF-8, seed 0]
+ * [offset table: propertyCount × 4 bytes — byte offset from data-area start to entry]
+ * [data area: for each property:]
  *   [name-encoding: varint len + UTF-8 (schema-less) or varint (id+1)*-1 (schema-aware)]
  *   [type byte]
  *   [value-size varint]
@@ -114,25 +116,39 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
+    // Reserve space for the hash table and offset table (fixed-size, filled below)
+    int hashTableStart = bytes.alloc(propertyCount * IntegerSerializer.INT_SIZE);
+    int offsetTableStart = bytes.alloc(propertyCount * IntegerSerializer.INT_SIZE);
+    int dataAreaStart = bytes.offset;
+
     // Reusable scratch buffer for measuring serialized value lengths.
     // Each nesting level (embedded entities) creates its own tempBuffer,
     // so nested entities do not interfere with the parent's buffer.
     var tempBuffer = new BytesContainer();
 
-    // Hash-accelerated linear scan: for each property, write 4-byte hash prefix then entry
+    int entryIndex = 0;
     for (var field : fields) {
       if (!field.getValue().exists()) {
         continue;
       }
-      // Compute hash prefix from the property name
+
+      // Compute hash and write into the hash table
       String fieldName = resolveFieldName(field);
       byte[] nameBytes = fieldName.getBytes(StandardCharsets.UTF_8);
       int hash = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
-      int hashPos = bytes.alloc(IntegerSerializer.INT_SIZE);
-      IntegerSerializer.serializeLiteral(hash, bytes.bytes, hashPos);
+      IntegerSerializer.serializeLiteral(hash, bytes.bytes,
+          hashTableStart + entryIndex * IntegerSerializer.INT_SIZE);
+
+      // Write offset (relative to data area start) into the offset table
+      int entryOffset = bytes.offset - dataAreaStart;
+      IntegerSerializer.serializeLiteral(entryOffset, bytes.bytes,
+          offsetTableStart + entryIndex * IntegerSerializer.INT_SIZE);
+
       // Write property entry: [name-encoding][type][value-size][value]
       serializePropertyEntry(session, bytes, field, props, clazz, schema, encryption,
           tempBuffer, nameBytes);
+
+      entryIndex++;
     }
   }
 
@@ -234,9 +250,10 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
-    // Full deserialization: skip hash prefix per entry, then read entry normally
+    // Skip hash table and offset table — full deserialization reads entries sequentially
+    bytes.skip(propertyCount * IntegerSerializer.INT_SIZE * 2);
+
     for (int i = 0; i < propertyCount; i++) {
-      bytes.skip(IntegerSerializer.INT_SIZE);
       deserializeEntry(db, entity, bytes);
     }
 
@@ -303,9 +320,12 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return;
     }
 
-    // Hash-accelerated partial deserialization: pre-compute hashes for requested fields,
-    // then scan entries comparing hash prefix before reading name strings.
-    // Defensive copy: we null out matched entries to handle hash collisions correctly.
+    // Layout: [hash table | offset table | data area]
+    int hashTableStart = bytes.offset;
+    int offsetTableStart = hashTableStart + propertyCount * IntegerSerializer.INT_SIZE;
+    int dataAreaStart = offsetTableStart + propertyCount * IntegerSerializer.INT_SIZE;
+
+    // Pre-compute hashes for requested fields
     String[] remaining = Arrays.copyOf(iFields, iFields.length);
     int[] fieldHashes = new int[remaining.length];
     for (int fi = 0; fi < remaining.length; fi++) {
@@ -313,11 +333,11 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       fieldHashes[fi] = MurmurHash3.hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
     }
 
+    // Scan the compact hash table only (4 bytes per entry, no value bytes touched)
     int found = 0;
     for (int i = 0; i < propertyCount && found < remaining.length; i++) {
-      // Read 4-byte hash prefix
-      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
-      bytes.skip(IntegerSerializer.INT_SIZE);
+      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes,
+          hashTableStart + i * IntegerSerializer.INT_SIZE);
 
       // Check if this entry's hash matches any remaining requested field
       boolean hashMatches = false;
@@ -329,19 +349,19 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       }
 
       if (!hashMatches) {
-        // Hash mismatch — skip name, type, and value without constructing strings
-        skipNameAndTypeAndValue(bytes);
-        continue;
+        continue; // No value bytes skipped — just advance in the hash table
       }
 
-      // Hash match — read name and verify string equality (collision guard)
+      // Hash match — jump to entry via offset table (O(1), no sequential scan)
+      int entryOffset = IntegerSerializer.deserializeLiteral(bytes.bytes,
+          offsetTableStart + i * IntegerSerializer.INT_SIZE);
+      bytes.offset = dataAreaStart + entryOffset;
+
       var nameAndType = readNameAndType(db, entity, bytes);
       int valueLength = VarIntSerializer.readAsInteger(bytes);
       validateValueLength(valueLength, nameAndType.name);
 
-      // Find which requested field matches this entry's name.
-      // Checks all remaining entries (not just the first hash match) to handle
-      // the case where two requested fields have the same 32-bit hash.
+      // Find which requested field matches this entry's name (collision guard).
       int matchIndex = -1;
       for (int j = 0; j < remaining.length; j++) {
         if (remaining[j] != null && remaining[j].equals(nameAndType.name)) {
@@ -351,8 +371,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       }
 
       if (matchIndex < 0) {
-        // Hash collision — not any field we want, skip value
-        bytes.skip(valueLength);
+        // Hash collision — not any field we want
         continue;
       }
 
@@ -364,7 +383,7 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       } else {
         entity.setDeserializedPropertyInternal(nameAndType.name, null, null);
       }
-      remaining[matchIndex] = null; // Prevent re-matching this field
+      remaining[matchIndex] = null;
       found++;
     }
   }
@@ -385,27 +404,34 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return null;
     }
 
-    // Hash-accelerated field lookup: pre-compute hash, scan with hash-first rejection
+    // Layout: [hash table | offset table | data area]
+    int hashTableStart = bytes.offset;
+    int offsetTableStart = hashTableStart + propertyCount * IntegerSerializer.INT_SIZE;
+    int dataAreaStart = offsetTableStart + propertyCount * IntegerSerializer.INT_SIZE;
+
+    // Hash-accelerated field lookup: scan compact hash table, jump via offset on match
     byte[] fieldNameBytes = iFieldName.getBytes(StandardCharsets.UTF_8);
     int targetHash = MurmurHash3.hash32WithSeed(fieldNameBytes, 0, fieldNameBytes.length, 0);
 
     for (int i = 0; i < propertyCount; i++) {
-      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes, bytes.offset);
-      bytes.skip(IntegerSerializer.INT_SIZE);
+      int entryHash = IntegerSerializer.deserializeLiteral(bytes.bytes,
+          hashTableStart + i * IntegerSerializer.INT_SIZE);
 
       if (entryHash != targetHash) {
-        skipNameAndTypeAndValue(bytes);
         continue;
       }
 
-      // Hash match — read name and verify
+      // Hash match — jump to entry via offset
+      int entryOffset = IntegerSerializer.deserializeLiteral(bytes.bytes,
+          offsetTableStart + i * IntegerSerializer.INT_SIZE);
+      bytes.offset = dataAreaStart + entryOffset;
+
       var nameAndType = readFieldName(bytes, schema);
       int valueLength = VarIntSerializer.readAsInteger(bytes);
       validateValueLength(valueLength, nameAndType.name);
 
       if (!iFieldName.equals(nameAndType.name)) {
-        bytes.skip(valueLength);
-        continue;
+        continue; // Hash collision
       }
 
       if (valueLength == 0 || !getComparator().isBinaryComparable(nameAndType.type)) {
@@ -434,10 +460,11 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
       return new String[0];
     }
 
-    // Read field names: skip hash prefix per entry, read name, skip value
+    // Skip hash table and offset table, read names from data area
+    bytes.skip(propertyCount * IntegerSerializer.INT_SIZE * 2);
+
     String[] names = new String[propertyCount];
     for (int i = 0; i < propertyCount; i++) {
-      bytes.skip(IntegerSerializer.INT_SIZE);
       var nameAndType = readNameAndType(session, reference, bytes);
       names[i] = nameAndType.name;
       int valueLength = VarIntSerializer.readAsInteger(bytes);
@@ -724,22 +751,6 @@ public class RecordSerializerBinaryV2 implements EntitySerializer {
     }
     PropertyTypeInternal type = HelperClasses.readOType(bytes, false);
     return new NameAndType(fieldName, type);
-  }
-
-  /**
-   * Skips over a property entry's name-encoding, type byte, and value bytes without constructing
-   * any objects. Used by hash-accelerated deserialization to skip non-matching entries.
-   */
-  private static void skipNameAndTypeAndValue(BytesContainer bytes) {
-    int len = VarIntSerializer.readAsInteger(bytes);
-    if (len > 0) {
-      bytes.skip(len); // schema-less: skip UTF-8 name bytes
-    }
-    // schema-aware (len <= 0): varint itself was the entire encoding
-    bytes.skip(1); // type byte
-    int valueLength = VarIntSerializer.readAsInteger(bytes);
-    validateValueLength(valueLength, "<skipped>");
-    bytes.skip(valueLength);
   }
 
   private static void writeEmptyString(BytesContainer bytes) {
