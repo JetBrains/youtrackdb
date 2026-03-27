@@ -843,7 +843,7 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Scans all collection names for the maximum {@code _N} suffix, then sets the counter to
    * {@code max(classes.size(), maxExistingSuffix + 1)}.
    */
-  private int initCollectionCounterFromExisting(DatabaseSessionEmbedded session) {
+  /* visible for testing */ int initCollectionCounterFromExisting(DatabaseSessionEmbedded session) {
     int maxSuffix = -1;
     var collectionNames = session.getStorage().getCollectionNames();
     for (var name : collectionNames) {
@@ -861,7 +861,9 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
     // Use classes.size() as a floor to avoid collisions with legacy collection names
     // that may match class names without _N suffixes (pre-counter naming convention).
-    return Math.max(classes.size(), maxSuffix + 1);
+    int result = Math.max(classes.size(), maxSuffix + 1);
+    assert result >= 0 : "Collection counter must be non-negative, got " + result;
+    return result;
   }
 
   protected void addCollectionClassMap(final SchemaClassImpl cls) {

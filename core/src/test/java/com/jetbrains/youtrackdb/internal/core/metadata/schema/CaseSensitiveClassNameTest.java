@@ -10,14 +10,19 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import org.junit.Test;
 
@@ -812,5 +817,409 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
         thrown.getMessage().contains("secret"));
     assertTrue("Exception should mention security rules",
         thrown.getMessage().contains("column security rules"));
+  }
+
+  // --- changeClassName error paths ---
+
+  /**
+   * Verifies that renaming a class to its own (identical) name is a no-op
+   * — the class name remains unchanged and no error is thrown.
+   * SchemaClassEmbedded.setName short-circuits with equals() before calling
+   * changeClassName.
+   */
+  @Test
+  public void testRenameSameNameIsNoOp() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("SameName");
+    cls.setName("SameName");
+    assertEquals("SameName", cls.getName());
+    assertNotNull(schema.getClass("SameName"));
+  }
+
+  /**
+   * Verifies that renaming a class to a name already taken by another class
+   * throws SchemaException. The check in SchemaClassEmbedded.setName uses
+   * exact-case lookup (no toLowerCase normalization).
+   */
+  @Test
+  public void testRenameToExistingClassNameThrows() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("Existing");
+    var toRename = schema.createClass("ToRename");
+    try {
+      toRename.setName("Existing");
+      fail("Expected SchemaException when renaming to existing class name");
+    } catch (SchemaException e) {
+      assertTrue("Message should mention the conflicting class name",
+          e.getMessage().contains("Existing"));
+    }
+  }
+
+  /**
+   * Verifies that renaming a class to a name that differs only by case from
+   * an existing class succeeds (since lookups are now case-sensitive).
+   */
+  @Test
+  public void testRenameToDifferentCaseOfExistingClassSucceeds() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("Existing");
+    var toRename = schema.createClass("ToRename");
+    // "existing" (lowercase) is different from "Existing" in case-sensitive mode
+    toRename.setName("existing");
+    assertEquals("existing", toRename.getName());
+    assertNotNull("Renamed class should be findable", schema.getClass("existing"));
+    assertNotNull("Original class should still exist", schema.getClass("Existing"));
+  }
+
+  // --- renameCollection edge cases ---
+
+  /**
+   * Verifies that renaming an abstract class (collectionId == -1) does not
+   * attempt to rename any collections. The renameCollection loop should skip
+   * negative collection IDs gracefully.
+   */
+  @Test
+  public void testRenameAbstractClassSkipsCollectionRename() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createAbstractClass("AbstractOld");
+    assertEquals("Abstract class should have collectionId -1",
+        -1, cls.getCollectionIds()[0]);
+
+    cls.setName("AbstractNew");
+
+    assertEquals("AbstractNew", cls.getName());
+    assertNull("Old name should not be found", schema.getClass("AbstractOld"));
+    assertNotNull("New name should be found", schema.getClass("AbstractNew"));
+  }
+
+  /**
+   * Verifies that renaming a concrete class correctly renames its underlying
+   * collection(s) from the old lowercase prefix to the new one, preserving
+   * the counter suffix. For example, "oldname_5" becomes "newname_5".
+   */
+  @Test
+  public void testRenameClassRenamesCounterBasedCollection() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("RenColl");
+
+    // Record the collection name before rename
+    int collectionId = cls.getCollectionIds()[0];
+    String oldCollName = session.getCollectionNameById(collectionId);
+    assertTrue("Collection name should start with lowercase class name",
+        oldCollName.startsWith("rencoll_"));
+
+    cls.setName("NewColl");
+
+    // After rename, collection name should use the new prefix
+    String newCollName = session.getCollectionNameById(collectionId);
+    assertTrue("Renamed collection should start with new lowercase prefix",
+        newCollName.startsWith("newcoll_"));
+    // The numeric suffix should be preserved
+    assertEquals("Counter suffix should be preserved after rename",
+        oldCollName.substring(oldCollName.lastIndexOf('_')),
+        newCollName.substring(newCollName.lastIndexOf('_')));
+  }
+
+  // --- initCollectionCounterFromExisting tests ---
+
+  /**
+   * Verifies that initCollectionCounterFromExisting correctly scans existing
+   * collection names for the maximum _N suffix and returns a counter value
+   * that is at least max(classes.size(), maxSuffix + 1). This method is
+   * the fallback for pre-migration schemas that lack a persisted counter.
+   */
+  @Test
+  public void testInitCollectionCounterFromExistingWithNumericSuffixes() {
+    // Create classes to produce collections with _N suffixes
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("Init1");
+    schema.createClass("Init2");
+    schema.createClass("Init3");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    int counter = schemaShared.initCollectionCounterFromExisting(session);
+
+    // The counter should be >= classes.size() and >= (maxSuffix + 1)
+    assertTrue("Counter should be at least as large as class count",
+        counter >= schemaShared.getClasses(session).size());
+    assertTrue("Counter should be positive", counter > 0);
+  }
+
+  /**
+   * Verifies that initCollectionCounterFromExisting handles collection names
+   * without numeric suffixes (e.g., legacy names like "myclass" with no _N).
+   * In this case maxSuffix stays -1, so the counter falls back to
+   * classes.size().
+   */
+  @Test
+  public void testInitCollectionCounterFromExistingNoNumericSuffix() {
+    // Add a collection with a non-numeric suffix to exercise the
+    // NumberFormatException catch branch
+    session.addCollection("legacy_test_abc");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    int counter = schemaShared.initCollectionCounterFromExisting(session);
+
+    // Counter should still be valid (>= classes.size())
+    assertTrue("Counter should be at least as large as class count",
+        counter >= schemaShared.getClasses(session).size());
+  }
+
+  /**
+   * Verifies that initCollectionCounterFromExisting handles a collection name
+   * with no underscore at all (e.g., a bare name like "orphan").
+   */
+  @Test
+  public void testInitCollectionCounterFromExistingNoUnderscore() {
+    session.addCollection("barenamecollection");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    int counter = schemaShared.initCollectionCounterFromExisting(session);
+
+    assertTrue("Counter should be at least as large as class count",
+        counter >= schemaShared.getClasses(session).size());
+  }
+
+  /**
+   * Verifies that initCollectionCounterFromExisting returns at least
+   * maxSuffix + 1 when a collection has a very high numeric suffix that
+   * exceeds classes.size(). This ensures the Math.max selects the suffix-
+   * based value, preventing collection name collisions with orphan collections.
+   */
+  @Test
+  public void testInitCollectionCounterFromExistingHighSuffixWins() {
+    session.addCollection("orphan_9999");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    int counter = schemaShared.initCollectionCounterFromExisting(session);
+
+    assertTrue("Counter should be at least maxSuffix + 1 = 10000",
+        counter >= 10000);
+  }
+
+  // --- Legacy superclass fallback test ---
+
+  /**
+   * Verifies that the case-insensitive fallback in fromStream resolves
+   * superclass references when the stored superclass name has different case
+   * than the actual class name. This simulates a pre-migration schema where
+   * superclass names were stored as lowercased.
+   */
+  @Test
+  public void testLegacySuperclassFallbackResolvesMismatchedCase() {
+    Schema schema = session.getMetadata().getSchema();
+
+    // Create Parent → Child hierarchy
+    var parent = schema.createClass("ParentCls");
+    var child = schema.createClass("ChildCls", parent);
+
+    assertTrue("Child should be a subclass of ParentCls before manipulation",
+        child.isSubClassOf("ParentCls"));
+
+    // Get the schema record and modify the child's stored superclass name to lowercase
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    var schemaRid = schemaShared.getIdentity();
+
+    session.executeInTx(tx -> {
+      EntityImpl schemaEntity = session.load(schemaRid);
+      Collection<EntityImpl> storedClasses = schemaEntity.getProperty("classes");
+
+      for (var storedClass : storedClasses) {
+        String name = storedClass.getProperty("name");
+        if ("ChildCls".equals(name)) {
+          // Replace "ParentCls" with "parentcls" in the superClasses list.
+          // Use session.newEmbeddedList() to create a proper embedded container.
+          List<String> superClassNames = storedClass.getProperty("superClasses");
+          if (superClassNames != null && superClassNames.contains("ParentCls")) {
+            var modified = session.newEmbeddedList(superClassNames.size());
+            for (var s : superClassNames) {
+              modified.add("ParentCls".equals(s) ? "parentcls" : s);
+            }
+            storedClass.setProperty("superClasses", modified, PropertyType.EMBEDDEDLIST);
+          }
+          // Also clear the legacy "superClass" (singular) field so fromStream
+          // doesn't re-add the original-case name, causing a duplicate.
+          storedClass.removeProperty("superClass");
+        }
+      }
+    });
+
+    // Force schema reload — the fallback should resolve "parentcls" → ParentCls
+    schemaShared.reload(session);
+
+    // Verify the child class still has ParentCls as its superclass
+    var reloadedChild = schema.getClass("ChildCls");
+    assertNotNull("ChildCls should still exist after reload", reloadedChild);
+    var supers = reloadedChild.getSuperClasses();
+    assertEquals("Child should have exactly one superclass", 1, supers.size());
+    assertEquals("Superclass should be ParentCls (resolved via fallback)",
+        "ParentCls", supers.getFirst().getName());
+  }
+
+  /**
+   * Verifies that the collectionCounter is correctly restored from the schema
+   * entity when it is present (the normal, non-fallback path), and also
+   * exercises the fromStream branch where persistedCounter != null.
+   */
+  @Test
+  public void testCollectionCounterRestoredFromPersistedValue() {
+    Schema schema = session.getMetadata().getSchema();
+
+    // Create classes to advance the counter
+    schema.createClass("Persist1");
+    schema.createClass("Persist2");
+
+    int id2 = schema.getClass("Persist2").getCollectionIds()[0];
+
+    // Reload schema from storage — should restore the persisted counter
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    schemaShared.reload(session);
+
+    // Create another class after reload — its collection ID must be greater
+    schema.createClass("Persist3");
+    int id3 = schema.getClass("Persist3").getCollectionIds()[0];
+    assertTrue("Post-reload collection ID should be > pre-reload ID",
+        id3 > id2);
+  }
+
+  // --- Direct changeClassName tests (package-private access) ---
+
+  /**
+   * Verifies that changeClassName throws IllegalArgumentException when called
+   * with the same old and new name. This exercises the equals() guard in
+   * changeClassName that prevents no-op renames at the low level.
+   * SchemaClassEmbedded.setName short-circuits before this check, so
+   * we must call changeClassName directly.
+   */
+  @Test
+  public void testChangeClassNameSameNameThrowsDirectly() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("DirectRename");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    var clsImpl = schemaShared.getClass("DirectRename");
+    try {
+      schemaShared.changeClassName(session, "DirectRename", "DirectRename", clsImpl);
+      fail("Expected IllegalArgumentException for same-name rename");
+    } catch (IllegalArgumentException e) {
+      assertTrue("Message should mention the class name",
+          e.getMessage().contains("DirectRename"));
+      assertTrue("Message should indicate same-name rename",
+          e.getMessage().contains("cannot be renamed with the same name"));
+    }
+  }
+
+  /**
+   * Verifies that changeClassName throws IllegalArgumentException when the
+   * new name already exists in the classes map. This exercises the
+   * containsKey() guard in changeClassName.
+   */
+  @Test
+  public void testChangeClassNameToExistingThrowsDirectly() {
+    Schema schema = session.getMetadata().getSchema();
+    schema.createClass("Target");
+    schema.createClass("Source");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    var clsImpl = schemaShared.getClass("Source");
+    try {
+      schemaShared.changeClassName(session, "Source", "Target", clsImpl);
+      fail("Expected IllegalArgumentException for duplicate name");
+    } catch (IllegalArgumentException e) {
+      assertTrue("Message should mention the target name",
+          e.getMessage().contains("Target"));
+      assertTrue("Message should indicate name already exists",
+          e.getMessage().contains("already present"));
+    }
+  }
+
+  /**
+   * Verifies that changeClassName handles a null old name gracefully (used
+   * when registering a class for the first time with no previous name).
+   * This exercises the short-circuit false branch of the "oldName != null &&
+   * oldName.equals(newName)" guard on line 458.
+   */
+  @Test
+  public void testChangeClassNameWithNullOldName() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("NullOld");
+
+    var schemaShared = (SchemaShared) session.getSharedContext().getSchema();
+    var clsImpl = schemaShared.getClass("NullOld");
+
+    // Calling with oldName=null should not throw — it just adds the class
+    // under the new name without removing from the old key. This intentionally
+    // leaves the class registered under both "NullOld" and "NullOldRenamed"
+    // in the classes map (inconsistent state) for coverage purposes only.
+    // Each test method runs with a fresh database, so this does not leak.
+    schemaShared.changeClassName(session, null, "NullOldRenamed", clsImpl);
+
+    assertNotNull("Class should be findable under new name",
+        schemaShared.getClass("NullOldRenamed"));
+    assertNotNull("Original name should still exist (old entry not removed)",
+        schemaShared.getClass("NullOld"));
+  }
+
+  // --- renameCollection with legacy collection name ---
+
+  /**
+   * Verifies that renameCollection handles legacy collection names (without
+   * counter suffix). When a collection is named "oldname" (no _N suffix),
+   * renaming the class to "NewName" should rename the collection to "newname"
+   * (the new lowercase prefix without suffix).
+   */
+  @Test
+  public void testRenameClassWithLegacyCollectionName() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("LegacyCol");
+
+    int collectionId = cls.getCollectionIds()[0];
+
+    // Manually rename the collection to a legacy name (no counter suffix)
+    session.getStorage().setCollectionAttribute(
+        collectionId,
+        StorageCollection.ATTRIBUTES.NAME,
+        "legacycol");
+
+    // Verify the rename took effect
+    assertEquals("legacycol", session.getCollectionNameById(collectionId));
+
+    // Now rename the class — renameCollection should detect the legacy name
+    // and rename it from "legacycol" to "newlegacy"
+    cls.setName("NewLegacy");
+
+    String newCollName = session.getCollectionNameById(collectionId);
+    assertEquals("Legacy collection should be renamed to new lowercase prefix",
+        "newlegacy", newCollName);
+  }
+
+  /**
+   * Verifies that renameCollection skips collections whose names don't match
+   * the expected pattern (neither legacy nor counter-based). This exercises
+   * the final "continue" branch in renameCollection when the collection name
+   * matches neither the legacy prefix nor the counter-based prefix pattern.
+   */
+  @Test
+  public void testRenameClassSkipsUnrelatedCollectionNames() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("SkipCol");
+
+    int collectionId = cls.getCollectionIds()[0];
+
+    // Manually rename the collection to something unrelated
+    session.getStorage().setCollectionAttribute(
+        collectionId,
+        StorageCollection.ATTRIBUTES.NAME,
+        "something_unrelated");
+
+    assertEquals("something_unrelated", session.getCollectionNameById(collectionId));
+
+    // Rename the class — renameCollection should skip the unrelated collection
+    cls.setName("SkipColRenamed");
+
+    // The collection name should remain unchanged since it didn't match
+    String afterRename = session.getCollectionNameById(collectionId);
+    assertEquals("Unrelated collection name should not be changed",
+        "something_unrelated", afterRename);
   }
 }
