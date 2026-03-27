@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -53,6 +54,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
@@ -375,6 +377,57 @@ public class MatchExecutionPlanner {
       java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
   /**
+   * Captures a detected opportunity for index-ordered MATCH traversal.
+   * When present, the edge identified by {@code edgeTraversal} will be executed
+   * via {@link IndexOrderedEdgeStep} instead of the standard {@link MatchStep},
+   * and the ORDER BY step will be suppressed because the index scan already
+   * produces results in the requested order.
+   *
+   * @param edgeTraversal  the scheduled edge to replace with index-ordered scan
+   * @param sourceAlias    alias of the source vertex (whose LinkBag is read)
+   * @param targetAlias    alias of the target vertex (bound from index results)
+   * @param edgeClassName  edge class name (e.g., "HAS_CREATOR")
+   * @param linkBagFieldName field on source vertex containing the LinkBag
+   *                         (e.g., "in_HAS_CREATOR")
+   * @param index            index on the target class property to scan in order
+   * @param orderAsc         true for ASC, false for DESC
+   * @param limit            query LIMIT value, or -1 if no LIMIT is set
+   * @param multiSourceMode  execution mode for multi-source, or null for single-source
+   * @param reverseFieldName LinkBag field on the target vertex that points back
+   *                         to the source (e.g., "out_HAS_CREATOR" on Message)
+   * @param sourceClassName  source vertex class name (for class-check modes)
+   */
+  private record IndexOrderedCandidate(
+      EdgeTraversal edgeTraversal,
+      String sourceAlias,
+      String targetAlias,
+      String edgeClassName,
+      String linkBagFieldName,
+      Index index,
+      boolean orderAsc,
+      long limit,
+      @Nullable MultiSourceMode multiSourceMode,
+      @Nullable String reverseFieldName,
+      @Nullable String sourceClassName) {
+  }
+
+  /**
+   * Multi-source execution strategy. Chosen based on two independent dimensions:
+   * whether the source has a WHERE filter, and whether the source alias is
+   * referenced by downstream steps (RETURN, later edges).
+   */
+  enum MultiSourceMode {
+    /** Filter + binding: materialize sourceMap, reverse lookup per hit. */
+    FILTERED_BOUND,
+    /** Filter + no binding: union RidSet from filtered LinkBags, bitmap check. */
+    FILTERED_UNBOUND,
+    /** No filter + binding: class check on reverse edge, lazy load source. */
+    UNFILTERED_BOUND,
+    /** No filter + no binding: class check only, no source load. */
+    UNFILTERED_UNBOUND
+  }
+
+  /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
    * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
    * Intended for non-SQL front-ends (e.g. GQL) that build the match IR directly.
@@ -526,6 +579,19 @@ public class MatchExecutionPlanner {
     // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
+    // Phase 4b: Detect index-ordered MATCH traversal opportunity.
+    // Only applicable for single connected patterns (no Cartesian product).
+    IndexOrderedCandidate indexOrderedCandidate = null;
+    if (subPatterns.size() == 1 && orderBy != null) {
+      // Pre-compute the schedule to detect the candidate before step generation.
+      // The schedule will be recomputed inside createPlanForPattern — this is
+      // acceptable because scheduling is cheap (graph DFS) compared to execution.
+      var probeEdges = getTopologicalSortedSchedule(
+          estimatedRootEntries, pattern, aliasClasses, context.getDatabaseSession());
+      indexOrderedCandidate =
+          detectIndexOrderedCandidate(probeEdges, estimatedRootEntries, context);
+    }
+
     // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
       // Multiple disjoint sub-patterns → Cartesian product of their independent results
@@ -533,14 +599,16 @@ public class MatchExecutionPlanner {
       for (var subPattern : subPatterns) {
         step.addSubPlan(
             createPlanForPattern(
-                subPattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling));
+                subPattern, context, estimatedRootEntries, aliasesToPrefetch,
+                null, enableProfiling));
       }
       result.chain(step);
     } else {
       // Single connected pattern → inline the steps directly into the main plan
       var plan =
           createPlanForPattern(
-              pattern, context, estimatedRootEntries, aliasesToPrefetch, enableProfiling);
+              pattern, context, estimatedRootEntries, aliasesToPrefetch,
+              indexOrderedCandidate, enableProfiling);
       for (var step : plan.getSteps()) {
         result.chain((ExecutionStepInternal) step);
       }
@@ -574,11 +642,16 @@ public class MatchExecutionPlanner {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
       }
 
-      if (this.orderBy != null) {
+      // Suppress OrderByStep only when: candidate is active AND no DISTINCT
+      // (DISTINCT may reorder rows, breaking the index-scan order guarantee).
+      // GROUP BY is already rejected above for built-in return modes.
+      var orderSatisfied = indexOrderedCandidate != null && !this.returnDistinct;
+      if (this.orderBy != null && !orderSatisfied) {
         // Compute bounded-heap size: keep only the top (skip + limit) rows
         // during sorting to avoid materializing the full result set.
         // Safe here because UNWIND (if present) has already run, so row
         // cardinality is final and sort keys are scalar values.
+        // Skipped when indexOrderedCandidate is active — results are already ordered.
         Integer maxResults = null;
         if (this.limit != null && this.limit.getValue(context) >= 0) {
           var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
@@ -618,6 +691,15 @@ public class MatchExecutionPlanner {
       info.unwind = this.unwind;
       info.skip = this.skip;
       info.limit = this.limit;
+
+      // When index-ordered traversal is active AND no GROUP BY or DISTINCT
+      // (both can destroy the index-scan ordering), tell the SELECT planner
+      // to skip the OrderByStep.
+      if (indexOrderedCandidate != null
+          && this.groupBy == null
+          && !this.returnDistinct) {
+        info.setOrderApplied(true);
+      }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
@@ -1777,6 +1859,7 @@ public class MatchExecutionPlanner {
       CommandContext context,
       Map<String, Long> estimatedRootEntries,
       Set<String> prefetchedAliases,
+      @Nullable IndexOrderedCandidate candidate,
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     var sortedEdges = getTopologicalSortedSchedule(estimatedRootEntries, pattern,
@@ -1835,7 +1918,7 @@ public class MatchExecutionPlanner {
         if (branchEdgeSet.contains(edge.edge)) {
           continue; // Skip edges handled by hash join
         }
-        addStepsFor(plan, edge, context, first, profilingEnabled);
+        addStepsFor(plan, edge, context, first, candidate, profilingEnabled);
         first = false;
       }
 
@@ -4215,6 +4298,7 @@ public class MatchExecutionPlanner {
       EdgeTraversal edge,
       CommandContext context,
       boolean first,
+      @Nullable IndexOrderedCandidate candidate,
       boolean profilingEnabled) {
     if (first) {
       var patternNode = edge.out ? edge.edge.out : edge.edge.in;
@@ -4308,9 +4392,328 @@ public class MatchExecutionPlanner {
       plan.chain(new BackRefHashJoinStep(
           context, edge.getSemiJoinDescriptor(), edge,
           edge.getConsumedPredecessor(), profilingEnabled));
+    } else if (candidate != null && isIndexOrderedEdge(candidate, edge)) {
+      // Index-ordered traversal: replace MatchStep with IndexOrderedEdgeStep
+      plan.chain(new IndexOrderedEdgeStep(
+          context,
+          candidate.sourceAlias(),
+          candidate.targetAlias(),
+          candidate.edgeClassName(),
+          candidate.linkBagFieldName(),
+          candidate.index(),
+          candidate.orderAsc(),
+          edge,
+          candidate.limit(),
+          candidate.multiSourceMode(),
+          candidate.reverseFieldName(),
+          candidate.sourceClassName(),
+          profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
+  }
+
+  /**
+   * Checks whether the given edge matches the index-ordered candidate by comparing
+   * the underlying PatternEdge identity. The candidate was detected on a probing
+   * schedule (separate EdgeTraversal instances), so we compare the wrapped
+   * PatternEdge objects which are shared across schedule computations.
+   */
+  private static boolean isIndexOrderedEdge(
+      IndexOrderedCandidate candidate, EdgeTraversal edge) {
+    return candidate.edgeTraversal().edge == edge.edge;
+  }
+
+  /**
+   * Detects whether the ORDER BY clause can be satisfied by an index-ordered
+   * edge traversal. When the following conditions are all met, returns a
+   * candidate describing the optimization:
+   *
+   * <ol>
+   *   <li>ORDER BY has exactly one item (single-property sort)</li>
+   *   <li>The ORDER BY field resolves (through RETURN projection aliases) to
+   *       {@code <alias>.<property>} where {@code <alias>} is a pattern alias</li>
+   *   <li>The alias is the target of a simple (non-WHILE) edge in the schedule</li>
+   *   <li>An index exists on the target alias's class for that property</li>
+   *   <li>The edge traversal method is directional ({@code in()} or {@code out()},
+   *       not {@code both()})</li>
+   * </ol>
+   *
+   * @param sortedEdges the topologically sorted edge schedule
+   * @param context     the command context (provides database session for index lookup)
+   * @return the candidate, or {@code null} if the optimization does not apply
+   */
+  @Nullable private IndexOrderedCandidate detectIndexOrderedCandidate(
+      List<EdgeTraversal> sortedEdges,
+      Map<String, Long> estimatedRootEntries,
+      CommandContext context) {
+    // 1. ORDER BY must have exactly one item, no modifier, no collate
+    if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().size() != 1) {
+      return null;
+    }
+    var orderItem = orderBy.getItems().getFirst();
+    if (orderItem.getCollate() != null) {
+      return null;
+    }
+
+    // 2. Resolve ORDER BY alias → targetAlias.property
+    var resolved = resolveOrderByToAliasProperty(orderItem);
+    if (resolved == null) {
+      return null;
+    }
+    var targetAlias = resolved[0];
+    var propertyName = resolved[1];
+
+    // 3. Verify targetAlias is a known pattern alias
+    if (pattern == null || !pattern.getAliasToNode().containsKey(targetAlias)) {
+      return null;
+    }
+
+    // 4. Find the edge in the schedule that targets this alias
+    EdgeTraversal matchedEdge = null;
+    for (var edge : sortedEdges) {
+      var target = edge.out ? edge.edge.in : edge.edge.out;
+      if (targetAlias.equals(target.alias)) {
+        matchedEdge = edge;
+        break;
+      }
+    }
+    if (matchedEdge == null) {
+      return null;
+    }
+
+    // 5. Edge must be simple (no WHILE, no maxDepth)
+    var item = matchedEdge.edge.item;
+    var filter = item.getFilter();
+    if (filter != null
+        && (filter.getWhileCondition() != null || filter.getMaxDepth() != null)) {
+      return null;
+    }
+
+    // 6. Extract method direction and edge class name
+    var method = item.getMethod();
+    if (method == null || method.getMethodName() == null) {
+      return null;
+    }
+    var methodDirection =
+        method.getMethodName().getStringValue().toLowerCase(Locale.ENGLISH);
+    if (!"in".equals(methodDirection) && !"out".equals(methodDirection)) {
+      return null; // "both" not supported
+    }
+    var methodParams = method.getParams();
+    if (methodParams == null || methodParams.isEmpty()) {
+      return null; // no edge class specified
+    }
+    var edgeClassBuilder = new StringBuilder();
+    methodParams.get(0).toString(new HashMap<>(), edgeClassBuilder);
+    var edgeClassName = edgeClassBuilder.toString();
+    if (edgeClassName.isEmpty()) {
+      return null;
+    }
+
+    // 7. Compute linkBagFieldName and sourceAlias based on traversal direction.
+    //    When edge.out == true: execution source = edge.edge.out, method applies directly.
+    //    When edge.out == false: execution source = edge.edge.in, method is reversed.
+    String linkBagDirection;
+    if (matchedEdge.out) {
+      linkBagDirection = methodDirection;
+    } else {
+      linkBagDirection = "in".equals(methodDirection) ? "out" : "in";
+    }
+    var sourceAlias =
+        matchedEdge.out ? matchedEdge.edge.out.alias : matchedEdge.edge.in.alias;
+    var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
+
+    // 7b. Compute reverse field name (for multi-source reverse edge lookup).
+    var reverseDirection = "in".equals(linkBagDirection) ? "out" : "in";
+    var reverseFieldName = reverseDirection + "_" + edgeClassName;
+
+    // 8. Look up index on target class for the property
+    var targetClassName = aliasClasses.get(targetAlias);
+    if (targetClassName == null) {
+      return null;
+    }
+    var sourceClassName = aliasClasses.get(sourceAlias);
+    var session = context.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var clazz = schema.getClassInternal(targetClassName);
+    if (clazz == null) {
+      return null;
+    }
+
+    Index matchedIndex = null;
+    for (var idx : clazz.getIndexesInternal()) {
+      if (idx.getDefinition() == null) {
+        continue;
+      }
+      var props = idx.getDefinition().getProperties();
+      // Single-field index matching the ORDER BY property
+      if (props.size() == 1 && props.iterator().next().equals(propertyName)) {
+        matchedIndex = idx;
+        break;
+      }
+    }
+    if (matchedIndex == null) {
+      return null;
+    }
+
+    // 9. Determine multi-source mode (null = single-source).
+    var sourceCardinality =
+        estimatedRootEntries.getOrDefault(sourceAlias, Long.MAX_VALUE);
+    MultiSourceMode multiSourceMode = null;
+    if (sourceCardinality > 1) {
+      // Verify reverse field exists on target class for modes that need it
+      var hasReverseField = clazz.getPropertyInternal(reverseFieldName) != null;
+      var hasSourceFilter = aliasFilters.get(sourceAlias) != null;
+      var sourceBindingNeeded = isSourceAliasUsedDownstream(
+          sourceAlias, sortedEdges, matchedEdge);
+
+      if (hasSourceFilter && sourceBindingNeeded) {
+        // Need sourceMap + reverse lookup → reverse field required
+        if (!hasReverseField) {
+          return null;
+        }
+        multiSourceMode = MultiSourceMode.FILTERED_BOUND;
+      } else if (hasSourceFilter) {
+        // Union RidSet, no reverse lookup needed
+        multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
+      } else if (sourceBindingNeeded) {
+        // Class check + lazy load → reverse field required
+        if (!hasReverseField || sourceClassName == null) {
+          return null;
+        }
+        multiSourceMode = MultiSourceMode.UNFILTERED_BOUND;
+      } else {
+        // Pure scan + class check → reverse field required
+        if (!hasReverseField || sourceClassName == null) {
+          return null;
+        }
+        multiSourceMode = MultiSourceMode.UNFILTERED_UNBOUND;
+      }
+    }
+
+    // 10. Determine sort direction and query LIMIT
+    var orderAsc = SQLOrderByItem.ASC.equals(orderItem.getType());
+    long skipSize = skip != null && skip.getValue(context) >= 0
+        ? skip.getValue(context) : 0;
+    long limitSize = limit != null && limit.getValue(context) >= 0
+        ? limit.getValue(context) : -1;
+    long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
+
+    return new IndexOrderedCandidate(
+        matchedEdge, sourceAlias, targetAlias, edgeClassName,
+        linkBagFieldName, matchedIndex, orderAsc, queryLimit,
+        multiSourceMode, reverseFieldName, sourceClassName);
+  }
+
+  /**
+   * Resolves an ORDER BY item to a {@code [targetAlias, propertyName]} pair.
+   * Handles two cases:
+   * <ul>
+   *   <li>Parsed dot notation: {@code ORDER BY message.creationDate} — parser
+   *       produces alias="message" with a suffix modifier "creationDate"</li>
+   *   <li>Projection alias: {@code ORDER BY messageCreationDate} — resolves
+   *       through RETURN projection to find the underlying
+   *       {@code alias.property} expression</li>
+   * </ul>
+   *
+   * @return a two-element array [targetAlias, propertyName], or null if unresolvable
+   */
+  @Nullable private String[] resolveOrderByToAliasProperty(SQLOrderByItem orderItem) {
+    var orderAlias = orderItem.getAlias();
+    if (orderAlias == null) {
+      return null;
+    }
+
+    // Case 1: parsed dot notation — parser splits "message.creationDate" into
+    // alias="message" + modifier with suffix="creationDate". Convert modifier
+    // to string and verify it's a simple ".propertyName" (no method calls,
+    // arrays, or chaining).
+    var modifier = orderItem.getModifier();
+    if (modifier != null) {
+      var modBuilder = new StringBuilder();
+      modifier.toString(new HashMap<>(), modBuilder);
+      var modStr = modBuilder.toString();
+      // Simple suffix starts with '.' followed by an identifier (no further
+      // dots, brackets, or parens)
+      if (modStr.length() > 1 && modStr.charAt(0) == '.'
+          && modStr.indexOf('.', 1) == -1
+          && modStr.indexOf('(') == -1
+          && modStr.indexOf('[') == -1) {
+        return new String[] {orderAlias, modStr.substring(1)};
+      }
+      // Complex modifier — cannot resolve
+      return null;
+    }
+
+    // Case 2: projection alias resolution
+    if (returnAliases != null && returnItems != null) {
+      for (int i = 0; i < returnAliases.size(); i++) {
+        var retAlias = returnAliases.get(i);
+        if (retAlias != null && retAlias.getStringValue().equals(orderAlias)) {
+          var expr = returnItems.get(i);
+          var exprBuilder = new StringBuilder();
+          expr.toString(new HashMap<>(), exprBuilder);
+          var exprStr = exprBuilder.toString();
+          var exprDot = exprStr.indexOf('.');
+          if (exprDot > 0 && exprDot < exprStr.length() - 1
+              && exprStr.indexOf('.', exprDot + 1) == -1) {
+            return new String[] {
+                exprStr.substring(0, exprDot),
+                exprStr.substring(exprDot + 1)
+            };
+          }
+          break;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Checks whether the source alias is referenced by downstream steps:
+   * RETURN expressions, later edges in the schedule, or built-in return modes.
+   * When true, the source alias must be bound in the result row.
+   */
+  private boolean isSourceAliasUsedDownstream(
+      String sourceAlias,
+      List<EdgeTraversal> sortedEdges,
+      EdgeTraversal matchedEdge) {
+    // Built-in return modes always need all aliases
+    if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+      return true;
+    }
+
+    // Check RETURN expressions for source alias reference
+    if (returnItems != null) {
+      for (var expr : returnItems) {
+        var sb = new StringBuilder();
+        expr.toString(new HashMap<>(), sb);
+        var exprStr = sb.toString();
+        if (exprStr.equals(sourceAlias)
+            || exprStr.startsWith(sourceAlias + ".")) {
+          return true;
+        }
+      }
+    }
+
+    // Check later edges — if source is the starting point of a later edge
+    var pastMatched = false;
+    for (var edge : sortedEdges) {
+      if (edge.edge == matchedEdge.edge) {
+        pastMatched = true;
+        continue;
+      }
+      if (pastMatched) {
+        var laterSource = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+        if (sourceAlias.equals(laterSource)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**

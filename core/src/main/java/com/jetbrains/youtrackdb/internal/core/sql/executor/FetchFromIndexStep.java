@@ -167,7 +167,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return new MultipleExecutionStream(res);
   }
 
-  private Result readResult(CommandContext ctx, RawPair<Object, RID> nextEntry) {
+  protected Result readResult(CommandContext ctx, RawPair<Object, RID> nextEntry) {
     if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
       throw new CommandInterruptedException(ctx.getDatabaseSession(),
           "The command has been interrupted");
@@ -188,6 +188,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
     return key;
   }
+
 
   /**
    * Initializes the index lookup streams based on the descriptor's key condition type.
