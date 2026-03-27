@@ -4520,17 +4520,11 @@ public class MatchExecutionPlanner {
     if (methodParams == null || methodParams.isEmpty()) {
       return null; // no edge class specified
     }
-    var edgeClassBuilder = new StringBuilder();
-    methodParams.getFirst().toString(new HashMap<>(), edgeClassBuilder);
-    var edgeClassName = edgeClassBuilder.toString();
-    // Strip surrounding quotes — the SQL parser wraps string literals in double quotes
-    // (e.g., .in('TEST_HAS_CREATOR') → toString produces "TEST_HAS_CREATOR")
-    if (edgeClassName.length() >= 2
-        && edgeClassName.charAt(0) == '"'
-        && edgeClassName.charAt(edgeClassName.length() - 1) == '"') {
-      edgeClassName = edgeClassName.substring(1, edgeClassName.length() - 1);
-    }
-    if (edgeClassName.isEmpty()) {
+    // Extract edge class name from the method parameter (e.g., .in('TEST_HAS_CREATOR')).
+    // Use execute() to properly decode the AST string literal, avoiding fragile
+    // toString() + quote-stripping that breaks on escaped characters or backticks.
+    var edgeClassValue = methodParams.getFirst().execute((Result) null, context);
+    if (!(edgeClassValue instanceof String edgeClassName) || edgeClassName.isEmpty()) {
       return null;
     }
 
