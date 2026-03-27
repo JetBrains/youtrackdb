@@ -7,11 +7,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -477,10 +475,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     });
   }
 
-  enum MultiSourceStrategy {
-    UNION_RIDSET_SCAN, GLOBAL_SCAN, LOAD_ALL_SORT
-  }
-
   /**
    * Strategy 1: Build union RidSet from all sources' LinkBags, scan index
    * with bitmap filter. Only matching records are loaded. Per match: reverse
@@ -622,11 +616,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private boolean shouldUseIndexScan(
       int linkBagSize, DatabaseSessionEmbedded session) {
-    var costs = computeCosts(linkBagSize, index.size(session), session);
+    var costs = IndexOrderedCostModel.computeCosts(
+        linkBagSize, index.size(session), limit,
+        index.getHistogram(session), orderAsc);
     if (costs == null) {
       return false;
     }
-    return costs.costUnionScan < costs.costLoadSort;
+    return costs.costUnionScan() < costs.costLoadSort();
   }
 
   /**
@@ -643,166 +639,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    *       sort in-memory. Best when index scan is too expensive.</li>
    * </ul>
    */
-  private MultiSourceStrategy pickMultiSourceStrategy(
+  private IndexOrderedCostModel.MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, DatabaseSessionEmbedded session) {
-    var histogram = index.getHistogram(session);
-    return pickMultiSourceStrategyStatic(
-        totalEdges, indexSize, limit, histogram, orderAsc);
+    return IndexOrderedCostModel.pickMultiSourceStrategy(
+        totalEdges, indexSize, limit,
+        index.getHistogram(session), orderAsc);
   }
 
-  /**
-   * Pure multi-source strategy selection. Package-private for direct unit testing.
-   */
-  static MultiSourceStrategy pickMultiSourceStrategyStatic(
-      int totalEdges, long indexSize, long limit,
-      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
-    var costs = computeCostsStatic(
-        totalEdges, indexSize, limit, histogram, orderAsc);
-    if (costs == null) {
-      return MultiSourceStrategy.LOAD_ALL_SORT;
-    }
-
-    double costBias =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
-
-    double costUnion = totalEdges * costs.cpu
-        + costs.seekCost
-        + costs.expectedScanLength * (costs.seqRead + costs.cpu)
-        + costs.k * (costs.randRead + costs.cpu);
-    costUnion *= costBias;
-
-    double costGlobal = costs.seekCost
-        + costs.expectedScanLength * (costs.randRead + costs.cpu);
-    costGlobal *= costBias;
-
-    double costSort = costs.costLoadSort;
-
-    if (costSort <= costUnion && costSort <= costGlobal) {
-      return MultiSourceStrategy.LOAD_ALL_SORT;
-    }
-    if (costUnion <= costGlobal) {
-      return MultiSourceStrategy.UNION_RIDSET_SCAN;
-    }
-    return MultiSourceStrategy.GLOBAL_SCAN;
-  }
-
-  /** Shared cost computation for both single-source and multi-source. */
-  record CostEstimate(
-      double expectedScanLength,
-      long k,
-      double seqRead,
-      double randRead,
-      double cpu,
-      double seekCost,
-      double costUnionScan,
-      double costLoadSort) {
-  }
-
-  @Nullable private CostEstimate computeCosts(
-      int linkBagSize, long indexSize, DatabaseSessionEmbedded session) {
-    var histogram = index.getHistogram(session);
-    return computeCostsStatic(
-        linkBagSize, indexSize, limit, histogram, orderAsc);
-  }
-
-  /**
-   * Pure cost computation — no dependencies on instance fields or database session.
-   * Package-private for direct unit testing.
-   */
-  @Nullable static CostEstimate computeCostsStatic(
-      int linkBagSize, long indexSize, long limit,
-      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
-    int minLinkBag =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValueAsInteger();
-    if (linkBagSize < minLinkBag || indexSize <= 0) {
-      return null;
-    }
-
-    long k = limit > 0 ? Math.min(limit, linkBagSize) : linkBagSize;
-    double density = Math.min((double) linkBagSize / indexSize, 1.0);
-    if (density <= 0.0) {
-      return null;
-    }
-    double expectedScanLength = k / density;
-
-    if (histogram != null && histogram.nonNullCount() > 0) {
-      expectedScanLength = applyHistogramSkewStatic(
-          expectedScanLength, indexSize, histogram, orderAsc);
-    }
-
-    long maxScan =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValueAsLong();
-    if (expectedScanLength > maxScan) {
-      return null;
-    }
-
-    double seqRead = CostModel.seqPageReadCost();
-    double randRead = CostModel.randomPageReadCost();
-    double cpu = CostModel.perRowCpuCost();
-    double seekCost = CostModel.indexSeekCost();
-    double costBias =
-        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
-
-    // Union RidSet scan: build RidSet + scan (seq) + load matches
-    double costUnionScan = linkBagSize * cpu
-        + seekCost
-        + expectedScanLength * (seqRead + cpu)
-        + k * randRead;
-    costUnionScan *= costBias;
-
-    // Load all + sort
-    double sortFactor = (limit > 0 && limit < linkBagSize)
-        ? log2(limit) : log2(linkBagSize);
-    double costLoadSort = (double) linkBagSize * randRead
-        + (double) linkBagSize * cpu
-        + (double) linkBagSize * sortFactor * cpu;
-
-    return new CostEstimate(
-        expectedScanLength, k, seqRead, randRead, cpu, seekCost,
-        costUnionScan, costLoadSort);
-  }
-
-  /** Instance wrapper for histogram skew correction. */
-  private double applyHistogramSkew(
-      double expectedScanLength, long indexSize,
-      EquiDepthHistogram histogram) {
-    return applyHistogramSkewStatic(
-        expectedScanLength, indexSize, histogram, orderAsc);
-  }
-
-  /**
-   * Pure histogram skew correction. Package-private for unit testing.
-   *
-   * @param orderAsc true for ASC scan (use first buckets), false for DESC
-   *     (use last buckets)
-   */
-  static double applyHistogramSkewStatic(
-      double expectedScanLength, long indexSize,
-      EquiDepthHistogram histogram, boolean orderAsc) {
-    double targetFraction = Math.min(expectedScanLength / indexSize, 1.0);
-    int bucketsToScan = Math.max(1,
-        (int) Math.ceil(targetFraction * histogram.bucketCount()));
-    bucketsToScan = Math.min(bucketsToScan, histogram.bucketCount());
-
-    long scanRegionEntries;
-    if (orderAsc) {
-      scanRegionEntries = sumFrequencies(
-          histogram.frequencies(), 0, bucketsToScan);
-    } else {
-      int start = histogram.bucketCount() - bucketsToScan;
-      scanRegionEntries = sumFrequencies(
-          histogram.frequencies(), Math.max(0, start), histogram.bucketCount());
-    }
-
-    double uniformExpected = targetFraction * histogram.nonNullCount();
-    if (uniformExpected <= 0) {
-      return expectedScanLength;
-    }
-
-    double skew = scanRegionEntries / uniformExpected;
-    skew = Math.max(0.5, Math.min(3.0, skew));
-    return expectedScanLength * skew;
-  }
+  // Cost model logic lives in IndexOrderedCostModel.
 
   /**
    * For a single index hit, loads the target record, follows reverse edges to
@@ -998,18 +842,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
       return orderAsc ? va.compareTo(vb) : vb.compareTo(va);
     };
-  }
-
-  private static double log2(double x) {
-    return x <= 1.0 ? 0.0 : Math.log(x) / Math.log(2.0);
-  }
-
-  static long sumFrequencies(long[] frequencies, int from, int to) {
-    long sum = 0;
-    for (int i = from; i < to; i++) {
-      sum += Math.max(frequencies[i], 0);
-    }
-    return sum;
   }
 
   @Override
