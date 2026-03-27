@@ -4,6 +4,7 @@
 import argparse
 import json
 import sys
+import urllib.parse
 import urllib.request
 import urllib.error
 import base64
@@ -249,9 +250,6 @@ def send_zulip_message(content, zulip_url, api_key, bot_email, stream, topic):
         print(f"Zulip API error: {e.code} - {body_text}", file=sys.stderr)
         sys.exit(1)
 
-
-# Need urllib.parse for urlencode
-import urllib.parse
 
 
 def main():
