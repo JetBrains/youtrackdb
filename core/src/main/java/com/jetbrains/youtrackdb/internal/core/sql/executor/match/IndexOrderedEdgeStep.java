@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilteredIndexValuesStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -73,6 +74,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Source vertex class name for class-check modes (UNFILTERED_BOUND/UNBOUND). */
   @Nullable private final String sourceClassName;
 
+  /** WHERE filter on the target alias (e.g., creationDate < :maxDate). */
+  @Nullable private final SQLWhereClause targetFilter;
+
+  /** Class constraint on the target alias (for class-based filtering). */
+  @Nullable private final String targetClassName;
+
   public IndexOrderedEdgeStep(
       CommandContext ctx,
       String sourceAlias,
@@ -86,6 +93,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable MatchExecutionPlanner.MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
+      @Nullable SQLWhereClause targetFilter,
+      @Nullable String targetClassName,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.sourceAlias = sourceAlias;
@@ -99,6 +108,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.multiSourceMode = multiSourceMode;
     this.reverseFieldName = reverseFieldName;
     this.sourceClassName = sourceClassName;
+    this.targetFilter = targetFilter;
+    this.targetClassName = targetClassName;
   }
 
   @Override
@@ -127,13 +138,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxRidSetSize =
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
     if (ridSet.size() > maxRidSetSize) {
-      return loadAllAndSort(ridSet, session, upstreamRow);
+      return loadAllAndSort(ridSet, ctx, upstreamRow);
     }
 
     if (shouldUseIndexScan(ridSet.size(), session)) {
       return indexScanFiltered(ridSet, ctx, upstreamRow);
     } else {
-      return loadAllAndSort(ridSet, session, upstreamRow);
+      return loadAllAndSort(ridSet, ctx, upstreamRow);
     }
   }
 
@@ -154,23 +165,30 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
+      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+        return null;
+      }
       if (isAlreadyBoundAndDifferent(upstreamRow, targetRecord, session)) {
         return null;
       }
       return new MatchResultRow(session, upstreamRow, targetAlias, targetRecord);
-    });
+    }).filter(ExecutionStream.SKIP_NULLS);
   }
 
   /**
    * Single-source fallback: load all targets, sort in-memory.
    */
   private ExecutionStream loadAllAndSort(
-      RidSet ridSet, DatabaseSessionEmbedded session, Result upstreamRow) {
+      RidSet ridSet, CommandContext ctx, Result upstreamRow) {
+    var session = ctx.getDatabaseSession();
     var propertyName = index.getDefinition().getProperties().get(0);
     var loaded = new ArrayList<Result>(ridSet.size());
     for (var rid : ridSet) {
       var record = loadRecord(rid, session);
       if (record == null) {
+        continue;
+      }
+      if (!matchesTargetFilter(record, ctx)) {
         continue;
       }
       if (isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
@@ -230,7 +248,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     if (sourceCount > maxSources) {
-      return loadAllMultiSource(sourceMap, session);
+      return loadAllMultiSource(sourceMap, ctx);
     }
 
     long indexSize = index.size(session);
@@ -241,7 +259,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> indexScanWithUnion(sourceMap, ctx);
       case GLOBAL_SCAN -> indexScanGlobal(sourceMap, ctx);
-      case LOAD_ALL_SORT -> loadAllMultiSource(sourceMap, session);
+      case LOAD_ALL_SORT -> loadAllMultiSource(sourceMap, ctx);
     };
   }
 
@@ -290,7 +308,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     // If union overflowed, fall back to load-all from source LinkBags
     if (ridSetOverflow) {
-      return loadAllFromSourcesUnbound(sourceRids, session);
+      return loadAllFromSourcesUnbound(sourceRids, ctx);
     }
 
     if (unionRidSet.isEmpty()) {
@@ -298,7 +316,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (!shouldUseIndexScan(unionRidSet.size(), session)) {
-      return loadAllAndSortUnbound(unionRidSet, session);
+      return loadAllAndSortUnbound(unionRidSet, ctx);
     }
 
     var indexDesc = new IndexSearchDescriptor(index);
@@ -312,19 +330,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
+      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+        return null;
+      }
       var emptyUpstream = new ResultInternal(session);
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    });
+    }).filter(ExecutionStream.SKIP_NULLS);
   }
 
   /** Mode B fallback: load union entries, sort, emit without source binding. */
   private ExecutionStream loadAllAndSortUnbound(
-      RidSet ridSet, DatabaseSessionEmbedded session) {
+      RidSet ridSet, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     var propertyName = index.getDefinition().getProperties().get(0);
     var loaded = new ArrayList<Result>(ridSet.size());
     for (var rid : ridSet) {
       var record = loadRecord(rid, session);
-      if (record != null) {
+      if (record != null && matchesTargetFilter(record, ctx)) {
         loaded.add(record);
       }
     }
@@ -345,7 +367,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * exceeds maxRidSetSize.
    */
   private ExecutionStream loadAllFromSourcesUnbound(
-      List<RID> sourceRids, DatabaseSessionEmbedded session) {
+      List<RID> sourceRids, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     var propertyName = index.getDefinition().getProperties().get(0);
     var loaded = new ArrayList<Result>();
 
@@ -366,7 +389,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
       for (RidPair pair : linkBag) {
         var record = loadRecord(pair.secondaryRid(), session);
-        if (record != null) {
+        if (record != null && matchesTargetFilter(record, ctx)) {
           loaded.add(record);
         }
       }
@@ -414,6 +437,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
+      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+        return null;
+      }
 
       var sourceRid = resolveFirstReverseEdge(targetRecord);
       if (sourceRid == null) {
@@ -431,7 +457,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var upstreamRow = new ResultInternal(session);
       ((ResultInternal) upstreamRow).setProperty(sourceAlias, sourceRecord);
       return new MatchResultRow(session, upstreamRow, targetAlias, targetRecord);
-    });
+    }).filter(ExecutionStream.SKIP_NULLS);
   }
 
   // ---- Mode D: UNFILTERED_UNBOUND (class check, no source load) ----
@@ -463,6 +489,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (targetRecord == null) {
         return null;
       }
+      if (!matchesTargetFilter(targetRecord, mapCtx)) {
+        return null;
+      }
 
       var sourceRid = resolveFirstReverseEdge(targetRecord);
       if (sourceRid == null) {
@@ -474,7 +503,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
       var emptyUpstream = new ResultInternal(session);
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    });
+    }).filter(ExecutionStream.SKIP_NULLS);
   }
 
   /**
@@ -518,7 +547,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (overflow) {
-      return loadAllMultiSource(sourceMap, session);
+      return loadAllMultiSource(sourceMap, ctx);
     }
 
     if (unionRidSet.isEmpty()) {
@@ -534,7 +563,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     // Per match: load record, reverse edge → find upstream row(s).
     // flatMap handles shared targets (one target linked to multiple sources).
     return indexStream.flatMap(
-        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, session));
+        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx));
   }
 
   /**
@@ -544,14 +573,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private ExecutionStream indexScanGlobal(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
     var indexDesc = new IndexSearchDescriptor(index);
     var fullScan = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, ctx, profilingEnabled, null);
     var indexStream = fullScan.internalStart(ctx);
 
     return indexStream.flatMap(
-        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, session));
+        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx));
   }
 
   /**
@@ -559,7 +587,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * globally, emit in order. Fallback when index scan is too expensive.
    */
   private ExecutionStream loadAllMultiSource(
-      Map<RID, List<Result>> sourceMap, DatabaseSessionEmbedded session) {
+      Map<RID, List<Result>> sourceMap, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     var propertyName = index.getDefinition().getProperties().get(0);
 
     record Hit(Result record, Result upstream) {
@@ -589,6 +618,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       for (RidPair pair : linkBag) {
         var record = loadRecord(pair.secondaryRid(), session);
         if (record == null) {
+          continue;
+        }
+        if (!matchesTargetFilter(record, ctx)) {
           continue;
         }
         for (var upstreamRow : upstreamRows) {
@@ -658,10 +690,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream matchTargetToSources(
       Result indexResult,
       Map<RID, List<Result>> sourceMap,
-      DatabaseSessionEmbedded session) {
+      CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     var rid = (RID) indexResult.getProperty("rid");
     var targetRecord = loadRecord(rid, session);
     if (targetRecord == null) {
+      return ExecutionStream.empty();
+    }
+    if (!matchesTargetFilter(targetRecord, ctx)) {
       return ExecutionStream.empty();
     }
 
@@ -825,6 +861,32 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
+   * Checks if a target record passes the WHERE filter and class constraint.
+   * Returns true if the record should be included, false if filtered out.
+   */
+  private boolean matchesTargetFilter(Result targetRecord, CommandContext ctx) {
+    if (targetFilter != null
+        && !targetFilter.matchesFilters(targetRecord, ctx)) {
+      return false;
+    }
+    if (targetClassName != null) {
+      var entity = targetRecord.asEntityOrNull();
+      if (entity == null) {
+        return false;
+      }
+      var schemaClass = entity.getSchemaClass();
+      if (schemaClass == null) {
+        return false;
+      }
+      if (!schemaClass.getName().equals(targetClassName)
+          && !schemaClass.isSubClassOf(targetClassName)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Comparator that sorts by a property value, with NULLs always first
    * (matching the B-tree index NULL ordering used by the index scan path).
    */
@@ -866,6 +928,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return new IndexOrderedEdgeStep(
         ctx, sourceAlias, targetAlias, edgeClassName, linkBagFieldName,
         index, orderAsc, edge.copy(), limit, multiSourceMode,
-        reverseFieldName, sourceClassName, profilingEnabled);
+        reverseFieldName, sourceClassName, targetFilter, targetClassName,
+        profilingEnabled);
   }
 }
