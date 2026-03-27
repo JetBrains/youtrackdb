@@ -127,7 +127,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxRidSetSize =
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
     if (ridSet.size() > maxRidSetSize) {
-      // RidSet too large for index scan — load all and sort instead
       return loadAllAndSort(ridSet, session, upstreamRow);
     }
 
