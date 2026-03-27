@@ -577,21 +577,25 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
-    addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
-
     // Phase 4b: Detect index-ordered MATCH traversal opportunity.
     // Only applicable for single connected patterns (no Cartesian product).
+    // Detected BEFORE prefetch so we can exclude the target alias from prefetching —
+    // prefetching it would pre-bind the target, causing IndexOrderedEdgeStep to
+    // reject all index results via the isAlreadyBoundAndDifferent check.
     IndexOrderedCandidate indexOrderedCandidate = null;
     if (subPatterns.size() == 1 && orderBy != null) {
-      // Pre-compute the schedule to detect the candidate before step generation.
-      // The schedule will be recomputed inside createPlanForPattern — this is
-      // acceptable because scheduling is cheap (graph DFS) compared to execution.
       var probeEdges = getTopologicalSortedSchedule(
           estimatedRootEntries, pattern, aliasClasses, context.getDatabaseSession());
       indexOrderedCandidate =
           detectIndexOrderedCandidate(probeEdges, estimatedRootEntries, context);
     }
+
+    // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
+    if (indexOrderedCandidate != null) {
+      // Exclude the target alias — it will be bound by IndexOrderedEdgeStep
+      aliasesToPrefetch.remove(indexOrderedCandidate.targetAlias());
+    }
+    addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
     // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
@@ -4517,8 +4521,15 @@ public class MatchExecutionPlanner {
       return null; // no edge class specified
     }
     var edgeClassBuilder = new StringBuilder();
-    methodParams.get(0).toString(new HashMap<>(), edgeClassBuilder);
+    methodParams.getFirst().toString(new HashMap<>(), edgeClassBuilder);
     var edgeClassName = edgeClassBuilder.toString();
+    // Strip surrounding quotes — the SQL parser wraps string literals in double quotes
+    // (e.g., .in('TEST_HAS_CREATOR') → toString produces "TEST_HAS_CREATOR")
+    if (edgeClassName.length() >= 2
+        && edgeClassName.charAt(0) == '"'
+        && edgeClassName.charAt(edgeClassName.length() - 1) == '"') {
+      edgeClassName = edgeClassName.substring(1, edgeClassName.length() - 1);
+    }
     if (edgeClassName.isEmpty()) {
       return null;
     }
@@ -4574,8 +4585,12 @@ public class MatchExecutionPlanner {
         estimatedRootEntries.getOrDefault(sourceAlias, Long.MAX_VALUE);
     MultiSourceMode multiSourceMode = null;
     if (sourceCardinality > 1) {
-      // Verify reverse field exists on target class for modes that need it
-      var hasReverseField = clazz.getPropertyInternal(reverseFieldName) != null;
+      // Verify reverse field can exist on target class. The in_/out_ LinkBag
+      // fields are created implicitly by the edge system — they won't appear as
+      // schema properties via getPropertyInternal(). Instead, verify that the edge
+      // class exists in the schema, which guarantees the LinkBag fields exist on
+      // connected vertices.
+      var hasReverseField = schema.existsClass(edgeClassName);
       var hasSourceFilter = aliasFilters.get(sourceAlias) != null;
       var sourceBindingNeeded = isSourceAliasUsedDownstream(
           sourceAlias, sortedEdges, matchedEdge);
