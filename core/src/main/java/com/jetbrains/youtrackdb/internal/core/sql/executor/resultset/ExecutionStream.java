@@ -13,6 +13,9 @@ import javax.annotation.Nullable;
 
 public interface ExecutionStream {
 
+  /** Filter that passes non-null results and skips nulls. */
+  FilterResult SKIP_NULLS = (result, ctx) -> result;
+
   boolean hasNext(CommandContext ctx);
 
   Result next(CommandContext ctx);
