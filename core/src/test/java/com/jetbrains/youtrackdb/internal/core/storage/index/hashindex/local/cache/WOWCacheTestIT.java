@@ -46,6 +46,9 @@ import org.junit.Test;
 public class WOWCacheTestIT {
 
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
+  private static final long TEST_PAGES_FLUSH_INTERVAL = 10L;
+  private static final int TEST_SHUTDOWN_TIMEOUT = 10_000;
+  private static final long TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE = 100L;
 
   private static String fileName;
 
@@ -154,9 +157,9 @@ public class WOWCacheTestIT {
             bufferPool,
             writeAheadLog,
             new DoubleWriteLogNoOP(),
-            10,
-            10,
-            100,
+            TEST_PAGES_FLUSH_INTERVAL,
+            TEST_SHUTDOWN_TIMEOUT,
+            TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
             storagePath,
             storageName,
             files,
@@ -261,9 +264,9 @@ public class WOWCacheTestIT {
             bufferPool,
             writeAheadLog,
             new DoubleWriteLogNoOP(),
-            10,
-            10,
-            100,
+            TEST_PAGES_FLUSH_INTERVAL,
+            TEST_SHUTDOWN_TIMEOUT,
+            TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
             storagePath,
             storageName,
 
@@ -489,9 +492,9 @@ public class WOWCacheTestIT {
             bufferPool,
             writeAheadLog,
             new DoubleWriteLogNoOP(),
-            10,
-            10,
-            100,
+            TEST_PAGES_FLUSH_INTERVAL,
+            TEST_SHUTDOWN_TIMEOUT,
+            TEST_EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
             storagePath,
             storageName,
             files,
