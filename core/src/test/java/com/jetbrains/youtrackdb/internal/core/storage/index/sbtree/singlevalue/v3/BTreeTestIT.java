@@ -874,9 +874,15 @@ public class BTreeTestIT {
       final var fromKeyIndex = random.nextInt(keys.length);
       var fromKey = keys[fromKeyIndex];
 
-      if (random.nextBoolean()) {
+      // Occasionally perturb the key to test iteration with keys not in the map.
+      // Guard: keys shorter than 2 chars cannot be meaningfully shortened.
+      // Cast to (char) to avoid int promotion — without the cast, char arithmetic
+      // produces an int that gets appended as its decimal representation (e.g.
+      // "99998" + 48 instead of "99998" + '0'), which corrupts the key.
+      if (random.nextBoolean() && fromKey.length() >= 2) {
         fromKey =
-            fromKey.substring(0, fromKey.length() - 2) + (fromKey.charAt(fromKey.length() - 1) - 1);
+            fromKey.substring(0, fromKey.length() - 2)
+                + (char) (fromKey.charAt(fromKey.length() - 1) - 1);
       }
 
       final Iterator<RawPair<String, RID>> indexIterator;
@@ -928,8 +934,12 @@ public class BTreeTestIT {
     for (var i = 0; i < 100; i++) {
       var toKeyIndex = random.nextInt(keys.length);
       var toKey = keys[toKeyIndex];
-      if (random.nextBoolean()) {
-        toKey = toKey.substring(0, toKey.length() - 2) + (toKey.charAt(toKey.length() - 1) + 1);
+      // See comment in assertIterateMajorEntries for why the (char) cast and
+      // length guard are necessary.
+      if (random.nextBoolean() && toKey.length() >= 2) {
+        toKey =
+            toKey.substring(0, toKey.length() - 2)
+                + (char) (toKey.charAt(toKey.length() - 1) + 1);
       }
 
       final Iterator<RawPair<String, RID>> indexIterator;
@@ -984,13 +994,18 @@ public class BTreeTestIT {
       var fromKey = keys[fromKeyIndex];
       var toKey = keys[toKeyIndex];
 
-      if (random.nextBoolean()) {
+      // See comment in assertIterateMajorEntries for why the (char) cast and
+      // length guard are necessary.
+      if (random.nextBoolean() && fromKey.length() >= 2) {
         fromKey =
-            fromKey.substring(0, fromKey.length() - 2) + (fromKey.charAt(fromKey.length() - 1) - 1);
+            fromKey.substring(0, fromKey.length() - 2)
+                + (char) (fromKey.charAt(fromKey.length() - 1) - 1);
       }
 
-      if (random.nextBoolean()) {
-        toKey = toKey.substring(0, toKey.length() - 2) + (toKey.charAt(toKey.length() - 1) + 1);
+      if (random.nextBoolean() && toKey.length() >= 2) {
+        toKey =
+            toKey.substring(0, toKey.length() - 2)
+                + (char) (toKey.charAt(toKey.length() - 1) + 1);
       }
 
       if (fromKey.compareTo(toKey) > 0) {
