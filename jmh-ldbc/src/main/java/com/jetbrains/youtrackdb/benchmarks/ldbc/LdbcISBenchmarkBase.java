@@ -16,9 +16,9 @@ import org.openjdk.jmh.annotations.Warmup;
  * Contains IS1-IS7 (single-hop lookups) plus IC8 and IC13 which have similarly
  * high throughput (>100 ops/s single-threaded on SF 1).
  *
- * <p>These queries exhibit JIT inter-fork variance (the JVM compiles hot paths
- * differently across forks). 10 forks are needed to average out this variance.
- * 3 measurement iterations of 10s each, giving 30 data points total.
+ * <p>With curated parameters eliminating parameter-dependent variance, 5 forks
+ * are sufficient to average out JIT inter-fork variance. 3 measurement
+ * iterations of 10s each give 15 data points total.
  *
  * <p>Subclasses specify the thread count via @Threads annotation.
  */
@@ -26,7 +26,7 @@ import org.openjdk.jmh.annotations.Warmup;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 1, time = 5)
 @Measurement(iterations = 3, time = 10)
-@Fork(value = 10, jvmArgsAppend = {
+@Fork(value = 5, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",

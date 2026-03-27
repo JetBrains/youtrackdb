@@ -17,20 +17,17 @@ import org.openjdk.jmh.annotations.Warmup;
  * Contains IC3, IC5, IC10 which have extremely low throughput (< 0.05 ops/s
  * single-threaded on SF 1): individual queries take 40-125 seconds each.
  *
- * <p>These queries are so slow that even 120s measurement iterations complete
- * only 1-3 operations. The 300s measurement windows ensure at least 2-7
- * operations per iteration for IC10 (40s/op) and IC3 (83s/op), though IC5
- * (125s/op) may still only get 2 operations per 300s window.
- *
- * <p>3 forks x 3 iterations gives 9 data points — the minimum for a
- * meaningful confidence interval.
+ * <p>Even with curated parameters, these queries need long measurement windows
+ * because individual operations are so slow. 120s iterations ensure at least
+ * 1-3 operations per iteration for IC10 (40s/op) and IC3 (83s/op).
+ * 3 forks × 3 iterations gives 9 data points.
  *
  * <p>Subclasses specify the thread count via @Threads annotation.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 1, time = 120)
-@Measurement(iterations = 3, time = 300)
+@Warmup(iterations = 1, time = 60)
+@Measurement(iterations = 3, time = 120)
 @Fork(value = 3, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",

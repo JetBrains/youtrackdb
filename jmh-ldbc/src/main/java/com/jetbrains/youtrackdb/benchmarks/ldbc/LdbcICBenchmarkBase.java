@@ -16,11 +16,9 @@ import org.openjdk.jmh.annotations.Warmup;
  * Contains IC2, IC7, IC11: multi-hop analytical traversals with throughput
  * between 5 and 30 ops/s (single-threaded, SF 1).
  *
- * <p>These queries exhibit parameter-dependent throughput variation (different
- * persons have vastly different neighborhoods). Longer measurement iterations
- * (60s) are used to average out this parameter sensitivity within each iteration.
- * 3 forks x 5 iterations gives 15 data points with enough parameter diversity
- * per data point to achieve score-error below 7%.
+ * <p>With curated parameters eliminating parameter-dependent variance, shorter
+ * measurement iterations (20s) are sufficient. 3 forks × 5 iterations gives
+ * 15 data points for a stable confidence interval.
  *
  * <p>Fast queries (IS1-IS7, IC8, IC13) are in {@link LdbcISBenchmarkBase}.
  * Slow queries (IC1, IC3-IC6, IC9, IC10, IC12) are in {@link LdbcICSlowBenchmarkBase}.
@@ -29,8 +27,8 @@ import org.openjdk.jmh.annotations.Warmup;
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 1, time = 30)
-@Measurement(iterations = 5, time = 60)
+@Warmup(iterations = 1, time = 10)
+@Measurement(iterations = 5, time = 20)
 @Fork(value = 3, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",

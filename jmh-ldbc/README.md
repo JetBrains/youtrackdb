@@ -41,14 +41,14 @@ The benchmark covers 20 read-only queries from the LDBC SNB Interactive v1 speci
 
 ## Benchmark Classes
 
-Benchmarks are split into 4 tiers based on SF 1 single-threaded throughput, each with JMH parameters tuned for score-error < 7%:
+Benchmarks are split into 4 tiers based on SF 1 single-threaded throughput. With [curated parameters](#parameter-curation) eliminating parameter-dependent variance, shorter measurement iterations are sufficient:
 
 | Tier | Base Class | Queries | Forks | Warmup | Measurement | ST ops/s |
 |------|-----------|---------|-------|--------|-------------|----------|
-| Fast | `LdbcISBenchmarkBase` | IS1-IS7, IC8, IC13 | 10 | 1×5s | 3×10s | >100 |
-| Medium | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 3 | 1×30s | 5×60s | 5-30 |
-| Slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 5 | 1×60s | 5×120s | 0.1-3 |
-| Ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | 3 | 1×120s | 3×300s | <0.1 |
+| Fast | `LdbcISBenchmarkBase` | IS1-IS7, IC8, IC13 | 5 | 1×5s | 3×10s | >100 |
+| Medium | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 3 | 1×10s | 5×20s | 5-30 |
+| Slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 3 | 1×30s | 5×30s | 0.1-3 |
+| Ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | 3 | 1×60s | 3×120s | <0.1 |
 
 Each tier has single-threaded and multi-threaded concrete classes:
 
@@ -61,16 +61,16 @@ Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available pro
 
 ## Execution Time
 
-Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget.
+Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget. Parameter curation significantly reduces total runtime compared to the random-sampling approach.
 
 | Suite | Benchmarks | Approx. Time per mode (SF 1) |
 |-------|-----------|------------------------------|
-| Fast (ST or MT) | 9 | ~55 min |
-| Medium (ST or MT) | 3 | ~50 min |
-| Slow (ST or MT) | 5 | ~95 min |
-| Ultra-slow (ST or MT) | 3 | ~75 min |
-| **All suites (ST + MT)** | 40 | **~9-10 hours** |
-| First run from CSV (includes DB init) | — | adds ~21 min (SF 1) |
+| Fast (ST or MT) | 9 | ~30 min |
+| Medium (ST or MT) | 3 | ~17 min |
+| Slow (ST or MT) | 5 | ~46 min |
+| Ultra-slow (ST or MT) | 3 | ~64 min |
+| **All suites (ST + MT)** | 40 | **~5 hours** |
+| First run from CSV (includes DB init + factor tables) | — | adds ~25 min (SF 1) |
 
 ## Prerequisites
 
@@ -372,10 +372,10 @@ jmh-ldbc/
     LdbcBenchmarkState.java            # @State — DB lifecycle, data loading, curated param access
     ParameterCurator.java              # Factor tables, gap-based grouping, per-query param gen
     LdbcQuerySql.java                  # Loads SQL query strings from classpath resources
-    LdbcISBenchmarkBase.java           # Fast: IS1-7, IC8, IC13 (10f, 1×5s, 3×10s)
-    LdbcICBenchmarkBase.java           # Medium: IC2, IC7, IC11 (3f, 1×30s, 5×60s)
-    LdbcICSlowBenchmarkBase.java       # Slow: IC1,4,6,9,12 (5f, 1×60s, 5×120s)
-    LdbcICUltraSlowBenchmarkBase.java  # Ultra-slow: IC3,5,10 (3f, 1×120s, 3×300s)
+    LdbcISBenchmarkBase.java           # Fast: IS1-7, IC8, IC13 (5f, 1×5s, 3×10s)
+    LdbcICBenchmarkBase.java           # Medium: IC2, IC7, IC11 (3f, 1×10s, 5×20s)
+    LdbcICSlowBenchmarkBase.java       # Slow: IC1,4,6,9,12 (3f, 1×30s, 5×30s)
+    LdbcICUltraSlowBenchmarkBase.java  # Ultra-slow: IC3,5,10 (3f, 1×60s, 3×120s)
     LdbcSingleThread{IS,IC,ICSlow,ICUltraSlow}Benchmark.java  # @Threads(1)
     LdbcMultiThread{IS,IC,ICSlow,ICUltraSlow}Benchmark.java   # @Threads(MAX)
     LdbcDatabaseTool.java              # CLI for export/import/backup/restore operations

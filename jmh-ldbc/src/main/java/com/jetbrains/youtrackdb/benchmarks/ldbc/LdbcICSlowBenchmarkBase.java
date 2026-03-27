@@ -15,23 +15,22 @@ import org.openjdk.jmh.annotations.Warmup;
 /**
  * Abstract base class for slow LDBC SNB Interactive Complex (IC) queries.
  * Contains IC1, IC4, IC6, IC9, IC12 which have low throughput (0.1-3 ops/s
- * single-threaded on SF 1) and require long measurement windows.
+ * single-threaded on SF 1).
  *
- * <p>These queries exhibit significant parameter-dependent throughput variation.
- * The 120s measurement iterations ensure enough operations complete per iteration
- * to average out parameter sensitivity. 5 forks x 5 iterations gives 25 data
- * points, which is enough to bring the 99.9% CI below 7%.
+ * <p>With curated parameters eliminating parameter-dependent variance, 30s
+ * measurement iterations are sufficient for queries at 0.1-3 ops/s (3-90
+ * operations per iteration). 3 forks × 5 iterations gives 15 data points.
  *
  * <p>Ultra-slow queries (IC3, IC5, IC10) with < 0.1 ops/s are in
- * {@link LdbcICUltraSlowBenchmarkBase} with even longer measurement windows.
+ * {@link LdbcICUltraSlowBenchmarkBase} with longer measurement windows.
  *
  * <p>Subclasses specify the thread count via @Threads annotation.
  */
 @BenchmarkMode(Mode.Throughput)
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 1, time = 60)
-@Measurement(iterations = 5, time = 120)
-@Fork(value = 5, jvmArgsAppend = {
+@Warmup(iterations = 1, time = 30)
+@Measurement(iterations = 5, time = 30)
+@Fork(value = 3, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
