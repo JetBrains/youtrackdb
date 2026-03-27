@@ -440,8 +440,8 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
   }
 
   @Test
-  public void serializedBytes_containsHashPrefixPerEntry() {
-    // Verify that each property entry starts with a 4-byte MurmurHash3 hash prefix
+  public void serializedBytes_containsHashTableAndOffsetTable() {
+    // Verify the header-separated format: [count][hash table][offset table][data area]
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.setString("alpha", "val_a");
@@ -454,12 +454,27 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     int count = VarIntSerializer.readAsInteger(result);
     assertThat(count).isEqualTo(2);
 
+    // Read hash table (count × 4 bytes)
+    int hashTableStart = result.offset;
+    int[] hashes = new int[count];
     for (int i = 0; i < count; i++) {
-      // Read 4-byte hash prefix
-      int storedHash =
-          com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
-              .deserializeLiteral(result.bytes, result.offset);
+      hashes[i] = IntegerSerializer.deserializeLiteral(result.bytes, result.offset);
       result.skip(4);
+    }
+
+    // Read offset table (count × 4 bytes)
+    int offsetTableStart = result.offset;
+    int[] offsets = new int[count];
+    for (int i = 0; i < count; i++) {
+      offsets[i] = IntegerSerializer.deserializeLiteral(result.bytes, result.offset);
+      result.skip(4);
+    }
+    int dataAreaStart = result.offset;
+
+    // Verify each entry in the data area matches its hash
+    for (int i = 0; i < count; i++) {
+      // Jump to entry via offset
+      result.offset = dataAreaStart + offsets[i];
 
       // Read name
       int nameLen = VarIntSerializer.readAsInteger(result);
@@ -471,7 +486,10 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
       byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
       int expectedHash = com.jetbrains.youtrackdb.internal.common.hash.MurmurHash3
           .hash32WithSeed(nameBytes, 0, nameBytes.length, 0);
-      assertThat(storedHash).as("Hash prefix for '%s'", name).isEqualTo(expectedHash);
+      assertThat(hashes[i]).as("Hash for '%s'", name).isEqualTo(expectedHash);
+
+      // Verify offset points to the right position
+      assertThat(offsets[i]).as("Offset for entry %d", i).isGreaterThanOrEqualTo(0);
 
       // Skip type byte + value
       result.skip(1);
@@ -521,10 +539,13 @@ public class RecordSerializerBinaryV2RoundTripTest extends DbTestBase {
     var bytes = new BytesContainer();
     // Property count = 1
     VarIntSerializer.write(bytes, 1);
-    // 4-byte hash prefix (arbitrary)
+    // Hash table: 1 × 4 bytes (arbitrary hash)
     int hashStart = bytes.alloc(IntegerSerializer.INT_SIZE);
     IntegerSerializer.serializeLiteral(0x12345678, bytes.bytes, hashStart);
-    // Schema-less name: length + UTF-8 bytes for "test"
+    // Offset table: 1 × 4 bytes (offset 0 — entry starts at data area start)
+    int offsetStart = bytes.alloc(IntegerSerializer.INT_SIZE);
+    IntegerSerializer.serializeLiteral(0, bytes.bytes, offsetStart);
+    // Data area: schema-less name "test" + type + negative value length
     byte[] nameBytes = "test".getBytes(StandardCharsets.UTF_8);
     VarIntSerializer.write(bytes, nameBytes.length);
     int nameStart = bytes.alloc(nameBytes.length);
