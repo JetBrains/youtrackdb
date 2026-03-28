@@ -1605,4 +1605,74 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     graph.close();
   }
 
+  /**
+   * Regression test: put() replacing a live RecordId entry from a prior TX.
+   *
+   * Scenario: Three vertices with distinct names. A concurrent TX sets all names
+   * to null, then reassigns them in a different order, then reassigns again.
+   * interpretAsNonUnique collapses these changes so that some keys get a
+   * standalone PUT for an RID that already has a committed live entry — the
+   * engine's put() finds the prior TX's live RecordId and must preserve it in
+   * the snapshot for concurrent readers.
+   *
+   * Pattern from DuplicateNonUniqueIndexChangesTxTest.testDuplicateNullsOnUpdate.
+   */
+  @Test
+  public void liveRecordUpdates() throws Exception {
+
+    // Schema with NOTUNIQUE index
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
+
+    // TX0: insert three vertices with distinct names
+    var graph = openGraph();
+    graph.tx().begin();
+    var v1 = graph.addV("Userr").property("name", "Name1").next();
+    var id1 = v1.id();
+    var v2 = graph.addV("Userr").property("name", "Name2").next();
+    var id2 = v2.id();
+    var v3 = graph.addV("Userr").property("name", "Name3").next();
+    var id3 = v3.id();
+    graph.tx().commit();
+
+    // Open snapshot TX — must see 1 of each
+    var snapshotGraph = openGraph();
+    snapshotGraph.tx().begin();
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name3").toList().size());
+
+    // TX1: set all to null, then reassign, then reassign again.
+    // This triggers interpretAsNonUnique to produce standalone PUTs for
+    // keys that already have committed live entries.
+    graph.tx().begin();
+    graph.V(id1).property("name", (Object) null).iterate();
+    graph.V(id2).property("name", (Object) null).iterate();
+    graph.V(id3).property("name", (Object) null).iterate();
+
+    graph.V(id1).property("name", "Name2").iterate();
+    graph.V(id2).property("name", "Name1").iterate();
+    graph.V(id3).property("name", "Name2").iterate();
+
+    graph.V(id1).property("name", "Name1").iterate();
+    graph.V(id2).property("name", "Name2").iterate();
+    graph.tx().commit();
+
+    // Snapshot must still see original state
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name3").toList().size());
+    snapshotGraph.tx().commit();
+
+    snapshotGraph.close();
+    graph.close();
+  }
+
 }

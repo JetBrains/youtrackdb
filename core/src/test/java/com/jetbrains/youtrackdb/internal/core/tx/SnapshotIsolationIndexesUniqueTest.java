@@ -1367,6 +1367,74 @@ public class SnapshotIsolationIndexesUniqueTest {
     graph.close();
   }
 
+  /**
+   * Regression test: put() replacing a live RecordId entry from a prior TX
+   * on a UNIQUE index.
+   *
+   * Scenario: Three vertices with distinct names on a UNIQUE index. A concurrent
+   * TX sets all names to null, then reassigns them in a different order, then
+   * reassigns again. interpretAsUnique collapses these changes so that some keys
+   * get a standalone PUT for an RID that already has a committed live entry —
+   * the engine's validatedPut()/put() finds the prior TX's live RecordId and
+   * must preserve it in the snapshot for concurrent readers.
+   *
+   * A snapshot reader that started before the update must still see the original
+   * state.
+   */
+  @Test
+  public void liveRecordUpdates() throws Exception {
+
+    // Schema with UNIQUE index
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
+
+    // TX0: insert two vertices with distinct names
+    var graph = openGraph();
+    graph.tx().begin();
+    var v1 = graph.addV("Userr").property("name", "Name1").next();
+    var id1 = v1.id();
+    var v2 = graph.addV("Userr").property("name", "Name2").next();
+    var id2 = v2.id();
+    graph.tx().commit();
+
+    // Open snapshot TX — must see 1 of each
+    var snapshotGraph = openGraph();
+    snapshotGraph.tx().begin();
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+
+    // TX1: swap names via null to avoid UNIQUE conflicts within the TX,
+    // then swap back. Net effect: no change. But interpretAsUnique may
+    // collapse the changes into standalone PUTs for keys that already have
+    // committed live entries.
+    graph.tx().begin();
+    graph.V(id1).property("name", (Object) null).iterate();
+    graph.V(id2).property("name", (Object) null).iterate();
+
+    graph.V(id1).property("name", "Name2").iterate();
+    graph.V(id2).property("name", "Name1").iterate();
+
+    graph.V(id1).property("name", (Object) null).iterate();
+    graph.V(id2).property("name", (Object) null).iterate();
+
+    graph.V(id1).property("name", "Name1").iterate();
+    graph.V(id2).property("name", "Name2").iterate();
+    graph.tx().commit();
+
+    // Snapshot must still see original state
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name1").toList().size());
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
+    snapshotGraph.tx().commit();
+
+    snapshotGraph.close();
+    graph.close();
+  }
+
   private YTDBGraphTraversalSource openGraph() {
     return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
   }

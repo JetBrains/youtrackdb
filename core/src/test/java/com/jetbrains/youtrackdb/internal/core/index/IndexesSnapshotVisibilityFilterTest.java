@@ -9,7 +9,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.List;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -66,9 +69,16 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   private IndexesSnapshot snapshot;
 
+  private static IndexesSnapshot newSnapshot(long indexId) {
+    return new IndexesSnapshot(
+        new ConcurrentSkipListMap<>(),
+        new ConcurrentSkipListMap<>(AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR),
+        new AtomicLong(), indexId);
+  }
+
   @Before
   public void setUp() {
-    snapshot = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    snapshot = newSnapshot(INDEX_ID);
 
     // remove@128: was alive at v125, removed at v128
     snapshot.addSnapshotPair(
@@ -89,7 +99,10 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   private List<RawPair<CompositeKey, RID>> callSnapshotVisibility(
       IndexesSnapshot snap, RawPair<CompositeKey, RID> pair, long visibleVersion) {
-    return snap.snapshotVisibility(pair, visibleVersion).toList();
+    var result = new java.util.ArrayList<RawPair<CompositeKey, RID>>();
+    snap.emitSnapshotVisibility(pair, visibleVersion, java.util.function.Function.identity(),
+        result::add);
+    return result;
   }
 
   private List<RawPair<CompositeKey, RID>> callSnapshotVisibility(
@@ -264,7 +277,7 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void emptySnapshot_futureTombstone_notVisible() {
-    IndexesSnapshot emptySnap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot emptySnap = newSnapshot(INDEX_ID);
     var pair = new RawPair<>(new CompositeKey("X", RID_20_0, 200L), (RID) TOMBSTONE_20_0);
     var result = callSnapshotVisibility(emptySnap, pair, 101L);
     assertTrue(
@@ -274,7 +287,7 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void emptySnapshot_futureSnapshotMarker_notVisible() {
-    IndexesSnapshot emptySnap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot emptySnap = newSnapshot(INDEX_ID);
     var pair = new RawPair<>(new CompositeKey("X", RID_20_0, 200L), (RID) SNAPSHOT_MARKER_20_0);
     var result = callSnapshotVisibility(emptySnap, pair, 101L);
     assertTrue(
@@ -288,7 +301,7 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void twoRecords_independentVisibility() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
 
     RID ridA = new RecordId(10, 1);
 
@@ -324,7 +337,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void threePhase_afterRemove_visibleBeforeRemove() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID rid = new RecordId(30, 5);
 
     // remove@110 creates the pair
@@ -362,7 +375,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void lowerEntry_doesNotLeakAcrossKeys_multiValue() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID rid = new RecordId(10, 1);
 
     // Only "Bar" has snapshot entries — "Foo" was never in the snapshot
@@ -391,7 +404,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void lowerEntry_doesNotLeakAcrossKeys_singleValue() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID rid = new RecordId(10, 1);
 
     // Only "Bar" has snapshot entries
@@ -417,7 +430,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void lowerEntry_returnsCorrectKey_whenBothKeysExist() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID ridBar = new RecordId(10, 1);
     RID ridFoo = new RecordId(20, 2);
 
@@ -455,7 +468,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void threePhase_afterReAdd_version115_notVisible() {
-    IndexesSnapshot snap = new IndexesSnapshot().subIndexSnapshot(INDEX_ID);
+    IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID rid = new RecordId(30, 5);
 
     // remove@110 creates the first pair

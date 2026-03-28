@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import java.io.IOException;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.Test;
 
@@ -446,14 +447,27 @@ public class BTreeEngineHistogramBuildTest {
     when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
-    // IndexesSnapshot mock: visibilityFilter passes through the stream unchanged
+    // IndexesSnapshot mock: visibilityFilter passes through the stream unchanged,
+    // visibilityFilterMapped applies the key mapper to each entry.
     var snapshot = mock(IndexesSnapshot.class);
     when(snapshot.visibilityFilter(any(), any()))
         .thenAnswer(inv -> inv.getArgument(1));
+    when(snapshot.visibilityFilterMapped(any(), any(), any()))
+        .thenAnswer(inv -> {
+          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
+          Function<CompositeKey, Object> mapper = inv.getArgument(2);
+          return stream.map(p -> new RawPair<>(mapper.apply(p.first()), p.second()));
+        });
     when(storage.subIndexSnapshot(anyLong())).thenReturn(snapshot);
     var nullSnapshot = mock(IndexesSnapshot.class);
     when(nullSnapshot.visibilityFilter(any(), any()))
         .thenAnswer(inv -> inv.getArgument(1));
+    when(nullSnapshot.visibilityFilterMapped(any(), any(), any()))
+        .thenAnswer(inv -> {
+          Stream<RawPair<CompositeKey, RID>> stream = inv.getArgument(1);
+          Function<CompositeKey, Object> mapper = inv.getArgument(2);
+          return stream.map(p -> new RawPair<>(mapper.apply(p.first()), p.second()));
+        });
     when(storage.subNullIndexSnapshot(anyLong())).thenReturn(nullSnapshot);
     return storage;
   }
