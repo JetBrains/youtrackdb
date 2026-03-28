@@ -652,29 +652,27 @@ public class MatchExecutionPlanner {
       }
 
       if (this.orderBy != null) {
-        // Single-field + candidate + no DISTINCT → fully suppress OrderByStep
-        // (index scan already produces results in ORDER BY order).
-        var singleFieldSatisfied = indexOrderedCandidate != null
-            && !indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct;
-        if (!singleFieldSatisfied) {
-          Integer maxResults = null;
-          if (this.limit != null && this.limit.getValue(context) >= 0) {
-            var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
-                ? this.skip.getValue(context) : 0;
-            maxResults = skipSize + this.limit.getValue(context);
-          }
-          // Multi-field + candidate → keep OrderByStep but with primary key
-          // cutoff hint for early termination in the bounded heap.
-          SQLOrderByItem primaryHint = null;
-          if (indexOrderedCandidate != null
-              && indexOrderedCandidate.multiFieldOrderBy()
-              && !this.returnDistinct) {
-            primaryHint = orderBy.getItems().getFirst();
-          }
-          result.chain(new OrderByStep(
-              orderBy, maxResults, primaryHint, context, -1, enableProfiling));
+        Integer maxResults = null;
+        if (this.limit != null && this.limit.getValue(context) >= 0) {
+          var skipSize = (this.skip != null && this.skip.getValue(context) >= 0)
+              ? this.skip.getValue(context) : 0;
+          maxResults = skipSize + this.limit.getValue(context);
         }
+        // Multi-field + candidate → primary key cutoff hint for early
+        // termination in the bounded heap.
+        SQLOrderByItem primaryHint = null;
+        if (indexOrderedCandidate != null
+            && indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
+          primaryHint = orderBy.getItems().getFirst();
+        }
+        // indexOrderedUpstream: OrderByStep checks runtime context variable
+        // to pass through when IndexOrderedEdgeStep produces sorted output.
+        var indexOrderedUpstream = indexOrderedCandidate != null
+            && !this.returnDistinct;
+        result.chain(new OrderByStep(
+            orderBy, maxResults, primaryHint, indexOrderedUpstream,
+            context, -1, enableProfiling));
       }
 
       if (this.skip != null && skip.getValue(context) >= 0) {
@@ -709,14 +707,13 @@ public class MatchExecutionPlanner {
       info.limit = this.limit;
 
       // When index-ordered traversal is active AND no GROUP BY or DISTINCT:
-      // - Single-field: fully suppress OrderByStep (results already ordered)
-      // - Multi-field: keep OrderByStep with primary key cutoff hint
+      // pass indexOrderedUpstream flag so OrderByStep can detect pre-sorted
+      // input at runtime and pass through without sorting.
       if (indexOrderedCandidate != null
           && this.groupBy == null
           && !this.returnDistinct) {
-        if (!indexOrderedCandidate.multiFieldOrderBy()) {
-          info.setOrderApplied(true);
-        } else {
+        info.indexOrderedUpstream = true;
+        if (indexOrderedCandidate.multiFieldOrderBy()) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
