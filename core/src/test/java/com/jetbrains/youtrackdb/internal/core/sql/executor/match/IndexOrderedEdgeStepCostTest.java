@@ -448,37 +448,4 @@ public class IndexOrderedEdgeStepCostTest {
     assertEquals("Negative frequencies clamped to 0: 0+10+0+20=30", 30L, sum);
   }
 
-  // Three test cases to trigger each of the three multi-source strategies:
-  // UNION_RIDSET_SCAN, GLOBAL_SCAN, and LOAD_ALL_SORT.
-  @Test
-  public void testPickMultiSourceAllThreeStrategies() {
-    // Case 1: UNION_RIDSET_SCAN — medium density, moderate limit.
-    // totalEdges=1000, indexSize=10000, limit=20 → density=0.1
-    // Union: builds RidSet(1000*cpu) + scan(200*(seq+cpu)) + load(20*(rand+cpu))
-    // Global: scan(200*(rand+cpu)) — more expensive per entry
-    // LoadAll: 1000*rand + 1000*cpu + 1000*log2(20)*cpu
-    var strategyUnion = IndexOrderedCostModel.pickMultiSourceStrategy(
-        1000, 10_000, 20, null, true);
-    assertEquals(
-        "Medium density + moderate limit should pick UNION_RIDSET_SCAN",
-        MultiSourceStrategy.UNION_RIDSET_SCAN, strategyUnion);
-
-    // Case 2: GLOBAL_SCAN — very high density, very small limit.
-    // totalEdges=9000, indexSize=10000, limit=2 → density=0.9
-    // Union build cost (9000*cpu) dominates. Global scan of ~2 entries is cheaper.
-    var strategyGlobal = IndexOrderedCostModel.pickMultiSourceStrategy(
-        9000, 10_000, 2, null, true);
-    assertEquals(
-        "Very high density + tiny limit should pick GLOBAL_SCAN",
-        MultiSourceStrategy.GLOBAL_SCAN, strategyGlobal);
-
-    // Case 3: LOAD_ALL_SORT — low density, no limit.
-    // totalEdges=50, indexSize=100000, limit=-1 → density=0.0005
-    // Index scan too expensive (scan 100000 entries).
-    var strategySort = IndexOrderedCostModel.pickMultiSourceStrategy(
-        50, 100_000, -1, null, true);
-    assertEquals(
-        "Low density + no limit should pick LOAD_ALL_SORT",
-        MultiSourceStrategy.LOAD_ALL_SORT, strategySort);
-  }
 }

@@ -285,8 +285,12 @@ public class OrderByStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
+    var copiedOrderBy = orderBy.copy();
+    // Derive hint from copied orderBy to avoid stale reference
+    var copiedHint = primaryKeySortedInput != null
+        ? copiedOrderBy.getItems().getFirst() : null;
     return new OrderByStep(
-        orderBy.copy(), maxResults, primaryKeySortedInput,
+        copiedOrderBy, maxResults, copiedHint,
         indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
   }
 }
