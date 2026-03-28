@@ -4605,10 +4605,10 @@ public class MatchExecutionPlanner {
       var sourceConstrainedByEarlierEdges =
           isTargetOfEarlierEdge(sourceAlias, sortedEdges, matchedEdge);
       var effectivelyFiltered = hasSourceFilter || sourceConstrainedByEarlierEdges;
-      var sourceBindingNeeded = isSourceAliasUsedDownstream(
+      var upstreamBindingNeeded = isUpstreamBindingNeeded(
           sourceAlias, sortedEdges, matchedEdge);
 
-      if (effectivelyFiltered && sourceBindingNeeded) {
+      if (effectivelyFiltered && upstreamBindingNeeded) {
         // Need sourceMap + reverse lookup → reverse field required
         if (!hasReverseField) {
           return null;
@@ -4617,7 +4617,7 @@ public class MatchExecutionPlanner {
       } else if (effectivelyFiltered) {
         // Union RidSet, no reverse lookup needed
         multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
-      } else if (sourceBindingNeeded) {
+      } else if (upstreamBindingNeeded) {
         // Class check + lazy load → reverse field required
         if (!hasReverseField || sourceClassName == null) {
           return null;
@@ -4645,6 +4645,16 @@ public class MatchExecutionPlanner {
     // Extract target WHERE filter from the edge's path item filter.
     // filter is the SQLMatchFilterItem; filter.getFilter() is the WHERE clause.
     var targetFilter = filter != null ? filter.getFilter() : null;
+
+    // 11. Reject when target WHERE uses $matched or $currentMatch.
+    // IndexOrderedEdgeStep does not maintain these context variables;
+    // evaluating such filters would produce wrong results.
+    if (targetFilter != null && targetFilter.getBaseExpression() != null
+        && (targetFilter.getBaseExpression().varMightBeInUse("$matched")
+            || targetFilter.getBaseExpression()
+                .varMightBeInUse("$currentMatch"))) {
+      return null;
+    }
 
     return new IndexOrderedCandidate(
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
@@ -4741,11 +4751,15 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Checks whether the source alias is referenced by downstream steps:
-   * RETURN expressions, later edges in the schedule, or built-in return modes.
-   * When true, the source alias must be bound in the result row.
+   * Checks whether any upstream alias (source alias or any alias bound by
+   * earlier edges) is referenced by downstream consumers: RETURN expressions,
+   * later edges, or built-in return modes.
+   *
+   * <p>When true, the BOUND mode must be used to preserve the full upstream
+   * row. UNBOUND modes create empty upstream rows, dropping all earlier
+   * bindings — this is only safe when no upstream alias is needed downstream.
    */
-  private boolean isSourceAliasUsedDownstream(
+  private boolean isUpstreamBindingNeeded(
       String sourceAlias,
       List<EdgeTraversal> sortedEdges,
       EdgeTraversal matchedEdge) {
@@ -4754,20 +4768,34 @@ public class MatchExecutionPlanner {
       return true;
     }
 
-    // Check RETURN expressions for source alias reference
+    // Collect all upstream aliases: the source alias + all aliases bound
+    // by edges scheduled before the matched edge (both source and target
+    // of each earlier edge).
+    var upstreamAliases = new HashSet<String>();
+    upstreamAliases.add(sourceAlias);
+    for (var edge : sortedEdges) {
+      if (edge.edge == matchedEdge.edge) {
+        break;
+      }
+      upstreamAliases.add(edge.out ? edge.edge.out.alias : edge.edge.in.alias);
+      upstreamAliases.add(edge.out ? edge.edge.in.alias : edge.edge.out.alias);
+    }
+
+    // Check RETURN expressions for any upstream alias reference
     if (returnItems != null) {
       for (var expr : returnItems) {
         var sb = new StringBuilder();
         expr.toString(new HashMap<>(), sb);
         var exprStr = sb.toString();
-        if (exprStr.equals(sourceAlias)
-            || exprStr.startsWith(sourceAlias + ".")) {
-          return true;
+        for (var alias : upstreamAliases) {
+          if (exprStr.equals(alias) || exprStr.startsWith(alias + ".")) {
+            return true;
+          }
         }
       }
     }
 
-    // Check later edges — if source is the starting point of a later edge
+    // Check later edges — if any upstream alias is the starting point
     var pastMatched = false;
     for (var edge : sortedEdges) {
       if (edge.edge == matchedEdge.edge) {
@@ -4776,7 +4804,7 @@ public class MatchExecutionPlanner {
       }
       if (pastMatched) {
         var laterSource = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
-        if (sourceAlias.equals(laterSource)) {
+        if (upstreamAliases.contains(laterSource)) {
           return true;
         }
       }
