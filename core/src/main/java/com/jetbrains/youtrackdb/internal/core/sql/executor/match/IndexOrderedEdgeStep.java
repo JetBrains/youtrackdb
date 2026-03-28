@@ -252,7 +252,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     long indexSize = index.size(session);
-    int estimatedTotalEdges = estimateTotalEdges(sourceMap.size(), session);
+    int estimatedTotalEdges = estimateTotalEdges(sourceMap, session);
     var strategy = pickMultiSourceStrategy(
         estimatedTotalEdges, indexSize, session);
 
@@ -431,33 +431,35 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         indexDesc, orderAsc, ctx, profilingEnabled, null);
     var indexStream = fullScan.internalStart(ctx);
 
-    return indexStream.map((indexResult, mapCtx) -> {
+    return indexStream.flatMap((indexResult, mapCtx) -> {
       var rid = (RID) indexResult.getProperty("rid");
       var targetRecord = loadRecord(rid, session);
       if (targetRecord == null) {
-        return null;
+        return ExecutionStream.empty();
       }
       if (!matchesTargetFilter(targetRecord, mapCtx)) {
-        return null;
+        return ExecutionStream.empty();
       }
 
-      var sourceRid = resolveFirstReverseEdge(targetRecord);
-      if (sourceRid == null) {
-        return null;
+      // Check ALL reverse edges — a target may link to multiple valid
+      // sources of the correct class. Emit one row per valid source.
+      var reverseRids = resolveReverseEdges(targetRecord);
+      var results = new ArrayList<Result>();
+      for (var sourceRid : reverseRids) {
+        if (!srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
+          continue;
+        }
+        var sourceRecord = loadRecord(sourceRid, session);
+        if (sourceRecord == null) {
+          continue;
+        }
+        var upstreamRow = new ResultInternal(session);
+        ((ResultInternal) upstreamRow).setProperty(sourceAlias, sourceRecord);
+        results.add(
+            new MatchResultRow(session, upstreamRow, targetAlias, targetRecord));
       }
-      if (!srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
-        return null;
-      }
-
-      // Lazy load source for binding
-      var sourceRecord = loadRecord(sourceRid, session);
-      if (sourceRecord == null) {
-        return null;
-      }
-      var upstreamRow = new ResultInternal(session);
-      ((ResultInternal) upstreamRow).setProperty(sourceAlias, sourceRecord);
-      return new MatchResultRow(session, upstreamRow, targetAlias, targetRecord);
-    }).filter(ExecutionStream.SKIP_NULLS);
+      return ExecutionStream.resultIterator(results.iterator());
+    });
   }
 
   // ---- Mode D: UNFILTERED_UNBOUND (class check, no source load) ----
@@ -493,11 +495,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return null;
       }
 
-      var sourceRid = resolveFirstReverseEdge(targetRecord);
-      if (sourceRid == null) {
-        return null;
+      // Source is not bound — just verify ANY reverse edge points to a
+      // source of the correct class. Check all because the first might
+      // point to a wrong-class vertex while a later one is valid.
+      var reverseRids = resolveReverseEdges(targetRecord);
+      boolean anyValid = false;
+      for (var sourceRid : reverseRids) {
+        if (srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
+          anyValid = true;
+          break;
+        }
       }
-      if (!srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
+      if (!anyValid) {
         return null;
       }
 
@@ -765,47 +774,38 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Follow the reverse edge to find the FIRST source vertex RID only.
-   * Cheaper than {@link #resolveReverseEdges} — used for class-check modes
-   * (C, D) where we don't need all sources, just one for verification.
+   * Estimate total edges for multi-source cost model by sampling up to 5
+   * source vertices' LinkBag sizes, then extrapolating to all sources.
+   * Falls back to {@code sourceCount × defaultFanOut} if sampling fails.
    */
-  @Nullable private RID resolveFirstReverseEdge(Result targetRecord) {
-    if (reverseFieldName == null) {
-      return null;
-    }
-    var entity = targetRecord.asEntityOrNull();
-    if (!(entity instanceof EntityImpl impl)) {
-      return null;
-    }
-    var fieldValue = impl.getPropertyInternal(reverseFieldName);
-    if (fieldValue instanceof LinkBag linkBag) {
-      var iter = linkBag.iterator();
-      if (iter.hasNext()) {
-        return iter.next().secondaryRid();
+  private int estimateTotalEdges(
+      Map<RID, ?> sourceMap, DatabaseSessionEmbedded session) {
+    int sampleSize = Math.min(sourceMap.size(), 5);
+    int totalSampled = 0;
+    int sampled = 0;
+    for (var sourceRid : sourceMap.keySet()) {
+      if (sampled >= sampleSize) {
+        break;
       }
-    } else if (fieldValue instanceof RID rid) {
-      return rid;
+      try {
+        var rec = session.getActiveTransaction().load(sourceRid);
+        if (!(rec instanceof EntityImpl entity)) {
+          continue;
+        }
+        var fieldValue = entity.getPropertyInternal(linkBagFieldName);
+        if (fieldValue instanceof LinkBag linkBag) {
+          totalSampled += linkBag.size();
+          sampled++;
+        }
+      } catch (Exception e) {
+        // skip unloadable sources
+      }
     }
-    return null;
-  }
-
-  /**
-   * Estimate total edges for multi-source cost model. Uses a simple
-   * heuristic: sourceCount × (indexSize / approximateTargetClassCount).
-   * Falls back to sourceCount × defaultFanOut.
-   */
-  private int estimateTotalEdges(int sourceCount, DatabaseSessionEmbedded session) {
-    long indexSize = index.size(session);
-    if (indexSize <= 0) {
-      return sourceCount
-          * GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
-    }
-    // Rough estimate: each source has indexSize/totalSources edges on average
-    // Cap to avoid overflow
-    long estimate = Math.min(
-        (long) sourceCount * indexSize / Math.max(sourceCount, 1),
-        Integer.MAX_VALUE);
-    return (int) estimate;
+    int avgPerSource = sampled > 0
+        ? totalSampled / sampled
+        : GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
+    return (int) Math.min(
+        (long) sourceMap.size() * avgPerSource, Integer.MAX_VALUE);
   }
 
   @Nullable private RidSet resolveEdgeRidSet(
