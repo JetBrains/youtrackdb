@@ -4679,14 +4679,16 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // True single-source via @rid constraint with large data triggers indexScanFiltered path via cost model.
+  // True single-source via {rid: #X:Y} syntax triggers single-source mode
+  // (multiSourceMode == null) with indexScanFiltered path. Uses large data
+  // so cost model approves index scan. Covers processUpstreamRow, indexScanFiltered,
+  // resolveEdgeRidSet, loadLinkBag, loadRecord, matchesTargetFilter, ridFromPair.
   @Test
   public void testIndexOrderedMatchTrueSingleSourceIndexScan() throws Exception {
     initIndexOrderedMatchLargeData();
 
     try (var cfg = setIndexOrderedTestConfig()) {
       session.begin();
-      // First, resolve the RID for person1
       String rid;
       try (var ridResult = session.query(
           "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
@@ -4694,8 +4696,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         rid = ridResult.next().getProperty("r").toString();
       }
 
-      // Use the RID directly in MATCH → true single-source mode
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+      // {rid: #X:Y} syntax → aliasRids populated → single-source mode
+      var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
           + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC LIMIT 5";
       try (var result = session.query(query)) {
@@ -4703,8 +4705,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         Assert.assertTrue(
             "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
             plan.contains("INDEX ORDERED MATCH"));
+        // Single-source: no mode suffix in plan
+        Assert.assertFalse(
+            "Should be single-source (no mode suffix), but plan was:\n" + plan,
+            plan.contains("FILTERED") || plan.contains("UNFILTERED"));
 
-        // DESC order: largest msgId first (200, 199, 198, 197, 196)
         var mids = new java.util.ArrayList<Long>();
         while (result.hasNext()) {
           mids.add(((Number) result.next().getProperty("mid")).longValue());
@@ -4720,54 +4725,49 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // WHERE (@rid = ...) goes through FILTERED mode (not single-source aliasRids).
-  // With MIN_LINKBAG=999999, the plan-time cost check in computeCosts returns null
-  // (linkBagSize < minLinkBag), so the optimization is rejected. Falls back to
-  // standard MATCH + ORDER BY, results still correct.
+  // True single-source via {rid:} syntax with MAX_SCAN=1 forces the runtime
+  // cost model to reject index scan, exercising the loadFromRidSet fallback path.
+  // Covers the false branch of shouldUseIndexScan → loadFromRidSet with its
+  // stream pipeline (filter by targetFilter + targetClassName).
   @Test
-  public void testIndexOrderedMatchTrueSingleSourceLoadFromRidSet() {
+  public void testIndexOrderedMatchTrueSingleSourceLoadFromRidSet() throws Exception {
     initIndexOrderedMatchLargeData();
 
-    var oldMinLinkBag = GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.getValue();
-    GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(999999);
-    try {
-      session.begin();
-      // Resolve the RID for person1
-      String rid;
-      try (var ridResult = session.query(
-          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
-        Assert.assertTrue("Should find person1", ridResult.hasNext());
-        rid = ridResult.next().getProperty("r").toString();
-      }
-
-      // @rid in WHERE clause → FILTERED mode; MIN_LINKBAG=999999 → plan-time
-      // cost check rejects (estimatedEdges < minLinkBag).
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
-          + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
-          + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC LIMIT 5";
-      try (var result = session.query(query)) {
-        var plan = getPlan(result);
-        Assert.assertFalse(
-            "Plan should NOT use INDEX ORDERED MATCH when MIN_LINKBAG=999999, but was:\n"
-                + plan,
-            plan.contains("INDEX ORDERED MATCH"));
-
-        // Standard MATCH + OrderByStep sorts correctly. Verify DESC.
-        var mids = new java.util.ArrayList<Long>();
-        while (result.hasNext()) {
-          mids.add(((Number) result.next().getProperty("mid")).longValue());
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        String rid;
+        try (var ridResult = session.query(
+            "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+          Assert.assertTrue("Should find person1", ridResult.hasNext());
+          rid = ridResult.next().getProperty("r").toString();
         }
-        Assert.assertEquals("Should have 5 results: " + mids, 5, mids.size());
-        // Should still be correctly sorted DESC by creationDate
-        Assert.assertEquals(200L, (long) mids.get(0));
-        Assert.assertEquals(199L, (long) mids.get(1));
-        Assert.assertEquals(198L, (long) mids.get(2));
-        Assert.assertEquals(197L, (long) mids.get(3));
-        Assert.assertEquals(196L, (long) mids.get(4));
+
+        // {rid:} → single-source. MAX_SCAN=1 → runtime cost model rejects
+        // → loadFromRidSet (unsorted). OrderByStep sorts with bounded heap.
+        var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid ORDER BY cd DESC LIMIT 5";
+        try (var result = session.query(query)) {
+          var plan = getPlan(result);
+          Assert.assertTrue(
+              "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+              plan.contains("INDEX ORDERED MATCH"));
+
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          Assert.assertEquals("Should have 5 results: " + mids, 5, mids.size());
+          Assert.assertEquals(200L, (long) mids.get(0));
+          Assert.assertEquals(199L, (long) mids.get(1));
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
       }
-      session.commit();
-    } finally {
-      GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMinLinkBag);
     }
   }
 
@@ -4786,7 +4786,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       }
 
       // Single-field ORDER BY + @rid → pass-through in OrderByStep
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+      var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
           + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 10";
       try (var result = session.query(query)) {
@@ -4828,7 +4828,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       }
 
       // Multi-field ORDER BY + @rid + large data → cutoff in bounded heap
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+      var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
           + "RETURN m.creationDate as cd, m.msgId as mid"
           + " ORDER BY cd DESC, mid ASC LIMIT 5";
@@ -4878,8 +4878,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
         rid = ridResult.next().getProperty("r").toString();
       }
 
-      // @rid in WHERE clause → FILTERED mode; MIN_LINKBAG=999999 → plan-time
-      // cost check rejects (estimatedEdges < minLinkBag).
+      // @rid in WHERE → FILTERED mode (not aliasRids single-source);
+      // MIN_LINKBAG=999999 → plan-time cost check rejects.
       var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
           + "RETURN m.creationDate as cd, m.msgId as mid"
@@ -6070,7 +6070,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
       // Large data (200 messages) + @rid → single-source + cost model approves.
       // Target WHERE (msgId > 190) filters most records in the index scan.
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+      var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
           + " where: (msgId > 190)} "
           + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
