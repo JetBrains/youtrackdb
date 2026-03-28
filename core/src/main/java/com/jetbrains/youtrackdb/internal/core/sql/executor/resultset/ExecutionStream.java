@@ -13,8 +13,13 @@ import javax.annotation.Nullable;
 
 public interface ExecutionStream {
 
-  /** Filter that passes non-null results and skips nulls. */
-  FilterResult SKIP_NULLS = (result, ctx) -> result;
+  /**
+   * Identity filter: returns the result unchanged. When the upstream mapper
+   * produces a {@code null}, this filter returns {@code null} as well, which
+   * {@link FilterExecutionStream} interprets as "skip this entry". The net
+   * effect is that null results are skipped without an explicit null check.
+   */
+  FilterResult IDENTITY_FILTER = (result, ctx) -> result;
 
   boolean hasNext(CommandContext ctx);
 

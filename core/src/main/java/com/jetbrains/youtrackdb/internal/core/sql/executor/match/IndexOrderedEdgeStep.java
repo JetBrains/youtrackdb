@@ -19,13 +19,15 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * MATCH execution step that traverses an edge using an index-ordered scan.
@@ -56,6 +58,9 @@ import javax.annotation.Nullable;
  * producing correctly ordered results.
  */
 public class IndexOrderedEdgeStep extends AbstractExecutionStep {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(IndexOrderedEdgeStep.class);
 
   private final String sourceAlias;
   private final String targetAlias;
@@ -181,7 +186,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return null;
       }
       return new MatchResultRow(session, upstreamRow, targetAlias, targetRecord);
-    }).filter(ExecutionStream.SKIP_NULLS);
+    }).filter(ExecutionStream.IDENTITY_FILTER);
   }
 
   /**
@@ -232,7 +237,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream filteredBound(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
 
-    var sourceMap = new HashMap<RID, List<Result>>();
+    // LinkedHashMap preserves insertion order for deterministic sampling
+    // in estimateTotalEdges().
+    var sourceMap = new LinkedHashMap<RID, List<Result>>();
     int sourceCount = 0;
     var upstream = prev.start(ctx);
     while (upstream.hasNext(ctx)) {
@@ -346,7 +353,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return null;
       }
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    }).filter(ExecutionStream.SKIP_NULLS);
+    }).filter(ExecutionStream.IDENTITY_FILTER);
   }
 
   /**
@@ -485,7 +492,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
 
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    }).filter(ExecutionStream.SKIP_NULLS);
+    }).filter(ExecutionStream.IDENTITY_FILTER);
   }
 
   /**
@@ -807,6 +814,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var fieldValue = entity.getPropertyInternal(linkBagFieldName);
       return fieldValue instanceof LinkBag lb ? lb : null;
     } catch (Exception e) {
+      logger.debug("Failed to load LinkBag for RID {}: {}", sourceRid, e.getMessage(), e);
       return null;
     }
   }
@@ -839,6 +847,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
       return new ResultInternal(session, rec);
     } catch (Exception e) {
+      logger.debug("Failed to load record {}: {}", rid, e.getMessage(), e);
       return null;
     }
   }
