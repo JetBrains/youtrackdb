@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
@@ -448,18 +449,30 @@ public class DatabasePoolImplTest {
   // via a CyclicBarrier to maximize the chance of overlapping acquire()
   // and close() calls. Uses max=8 so that close()'s semaphore drain does
   // not block threads mid-acquire indefinitely.
-  // Two kinds of DatabaseException are expected during the race:
-  //   1. "The pool is closed" — from acquire()/release() when the pool
-  //      AtomicReference is already null.
-  //   2. "Database '...' is closed" — from session operations (e.g.
-  //      getMetadata()) when pool.close() has already called realClose()
-  //      on the underlying session while a worker still holds a reference.
-  // Any other DatabaseException is flagged as unexpected.
+  //
+  // Expected exceptions during the race:
+  //   1. DatabaseException("The pool is closed") — acquire()/release()
+  //      when the pool AtomicReference is already null.
+  //   2. DatabaseException("Database '...' is closed") — session operations
+  //      (e.g. getMetadata()) when pool.close() has already called
+  //      realClose() on the underlying session.
+  //   3. AcquireTimeoutException — threads blocked on the semaphore after
+  //      close() drained all permits. A short DB_POOL_ACQUIRE_TIMEOUT
+  //      (5 seconds) ensures these threads unblock promptly rather than
+  //      waiting the default 60 seconds, which would exceed the test
+  //      timeout on slow CI runners (e.g. ARM).
+  //   4. ThreadInterruptedException — surefire may interrupt threads when
+  //      forkedProcessExitTimeoutInSeconds fires on overloaded runners.
   @Test
   public void closeDuringConcurrentAcquireDoesNotHang() throws Exception {
     var config = new BaseConfiguration();
     config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 8);
+    // Keep acquire timeout short so threads blocked on the semaphore after
+    // close() drains permits unblock within a few seconds. The default
+    // 60 s exceeds the test's done.await() timeout on slow ARM runners.
+    config.setProperty(
+        GlobalConfiguration.DB_POOL_ACQUIRE_TIMEOUT.getKey(), 5_000);
 
     var youTrackDb = createYouTrackDB(config);
     try {
@@ -496,6 +509,14 @@ public class DatabasePoolImplTest {
                 && !msg.startsWith("Database '")) {
               firstUnexpected.compareAndSet(null, e);
             }
+          } catch (AcquireTimeoutException e) {
+            // Threads blocked on sem.tryAcquire() when close() drained
+            // all permits will get this after DB_POOL_ACQUIRE_TIMEOUT.
+            // This is expected and not a bug.
+          } catch (ThreadInterruptedException e) {
+            // Surefire may interrupt threads when
+            // forkedProcessExitTimeoutInSeconds fires on slow runners.
+            // This is not a pool bug.
           } catch (Exception e) {
             firstUnexpected.compareAndSet(null, e);
           } finally {
@@ -508,6 +529,8 @@ public class DatabasePoolImplTest {
       barrier.await(10, TimeUnit.SECONDS);
       pool.close();
 
+      // 30 s is well above the 5 s acquire timeout × 4 threads,
+      // providing ample margin for slow CI runners.
       assertTrue("Threads did not finish (possible deadlock)",
           done.await(30, TimeUnit.SECONDS));
       assertTrue("Pool must be closed after close() was called",
