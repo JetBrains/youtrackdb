@@ -114,12 +114,16 @@ final class IndexOrderedCostModel {
     double costBias =
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
 
+    // Multi-source union: build RidSet + scan index (seq) + load k matches.
+    // Extra cpu term per match vs single-source: reverse-edge lookup cost.
     double costUnion = totalEdges * costs.cpu
         + costs.seekCost
         + costs.expectedScanLength * (costs.seqRead + costs.cpu)
         + costs.k * (costs.randRead + costs.cpu);
     costUnion *= costBias;
 
+    // Global scan: no RidSet build, load every entry (randRead, not seqRead
+    // because records are scattered across pages unlike B-tree leaves).
     double costGlobal = costs.seekCost
         + costs.expectedScanLength * (costs.randRead + costs.cpu);
     costGlobal *= costBias;
