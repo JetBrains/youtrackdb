@@ -327,14 +327,19 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
         actualCount, statsIncremental.totalCount());
 
     if (histogramIncremental != null) {
-      // Sum of bucket frequencies should equal nonNullCount (invariant)
+      // nonNullCount is derived from scalar counters (totalCount - nullCount),
+      // while bucket frequencies are independently clamped to zero when deletes
+      // target pre-histogram entries. When drift occurs, freqSum <= nonNullCount.
       long freqSumIncr = 0;
       for (int i = 0; i < histogramIncremental.bucketCount(); i++) {
         freqSumIncr += histogramIncremental.frequencies()[i];
       }
-      assertEquals(
-          "Incremental: sum of frequencies should equal nonNullCount",
-          histogramIncremental.nonNullCount(), freqSumIncr);
+      assertTrue(
+          "Incremental: freqSum (" + freqSumIncr
+              + ") should be <= nonNullCount ("
+              + histogramIncremental.nonNullCount()
+              + ") — clamping can reduce sum",
+          freqSumIncr <= histogramIncremental.nonNullCount());
 
       System.out.println("[StressInt] Incremental nonNullCount: "
           + histogramIncremental.nonNullCount()
@@ -527,14 +532,18 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       System.out.println("[StressStr] Incremental MCV: " + histIncr.mcvValue()
           + " (freq=" + histIncr.mcvFrequency() + ")");
 
-      // Bucket frequency sum should equal nonNullCount (invariant)
+      // nonNullCount is derived from scalar counters (totalCount - nullCount),
+      // while bucket frequencies are independently clamped to zero when deletes
+      // target pre-histogram entries. When drift occurs, freqSum <= nonNullCount.
       long freqSumIncr = 0;
       for (int i = 0; i < histIncr.bucketCount(); i++) {
         freqSumIncr += histIncr.frequencies()[i];
       }
-      assertEquals(
-          "Incremental: sum of frequencies should equal nonNullCount",
-          histIncr.nonNullCount(), freqSumIncr);
+      assertTrue(
+          "Incremental: freqSum (" + freqSumIncr
+              + ") should be <= nonNullCount ("
+              + histIncr.nonNullCount() + ") — clamping can reduce sum",
+          freqSumIncr <= histIncr.nonNullCount());
     }
 
     // ── Phase 2: ANALYZE and compare with incremental ─────────
@@ -737,9 +746,11 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       for (int i = 0; i < histIncr.bucketCount(); i++) {
         freqSumIncr += histIncr.frequencies()[i];
       }
-      assertEquals(
-          "Incremental: sum of frequencies should equal nonNullCount",
-          histIncr.nonNullCount(), freqSumIncr);
+      assertTrue(
+          "Incremental: freqSum (" + freqSumIncr
+              + ") should be <= nonNullCount ("
+              + histIncr.nonNullCount() + ") — clamping can reduce sum",
+          freqSumIncr <= histIncr.nonNullCount());
       System.out.println("[StressLowNdv] Incremental nonNullCount: "
           + histIncr.nonNullCount());
     }
@@ -953,9 +964,11 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       for (int i = 0; i < histIncr.bucketCount(); i++) {
         freqSumIncr += histIncr.frequencies()[i];
       }
-      assertEquals(
-          "Incremental: sum of frequencies should equal nonNullCount",
-          histIncr.nonNullCount(), freqSumIncr);
+      assertTrue(
+          "Incremental: freqSum (" + freqSumIncr
+              + ") should be <= nonNullCount ("
+              + histIncr.nonNullCount() + ") — clamping can reduce sum",
+          freqSumIncr <= histIncr.nonNullCount());
     }
 
     // ── Phase 2: ANALYZE and compare with incremental ─────────

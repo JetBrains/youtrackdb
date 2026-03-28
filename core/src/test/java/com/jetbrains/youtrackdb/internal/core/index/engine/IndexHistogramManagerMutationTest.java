@@ -464,7 +464,10 @@ public class IndexHistogramManagerMutationTest {
     assertEquals("Bucket 0 freq clamped to 0", 0, result.histogram().frequencies()[0]);
     assertEquals("Bucket 1 freq unchanged", 100, result.histogram().frequencies()[1]);
     assertTrue("hasDriftedBuckets should be set", result.hasDriftedBuckets());
-    assertEquals("nonNullCount = 0 + 100 = 100", 100, result.histogram().nonNullCount());
+    // nonNullCount = max(0, newTotal - newNull) = max(0, 50 - 0) = 50
+    // (uses accurate scalar counters, not the sum of clamped frequencies)
+    assertEquals("nonNullCount = max(0, 50 - 0) = 50", 50,
+        result.histogram().nonNullCount());
   }
 
   // ═══════════════════════════════════════════════════════════════

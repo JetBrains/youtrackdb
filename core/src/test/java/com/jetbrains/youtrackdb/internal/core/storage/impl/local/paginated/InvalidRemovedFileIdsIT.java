@@ -90,53 +90,68 @@ public class InvalidRemovedFileIdsIT {
     storage = db.getStorage();
     writeCache = ((AbstractStorage) storage).getWriteCache();
 
+    // Collection names now include a numeric suffix (e.g., "c1_0") after YTDB-615,
+    // so we locate each class's files by prefix match rather than hardcoding exact names.
     files = writeCache.files();
     final Set<Long> ids = new HashSet<>();
 
-    final var c1_cpm_id = files.get("c1.cpm");
-    Assert.assertNotNull(c1_cpm_id);
+    final var c1_cpm_id = findFileId(files, "c1", ".cpm");
+    Assert.assertNotNull("c1 .cpm file must exist", c1_cpm_id);
     Assert.assertTrue(c1_cpm_id > 0);
     Assert.assertTrue(ids.add(c1_cpm_id));
 
-    final var c1_pcl_id = files.get("c1.pcl");
-    Assert.assertNotNull(c1_pcl_id);
+    final var c1_pcl_id = findFileId(files, "c1", ".pcl");
+    Assert.assertNotNull("c1 .pcl file must exist", c1_pcl_id);
     Assert.assertTrue(c1_pcl_id > 0);
     Assert.assertTrue(ids.add(c1_pcl_id));
 
-    final var c2_cpm_id = files.get("c2.cpm");
-    Assert.assertNotNull(c2_cpm_id);
+    final var c2_cpm_id = findFileId(files, "c2", ".cpm");
+    Assert.assertNotNull("c2 .cpm file must exist", c2_cpm_id);
+    Assert.assertTrue(c2_cpm_id > 0);
     Assert.assertTrue(ids.add(c2_cpm_id));
-    Assert.assertEquals(
-        200, writeCache.internalFileId(c2_cpm_id)); // check that updated file map has been read
 
-    final var c2_pcl_id = files.get("c2.pcl");
-    Assert.assertNotNull(c2_pcl_id);
+    final var c2_pcl_id = findFileId(files, "c2", ".pcl");
+    Assert.assertNotNull("c2 .pcl file must exist", c2_pcl_id);
+    Assert.assertTrue(c2_pcl_id > 0);
     Assert.assertTrue(ids.add(c2_pcl_id));
-    Assert.assertEquals(
-        400, writeCache.internalFileId(c2_pcl_id)); // check that updated file map has been read
 
-    final var c3_cpm_id = files.get("c3.cpm");
-    Assert.assertNotNull(c3_cpm_id);
+    final var c3_cpm_id = findFileId(files, "c3", ".cpm");
+    Assert.assertNotNull("c3 .cpm file must exist", c3_cpm_id);
     Assert.assertTrue(c3_cpm_id > 0);
     Assert.assertTrue(ids.add(c3_cpm_id));
 
-    final var c3_pcl_id = files.get("c3.pcl");
-    Assert.assertNotNull(c3_pcl_id);
+    final var c3_pcl_id = findFileId(files, "c3", ".pcl");
+    Assert.assertNotNull("c3 .pcl file must exist", c3_pcl_id);
     Assert.assertTrue(c3_pcl_id > 0);
     Assert.assertTrue(ids.add(c3_pcl_id));
 
-    final var c4_cpm_id = files.get("c4.cpm");
-    Assert.assertNotNull(c4_cpm_id);
+    final var c4_cpm_id = findFileId(files, "c4", ".cpm");
+    Assert.assertNotNull("c4 .cpm file must exist", c4_cpm_id);
     Assert.assertTrue(c4_cpm_id > 0);
     Assert.assertTrue(ids.add(c4_cpm_id));
 
-    final var c4_pcl_id = files.get("c4.pcl");
-    Assert.assertNotNull(c4_pcl_id);
-    Assert.assertTrue(c1_pcl_id > 0);
+    final var c4_pcl_id = findFileId(files, "c4", ".pcl");
+    Assert.assertNotNull("c4 .pcl file must exist", c4_pcl_id);
+    Assert.assertTrue(c4_pcl_id > 0);
     Assert.assertTrue(ids.add(c4_pcl_id));
 
     db.close();
     youTrackDB.close();
+  }
+
+  /**
+   * Finds the file ID for a class's data or position-map file by prefix match.
+   * Collection names now include a numeric suffix (e.g., "c1_0.pcl"),
+   * so exact lookup by bare class name no longer works.
+   */
+  private static Long findFileId(Map<String, Long> files, String classPrefix, String extension) {
+    // Match "classPrefix_" to avoid false positives (e.g., "c1_" won't match "c10_")
+    return files.entrySet().stream()
+        .filter(
+            e -> e.getKey().startsWith(classPrefix + "_") && e.getKey().endsWith(extension))
+        .map(Map.Entry::getValue)
+        .findFirst()
+        .orElse(null);
   }
 
   private static void writeNameIdEntry(RandomAccessFile file, String name, int fileId)

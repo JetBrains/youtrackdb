@@ -625,7 +625,6 @@ public class IndexHistogramManager extends DurableComponent {
         && current.version() == delta.snapshotVersion) {
       // Version matches — apply per-bucket deltas
       long[] newFreqs = new long[newHistogram.bucketCount()];
-      long nonNullSum = 0;
       for (int i = 0; i < newHistogram.bucketCount(); i++) {
         long freq = newHistogram.frequencies()[i] + delta.frequencyDeltas[i];
         if (freq < 0) {
@@ -633,15 +632,23 @@ public class IndexHistogramManager extends DurableComponent {
           freq = 0;
         }
         newFreqs[i] = freq;
-        nonNullSum += freq;
       }
 
+      // Use the accurate scalar counter (newTotal - newNull) for nonNullCount
+      // instead of the sum of clamped frequencies. Clamping negative frequencies
+      // to zero (when deletes target entries inserted before the histogram was
+      // built) causes nonNullSum to undercount. The scalar counters track every
+      // commit exactly, so they are the authoritative source.
+      long accurateNonNull = Math.max(0, newTotal - newNull);
+      assert accurateNonNull <= newTotal
+          : "nonNullCount (" + accurateNonNull
+              + ") exceeds totalCount (" + newTotal + ")";
       newHistogram = new EquiDepthHistogram(
           newHistogram.bucketCount(),
           newHistogram.boundaries(),
           newFreqs,
           newHistogram.distinctCounts(),
-          Math.max(0, nonNullSum),
+          accurateNonNull,
           newHistogram.mcvValue(),
           newHistogram.mcvFrequency());
     }
