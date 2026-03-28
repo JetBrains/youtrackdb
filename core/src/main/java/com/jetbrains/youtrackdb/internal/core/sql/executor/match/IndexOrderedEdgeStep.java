@@ -20,9 +20,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -324,6 +326,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         indexDesc, orderAsc, ctx, profilingEnabled, unionRidSet);
     var indexStream = filteredStep.internalStart(ctx);
 
+    // Shared empty upstream — safe because MatchResultRow never writes to parent
+    var emptyUpstream = new ResultInternal(session);
     return indexStream.map((indexResult, mapCtx) -> {
       var rid = (RID) indexResult.getProperty("rid");
       var targetRecord = loadRecord(rid, session);
@@ -333,7 +337,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (!matchesTargetFilter(targetRecord, mapCtx)) {
         return null;
       }
-      var emptyUpstream = new ResultInternal(session);
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
     }).filter(ExecutionStream.SKIP_NULLS);
   }
@@ -345,55 +348,22 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromSourcesUnbound(
       List<RID> sourceRids, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    // Lazy streaming per source — no full materialization.
-    var sourceIter = sourceRids.iterator();
-    return new ExecutionStream() {
-      private ExecutionStream currentBatch = ExecutionStream.empty();
-
-      @Override
-      public boolean hasNext(CommandContext c) {
-        while (!currentBatch.hasNext(c)) {
-          if (!sourceIter.hasNext()) {
-            return false;
-          }
-          currentBatch = loadSourceEdgesUnbound(sourceIter.next(), session, c);
-        }
-        return true;
-      }
-
-      @Override
-      public Result next(CommandContext c) {
-        return currentBatch.next(c);
-      }
-
-      @Override
-      public void close(CommandContext c) {
-        currentBatch.close(c);
-      }
-    };
+    return batchedStream(
+        sourceRids.iterator(),
+        sourceRid -> loadSourceEdgesUnbound(sourceRid, session, ctx));
   }
 
   private ExecutionStream loadSourceEdgesUnbound(
       RID sourceRid, DatabaseSessionEmbedded session, CommandContext ctx) {
-    EntityImpl entity;
-    try {
-      var rec = session.getActiveTransaction().load(sourceRid);
-      if (!(rec instanceof EntityImpl e)) {
-        return ExecutionStream.empty();
-      }
-      entity = e;
-    } catch (Exception e) {
+    var linkBag = loadLinkBag(sourceRid, session);
+    if (linkBag == null) {
       return ExecutionStream.empty();
     }
-    var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-    if (!(fieldValue instanceof LinkBag linkBag)) {
-      return ExecutionStream.empty();
-    }
+    var emptyUpstream = new ResultInternal(session);
     var results = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
       var record = loadRecord(pair.secondaryRid(), session);
       if (record != null && matchesTargetFilter(record, ctx)) {
-        var emptyUpstream = new ResultInternal(session);
         results.add(
             new MatchResultRow(session, emptyUpstream, targetAlias, record));
       }
@@ -439,7 +409,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // Check ALL reverse edges — a target may link to multiple valid
       // sources of the correct class. Emit one row per valid source.
       var reverseRids = resolveReverseEdges(targetRecord);
-      var results = new ArrayList<Result>();
+      var results = new ArrayList<Result>(1);
       for (var sourceRid : reverseRids) {
         if (!srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
           continue;
@@ -480,6 +450,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         indexDesc, orderAsc, ctx, profilingEnabled, null);
     var indexStream = fullScan.internalStart(ctx);
 
+    var emptyUpstream = new ResultInternal(session);
     return indexStream.map((indexResult, mapCtx) -> {
       var rid = (RID) indexResult.getProperty("rid");
       var targetRecord = loadRecord(rid, session);
@@ -505,7 +476,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return null;
       }
 
-      var emptyUpstream = new ResultInternal(session);
       return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
     }).filter(ExecutionStream.SKIP_NULLS);
   }
@@ -529,18 +499,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (overflow) {
         break;
       }
-      EntityImpl entity;
-      try {
-        var rec = session.getActiveTransaction().load(sourceRid);
-        if (!(rec instanceof EntityImpl e)) {
-          continue;
-        }
-        entity = e;
-      } catch (Exception e) {
-        continue;
-      }
-      var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-      if (fieldValue instanceof LinkBag linkBag) {
+      var linkBag = loadLinkBag(sourceRid, session);
+      if (linkBag != null) {
         for (RidPair pair : linkBag) {
           unionRidSet.add(pair.secondaryRid());
         }
@@ -551,6 +511,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (overflow) {
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
@@ -594,50 +556,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromSourcesUnsorted(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    // Lazy streaming per source — no full materialization.
-    var sourceIter = sourceMap.entrySet().iterator();
-    return new ExecutionStream() {
-      private ExecutionStream currentBatch = ExecutionStream.empty();
-
-      @Override
-      public boolean hasNext(CommandContext c) {
-        while (!currentBatch.hasNext(c)) {
-          if (!sourceIter.hasNext()) {
-            return false;
-          }
-          currentBatch = loadSourceEdgesBound(sourceIter.next(), session, c);
-        }
-        return true;
-      }
-
-      @Override
-      public Result next(CommandContext c) {
-        return currentBatch.next(c);
-      }
-
-      @Override
-      public void close(CommandContext c) {
-        currentBatch.close(c);
-      }
-    };
+    return batchedStream(
+        sourceMap.entrySet().iterator(),
+        entry -> loadSourceEdgesBound(entry, session, ctx));
   }
 
   /** Load edges from one source, emit as MatchResultRows with source binding. */
   private ExecutionStream loadSourceEdgesBound(
       Map.Entry<RID, List<Result>> entry,
       DatabaseSessionEmbedded session, CommandContext ctx) {
-    EntityImpl entity;
-    try {
-      var rec = session.getActiveTransaction().load(entry.getKey());
-      if (!(rec instanceof EntityImpl e)) {
-        return ExecutionStream.empty();
-      }
-      entity = e;
-    } catch (Exception e) {
-      return ExecutionStream.empty();
-    }
-    var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-    if (!(fieldValue instanceof LinkBag linkBag)) {
+    var linkBag = loadLinkBag(entry.getKey(), session);
+    if (linkBag == null) {
       return ExecutionStream.empty();
     }
     var upstreamRows = entry.getValue();
@@ -718,7 +647,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     var sourceRids = resolveReverseEdges(targetRecord);
-    var results = new ArrayList<Result>();
+    var results = new ArrayList<Result>(1);
     for (var sourceRid : sourceRids) {
       var upstreamRows = sourceMap.get(sourceRid);
       if (upstreamRows == null) {
@@ -738,6 +667,42 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   // Helpers
   // =====================================================================
 
+  /**
+   * Creates a lazy ExecutionStream that iterates over sources, producing a
+   * batch ExecutionStream per source via {@code batchProducer}. Advances to
+   * the next source when the current batch is exhausted.
+   */
+  @SuppressWarnings("unchecked")
+  private static <T> ExecutionStream batchedStream(
+      Iterator<T> sourceIter,
+      Function<T, ExecutionStream> batchProducer) {
+    return new ExecutionStream() {
+      private ExecutionStream currentBatch = ExecutionStream.empty();
+
+      @Override
+      public boolean hasNext(CommandContext c) {
+        while (!currentBatch.hasNext(c)) {
+          currentBatch.close(c);
+          if (!sourceIter.hasNext()) {
+            return false;
+          }
+          currentBatch = batchProducer.apply(sourceIter.next());
+        }
+        return true;
+      }
+
+      @Override
+      public Result next(CommandContext c) {
+        return currentBatch.next(c);
+      }
+
+      @Override
+      public void close(CommandContext c) {
+        currentBatch.close(c);
+      }
+    };
+  }
+
   /** Extract the source vertex RID from an upstream row. */
   @Nullable private RID extractSourceRid(Result upstreamRow) {
     var sourceRecord = upstreamRow.getProperty(sourceAlias);
@@ -749,11 +714,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return null;
   }
 
-  /**
-   * Follow the reverse edge on a target record to find the source vertex RID.
-   * E.g., for a Message record, read {@code out_HAS_CREATOR} to get the
-   * Person RID.
-   */
   /**
    * Follow the reverse edge on a target record to find ALL source vertex RIDs.
    * Returns all RIDs from the reverse LinkBag (handles shared targets where
@@ -794,18 +754,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (sampled >= sampleSize) {
         break;
       }
-      try {
-        var rec = session.getActiveTransaction().load(sourceRid);
-        if (!(rec instanceof EntityImpl entity)) {
-          continue;
-        }
-        var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-        if (fieldValue instanceof LinkBag linkBag) {
-          totalSampled += linkBag.size();
-          sampled++;
-        }
-      } catch (Exception e) {
-        // skip unloadable sources
+      var linkBag = loadLinkBag(sourceRid, session);
+      if (linkBag != null) {
+        totalSampled += linkBag.size();
+        sampled++;
       }
     }
     int avgPerSource = sampled > 0
@@ -815,6 +767,24 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         (long) sourceMap.size() * avgPerSource, Integer.MAX_VALUE);
   }
 
+  /**
+   * Loads the entity for the given RID and extracts its LinkBag field.
+   * Returns null if the record cannot be loaded or the field is not a LinkBag.
+   */
+  @Nullable private LinkBag loadLinkBag(
+      RID sourceRid, DatabaseSessionEmbedded session) {
+    try {
+      var rec = session.getActiveTransaction().load(sourceRid);
+      if (!(rec instanceof EntityImpl entity)) {
+        return null;
+      }
+      var fieldValue = entity.getPropertyInternal(linkBagFieldName);
+      return fieldValue instanceof LinkBag lb ? lb : null;
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
   @Nullable private RidSet resolveEdgeRidSet(
       Result upstreamRow, DatabaseSessionEmbedded session) {
     var sourceRid = extractSourceRid(upstreamRow);
@@ -822,19 +792,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return null;
     }
 
-    EntityImpl entity;
-    try {
-      var rec = session.getActiveTransaction().load(sourceRid);
-      if (!(rec instanceof EntityImpl e)) {
-        return null;
-      }
-      entity = e;
-    } catch (Exception e) {
-      return null;
-    }
-
-    var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-    if (!(fieldValue instanceof LinkBag linkBag)) {
+    var linkBag = loadLinkBag(sourceRid, session);
+    if (linkBag == null) {
       return null;
     }
 

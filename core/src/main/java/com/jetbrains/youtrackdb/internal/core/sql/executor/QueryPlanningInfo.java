@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
@@ -181,16 +182,11 @@ public class QueryPlanningInfo {
    */
   protected boolean orderApplied = false;
 
-  /** Marks the ORDER BY as already satisfied (e.g., by an index-ordered scan). */
-  public void setOrderApplied(boolean orderApplied) {
-    this.orderApplied = orderApplied;
-  }
-
   /**
    * When non-null, the input to ORDER BY is sorted by this item (primary key).
    * Passed to {@link OrderByStep} to enable early termination in the bounded heap.
    */
-  @javax.annotation.Nullable public com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem primaryKeySortedInput;
+  @javax.annotation.Nullable public SQLOrderByItem primaryKeySortedInput;
 
   /**
    * When {@code true}, upstream is an IndexOrderedEdgeStep that may produce
