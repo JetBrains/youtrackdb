@@ -2930,15 +2930,15 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
         Assert.assertTrue("Expected results but got none. Plan:\n" + plan, result.hasNext());
         var r1 = result.next();
-        Assert.assertTrue(dayOfMonth(r1.getProperty("cd")) == 10);
+        Assert.assertEquals(10, dayOfMonth(r1.getProperty("cd")));
 
         Assert.assertTrue(result.hasNext());
         var r2 = result.next();
-        Assert.assertTrue(dayOfMonth(r2.getProperty("cd")) == 9);
+        Assert.assertEquals(9, dayOfMonth(r2.getProperty("cd")));
 
         Assert.assertTrue(result.hasNext());
         var r3 = result.next();
-        Assert.assertTrue(dayOfMonth(r3.getProperty("cd")) == 8);
+        Assert.assertEquals(8, dayOfMonth(r3.getProperty("cd")));
 
         Assert.assertFalse("Should have exactly 3 results", result.hasNext());
       }
@@ -3144,7 +3144,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
       // Results should still be correct
       var r1 = result.next();
-      Assert.assertTrue(dayOfMonth(r1.getProperty("cd")) == 10);
+      Assert.assertEquals(10, dayOfMonth(r1.getProperty("cd")));
       Assert.assertTrue(result.hasNext());
     }
     session.commit();

@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -134,6 +135,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
     // Guaranteed single-source: exactly 1 upstream row (source has RID constraint).
     // Safe to use flatMap — results from the single call are already globally sorted.
+    // Set PRE_SORTED eagerly so OrderByStep sees it before consuming; processUpstreamRow
+    // overrides to FALSE if the cost model rejects index scan at runtime.
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
     var resultSet = prev.start(ctx);
     return resultSet.flatMap(this::processUpstreamRow);
   }
@@ -149,7 +153,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    if (shouldUseIndexScan(ridSet.size(), session)) {
+    long indexSize = index.size(session);
+    var histogram = index.getHistogram(session);
+    if (shouldUseIndexScan(ridSet.size(), indexSize, histogram)) {
       // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return indexScanFiltered(ridSet, ctx, upstreamRow);
@@ -264,9 +270,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     long indexSize = index.size(session);
+    var histogram = index.getHistogram(session);
     int estimatedTotalEdges = estimateTotalEdges(sourceMap, session);
     var strategy = pickMultiSourceStrategy(
-        estimatedTotalEdges, indexSize, session);
+        estimatedTotalEdges, indexSize, histogram);
 
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
@@ -297,16 +304,24 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     // Collect upstream source RIDs + build union RidSet simultaneously.
     // If union exceeds maxRidSetSize, stop adding to union but keep collecting
-    // source RIDs for the fallback path.
+    // source RIDs for the fallback path. Cap sourceRids at maxSources to
+    // prevent unbounded memory growth for large source result sets.
+    int maxSources =
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     var sourceRids = new ArrayList<RID>();
     var unionRidSet = new RidSet();
     boolean ridSetOverflow = false;
+    boolean sourceOverflow = false;
     var upstream = prev.start(ctx);
     while (upstream.hasNext(ctx)) {
       var row = upstream.next(ctx);
       var sourceRid = extractSourceRid(row);
       if (sourceRid != null) {
         sourceRids.add(sourceRid);
+        if (sourceRids.size() > maxSources) {
+          sourceOverflow = true;
+          break;
+        }
       }
       if (!ridSetOverflow) {
         var ridSet = resolveEdgeRidSet(row, session);
@@ -327,10 +342,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    // If union overflowed or cost model rejects, stream from source
-    // LinkBags without sorting. OrderByStep handles sort downstream.
-    if (ridSetOverflow || unionRidSet.isEmpty()
-        || !shouldUseIndexScan(unionRidSet.size(), session)) {
+    // If source or union overflowed, or cost model rejects, stream from
+    // source LinkBags without sorting. OrderByStep handles sort downstream.
+    long indexSize = index.size(session);
+    var histogram = index.getHistogram(session);
+    if (sourceOverflow || ridSetOverflow || unionRidSet.isEmpty()
+        || !shouldUseIndexScan(unionRidSet.size(), indexSize, histogram)) {
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnbound(sourceRids, ctx);
     }
@@ -363,18 +380,19 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromSourcesUnbound(
       List<RID> sourceRids, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
+    var emptyUpstream = new ResultInternal(session);
     return batchedStream(
         sourceRids.iterator(),
-        sourceRid -> loadSourceEdgesUnbound(sourceRid, session, ctx));
+        sourceRid -> loadSourceEdgesUnbound(sourceRid, emptyUpstream, session, ctx));
   }
 
   private ExecutionStream loadSourceEdgesUnbound(
-      RID sourceRid, DatabaseSessionEmbedded session, CommandContext ctx) {
+      RID sourceRid, Result emptyUpstream,
+      DatabaseSessionEmbedded session, CommandContext ctx) {
     var linkBag = loadLinkBag(sourceRid, session);
     if (linkBag == null) {
       return ExecutionStream.empty();
     }
-    var emptyUpstream = new ResultInternal(session);
     var results = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
       var record = loadRecord(ridFromPair(pair), session);
@@ -607,12 +625,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Single-source: compare RidSet-filtered index scan vs load-all-and-sort.
+   * Callers should cache indexSize/histogram to avoid repeated index lookups.
    */
   private boolean shouldUseIndexScan(
-      int linkBagSize, DatabaseSessionEmbedded session) {
+      int linkBagSize, long indexSize,
+      @Nullable EquiDepthHistogram histogram) {
     var costs = IndexOrderedCostModel.computeCosts(
-        linkBagSize, index.size(session), limit,
-        index.getHistogram(session), orderAsc);
+        linkBagSize, indexSize, limit, histogram, orderAsc);
     if (costs == null) {
       return false;
     }
@@ -634,10 +653,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * </ul>
    */
   private IndexOrderedCostModel.MultiSourceStrategy pickMultiSourceStrategy(
-      int totalEdges, long indexSize, DatabaseSessionEmbedded session) {
+      int totalEdges, long indexSize,
+      @Nullable EquiDepthHistogram histogram) {
     return IndexOrderedCostModel.pickMultiSourceStrategy(
-        totalEdges, indexSize, limit,
-        index.getHistogram(session), orderAsc);
+        totalEdges, indexSize, limit, histogram, orderAsc);
   }
 
   // Cost model logic lives in IndexOrderedCostModel.
@@ -687,7 +706,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * batch ExecutionStream per source via {@code batchProducer}. Advances to
    * the next source when the current batch is exhausted.
    */
-  @SuppressWarnings("unchecked")
   private static <T> ExecutionStream batchedStream(
       Iterator<T> sourceIter,
       Function<T, ExecutionStream> batchProducer) {
