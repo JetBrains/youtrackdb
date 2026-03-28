@@ -413,7 +413,8 @@ public class MatchExecutionPlanner {
       @Nullable String sourceClassName,
       boolean multiFieldOrderBy,
       @Nullable SQLWhereClause targetFilter,
-      @Nullable String targetClassName) {
+      @Nullable String targetClassName,
+      boolean isEdgeTraversal) {
   }
 
   /**
@@ -4427,6 +4428,7 @@ public class MatchExecutionPlanner {
           candidate.sourceClassName(),
           candidate.targetFilter(),
           candidate.targetClassName(),
+          candidate.isEdgeTraversal(),
           profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
@@ -4510,15 +4512,21 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // 6. Extract method direction and edge class name
+    // 6. Extract method direction and edge class name.
+    //    Accepts in/out (vertex traversal) and inE/outE (edge traversal).
     var method = item.getMethod();
     if (method == null || method.getMethodName() == null) {
       return null;
     }
     var methodDirection =
         method.getMethodName().getStringValue().toLowerCase(Locale.ENGLISH);
-    if (!"in".equals(methodDirection) && !"out".equals(methodDirection)) {
-      return null; // "both" not supported
+    var isEdgeTraversal =
+        "ine".equals(methodDirection) || "oute".equals(methodDirection);
+    var baseDirection = isEdgeTraversal
+        ? methodDirection.substring(0, methodDirection.length() - 1)
+        : methodDirection;
+    if (!"in".equals(baseDirection) && !"out".equals(baseDirection)) {
+      return null; // "both" / "bothE" not supported
     }
     var methodParams = method.getParams();
     if (methodParams == null || methodParams.isEmpty()) {
@@ -4535,22 +4543,33 @@ public class MatchExecutionPlanner {
     // 7. Compute linkBagFieldName and sourceAlias based on traversal direction.
     //    When edge.out == true: execution source = edge.edge.out, method applies directly.
     //    When edge.out == false: execution source = edge.edge.in, method is reversed.
+    //    Use baseDirection ("in"/"out") regardless of whether this is an edge traversal,
+    //    because the LinkBag field name is the same (e.g., in_LIKES for both .in() and .inE()).
     String linkBagDirection;
     if (matchedEdge.out) {
-      linkBagDirection = methodDirection;
+      linkBagDirection = baseDirection;
     } else {
-      linkBagDirection = "in".equals(methodDirection) ? "out" : "in";
+      linkBagDirection = "in".equals(baseDirection) ? "out" : "in";
     }
     var sourceAlias =
         matchedEdge.out ? matchedEdge.edge.out.alias : matchedEdge.edge.in.alias;
     var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
 
     // 7b. Compute reverse field name (for multi-source reverse edge lookup).
+    //     For vertex traversal (.in/.out): reverse field on vertex is out_/in_ + edgeClassName.
+    //     For edge traversal (.inE/.outE): reverse field on edge record is just "out"/"in".
     var reverseDirection = "in".equals(linkBagDirection) ? "out" : "in";
-    var reverseFieldName = reverseDirection + "_" + edgeClassName;
+    var reverseFieldName = isEdgeTraversal
+        ? reverseDirection
+        : reverseDirection + "_" + edgeClassName;
 
-    // 8. Look up index on target class for the property
+    // 8. Look up index on target class for the property.
+    //    For .inE()/.outE(), the target alias IS the edge record.
+    //    Use the edge class name as target class if not already inferred.
     var targetClassName = aliasClasses.get(targetAlias);
+    if (targetClassName == null && isEdgeTraversal) {
+      targetClassName = edgeClassName;
+    }
     if (targetClassName == null) {
       return null;
     }
@@ -4674,7 +4693,7 @@ public class MatchExecutionPlanner {
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
         linkBagFieldName, matchedIndex, orderAsc, queryLimit,
         multiSourceMode, reverseFieldName, sourceClassName,
-        multiFieldOrderBy, targetFilter, targetClassName);
+        multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal);
   }
 
   /**

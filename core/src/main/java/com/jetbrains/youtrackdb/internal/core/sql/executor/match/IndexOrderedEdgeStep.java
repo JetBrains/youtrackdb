@@ -81,6 +81,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Class constraint on the target alias (for class-based filtering). */
   @Nullable private final String targetClassName;
 
+  /**
+   * When true, the traversal is .inE()/.outE() and we want edge record RIDs
+   * (primaryRid) from LinkBag pairs instead of opposite vertex RIDs (secondaryRid).
+   */
+  private final boolean edgeTraversal;
+
   public IndexOrderedEdgeStep(
       CommandContext ctx,
       String sourceAlias,
@@ -96,6 +102,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable String sourceClassName,
       @Nullable SQLWhereClause targetFilter,
       @Nullable String targetClassName,
+      boolean edgeTraversal,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.sourceAlias = sourceAlias;
@@ -111,6 +118,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.sourceClassName = sourceClassName;
     this.targetFilter = targetFilter;
     this.targetClassName = targetClassName;
+    this.edgeTraversal = edgeTraversal;
   }
 
   @Override
@@ -362,7 +370,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var emptyUpstream = new ResultInternal(session);
     var results = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
-      var record = loadRecord(pair.secondaryRid(), session);
+      var record = loadRecord(ridFromPair(pair), session);
       if (record != null && matchesTargetFilter(record, ctx)) {
         results.add(
             new MatchResultRow(session, emptyUpstream, targetAlias, record));
@@ -502,7 +510,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var linkBag = loadLinkBag(sourceRid, session);
       if (linkBag != null) {
         for (RidPair pair : linkBag) {
-          unionRidSet.add(pair.secondaryRid());
+          unionRidSet.add(ridFromPair(pair));
         }
         if (unionRidSet.size() > maxRidSetSize) {
           overflow = true;
@@ -572,7 +580,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var upstreamRows = entry.getValue();
     var results = new ArrayList<Result>();
     for (RidPair pair : linkBag) {
-      var record = loadRecord(pair.secondaryRid(), session);
+      var record = loadRecord(ridFromPair(pair), session);
       if (record == null || !matchesTargetFilter(record, ctx)) {
         continue;
       }
@@ -727,6 +735,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (!(entity instanceof EntityImpl impl)) {
       return List.of();
     }
+
+    if (edgeTraversal) {
+      // Edge record: reverse field ("out"/"in") is a direct LINK to a single vertex,
+      // not a LinkBag.
+      var link = impl.getLinkPropertyInternal(reverseFieldName);
+      return link != null ? List.of(link) : List.of();
+    }
+
+    // Vertex: reverse field is a LinkBag (e.g., out_LIKES).
     var fieldValue = impl.getPropertyInternal(reverseFieldName);
     if (fieldValue instanceof LinkBag linkBag) {
       var rids = new ArrayList<RID>(linkBag.size());
@@ -768,6 +785,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
+   * Extracts the appropriate RID from a LinkBag pair based on traversal mode.
+   * For vertex traversal (.in/.out): returns secondaryRid (opposite vertex).
+   * For edge traversal (.inE/.outE): returns primaryRid (edge record).
+   */
+  private RID ridFromPair(RidPair pair) {
+    return edgeTraversal ? pair.primaryRid() : pair.secondaryRid();
+  }
+
+  /**
    * Loads the entity for the given RID and extracts its LinkBag field.
    * Returns null if the record cannot be loaded or the field is not a LinkBag.
    */
@@ -799,7 +825,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     var ridSet = new RidSet();
     for (RidPair pair : linkBag) {
-      ridSet.add(pair.secondaryRid());
+      ridSet.add(ridFromPair(pair));
     }
     return ridSet;
   }
@@ -862,7 +888,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     var direction = orderAsc ? "ASC" : "DESC";
     var mode = multiSourceMode != null ? " (" + multiSourceMode + ")" : "";
-    return spaces + "+ INDEX ORDERED MATCH " + direction + mode + "\n"
+    var edgeSuffix = edgeTraversal ? "E" : "";
+    return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + "\n"
         + spaces + "  {" + sourceAlias + "}." + edgeClassName
         + "{" + targetAlias + "} via " + index.getName();
   }
@@ -873,6 +900,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         ctx, sourceAlias, targetAlias, edgeClassName, linkBagFieldName,
         index, orderAsc, edge.copy(), limit, multiSourceMode,
         reverseFieldName, sourceClassName, targetFilter, targetClassName,
-        profilingEnabled);
+        edgeTraversal, profilingEnabled);
   }
 }
