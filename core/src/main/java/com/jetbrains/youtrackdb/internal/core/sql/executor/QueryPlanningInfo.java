@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Mutable container for all the state accumulated during query planning inside
@@ -186,7 +187,7 @@ public class QueryPlanningInfo {
    * When non-null, the input to ORDER BY is sorted by this item (primary key).
    * Passed to {@link OrderByStep} to enable early termination in the bounded heap.
    */
-  @javax.annotation.Nullable public SQLOrderByItem primaryKeySortedInput;
+  @Nullable public SQLOrderByItem primaryKeySortedInput;
 
   /**
    * When {@code true}, upstream is an IndexOrderedEdgeStep that may produce

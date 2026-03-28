@@ -4871,7 +4871,12 @@ public class MatchExecutionPlanner {
       upstreamAliases.add(edge.out ? edge.edge.in.alias : edge.edge.out.alias);
     }
 
-    // Check RETURN expressions for any upstream alias reference
+    // Check RETURN expressions for any upstream alias reference.
+    // Uses toString() serialization + prefix matching as a heuristic.
+    // False positives are safe (they force the more expensive BOUND mode,
+    // not wrong results). Direct AST inspection would be more precise but
+    // the RETURN expression AST is complex (supports functions, nested
+    // access, arithmetic) — toString() covers all cases with minimal code.
     if (returnItems != null) {
       for (var expr : returnItems) {
         var sb = new StringBuilder();
