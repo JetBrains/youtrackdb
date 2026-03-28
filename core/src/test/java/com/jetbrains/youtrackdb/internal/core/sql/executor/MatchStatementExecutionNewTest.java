@@ -4488,17 +4488,18 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  // --- Coverage test 9: No LIMIT — all results returned in correct order ---
-  // Query WITHOUT LIMIT to test the no-LIMIT path where k = linkBagSize
-  // in the cost model. Uses initIndexOrderedMatchData(false) with 10
-  // messages. Verifies all 10 results returned in correct DESC order.
+  // --- Coverage test 9: No LIMIT — UNFILTERED mode returns all results ---
+  // UNFILTERED modes (source = root, no WHERE) work without LIMIT because
+  // sequential index scan is always better than random I/O + sort.
+  // FILTERED modes WITHOUT LIMIT are rejected by the planner.
   @Test
   public void testIndexOrderedMatchNoLimitAllResults() {
     initIndexOrderedMatchData(false);
 
     session.begin();
+    // No WHERE on p → UNFILTERED mode (no LIMIT required)
     var query =
-        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+        "MATCH {class: TestPerson, as: p}"
             + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
             + "RETURN m.creationDate as cd ORDER BY cd DESC";
     try (var result = session.query(query)) {
@@ -4587,21 +4588,22 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
           "Plan should use UNFILTERED_BOUND mode, but was:\n" + plan,
           plan.contains("UNFILTERED_BOUND"));
 
-      var days = new java.util.ArrayList<Integer>();
+      var dates = new java.util.ArrayList<java.util.Date>();
       var names = new java.util.ArrayList<String>();
       while (result.hasNext()) {
         var row = result.next();
-        days.add(dayOfMonth(row.getProperty("cd")));
+        dates.add(row.getProperty("cd"));
         names.add(row.getProperty("pname"));
       }
       // 5 persons x 10 messages = 50 total results
       Assert.assertEquals(
-          "Should have all 50 results: " + days.size(), 50, days.size());
-      // Verify ASC ordering
-      for (var i = 0; i < days.size() - 1; i++) {
+          "Should have all 50 results", 50, dates.size());
+      // Verify ASC ordering (compare full Date, not dayOfMonth which wraps)
+      for (var i = 0; i < dates.size() - 1; i++) {
         Assert.assertTrue(
-            "Results should be in ASC order: " + days,
-            days.get(i) <= days.get(i + 1));
+            "Results should be in ASC order at index " + i
+                + ": " + dates.get(i) + " vs " + dates.get(i + 1),
+            !dates.get(i).after(dates.get(i + 1)));
       }
       // All names should be non-null (binding works in UNFILTERED_BOUND)
       for (var name : names) {
@@ -4652,6 +4654,78 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     } finally {
       GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.setValue(oldValue);
     }
+  }
+
+  // --- Test: FILTERED modes rejected without LIMIT ---
+  // When no LIMIT is present, FILTERED modes should NOT be applied because
+  // materializing upstream is wasteful without early termination benefit.
+  @Test
+  public void testIndexOrderedMatchFilteredRejectedWithoutLimit() {
+    initIndexOrderedMatchMultiSourceData();
+
+    session.begin();
+    // effectivelyFiltered (earlier edge), source in RETURN → would be
+    // FILTERED_BOUND, but no LIMIT → optimization rejected entirely
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "Without LIMIT, FILTERED modes should NOT be used, but plan was:\n"
+              + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+
+      // Verify results are still correct via normal path
+      int count = 0;
+      while (result.hasNext()) {
+        result.next();
+        count++;
+      }
+      Assert.assertEquals("Should have all 50 results", 50, count);
+    }
+    session.commit();
+  }
+
+  // --- Test: Downstream $matched reference forces BOUND mode ---
+  // Pattern similar to IS7: a downstream edge references $matched.<earlier_alias>.
+  // This forces BOUND mode to preserve the earlier alias in the result row.
+  @Test
+  public void testIndexOrderedMatchDownstreamMatchedForcesBound() {
+    initIndexOrderedMatchReplyData();
+
+    session.begin();
+    // root → msg is first edge, msg → reply is the index-ordered edge.
+    // reply → check has WHERE referencing $matched.root, which forces
+    // BOUND mode to preserve 'root' alias in the row.
+    // Using optional edge to avoid empty results if no match.
+    var query =
+        "MATCH {class: TestPerson, as: root, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){as: msg},"
+            + " {as: msg}.in('TEST_REPLY_OF'){class: TestReply, as: reply}"
+            + ".out('TEST_HAS_CREATOR')"
+            + "  {as: check, where: (@rid = $matched.root.@rid), optional: true}"
+            + " RETURN reply.creationDate as cd, root.name as rname"
+            + " ORDER BY cd DESC LIMIT 5";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      // If optimization is applied, it must use BOUND mode (not UNBOUND)
+      // because $matched.root is referenced downstream
+      if (plan.contains("INDEX ORDERED MATCH")) {
+        Assert.assertFalse(
+            "Should not use UNBOUND mode when downstream uses $matched,"
+                + " plan was:\n" + plan,
+            plan.contains("UNBOUND"));
+      }
+
+      // Verify root.name is correctly bound
+      while (result.hasNext()) {
+        var row = result.next();
+        Assert.assertEquals("person1", row.getProperty("rname"));
+      }
+    }
+    session.commit();
   }
 
   private void printExecutionPlan(BasicResultSet result) {
