@@ -33,9 +33,8 @@ Phase C includes both the track-level code review and track completion
    - Update the **Reviews completed** section in the step file (create the
      step file early with just the Progress and Reviews sections if it
      doesn't exist yet)
-   - **Commit the review file and step file update together.** This ensures
-     partial review progress survives session interruptions — the next
-     session can skip completed reviews and only re-run missing ones.
+   - These files persist on disk between sessions — the next session can
+     skip completed reviews and only re-run missing ones.
    - **Context consumption check** (mandatory after each review, except
      after the last action of the phase): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is
@@ -48,7 +47,7 @@ Phase C includes both the track-level code review and track completion
 3. **Decompose scope indicators** into concrete steps
 4. **Write the step file** to `docs/adr/<dir-name>/tracks/track-N.md` with
    all steps as `[ ]` items. Mark `Review + decomposition` as `[x]` in the
-   Progress section. Commit the step file.
+   Progress section.
 
 ### Complexity Assessment and Which Reviews to Run
 
@@ -135,7 +134,7 @@ different aspects, based on what is actually needed.
 
 After writing the step file with all decomposed steps:
 
-1. **Verify the step file** is committed with:
+1. **Verify the step file** on disk has:
    - `Review + decomposition` marked `[x]` in Progress
    - All reviews recorded in Reviews completed
    - All steps listed as `[ ]` items

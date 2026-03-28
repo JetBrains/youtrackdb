@@ -16,8 +16,8 @@ A track can be skipped (`[~]`) in two situations:
    agent always presents the rationale and waits for the user to confirm.
    Even when a review sub-agent recommends `skip`, the user decides.
 
-2. **Write a skip record** to the plan file and mark the track `[~]`
-   (single commit):
+2. **Write a skip record** to the plan file on disk and mark the track
+   `[~]`:
 
    ```markdown
    - [~] Track N: <title>
@@ -31,12 +31,10 @@ A track can be skipped (`[~]`) in two situations:
    It must include enough context for strategy refresh to assess downstream
    impact.
 
-3. **Delete the step file** (`tracks/track-N.md`) if one exists (e.g.,
-   Phase A created it before the skip was decided). Include the deletion
-   in the same commit.
+3. **Delete the step file** (`tracks/track-N.md`) from disk if one exists
+   (e.g., Phase A created it before the skip was decided).
 
-4. **Delete review files** (`reviews/track-N-*.md`) if any exist. Include
-   in the same commit.
+4. **Delete review files** (`reviews/track-N-*.md`) from disk if any exist.
 
 5. **Strategy refresh** treats `[~]` tracks the same as `[x]` tracks for
    State A detection (see workflow.md §Startup Protocol). A skipped track's
@@ -53,9 +51,8 @@ A track can be skipped (`[~]`) in two situations:
 If the skip is decided during Phase A (review sub-agent recommends it and
 user confirms):
 
-- Write the `[~]` marker and skip record to the plan file
-- Delete any partially-created step file and review files
-- Commit everything together
+- Write the `[~]` marker and skip record to the plan file on disk
+- Delete any partially-created step file and review files from disk
 - The session continues: if strategy refresh was already done, proceed to
   the next `[ ]` track's Phase A. If no more tracks remain, proceed to
   Phase 4 detection.
@@ -66,7 +63,6 @@ user confirms):
 
 If the user says "skip Track N" at session start:
 
-- Write the `[~]` marker and skip record (user provides the reason)
-- Delete any step file and review files for that track
-- Commit
+- Write the `[~]` marker and skip record on disk (user provides the reason)
+- Delete any step file and review files for that track from disk
 - Continue with normal startup protocol for the next track

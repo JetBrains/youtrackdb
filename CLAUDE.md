@@ -174,8 +174,12 @@ Tests configure YouTrackDB-specific system properties in `<argLine>`:
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
 - Target branch: `develop`
+- **1 PR = 1 squashed commit** — all branch commits are squashed on merge
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
+
+### Workflow Artifacts
+- Some squashed commits include `docs/adr/<dir-name>/design-final.md` and `docs/adr/<dir-name>/adr.md` — post-implementation workflow artifacts documenting the final design and architectural decisions. These are the only workflow files tracked by git; all intermediate files (implementation plan, step files, reviews) exist only on the branch during development.
 
 ## Key Entry Points
 

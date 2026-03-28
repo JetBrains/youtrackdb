@@ -48,12 +48,12 @@ completed or skipped a track (State A in workflow.md §Startup Protocol).
    - **ESCALATE** — accumulated discoveries have fundamentally changed the
      picture. Enter inline replanning (see `inline-replanning.md`).
 
-5. **Write the `**Strategy refresh:**` line** to the plan file under the
-   completed track's block (see conventions-execution.md §After strategy
-   refresh for format). For CONTINUE, a one-liner suffices. For ADJUST,
-   include a brief summary of what was adjusted. ESCALATE does not write a
-   strategy refresh line — it triggers replanning which restructures the
-   plan directly.
+5. **Write the `**Strategy refresh:**` line** to the plan file on disk
+   under the completed track's block (see conventions-execution.md §After
+   strategy refresh for format). For CONTINUE, a one-liner suffices. For
+   ADJUST, include a brief summary of what was adjusted. ESCALATE does not
+   write a strategy refresh line — it triggers replanning which restructures
+   the plan directly.
 
 6. **Proceed** to Phase A of the next track in the same session.
 

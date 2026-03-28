@@ -117,8 +117,9 @@ sections:
    crash recovery, performance-critical paths, or non-obvious invariants, it MUST
    have a dedicated section. Omitting these is a structural review finding.
 7. **Frozen after Phase 1** — the original `design.md` is never modified after
-   planning. A separate `design-final.md` is produced in Phase 4 to capture the
-   actual implemented design. Both are kept for planned-vs-actual comparison.
+   planning. Phase 4 produces `design-final.md` (actual design) and `adr.md`
+   (architecture decisions with actual outcomes) — the only git-tracked
+   workflow artifacts.
 
 ## Structure
 

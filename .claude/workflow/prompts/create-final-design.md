@@ -1,112 +1,125 @@
-Read and follow the workflow for Phase 4 (Final Design Document).
+Read and follow the workflow for Phase 4 (Final Artifacts).
 
 **Step 1 — Read workflow documents.**
 
 Read these before doing anything else:
-1. `.claude/workflow/conventions.md` — shared formats, glossary, plan file structure
-2. `.claude/workflow/design-document-rules.md` — design document rules and structure
-3. `.claude/workflow/workflow.md` — §Final Design Document (Phase 4) for the
-   purpose and process
+1. `.claude/workflow/conventions.md` — shared formats, plan file structure
+2. `.claude/workflow/design-document-rules.md` — design document rules
+3. `.claude/workflow/workflow.md` — §Final Artifacts (Phase 4)
 
-**Step 2 — Read the implementation plan and original design document.**
+**Step 2 — Read all workflow working files and the implemented code.**
 
 Plan directory name: if "$ARGUMENTS" is non-empty, use it as the directory
 name. Otherwise, default to the current git branch name
 (`git branch --show-current`).
 
 Read:
-- `docs/adr/<dir-name>/implementation-plan.md` — the full plan with all track
-  episodes (these document what was discovered and what deviated from the plan)
-- `docs/adr/<dir-name>/design.md` — the original design document from Phase 1
-  (this is the "planned" design — do NOT modify it)
-- `docs/adr/<dir-name>/tracks/track-*.md` — all track step files. These contain
-  detailed step episodes documenting what was actually implemented, what failed,
-  and what design deviations occurred. This is the richest source of context for
-  understanding why the final design differs from the planned design.
+- `docs/adr/<dir-name>/implementation-plan.md` — full plan with track episodes
+- `docs/adr/<dir-name>/design.md` — original design document (do NOT modify)
+- `docs/adr/<dir-name>/tracks/track-*.md` — all step files with step episodes
 
-**Step 2.5 — Mark Phase 4 as in progress.**
+Using the plan's Architecture Notes and track episodes as a guide, read the
+actual implemented code: all classes, interfaces, and components mentioned
+in the plan, plus any that emerged during execution.
 
-In `docs/adr/<dir-name>/implementation-plan.md`, update the `## Final Design
-Document` section to mark Phase 4 as in progress:
+**Step 3 — Produce the two final artifacts.**
 
-```markdown
-## Final Design Document
-- [>] Phase 4: Final design document (`design-final.md`)
-```
-
-Commit this change with a message like: `Mark Phase 4 (final design document) as in progress`.
-
-Skip this step if Phase 4 is already marked `[>]` (resuming an interrupted session).
-
-**Step 3 — Read the implemented code.**
-
-Using the implementation plan's Architecture Notes (Component Map, Decision
-Records) and track episodes as a guide, read the actual implemented code:
-- All classes, interfaces, and components mentioned in the plan
-- Any new classes/interfaces that emerged during execution (mentioned in track
-  episodes or step files)
-- Key method signatures and relationships between components
-
-Build a complete picture of what was actually built, not what was planned.
-
-**Step 4 — Produce the final design document.**
+### Artifact 1: Final Design Document (`design-final.md`)
 
 Write `docs/adr/<dir-name>/design-final.md` reflecting the **actual
-implementation**. Follow the same structure as the original `design.md` but
-based on the real code:
+implementation**. Same structure as `design.md` but based on real code:
 
 ```
 # <Feature Name> — Final Design
 
 ## Overview
-<Brief summary of what was actually built — the real design as implemented,
-not the planned design. Note any high-level deviations from the original plan.>
+<What was actually built. Note high-level deviations from the original plan.>
 
 ## Class Design
-<Mermaid classDiagram(s) showing the classes/interfaces as they actually exist
-in the codebase. Pair each diagram with prose explaining responsibilities and
-any deviations from the planned design.>
+<Mermaid classDiagram(s) of actual classes/interfaces. Pair with prose.>
 
 ## Workflow
-<Mermaid sequenceDiagram(s) and/or flowchart(s) showing the actual runtime
-behavior. Pair each diagram with prose explaining the flow and any differences
-from the planned flow.>
+<Mermaid sequenceDiagram(s)/flowchart(s) of actual runtime behavior.
+Pair with prose.>
 
-## <Complex Topic 1>
-<How this complex part was actually implemented, why it differs from the plan
-(if it does), gotchas discovered during implementation.>
-
-## <Complex Topic 2>
-<How this complex part was actually implemented, why it differs from the plan
-(if it does), gotchas discovered during implementation.>
+## <Complex Topic>
+<How this was actually implemented, why it differs from the plan (if it does),
+gotchas discovered.>
 ```
 
 Rules:
-- **All diagrams must be Mermaid** — `classDiagram`, `sequenceDiagram`,
-  `flowchart`, or `stateDiagram` as appropriate.
-- **Reflect reality, not the plan** — if the implementation diverged from the
-  original design, the final document shows what was built. Use track episodes
-  to understand why deviations occurred.
-- **Pair every diagram with prose** — explain what the diagram shows and, where
-  relevant, how it differs from the original design.
-- **Keep diagrams focused** — same sizing rules as the original: class diagrams
-  ≤ ~12 classes, sequence diagrams ≤ ~8 participants.
-- **Complex parts are mandatory** — same rule as the original design document:
-  concurrency, crash recovery, performance-critical paths, non-obvious
-  invariants must have dedicated sections.
-- **Do NOT modify `design.md`** — the original stays untouched for comparison.
+- All diagrams must be Mermaid. Reflect reality, not the plan.
+- Pair every diagram with prose.
+- Keep diagrams focused (class ≤ ~12, sequence ≤ ~8 participants).
+- Complex parts (concurrency, crash recovery, performance paths) are mandatory.
+- Do NOT modify `design.md`.
 
-**Step 5 — Commit and mark Phase 4 complete.**
+### Artifact 2: ADR (`adr.md`)
 
-1. Commit `design-final.md` with a message explaining this is the
-   post-implementation design document.
+Write `docs/adr/<dir-name>/adr.md` — a post-implementation Architecture
+Decision Record derived from `implementation-plan.md`, adjusted for actual
+outcomes using insights from all episodic memories.
 
-2. Update the `## Final Design Document` section in
-   `docs/adr/<dir-name>/implementation-plan.md` to mark Phase 4 as complete:
+**Episodic memory aggregation:** Scan **all step episodes first** (they
+contain ground-truth details — "What was discovered", "What was done",
+"What changed from the plan"), then cross-reference with **track episodes**
+(which add strategic framing). Both levels must be aggregated — track
+episodes are summaries that may omit step-level details important for
+future work. Every discovery and plan deviation from either level should
+be evaluated for inclusion in the ADR.
 
-   ```markdown
-   ## Final Design Document
-   - [x] Phase 4: Final design document (`design-final.md`)
-   ```
+```
+# <Feature Name> — Architecture Decision Record
 
-3. Commit the plan file update.
+## Summary
+<What problem it solves, what was built.>
+
+## Goals
+<Adjusted for actual outcomes. Note descoped or changed goals.>
+
+## Constraints
+<Note relaxed constraints or new ones discovered.>
+
+## Architecture Notes
+
+### Component Map
+<Updated Mermaid diagram + bullet list reflecting actual topology.>
+
+### Decision Records
+<All decisions from the plan, updated for actual outcomes:
+- Implemented as planned → note it
+- Modified during execution → update rationale, note what changed and why
+- New decisions that emerged → add with rationale
+Retain D1, D2, ... numbering; append new decisions at the end.>
+
+### Invariants & Contracts (if applicable)
+### Integration Points (if applicable)
+### Non-Goals (if applicable)
+
+## Key Discoveries
+<Synthesized from both track episodes AND step episodes — important things
+learned during implementation that weren't known at planning time. Step
+episodes are the primary source (ground truth); track episodes provide
+strategic framing. Include discoveries that would affect future work in
+the same area, even if they seem minor at the step level.>
+```
+
+Rules:
+- No track details — captures decisions and outcomes, not execution process.
+- Aggregate from both episode levels — do not rely on track episodes alone,
+  as they may omit step-level details.
+- Retain original decision numbering for traceability.
+
+**Step 4 — Commit and complete.**
+
+Stage and commit both artifacts in a single commit:
+
+```
+Add final workflow artifacts
+
+Post-implementation artifacts:
+- design-final.md: actual design reflecting implemented code
+- adr.md: architecture decision record with actual outcomes
+```
+
+Inform the user that Phase 4 is complete and the workflow is done.
