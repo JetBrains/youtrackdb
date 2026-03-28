@@ -69,6 +69,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageExistsException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -213,6 +214,12 @@ public abstract class AbstractStorage
       Comparator.comparing(
           o -> o.record.getIdentity());
 
+  // Version comparator for index snapshot version-index maps: orders by the last key element
+  // (version timestamp), falling back to natural CompositeKey ordering for uniqueness.
+  public static final Comparator<CompositeKey> INDEX_SNAPSHOT_VERSION_COMPARATOR =
+      Comparator.comparingLong((CompositeKey a) -> (Long) a.getKeys().getLast())
+          .thenComparing(Function.identity());
+
   protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
@@ -338,8 +345,18 @@ public abstract class AbstractStorage
   // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
-  private IndexesSnapshot indexesSnapshot = new IndexesSnapshot();
-  private IndexesSnapshot nullIndexesSnapshot = new IndexesSnapshot();
+  // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
+  private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
+      new ConcurrentSkipListMap<>();
+  private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
+      new ConcurrentSkipListMap<>();
+
+  // Indexes snapshot visibility index: maps addedKey → removedKey, ordered by version (last key
+  // element). Enables efficient range-scan eviction via headMap(lowWaterMark)
+  private final ConcurrentSkipListMap<CompositeKey, CompositeKey> indexesSnapshotVisibilityIndex =
+      new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
+  private final ConcurrentSkipListMap<CompositeKey, CompositeKey> nullIndexSnapshotVisibilityIndex =
+      new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
 
   // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
@@ -357,6 +374,12 @@ public abstract class AbstractStorage
   // Approximate count of entries in sharedEdgeSnapshotIndex, used for O(1) cleanup threshold
   // checks. Same rationale as snapshotIndexSize — ConcurrentSkipListMap.size() is O(n).
   protected final AtomicLong edgeSnapshotIndexSize = new AtomicLong();
+
+  // Approximate count of entries in sharedIndexesSnapshotData + sharedNullIndexesSnapshotData,
+  // used for O(1) cleanup threshold checks.
+  // Incremented by IndexesSnapshot.addSnapshotPair() (2 per pair), decremented by
+  // evictStaleIndexesSnapshotEntries().
+  protected final AtomicLong indexSnapshotSize = new AtomicLong();
 
   // Stale transaction monitor (YTDB-550): periodically scans tsMins to detect long-running
   // transactions and logs warnings. Initialized at storage open, stopped at shutdown.
@@ -4762,6 +4785,11 @@ public abstract class AbstractStorage
       sharedEdgeSnapshotIndex.clear();
       edgeVisibilityIndex.clear();
       edgeSnapshotIndexSize.set(0);
+      sharedIndexesSnapshot.clear();
+      indexesSnapshotVisibilityIndex.clear();
+      sharedNullIndexesSnapshot.clear();
+      nullIndexSnapshotVisibilityIndex.clear();
+      indexSnapshotSize.set(0);
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -4839,6 +4867,10 @@ public abstract class AbstractStorage
         sharedEdgeSnapshotIndex.clear();
         edgeVisibilityIndex.clear();
         edgeSnapshotIndexSize.set(0);
+        sharedIndexesSnapshot.clear();
+        indexesSnapshotVisibilityIndex.clear();
+        sharedNullIndexesSnapshot.clear();
+        nullIndexSnapshotVisibilityIndex.clear();
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
@@ -5909,7 +5941,8 @@ public abstract class AbstractStorage
   private void cleanupSnapshotIndex() {
     int threshold = configuration.getContextConfiguration()
         .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
-    long combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+    long combinedSize =
+        snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexSnapshotSize.get();
     if (combinedSize <= threshold) {
       return;
     }
@@ -5917,7 +5950,8 @@ public abstract class AbstractStorage
       return;
     }
     try {
-      combinedSize = snapshotIndexSize.get() + edgeSnapshotIndexSize.get();
+      combinedSize =
+          snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexSnapshotSize.get();
       if (combinedSize <= threshold) {
         return;
       }
@@ -5928,7 +5962,10 @@ public abstract class AbstractStorage
       evictStaleEdgeSnapshotEntries(
           lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
           edgeSnapshotIndexSize);
-      evictStaleIndexesSnapshotEntries(lwm, indexesSnapshot, nullIndexesSnapshot);
+      evictStaleIndexesSnapshotEntries(lwm, sharedIndexesSnapshot,
+          indexesSnapshotVisibilityIndex, indexSnapshotSize);
+      evictStaleIndexesSnapshotEntries(lwm, sharedNullIndexesSnapshot,
+          nullIndexSnapshotVisibilityIndex, indexSnapshotSize);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -6124,11 +6161,39 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Core eviction logic for index snapshot entries: removes all index snapshot/version entries
+   * with version strictly below the given low-water-mark. Follows the same pattern as
+   * {@link #evictStaleSnapshotEntries} and {@link #evictStaleEdgeSnapshotEntries} but for
+   * index-specific key types. Operates on the raw maps owned by AbstractStorage.
+   *
+   * @param lwm the global low-water-mark; entries with version < lwm are evicted
+   * @param snapshotData the index snapshot data map to remove stale entries from
+   * @param versionIdx the version index to scan and remove stale entries from
+   * @param sizeCounter approximate entry count to decrement (2 per evicted pair)
+   */
   static void evictStaleIndexesSnapshotEntries(
       long lwm,
-      IndexesSnapshot indexesSnapshot, IndexesSnapshot nullIndexesSnapshot) {
-    indexesSnapshot.evictStaleIndexesSnapshotEntries(lwm);
-    nullIndexesSnapshot.evictStaleIndexesSnapshotEntries(lwm);
+      ConcurrentSkipListMap<CompositeKey, RID> snapshotData,
+      ConcurrentSkipListMap<CompositeKey, CompositeKey> versionIdx,
+      AtomicLong sizeCounter) {
+    if (lwm == Long.MAX_VALUE) {
+      return;
+    }
+    // Sentinel: a CompositeKey whose last element is LWM, with minimal preceding keys
+    // so that headMap captures everything with version < LWM
+    var sentinel = new CompositeKey(Long.MIN_VALUE, lwm);
+    var stale = versionIdx.headMap(sentinel);
+    long evicted = 0;
+    for (var entry : stale.entrySet()) {
+      snapshotData.remove(entry.getKey());
+      snapshotData.remove(entry.getValue());
+      evicted += 2;
+    }
+    stale.clear();
+    if (evicted > 0) {
+      sizeCounter.addAndGet(-evicted);
+    }
   }
 
   /**
@@ -6164,11 +6229,13 @@ public abstract class AbstractStorage
   }
 
   public IndexesSnapshot subIndexSnapshot(long indexId) {
-    return indexesSnapshot.subIndexSnapshot(indexId);
+    return new IndexesSnapshot(
+        sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexSnapshotSize, indexId);
   }
 
   public IndexesSnapshot subNullIndexSnapshot(long indexId) {
-    return nullIndexesSnapshot.subIndexSnapshot(indexId);
+    return new IndexesSnapshot(
+        sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexSnapshotSize, indexId);
   }
 
   /**
@@ -6210,6 +6277,10 @@ public abstract class AbstractStorage
 
   public AtomicLong getEdgeSnapshotIndexSize() {
     return edgeSnapshotIndexSize;
+  }
+
+  public AtomicLong getIndexSnapshotSize() {
+    return indexSnapshotSize;
   }
 
   /**

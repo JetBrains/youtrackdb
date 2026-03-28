@@ -1,0 +1,70 @@
+package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
+
+import static org.junit.Assert.*;
+
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
+import org.junit.Test;
+
+/**
+ * Tests for RID encoding/decoding round-trip in {@link CellBTreeSingleValueBucketV3}.
+ * Verifies that TombstoneRID, SnapshotMarkerRID, and plain RecordId survive
+ * serialization via their encoded collectionId/collectionPosition values.
+ */
+public class CellBTreeSingleValueBucketV3Test {
+
+  /**
+   * A TombstoneRID wrapping cluster 0 must survive the encode/decode round-trip.
+   * Regression: plain negation of collectionId loses the tombstone marker for cluster 0
+   * because -0 == 0 in Java integer arithmetic.
+   */
+  @Test
+  public void testDecodeRID_tombstoneClusterZero() {
+    var original = new TombstoneRID(new RecordId(0, 42));
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue(decoded instanceof TombstoneRID);
+    var tombstone = (TombstoneRID) decoded;
+    assertEquals(0, tombstone.identity().getCollectionId());
+    assertEquals(42, tombstone.identity().getCollectionPosition());
+  }
+
+  /** TombstoneRID for a non-zero cluster must round-trip correctly. */
+  @Test
+  public void testDecodeRID_tombstoneNonZeroCluster() {
+    var original = new TombstoneRID(new RecordId(5, 100));
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue(decoded instanceof TombstoneRID);
+    var tombstone = (TombstoneRID) decoded;
+    assertEquals(5, tombstone.identity().getCollectionId());
+    assertEquals(100, tombstone.identity().getCollectionPosition());
+  }
+
+  /** SnapshotMarkerRID must round-trip correctly, including position 0. */
+  @Test
+  public void testDecodeRID_snapshotMarker() {
+    var original = new SnapshotMarkerRID(new RecordId(3, 0));
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(
+        original.getCollectionId(), original.getCollectionPosition());
+
+    assertTrue(decoded instanceof SnapshotMarkerRID);
+    var marker = (SnapshotMarkerRID) decoded;
+    assertEquals(3, marker.identity().getCollectionId());
+    assertEquals(0, marker.identity().getCollectionPosition());
+  }
+
+  /** A plain RecordId with non-negative fields must decode as a plain RecordId. */
+  @Test
+  public void testDecodeRID_plainRecordId() {
+    RID decoded = CellBTreeSingleValueBucketV3.decodeRID(10, 20);
+
+    assertTrue(decoded instanceof RecordId);
+    assertEquals(10, decoded.getCollectionId());
+    assertEquals(20, decoded.getCollectionPosition());
+  }
+}

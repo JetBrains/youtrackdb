@@ -8,7 +8,8 @@ public record TombstoneRID(RID identity) implements RID {
 
   @Override
   public int getCollectionId() {
-    return -identity.getCollectionId();
+    // Encode: shift+negate so that 0 → -1, 1 → -2, etc.
+    return -(identity.getCollectionId() + 1);
   }
 
   @Override
