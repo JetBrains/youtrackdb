@@ -5435,6 +5435,319 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  /**
+   * Large multi-source setup: 3 persons × 200 messages each = 600 messages.
+   * High edge count and index size ensure plan-time approval AND runtime cost
+   * model picks index scan strategies (UNION_RIDSET_SCAN or GLOBAL_SCAN)
+   * instead of LOAD_ALL_SORT.
+   */
+  private void initIndexOrderedMatchLargeMultiSourceData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+    session.begin();
+    var msgCounter = 0;
+    for (var p = 1; p <= 3; p++) {
+      session.execute("CREATE VERTEX TestPerson SET name = 'person" + p + "'").close();
+      for (var d = 1; d <= 200; d++) {
+        msgCounter++;
+        session.execute(
+            "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+                + String.format("%02d", msgCounter / 3600)
+                + ":" + String.format("%02d", (msgCounter / 60) % 60)
+                + ":" + String.format("%02d", msgCounter % 60)
+                + "', msgId = " + msgCounter)
+            .close();
+        session.execute(
+            "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = "
+                + msgCounter + ") TO (SELECT FROM TestPerson WHERE name = 'person"
+                + p + "')")
+            .close();
+      }
+    }
+    session.commit();
+  }
+
+  // FILTERED_BOUND with large multi-source data exercises filteredBound → index scan
+  // strategies (UNION_RIDSET_SCAN or GLOBAL_SCAN) with source binding and correct ordering.
+  @Test
+  public void testIndexOrderedMatchFilteredBoundLargeMultiSource() throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // WHERE on p + p.name in RETURN → FILTERED_BOUND mode.
+      // 3 sources × 200 msgs → high density → cost model picks index scan.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH (FILTERED_BOUND), but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Plan should use FILTERED_BOUND mode, but was:\n" + plan,
+            plan.contains("FILTERED_BOUND"));
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // DESC order: highest msgIds first (600, 599, 598, ...)
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order by msgId: " + mids,
+              mids.get(i) >= mids.get(i + 1));
+        }
+        // Verify source binding works for all results
+        for (var name : names) {
+          Assert.assertNotNull("pname should be bound", name);
+          Assert.assertTrue(
+              "pname should be a valid person name, got: " + name,
+              name.startsWith("person"));
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_UNBOUND with large multi-source data exercises filteredUnbound → union RidSet
+  // index scan path. Source alias NOT in RETURN, so no source binding needed.
+  @Test
+  public void testIndexOrderedMatchFilteredUnboundLargeMultiSource() throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // WHERE on p + p NOT in RETURN → FILTERED_UNBOUND mode.
+      // 3 sources × 200 msgs → union RidSet built, index scan with bitmap filter.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // DESC order: highest msgIds first
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order by msgId: " + mids,
+              mids.get(i) >= mids.get(i + 1));
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_BOUND with target WHERE filter and large multi-source data exercises
+  // matchesTargetFilter in the multi-source index scan path, filtering out non-matching targets.
+  @Test
+  public void testIndexOrderedMatchFilteredBoundTargetFilterLargeMultiSource()
+      throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // WHERE on p + p.name in RETURN → FILTERED_BOUND.
+      // Target WHERE (msgId > 400) filters out messages 1-400, leaving only 401-600.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+              + " where: (msgId > 400)} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // All msgIds must be > 400 (target WHERE filter)
+        for (var mid : mids) {
+          Assert.assertTrue(
+              "All msgIds should be > 400 due to target filter, got: " + mid,
+              mid > 400);
+        }
+        // DESC order
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order: " + mids,
+              mids.get(i) >= mids.get(i + 1));
+        }
+        // Verify source binding
+        for (var name : names) {
+          Assert.assertNotNull("pname should be bound", name);
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // UNFILTERED_BOUND with large data exercises unfilteredBound full index scan path.
+  // No WHERE on source, source in RETURN. Scans index globally, per hit: loads record,
+  // follows reverse edge, verifies source class, loads source for binding.
+  @Test
+  public void testIndexOrderedMatchUnfilteredBoundLargeMultiSource() throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // No WHERE on p, p.name in RETURN → UNFILTERED_BOUND mode.
+      // Full index scan with class check + lazy source load.
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Plan should use UNFILTERED_BOUND mode, but was:\n" + plan,
+            plan.contains("UNFILTERED_BOUND"));
+
+        var mids = new java.util.ArrayList<Long>();
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          names.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // DESC order: highest msgIds first
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order: " + mids,
+              mids.get(i) >= mids.get(i + 1));
+        }
+        // Verify source binding
+        for (var name : names) {
+          Assert.assertNotNull("pname should be bound in UNFILTERED_BOUND", name);
+          Assert.assertTrue(
+              "pname should start with 'person', got: " + name,
+              name.startsWith("person"));
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // UNFILTERED_UNBOUND with large data exercises unfilteredUnbound path.
+  // No WHERE on source, source NOT in RETURN. Lightest mode: scan index, per hit
+  // verify reverse edge points to correct source class, no source load or binding.
+  @Test
+  public void testIndexOrderedMatchUnfilteredUnboundLargeMultiSource() throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // No WHERE on p, p NOT in RETURN → UNFILTERED_UNBOUND mode.
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "Plan should use UNFILTERED_UNBOUND mode, but was:\n" + plan,
+            plan.contains("UNFILTERED_UNBOUND"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // DESC order: highest msgIds first
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order: " + mids,
+              mids.get(i) >= mids.get(i + 1));
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_UNBOUND with large data and single-field ORDER BY + LIMIT verifies
+  // OrderByStep pass-through mode: the optimization is applied AND results are in
+  // correct order (IndexOrderedEdgeStep signals pre-sorted, OrderByStep passes through).
+  @Test
+  public void testIndexOrderedMatchOrderByPassThroughFilteredUnbound()
+      throws Exception {
+    initIndexOrderedMatchLargeMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // WHERE on p + p NOT in RETURN → FILTERED_UNBOUND.
+      // Single-field ORDER BY + LIMIT → OrderByStep in pass-through mode.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid"
+              + " ORDER BY m.creationDate ASC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "OrderByStep should be present (pass-through mode), but plan was:\n"
+                + plan,
+            plan.contains("ORDER BY"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 10 results: " + mids, 10, mids.size());
+        // ASC order: smallest msgIds first (1, 2, 3, ...)
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in ASC order by msgId: " + mids,
+              mids.get(i) <= mids.get(i + 1));
+        }
+        Assert.assertEquals(
+            "First result should be msgId 1", 1L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
   private void printExecutionPlan(BasicResultSet result) {
     printExecutionPlan(null, result);
   }
