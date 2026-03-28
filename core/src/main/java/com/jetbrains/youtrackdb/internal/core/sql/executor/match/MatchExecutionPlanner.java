@@ -4607,20 +4607,17 @@ public class MatchExecutionPlanner {
       var upstreamBindingNeeded = isUpstreamBindingNeeded(
           sourceAlias, sortedEdges, matchedEdge);
 
-      // FILTERED modes materialize all upstream rows before scanning.
-      // This is only worthwhile when LIMIT is present — without LIMIT,
-      // the normal streaming path (MatchStep + OrderByStep) is better
-      // because it avoids upstream materialization overhead.
-      var hasLimit = limit != null && limit.getValue(context) >= 0;
+      // FILTERED modes materialize upstream (sourceMap) before scanning.
+      // The plan-time cost check gates this: if the cost model says index
+      // scan won't help, reject early to avoid materialization overhead.
+      // Without LIMIT, the normal path's OrderByStep materializes everything
+      // for sorting anyway, so the sourceMap overhead is minor — the real
+      // benefit is avoiding the O(N log N) sort via pre-sorted index scan.
 
       if (effectivelyFiltered && upstreamBindingNeeded) {
-        if (!hasReverseField || !hasLimit) {
+        if (!hasReverseField) {
           return null;
         }
-        // Plan-time cost check: use estimated cardinality + defaultFanOut
-        // to reject early when index scan is unlikely to help. This avoids
-        // paying the upstream materialization cost at runtime for queries
-        // where the cost model would reject anyway.
         if (!isFilteredScanLikelyWorthwhile(
             sourceAlias, matchedIndex, orderItem,
             estimatedRootEntries, session, context)) {
@@ -4628,9 +4625,6 @@ public class MatchExecutionPlanner {
         }
         multiSourceMode = MultiSourceMode.FILTERED_BOUND;
       } else if (effectivelyFiltered) {
-        if (!hasLimit) {
-          return null;
-        }
         if (!isFilteredScanLikelyWorthwhile(
             sourceAlias, matchedIndex, orderItem,
             estimatedRootEntries, session, context)) {

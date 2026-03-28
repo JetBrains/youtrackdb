@@ -4613,61 +4613,67 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // FILTERED_BOUND without LIMIT rejects the optimization because materializing upstream is wasteful.
+  // FILTERED_BOUND without LIMIT: plan-time cost check decides based on
+  // estimated density. Results must be correct regardless of whether the
+  // optimization is applied or not.
   @Test
-  public void testIndexOrderedMatchFilteredBoundRejectedWithoutLimit() {
+  public void testIndexOrderedMatchFilteredBoundWithoutLimit() throws Exception {
     initIndexOrderedMatchMultiSourceData();
 
-    session.begin();
-    // WHERE filter + source in RETURN → would be FILTERED_BOUND, but no LIMIT
-    var query =
-        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
-            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
-            + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC";
-    try (var result = session.query(query)) {
-      var plan = getPlan(result);
-      Assert.assertFalse(
-          "FILTERED_BOUND without LIMIT should NOT use INDEX ORDERED MATCH,"
-              + " but plan was:\n" + plan,
-          plan.contains("INDEX ORDERED MATCH"));
-
-      // Verify standard plan produces correct results
-      int count = 0;
-      while (result.hasNext()) {
-        result.next();
-        count++;
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.creationDate as cd ORDER BY cd DESC";
+      try (var result = session.query(query)) {
+        int count = 0;
+        java.util.Date prev = null;
+        while (result.hasNext()) {
+          var row = result.next();
+          java.util.Date cd = row.getProperty("cd");
+          Assert.assertNotNull("pname should be bound", row.getProperty("pname"));
+          if (prev != null) {
+            Assert.assertFalse("Results should be in DESC order",
+                cd.after(prev));
+          }
+          prev = cd;
+          count++;
+        }
+        Assert.assertEquals("Should have all 50 results", 50, count);
       }
-      Assert.assertEquals("Should have all 50 results", 50, count);
+      session.commit();
     }
-    session.commit();
   }
 
-  // FILTERED_UNBOUND without LIMIT rejects the optimization because materializing upstream is wasteful.
+  // FILTERED_UNBOUND without LIMIT: same — results correct regardless
+  // of whether plan-time cost check approves or rejects.
   @Test
-  public void testIndexOrderedMatchFilteredUnboundRejectedWithoutLimit() {
+  public void testIndexOrderedMatchFilteredUnboundWithoutLimit() throws Exception {
     initIndexOrderedMatchMultiSourceData();
 
-    session.begin();
-    // WHERE on p, p NOT in RETURN → would be FILTERED_UNBOUND, no LIMIT
-    var query =
-        "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
-            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
-            + "RETURN m.creationDate as cd ORDER BY cd DESC";
-    try (var result = session.query(query)) {
-      var plan = getPlan(result);
-      Assert.assertFalse(
-          "FILTERED_UNBOUND without LIMIT should NOT use INDEX ORDERED MATCH,"
-              + " but plan was:\n" + plan,
-          plan.contains("INDEX ORDERED MATCH"));
-
-      int count = 0;
-      while (result.hasNext()) {
-        result.next();
-        count++;
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd ORDER BY cd DESC";
+      try (var result = session.query(query)) {
+        int count = 0;
+        java.util.Date prev = null;
+        while (result.hasNext()) {
+          java.util.Date cd = result.next().getProperty("cd");
+          if (prev != null) {
+            Assert.assertFalse("Results should be in DESC order",
+                cd.after(prev));
+          }
+          prev = cd;
+          count++;
+        }
+        Assert.assertEquals("Should have all 50 results", 50, count);
       }
-      Assert.assertEquals("Should have all 50 results", 50, count);
+      session.commit();
     }
-    session.commit();
   }
 
   // UNFILTERED_UNBOUND with target WHERE filter (msgId > 45) only returns matching messages.
