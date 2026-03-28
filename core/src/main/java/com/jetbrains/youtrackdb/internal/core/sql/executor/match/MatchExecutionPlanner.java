@@ -4716,42 +4716,28 @@ public class MatchExecutionPlanner {
     }
 
     // Case 1: parsed dot notation — parser splits "message.creationDate" into
-    // alias="message" + modifier with suffix="creationDate". Convert modifier
-    // to string and verify it's a simple ".propertyName" (no method calls,
+    // alias="message" + modifier with suffix="creationDate". Inspect the AST
+    // directly to verify it's a simple ".propertyName" (no method calls,
     // arrays, or chaining).
     var modifier = orderItem.getModifier();
     if (modifier != null) {
-      var modBuilder = new StringBuilder();
-      modifier.toString(new HashMap<>(), modBuilder);
-      var modStr = modBuilder.toString();
-      // Simple suffix starts with '.' followed by an identifier (no further
-      // dots, brackets, or parens)
-      if (modStr.length() > 1 && modStr.charAt(0) == '.'
-          && modStr.indexOf('.', 1) == -1
-          && modStr.indexOf('(') == -1
-          && modStr.indexOf('[') == -1) {
-        return new String[] {orderAlias, modStr.substring(1)};
+      var propertyName = modifier.getSimpleSuffixPropertyName();
+      if (propertyName != null) {
+        return new String[] {orderAlias, propertyName};
       }
       // Complex modifier — cannot resolve
       return null;
     }
 
-    // Case 2: projection alias resolution
+    // Case 2: projection alias resolution — inspect the AST directly
+    // to extract "alias.property" from the return expression.
     if (returnAliases != null && returnItems != null) {
       for (int i = 0; i < returnAliases.size(); i++) {
         var retAlias = returnAliases.get(i);
         if (retAlias != null && retAlias.getStringValue().equals(orderAlias)) {
-          var expr = returnItems.get(i);
-          var exprBuilder = new StringBuilder();
-          expr.toString(new HashMap<>(), exprBuilder);
-          var exprStr = exprBuilder.toString();
-          var exprDot = exprStr.indexOf('.');
-          if (exprDot > 0 && exprDot < exprStr.length() - 1
-              && exprStr.indexOf('.', exprDot + 1) == -1) {
-            return new String[] {
-                exprStr.substring(0, exprDot),
-                exprStr.substring(exprDot + 1)
-            };
+          var resolved = resolveSimpleDotExpression(returnItems.get(i));
+          if (resolved != null) {
+            return resolved;
           }
           break;
         }
@@ -4759,6 +4745,37 @@ public class MatchExecutionPlanner {
     }
 
     return null;
+  }
+
+  /**
+   * Inspects an {@link SQLExpression} AST to extract a simple {@code alias.property}
+   * pair. Returns a two-element array {@code [alias, property]} if the expression
+   * is a simple dot-access ({@code SQLBaseExpression} with a plain identifier and
+   * a single-suffix modifier), or {@code null} for anything more complex.
+   */
+  @Nullable private static String[] resolveSimpleDotExpression(SQLExpression expr) {
+    var math = expr.getMathExpression();
+    if (!(math instanceof SQLBaseExpression baseExpr)) {
+      return null;
+    }
+    var ident = baseExpr.getIdentifier();
+    if (ident == null || ident.getSuffix() == null
+        || ident.getSuffix().getIdentifier() == null
+        || ident.getLevelZero() != null) {
+      return null;
+    }
+    var mod = baseExpr.getModifier();
+    if (mod == null) {
+      return null;
+    }
+    var propertyName = mod.getSimpleSuffixPropertyName();
+    if (propertyName == null) {
+      return null;
+    }
+    return new String[] {
+        ident.getSuffix().getIdentifier().getStringValue(),
+        propertyName
+    };
   }
 
   /**
