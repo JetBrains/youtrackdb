@@ -217,6 +217,20 @@ public class SQLModifier extends SimpleNode {
     return next != null && next.needsAliases(aliases);
   }
 
+  /**
+   * If this modifier is a simple property suffix ({@code .propertyName}) with
+   * no further chaining, brackets, or method calls, returns the property name.
+   * Otherwise returns {@code null}.
+   */
+  @Nullable
+  public String getSimpleSuffixPropertyName() {
+    if (suffix != null && next == null && !squareBrackets
+        && methodCall == null && suffix.getIdentifier() != null) {
+      return suffix.getIdentifier().getStringValue();
+    }
+    return null;
+  }
+
   @Override
   public SQLModifier copy() {
     var result = new SQLModifier(-1);

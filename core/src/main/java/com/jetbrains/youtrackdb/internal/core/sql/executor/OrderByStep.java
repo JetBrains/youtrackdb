@@ -286,9 +286,14 @@ public class OrderByStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     var copiedOrderBy = orderBy.copy();
-    // Derive hint from copied orderBy to avoid stale reference
-    var copiedHint = primaryKeySortedInput != null
-        ? copiedOrderBy.getItems().getFirst() : null;
+    // Derive hint from copied orderBy: find the same item by index position
+    // to avoid stale reference to the original AST node.
+    SQLOrderByItem copiedHint = null;
+    if (primaryKeySortedInput != null) {
+      int idx = orderBy.getItems().indexOf(primaryKeySortedInput);
+      assert idx >= 0 : "primaryKeySortedInput not found in orderBy items";
+      copiedHint = copiedOrderBy.getItems().get(idx);
+    }
     return new OrderByStep(
         copiedOrderBy, maxResults, copiedHint,
         indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
