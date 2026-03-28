@@ -591,7 +591,8 @@ public class MatchExecutionPlanner {
       var probeEdges = getTopologicalSortedSchedule(
           estimatedRootEntries, pattern, aliasClasses, context.getDatabaseSession());
       indexOrderedCandidate =
-          detectIndexOrderedCandidate(probeEdges, context);
+          detectIndexOrderedCandidate(
+              probeEdges, context, estimatedRootEntries);
     }
 
     // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
@@ -4464,7 +4465,8 @@ public class MatchExecutionPlanner {
    */
   @Nullable private IndexOrderedCandidate detectIndexOrderedCandidate(
       List<EdgeTraversal> sortedEdges,
-      CommandContext context) {
+      CommandContext context,
+      Map<String, Long> estimatedRootEntries) {
     // 1. ORDER BY must have at least one item; first item must have no collate
     if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
       return null;
@@ -4615,9 +4617,23 @@ public class MatchExecutionPlanner {
         if (!hasReverseField || !hasLimit) {
           return null;
         }
+        // Plan-time cost check: use estimated cardinality + defaultFanOut
+        // to reject early when index scan is unlikely to help. This avoids
+        // paying the upstream materialization cost at runtime for queries
+        // where the cost model would reject anyway.
+        if (!isFilteredScanLikelyWorthwhile(
+            sourceAlias, matchedIndex, orderItem,
+            estimatedRootEntries, session, context)) {
+          return null;
+        }
         multiSourceMode = MultiSourceMode.FILTERED_BOUND;
       } else if (effectivelyFiltered) {
         if (!hasLimit) {
+          return null;
+        }
+        if (!isFilteredScanLikelyWorthwhile(
+            sourceAlias, matchedIndex, orderItem,
+            estimatedRootEntries, session, context)) {
           return null;
         }
         multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
@@ -4730,6 +4746,46 @@ public class MatchExecutionPlanner {
     }
 
     return null;
+  }
+
+  /**
+   * Plan-time cost check for FILTERED modes. Uses estimated cardinality
+   * and default fan-out to predict whether the index scan is likely to
+   * outperform load-all-and-sort. If even optimistic estimates say "no",
+   * reject the optimization to avoid paying upstream materialization cost.
+   */
+  private boolean isFilteredScanLikelyWorthwhile(
+      String sourceAlias,
+      Index matchedIndex,
+      SQLOrderByItem orderItem,
+      Map<String, Long> estimatedRootEntries,
+      DatabaseSessionEmbedded session,
+      CommandContext context) {
+    long sourceEstimate =
+        estimatedRootEntries.getOrDefault(sourceAlias, THRESHOLD);
+    long indexSize = matchedIndex.size(session);
+    // Use optimistic fan-out estimate: max of defaultFanOut and
+    // indexSize/sourceEstimate. This avoids rejecting too aggressively
+    // when sourceEstimate is low but the actual edges-per-source is high.
+    // Plan-time should be a loose gate — runtime cost model refines.
+    int defaultFanOut =
+        GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
+    long fanOutEstimate = Math.max(defaultFanOut,
+        indexSize / Math.max(sourceEstimate, 1));
+    int estimatedEdges = (int) Math.min(
+        sourceEstimate * fanOutEstimate, Integer.MAX_VALUE);
+
+    long skipSize = skip != null && skip.getValue(context) >= 0
+        ? skip.getValue(context) : 0;
+    long limitSize = limit != null && limit.getValue(context) >= 0
+        ? limit.getValue(context) : -1;
+    long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
+    var asc = SQLOrderByItem.ASC.equals(orderItem.getType());
+
+    var costs = IndexOrderedCostModel.computeCosts(
+        estimatedEdges, indexSize, queryLimit,
+        matchedIndex.getHistogram(session), asc);
+    return costs != null && costs.costUnionScan() < costs.costLoadSort();
   }
 
   /**
