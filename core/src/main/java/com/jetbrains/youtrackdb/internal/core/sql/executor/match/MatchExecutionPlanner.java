@@ -4608,14 +4608,21 @@ public class MatchExecutionPlanner {
       var upstreamBindingNeeded = isUpstreamBindingNeeded(
           sourceAlias, sortedEdges, matchedEdge);
 
+      // FILTERED modes materialize all upstream rows before scanning.
+      // This is only worthwhile when LIMIT is present — without LIMIT,
+      // the normal streaming path (MatchStep + OrderByStep) is better
+      // because it avoids upstream materialization overhead.
+      var hasLimit = limit != null && limit.getValue(context) >= 0;
+
       if (effectivelyFiltered && upstreamBindingNeeded) {
-        // Need sourceMap + reverse lookup → reverse field required
-        if (!hasReverseField) {
+        if (!hasReverseField || !hasLimit) {
           return null;
         }
         multiSourceMode = MultiSourceMode.FILTERED_BOUND;
       } else if (effectivelyFiltered) {
-        // Union RidSet, no reverse lookup needed
+        if (!hasLimit) {
+          return null;
+        }
         multiSourceMode = MultiSourceMode.FILTERED_UNBOUND;
       } else if (upstreamBindingNeeded) {
         // Class check + lazy load → reverse field required
@@ -4795,7 +4802,13 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Check later edges — if any upstream alias is the starting point
+    // Check later edges:
+    // (a) if any upstream alias is the starting point of a later edge
+    // (b) if any later edge's WHERE clause references $matched — UNBOUND
+    //     modes drop upstream aliases from the result row, which means
+    //     $matched (set to the current row) would miss those aliases.
+    //     This breaks queries like IS7 where a downstream edge uses
+    //     $matched.author.@rid but author was bound before the optimized edge.
     var pastMatched = false;
     for (var edge : sortedEdges) {
       if (edge.edge == matchedEdge.edge) {
@@ -4806,6 +4819,15 @@ public class MatchExecutionPlanner {
         var laterSource = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
         if (upstreamAliases.contains(laterSource)) {
           return true;
+        }
+        // Check if the later edge's WHERE filter uses $matched
+        var laterItem = edge.edge.item;
+        if (laterItem != null && laterItem.getFilter() != null) {
+          var laterWhere = laterItem.getFilter().getFilter();
+          if (laterWhere != null && laterWhere.getBaseExpression() != null
+              && laterWhere.getBaseExpression().varMightBeInUse("$matched")) {
+            return true;
+          }
         }
       }
     }

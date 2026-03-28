@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedCostModel.MultiSourceStrategy;
 import org.junit.Test;
 
@@ -160,5 +161,218 @@ public class IndexOrderedEdgeStepCostTest {
     assertEquals(
         "Medium density: UNION should beat GLOBAL (bitmap filter avoids random reads)",
         MultiSourceStrategy.UNION_RIDSET_SCAN, strategy);
+  }
+
+  // computeCosts with limit > linkBagSize: k should be clamped to linkBagSize
+  @Test
+  public void testComputeCostsLimitGreaterThanLinkBag() {
+    var result = IndexOrderedCostModel.computeCosts(
+        50, // linkBagSize
+        1000, // indexSize
+        200, // limit > linkBagSize
+        null,
+        true);
+    assertNotNull("Should return non-null for valid inputs", result);
+    // k = min(limit, linkBagSize) = min(200, 50) = 50
+    assertEquals("k should be clamped to linkBagSize", 50, result.k());
+  }
+
+  // pickMultiSourceStrategy when computeCosts returns null → LOAD_ALL_SORT
+  // (tests the null guard at the top of pickMultiSourceStrategy)
+  @Test
+  public void testPickMultiSourceStrategyNullCosts() {
+    // indexSize=0 → computeCosts returns null → should get LOAD_ALL_SORT
+    var strategy = IndexOrderedCostModel.pickMultiSourceStrategy(
+        100, // totalEdges (above min threshold)
+        0, // indexSize → forces null from computeCosts
+        10,
+        null,
+        true);
+    assertEquals("null costs should produce LOAD_ALL_SORT",
+        MultiSourceStrategy.LOAD_ALL_SORT, strategy);
+  }
+
+  // applyHistogramSkew with DESC direction — scans last buckets instead of first
+  @Test
+  public void testApplyHistogramSkewDesc() {
+    // Create a histogram with 4 buckets, skewed: more entries at the end (DESC region)
+    var boundaries = new Comparable<?>[] {1, 25, 50, 75, 100};
+    var frequencies = new long[] {10, 10, 10, 70}; // last bucket is heavy
+    var distinctCounts = new long[] {10, 10, 10, 70};
+    var histogram = new EquiDepthHistogram(
+        4, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    // expectedScanLength=25, indexSize=100 → targetFraction=0.25 → 1 bucket scanned
+    // DESC: scans last bucket (index 3) with frequency 70
+    // uniformExpected = 0.25 * 100 = 25
+    // skew = 70 / 25 = 2.8 (within [0.5, 3.0] clamp)
+    double adjusted = IndexOrderedCostModel.applyHistogramSkew(
+        25.0, 100, histogram, false);
+    // adjusted = 25.0 * 2.8 = 70.0
+    assertTrue("DESC skew should inflate scan length for heavy tail, got: " + adjusted,
+        adjusted > 25.0);
+    assertEquals("DESC skew should be 25 * 2.8 = 70", 70.0, adjusted, 0.5);
+  }
+
+  // applyHistogramSkew with ASC direction — scans first buckets
+  @Test
+  public void testApplyHistogramSkewAsc() {
+    // Histogram with 4 buckets, skewed: more entries at the start (ASC region)
+    var boundaries = new Comparable<?>[] {1, 25, 50, 75, 100};
+    var frequencies = new long[] {70, 10, 10, 10}; // first bucket is heavy
+    var distinctCounts = new long[] {70, 10, 10, 10};
+    var histogram = new EquiDepthHistogram(
+        4, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    // ASC: scans first bucket (index 0) with frequency 70
+    double adjusted = IndexOrderedCostModel.applyHistogramSkew(
+        25.0, 100, histogram, true);
+    assertTrue("ASC skew should inflate scan length for heavy head, got: " + adjusted,
+        adjusted > 25.0);
+    assertEquals("ASC skew should be 25 * 2.8 = 70", 70.0, adjusted, 0.5);
+  }
+
+  // applyHistogramSkew clamp: skew > 3.0 should be clamped to 3.0
+  @Test
+  public void testApplyHistogramSkewClampedMax() {
+    // Extremely skewed: all entries in one bucket
+    var boundaries = new Comparable<?>[] {1, 25, 50, 75, 100};
+    var frequencies = new long[] {100, 0, 0, 0}; // all in first bucket
+    var distinctCounts = new long[] {100, 0, 0, 0};
+    var histogram = new EquiDepthHistogram(
+        4, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    // ASC: scans first bucket, frequency=100, uniformExpected=25
+    // skew = 100/25 = 4.0 → clamped to 3.0
+    double adjusted = IndexOrderedCostModel.applyHistogramSkew(
+        25.0, 100, histogram, true);
+    assertEquals("Skew should be clamped to 3.0, so result = 75", 75.0, adjusted, 0.5);
+  }
+
+  // computeCosts with histogram provided: verifies histogram path is exercised
+  @Test
+  public void testComputeCostsWithHistogram() {
+    var boundaries = new Comparable<?>[] {1, 50, 100};
+    var frequencies = new long[] {50, 50};
+    var distinctCounts = new long[] {50, 50};
+    var histogram = new EquiDepthHistogram(
+        2, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    var result = IndexOrderedCostModel.computeCosts(
+        100, // linkBagSize
+        1000, // indexSize
+        10, // limit
+        histogram,
+        true);
+    assertNotNull("Should produce cost estimate with histogram", result);
+    assertTrue("costUnionScan should be positive", result.costUnionScan() > 0);
+    assertTrue("costLoadSort should be positive", result.costLoadSort() > 0);
+  }
+
+  // =====================================================================
+  // Additional coverage tests for cost model edge cases
+  // =====================================================================
+
+  // Density approaches zero when linkBagSize=1 and indexSize is huge.
+  // MIN_LINKBAG threshold (10) catches this: linkBagSize(1) < 10 → null.
+  @Test
+  public void testComputeCostsDensityZero() {
+    var result = IndexOrderedCostModel.computeCosts(
+        1, // linkBagSize — well below MIN_LINKBAG (default 10)
+        Long.MAX_VALUE, // indexSize — huge, density near 0
+        10,
+        null,
+        true);
+    assertNull(
+        "Should return null when linkBagSize < MIN_LINKBAG (density near zero)",
+        result);
+  }
+
+  // Override QUERY_INDEX_ORDERED_MAX_SCAN to a small value (10).
+  // With linkBagSize=100, indexSize=100, limit=-1: density=1.0,
+  // k=100, expectedScanLength=100 > maxScan(10) → null.
+  @Test
+  public void testComputeCostsExceedsMaxScan() {
+    var oldMaxScan =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
+            .getValue();
+    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
+        .setValue(10L);
+    try {
+      var result = IndexOrderedCostModel.computeCosts(
+          100, // linkBagSize
+          100, // indexSize → density = 1.0
+          -1, // no limit → k = 100
+          null,
+          true);
+      // expectedScanLength = 100/1.0 = 100 > maxScan(10) → null
+      assertNull(
+          "Should return null when expectedScanLength exceeds maxScan",
+          result);
+    } finally {
+      com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
+          .setValue(oldMaxScan);
+    }
+  }
+
+  // Histogram where scan region has 0 entries → skew = 0/expected.
+  // This should be clamped to 0.5 (minimum skew) and reduce the
+  // expected scan length by half.
+  @Test
+  public void testApplyHistogramSkewLowerClamp() {
+    // 4 buckets: all entries in bucket 3, buckets 0-2 empty.
+    // ASC scan with small targetFraction → scans bucket 0 (empty).
+    var boundaries = new Comparable<?>[] {1, 25, 50, 75, 100};
+    var frequencies = new long[] {0, 0, 0, 100}; // all in last bucket
+    var distinctCounts = new long[] {0, 0, 0, 100};
+    var histogram = new EquiDepthHistogram(
+        4, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    // ASC: scans first 1 bucket (index 0), frequency=0
+    // uniformExpected = 0.25 * 100 = 25
+    // skew = 0 / 25 = 0.0 → clamped to 0.5
+    // adjusted = 25.0 * 0.5 = 12.5
+    double adjusted = IndexOrderedCostModel.applyHistogramSkew(
+        25.0, 100, histogram, true);
+    assertEquals(
+        "Skew should be clamped to 0.5, so result = 12.5",
+        12.5, adjusted, 0.5);
+    assertTrue(
+        "Adjusted scan length should be less than original when bucket is empty",
+        adjusted < 25.0);
+  }
+
+  // Three test cases to trigger each of the three multi-source strategies:
+  // UNION_RIDSET_SCAN, GLOBAL_SCAN, and LOAD_ALL_SORT.
+  @Test
+  public void testPickMultiSourceAllThreeStrategies() {
+    // Case 1: UNION_RIDSET_SCAN — medium density, moderate limit.
+    // totalEdges=1000, indexSize=10000, limit=20 → density=0.1
+    // Union: builds RidSet(1000*cpu) + scan(200*(seq+cpu)) + load(20*(rand+cpu))
+    // Global: scan(200*(rand+cpu)) — more expensive per entry
+    // LoadAll: 1000*rand + 1000*cpu + 1000*log2(20)*cpu
+    var strategyUnion = IndexOrderedCostModel.pickMultiSourceStrategy(
+        1000, 10_000, 20, null, true);
+    assertEquals(
+        "Medium density + moderate limit should pick UNION_RIDSET_SCAN",
+        MultiSourceStrategy.UNION_RIDSET_SCAN, strategyUnion);
+
+    // Case 2: GLOBAL_SCAN — very high density, very small limit.
+    // totalEdges=9000, indexSize=10000, limit=2 → density=0.9
+    // Union build cost (9000*cpu) dominates. Global scan of ~2 entries is cheaper.
+    var strategyGlobal = IndexOrderedCostModel.pickMultiSourceStrategy(
+        9000, 10_000, 2, null, true);
+    assertEquals(
+        "Very high density + tiny limit should pick GLOBAL_SCAN",
+        MultiSourceStrategy.GLOBAL_SCAN, strategyGlobal);
+
+    // Case 3: LOAD_ALL_SORT — low density, no limit.
+    // totalEdges=50, indexSize=100000, limit=-1 → density=0.0005
+    // Index scan too expensive (scan 100000 entries).
+    var strategySort = IndexOrderedCostModel.pickMultiSourceStrategy(
+        50, 100_000, -1, null, true);
+    assertEquals(
+        "Low density + no limit should pick LOAD_ALL_SORT",
+        MultiSourceStrategy.LOAD_ALL_SORT, strategySort);
   }
 }
