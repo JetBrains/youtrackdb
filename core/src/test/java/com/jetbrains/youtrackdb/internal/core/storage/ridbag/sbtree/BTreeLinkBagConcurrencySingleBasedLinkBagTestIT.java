@@ -25,6 +25,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -118,7 +119,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
         latch.countDown();
 
-        Thread.sleep(60_000);
+        TimeUnit.SECONDS.sleep(60);
         cont = false;
 
         for (var future : addFutures) {
