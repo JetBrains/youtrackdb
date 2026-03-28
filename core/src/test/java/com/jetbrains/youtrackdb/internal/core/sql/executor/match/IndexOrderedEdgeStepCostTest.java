@@ -342,6 +342,112 @@ public class IndexOrderedEdgeStepCostTest {
         adjusted < 25.0);
   }
 
+  // computeCosts with density approaching zero: linkBagSize >= MIN_LINKBAG but
+  // indexSize = MAX_VALUE → density = linkBagSize/MAX_VALUE ≈ 0.
+  // density > 0 check passes, but expectedScanLength is huge → exceeds maxScan → null.
+  @Test
+  public void testComputeCostsDensityNearZeroExceedsMaxScan() {
+    // linkBagSize=10 (meets MIN_LINKBAG default of 10), indexSize=MAX_VALUE
+    // density = 10/MAX_VALUE ≈ 0, expectedScanLength = 10/density ≈ MAX_VALUE
+    // This exceeds QUERY_INDEX_ORDERED_MAX_SCAN → null
+    var result = IndexOrderedCostModel.computeCosts(
+        10, Long.MAX_VALUE, 10, null, true);
+    assertNull(
+        "Expected null when density is near zero causing scan to exceed maxScan",
+        result);
+  }
+
+  // applyHistogramSkew lower bound clamp: histogram with all entries in last
+  // bucket, ASC scan reads first bucket (empty). skew = 0/expected → 0.0 →
+  // clamped to 0.5. Result is expectedScanLength * 0.5.
+  @Test
+  public void testApplyHistogramSkewLowerClampZeroEntries() {
+    // 4 buckets: all 200 entries in bucket 3, buckets 0-2 empty.
+    var boundaries = new Comparable<?>[] {1, 25, 50, 75, 100};
+    var frequencies = new long[] {0, 0, 0, 200};
+    var distinctCounts = new long[] {0, 0, 0, 200};
+    var histogram = new EquiDepthHistogram(
+        4, boundaries, frequencies, distinctCounts, 200, null, 0);
+
+    // ASC: scans first 1 bucket (index 0), frequency=0.
+    // uniformExpected = 0.25 * 200 = 50
+    // skew = 0 / 50 = 0.0 → clamped to 0.5
+    // adjusted = 50.0 * 0.5 = 25.0
+    double adjusted = IndexOrderedCostModel.applyHistogramSkew(
+        50.0, 200, histogram, true);
+    assertEquals("Skew clamped to 0.5, result should be 25.0",
+        25.0, adjusted, 0.5);
+  }
+
+  // pickMultiSourceStrategy: explicitly trigger all 3 strategies with distinct
+  // parameter combinations and verify each one individually.
+  @Test
+  public void testPickMultiSourceExplicitlyAllStrategies() {
+    // Strategy 1: UNION_RIDSET_SCAN
+    // Medium density, moderate limit. Union build cost < global random read cost.
+    var s1 = IndexOrderedCostModel.pickMultiSourceStrategy(
+        500, 5000, 10, null, true);
+    assertEquals("Medium density + moderate limit → UNION_RIDSET_SCAN",
+        MultiSourceStrategy.UNION_RIDSET_SCAN, s1);
+
+    // Strategy 2: GLOBAL_SCAN
+    // Very high density + tiny limit. Union build cost (many edges * cpu)
+    // dominates. Global scan of ~2 entries is cheaper.
+    var s2 = IndexOrderedCostModel.pickMultiSourceStrategy(
+        9000, 10_000, 2, null, true);
+    assertEquals("Very high density + tiny limit → GLOBAL_SCAN",
+        MultiSourceStrategy.GLOBAL_SCAN, s2);
+
+    // Strategy 3: LOAD_ALL_SORT
+    // Below MIN_LINKBAG → computeCosts returns null → LOAD_ALL_SORT.
+    var s3 = IndexOrderedCostModel.pickMultiSourceStrategy(
+        5, 1000, 10, null, true);
+    assertEquals("Below MIN_LINKBAG → LOAD_ALL_SORT",
+        MultiSourceStrategy.LOAD_ALL_SORT, s3);
+  }
+
+  // computeCosts with limit=0: treated same as no limit (limit > 0 is false).
+  // k should equal linkBagSize.
+  @Test
+  public void testComputeCostsLimitZero() {
+    var result = IndexOrderedCostModel.computeCosts(
+        100, 1000, 0, null, true);
+    assertNotNull("limit=0 should still produce valid costs", result);
+    assertEquals("k should equal linkBagSize when limit=0", 100, result.k());
+  }
+
+  // computeCosts with histogram where nonNullCount > 0 and DESC direction:
+  // exercises the DESC branch of applyHistogramSkew inside computeCosts.
+  @Test
+  public void testComputeCostsWithHistogramDesc() {
+    var boundaries = new Comparable<?>[] {1, 50, 100};
+    var frequencies = new long[] {50, 50};
+    var distinctCounts = new long[] {50, 50};
+    var histogram = new EquiDepthHistogram(
+        2, boundaries, frequencies, distinctCounts, 100, null, 0);
+
+    var result = IndexOrderedCostModel.computeCosts(
+        100, 1000, 10, histogram, false); // DESC
+    assertNotNull("Should produce cost estimate with histogram + DESC", result);
+    assertTrue("costUnionScan should be positive", result.costUnionScan() > 0);
+  }
+
+  // sumFrequencies with empty range (from == to): should return 0.
+  @Test
+  public void testSumFrequenciesEmptyRange() {
+    long sum = IndexOrderedCostModel.sumFrequencies(
+        new long[] {10, 20, 30}, 1, 1);
+    assertEquals("Empty range should sum to 0", 0L, sum);
+  }
+
+  // sumFrequencies with negative values: negatives are clamped to 0.
+  @Test
+  public void testSumFrequenciesNegativeValues() {
+    long sum = IndexOrderedCostModel.sumFrequencies(
+        new long[] {-5, 10, -3, 20}, 0, 4);
+    assertEquals("Negative frequencies clamped to 0: 0+10+0+20=30", 30L, sum);
+  }
+
   // Three test cases to trigger each of the three multi-source strategies:
   // UNION_RIDSET_SCAN, GLOBAL_SCAN, and LOAD_ALL_SORT.
   @Test
