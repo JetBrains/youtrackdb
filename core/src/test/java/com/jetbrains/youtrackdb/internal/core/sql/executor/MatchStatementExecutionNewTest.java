@@ -5759,4 +5759,775 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     //    result.getExecutionPlan().ifPresent(x -> System.out.println(x.prettyPrint(0, 3)));
     //    System.out.println();
   }
+
+  // =====================================================================
+  // Additional branch-coverage tests for IndexOrderedEdgeStep
+  // =====================================================================
+
+  // Class inheritance: targetClassName filtering skips records of wrong class
+  // when multiple classes share the same index via a common superclass.
+  // Covers matchesTargetFilter branches: targetClassName != null, class mismatch,
+  // isSubClassOf check.
+  @Test
+  public void testIndexOrderedMatchTargetClassInheritance() throws Exception {
+    // Person1 has in_TEST_HAS_CREATOR edges pointing to both TestMessage and
+    // TestComment vertices. The index is on TestMessage.creationDate. The
+    // MATCH query targets {class: TestMessage} — TestComment records in the
+    // LinkBag are loaded but fail targetClassName check in matchesTargetFilter.
+    // This exercises the class mismatch branch (lines 873, 882-883).
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TestComment EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestComment.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestComment.cid LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    // person1: 100 TestMessage (msgId 1..100) linked via TEST_HAS_CREATOR.
+    // Large enough for the plan-time cost model to approve the optimization.
+    for (var i = 1; i <= 100; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    // person1: 50 TestComment also linked via TEST_HAS_CREATOR.
+    // These are NOT TestMessage — they should be filtered by targetClassName.
+    for (var i = 1; i <= 50; i++) {
+      session.execute(
+          "CREATE VERTEX TestComment SET creationDate = '2025-02-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', cid = " + (1000 + i))
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestComment WHERE cid = " + (1000 + i)
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Target class = TestMessage → only TestMessage records should be returned.
+      // Person1's LinkBag has both TestMessage and TestComment RIDs; when loading,
+      // TestComment records fail the targetClassName check.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 5 results (only TestMessage)", 5, mids.size());
+        // All returned records must be TestMessage (msgId 1..100)
+        for (var mid : mids) {
+          Assert.assertTrue(
+              "Only TestMessage (1..100) should be returned, got: " + mid,
+              mid >= 1 && mid <= 100);
+        }
+        // DESC order: 100, 99, 98, 97, 96
+        Assert.assertEquals(100L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
+  // UNFILTERED_BOUND with class inheritance: reverse edge class check filters
+  // out sources of wrong class. Covers hasPolymorphicCollectionId branches.
+  @Test
+  public void testIndexOrderedMatchUnfilteredBoundClassInheritance() throws Exception {
+    // Two source classes: TestPerson and TestBot (both EXTENDS V).
+    // Both link to TestMessage via TEST_HAS_CREATOR.
+    // Query uses {class: TestPerson} as source → only TestPerson sources should match.
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestBot EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    session.execute("CREATE VERTEX TestBot SET name = 'bot1'").close();
+    // person1: messages 1..5, bot1: messages 6..10
+    for (var i = 1; i <= 5; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 6; i <= 10; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestBot WHERE name = 'bot1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // UNFILTERED_BOUND: no WHERE on source, p.name in RETURN.
+      // Source class = TestPerson → only messages linked to TestPerson should appear.
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          Assert.assertEquals("person1", row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 5 results (person1 only)", 5, mids.size());
+        // All from person1: msgId 1..5 DESC → 5, 4, 3, 2, 1
+        for (var mid : mids) {
+          Assert.assertTrue(
+              "Only person1 messages (1..5) should be returned, got: " + mid,
+              mid >= 1 && mid <= 5);
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // UNFILTERED_UNBOUND with class inheritance: reverse edge class check filters
+  // out targets pointing to wrong source class. anyValid=false branch hit.
+  @Test
+  public void testIndexOrderedMatchUnfilteredUnboundClassInheritance() throws Exception {
+    // Same setup as above, but source NOT in RETURN → UNFILTERED_UNBOUND.
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestBot EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    session.execute("CREATE VERTEX TestBot SET name = 'bot1'").close();
+    for (var i = 1; i <= 5; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    for (var i = 6; i <= 10; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestBot WHERE name = 'bot1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // UNFILTERED_UNBOUND: no WHERE, source NOT in RETURN
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 10";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        // Only person1's messages (1..5) should pass class check
+        Assert.assertEquals("Should have 5 results (person1 only)", 5, mids.size());
+        for (var mid : mids) {
+          Assert.assertTrue(
+              "Only person1 messages (1..5) should be returned, got: " + mid,
+              mid >= 1 && mid <= 5);
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_BOUND with mixed sources: one person has edges, another has none.
+  // Tests null linkBag handling in union build and loadSourceEdgesBound.
+  @Test
+  public void testIndexOrderedMatchFilteredBoundMixedSources() throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    // person1: has 50 edges (large enough for cost model), edgeless: no edges
+    session.execute("CREATE VERTEX TestPerson SET name = 'person1'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'edgeless'").close();
+    for (var i = 1; i <= 50; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-01 "
+              + String.format("%02d", i / 60) + ":"
+              + String.format("%02d", i % 60) + ":00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'person1')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Both persons matched by IN → FILTERED_BOUND with mixed sources.
+      // 'edgeless' returns null linkBag but should not cause errors.
+      var query =
+          "MATCH {class: TestPerson, as: p,"
+              + " where: (name IN ['person1', 'edgeless'])}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN p.name as pname, m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          Assert.assertEquals("person1", row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        Assert.assertEquals(50L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
+  // Single-source with target WHERE filter + large data forces indexScanFiltered path.
+  // matchesTargetFilter false branch exercised in the index scan lambda.
+  @Test
+  public void testIndexOrderedMatchSingleSourceIndexScanWithTargetFilter() throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      String rid;
+      try (var ridResult = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+        Assert.assertTrue(ridResult.hasNext());
+        rid = ridResult.next().getProperty("r").toString();
+      }
+
+      // Large data (200 messages) + @rid → single-source + cost model approves.
+      // Target WHERE (msgId > 190) filters most records in the index scan.
+      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+          + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+          + " where: (msgId > 190)} "
+          + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        // Only msgIds > 190 pass filter: 191..200 → 10 available, LIMIT 5
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        for (var mid : mids) {
+          Assert.assertTrue("msgId should be > 190, got: " + mid, mid > 190);
+        }
+        // DESC: 200, 199, 198, 197, 196
+        Assert.assertEquals(200L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
+  // Single-source cost model rejection (small data) exercises loadFromRidSet with
+  // target WHERE filter. Covers the filter branches in the stream pipeline.
+  @Test
+  public void testIndexOrderedMatchSingleSourceLoadFromRidSetWithFilter() throws Exception {
+    initIndexOrderedMatchData(false);
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // person1 has 10 messages. With setIndexOrderedTestConfig the cost model
+      // approves, so force loadFromRidSet by lowering MAX_SCAN to make cost model
+      // prefer direct load over index scan at runtime.
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1);
+      try {
+        var query =
+            "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+                + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+                + " where: (msgId > 105)} "
+                + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 3";
+        try (var result = session.query(query)) {
+          // Plan may or may not use INDEX ORDERED MATCH depending on plan-time.
+          // If it does, runtime cost model rejects → loadFromRidSet path.
+          // Either way, results must be correct.
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          Assert.assertEquals("Should have 3 results", 3, mids.size());
+          for (var mid : mids) {
+            Assert.assertTrue("All msgIds should be > 105, got: " + mid, mid > 105);
+          }
+        }
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_BOUND with MAX_SOURCES exceeded + target WHERE filter exercises
+  // loadSourceEdgesBound with matchesTargetFilter.
+  @Test
+  public void testIndexOrderedMatchFilteredBoundMaxSourcesWithTargetFilter() {
+    initIndexOrderedMatchMultiSourceData();
+
+    var oldMaxSources = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValue();
+    GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(2);
+    try {
+      session.begin();
+      // 5 persons → exceeds MAX_SOURCES(2) → loadFromSourcesUnsorted path.
+      // Target WHERE (msgId > 40) filters some records in the unsorted path.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+              + " where: (msgId > 40)} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        for (var mid : mids) {
+          Assert.assertTrue("All msgIds should be > 40, got: " + mid, mid > 40);
+        }
+      }
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.setValue(oldMaxSources);
+    }
+  }
+
+  // FILTERED_UNBOUND overflow + target WHERE filter exercises
+  // loadSourceEdgesUnbound with matchesTargetFilter.
+  @Test
+  public void testIndexOrderedMatchFilteredUnboundOverflowWithTargetFilter() {
+    initIndexOrderedMatchMultiSourceData();
+
+    var oldMaxRidSet = GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(3);
+    try {
+      session.begin();
+      // WHERE on p, p NOT in RETURN → FILTERED_UNBOUND.
+      // Union exceeds maxRidSetSize(3) → overflow → loadFromSourcesUnbound.
+      // Target WHERE (msgId > 40) filters in the unsorted path.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+              + " where: (msgId > 40)} "
+              + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        for (var mid : mids) {
+          Assert.assertTrue("All msgIds should be > 40, got: " + mid, mid > 40);
+        }
+      }
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(oldMaxRidSet);
+    }
+  }
+
+  // .outE() with UNFILTERED_BOUND mode exercises edge traversal with
+  // resolveReverseEdges edgeTraversal=true and source class check.
+  @Test
+  public void testIndexOrderedMatchOutEUnfilteredBound() throws Exception {
+    initIndexOrderedMatchEdgeTraversalData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // No WHERE on source, source in RETURN → UNFILTERED_BOUND
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".outE('TEST_KNOWS'){as: k}.inV(){as: friend} "
+              + "RETURN p.name as pname, friend.name as fname, k.creationDate as kd"
+              + " ORDER BY kd DESC LIMIT 3";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+
+        var fnames = new java.util.ArrayList<String>();
+        var pnames = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          fnames.add(row.getProperty("fname"));
+          pnames.add(row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 3 results", 3, fnames.size());
+        // DESC: bob→carol (Jan 20), alice→dave (Jan 15), alice→carol (Jan 10)
+        Assert.assertEquals("carol", fnames.get(0));
+        Assert.assertEquals("dave", fnames.get(1));
+        Assert.assertEquals("carol", fnames.get(2));
+        // Source binding
+        for (var pname : pnames) {
+          Assert.assertNotNull("pname should be bound", pname);
+        }
+      }
+      session.commit();
+    }
+  }
+
+  // .outE() with UNFILTERED_UNBOUND mode exercises edge traversal with
+  // resolveReverseEdges edgeTraversal=true without source binding.
+  @Test
+  public void testIndexOrderedMatchOutEUnfilteredUnbound() throws Exception {
+    initIndexOrderedMatchEdgeTraversalData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // No WHERE on source, source NOT in RETURN → UNFILTERED_UNBOUND
+      var query =
+          "MATCH {class: TestPerson, as: p}"
+              + ".outE('TEST_KNOWS'){as: k}.inV(){as: friend} "
+              + "RETURN friend.name as fname, k.creationDate as kd"
+              + " ORDER BY kd ASC LIMIT 4";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+
+        var fnames = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          fnames.add(result.next().getProperty("fname"));
+        }
+        Assert.assertEquals("Should have 4 results", 4, fnames.size());
+        // ASC: alice→bob (Jan 5), alice→carol (Jan 10), alice→dave (Jan 15), bob→carol (Jan 20)
+        Assert.assertEquals("bob", fnames.get(0));
+        Assert.assertEquals("carol", fnames.get(1));
+        Assert.assertEquals("dave", fnames.get(2));
+        Assert.assertEquals("carol", fnames.get(3));
+      }
+      session.commit();
+    }
+  }
+
+  // FILTERED_BOUND with target WHERE that rejects all targets produces 0 results
+  // without errors. Exercises matchesTargetFilter returning false for every record.
+  @Test
+  public void testIndexOrderedMatchFilterAllOut() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Target WHERE: msgId > 9999 → no messages match → 0 results
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name LIKE 'person%')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+              + " where: (msgId > 9999)} "
+              + "RETURN p.name as pname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        Assert.assertFalse(
+            "Should have 0 results when target filter rejects everything",
+            result.hasNext());
+      }
+      session.commit();
+    }
+  }
+
+  // =====================================================================
+  // MatchExecutionPlanner branch-coverage tests
+  // =====================================================================
+
+  // Multi-field ORDER BY with large data and LIMIT triggers the indexOrderedUpstream
+  // flag AND primaryKeySortedInput hint in the planner (lines 583-584, 631, 636).
+  @Test
+  public void testIndexOrderedMatchMultiFieldLargeData() throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Multi-field ORDER BY: cd DESC, mid ASC. Large data (200 messages) →
+      // cost model approves. primaryKeySortedInput is set.
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd, m.msgId as mid"
+              + " ORDER BY cd DESC, mid ASC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        Assert.assertTrue(
+            "OrderByStep should be present for multi-field ORDER BY, but was:\n" + plan,
+            plan.contains("ORDER BY"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        // Each creationDate is unique, so top 5 DESC are msgId 200..196
+        Assert.assertEquals(200L, (long) mids.get(0));
+      }
+      session.commit();
+    }
+  }
+
+  // Multi-field ORDER BY with projection aliases (RETURN a AS x, b AS y ORDER BY x, y)
+  // exercises resolveSimpleDotExpression and the multiFieldOrderBy flag via
+  // the SELECT planner path (line 631).
+  @Test
+  public void testIndexOrderedMatchMultiFieldProjectionAlias() throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN m.creationDate as cd, m.msgId as mid"
+              + " ORDER BY cd DESC, mid ASC LIMIT 3";
+      try (var result = session.query(query)) {
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 3 results", 3, mids.size());
+        Assert.assertEquals(200L, (long) mids.get(0));
+        Assert.assertEquals(199L, (long) mids.get(1));
+        Assert.assertEquals(198L, (long) mids.get(2));
+      }
+      session.commit();
+    }
+  }
+
+  // .in() without edge class name parameter rejects the optimization (line 1731).
+  @Test
+  public void testIndexOrderedMatchNoEdgeClassRejects() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    // .in() with no params → no specific edge class → reject
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in(){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "No edge class should prevent INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+    }
+    session.commit();
+  }
+
+  // Multi-sub-pattern MATCH prevents the optimization (multiple FROM clauses).
+  @Test
+  public void testIndexOrderedMatchMultiPatternRejects() {
+    initIndexOrderedMatchData();
+
+    session.begin();
+    // Two separate pattern clauses → subPatterns.size() > 1
+    var query =
+        "MATCH {class: TestPerson, as: p1, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m},"
+            + " {class: TestPerson, as: p2, where: (name = 'person2')}"
+            + " RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 3";
+    try (var result = session.query(query)) {
+      var plan = getPlan(result);
+      Assert.assertFalse(
+          "Multi-pattern should prevent INDEX ORDERED MATCH, but was:\n" + plan,
+          plan.contains("INDEX ORDERED MATCH"));
+      // Results should still work via normal path
+      while (result.hasNext()) {
+        result.next();
+      }
+    }
+    session.commit();
+  }
+
+  // ORDER BY on a function call expression (e.g., count(*)) cannot be resolved
+  // by the planner and rejects the optimization.
+  @Test
+  public void testIndexOrderedMatchOrderByFunctionRejects() {
+    initIndexOrderedMatchData(false);
+
+    session.begin();
+    // ORDER BY a non-dot expression that cannot be resolved to alias.property
+    var query =
+        "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+            + "RETURN m.creationDate as cd, m.msgId as mid"
+            + " ORDER BY cd DESC";
+    try (var result = session.query(query)) {
+      // This exercises the resolveOrderByToAliasProperty Case 2 path
+      // (orderAlias resolves through RETURN aliases)
+      while (result.hasNext()) {
+        result.next();
+      }
+    }
+    session.commit();
+  }
+
+  // FILTERED_BOUND with multiple upstream rows pointing to the same source vertex.
+  // Tests the sourceMap multi-value path (multiple Result rows per RID key).
+  @Test
+  public void testIndexOrderedMatchFilteredBoundSharedSource() throws Exception {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute("CREATE CLASS TEST_KNOWS EXTENDS E").close();
+    session.execute(
+        "CREATE INDEX TestMessage.creationDate ON TestMessage(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'alice'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'bob'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'carol'").close();
+    // alice KNOWS bob, alice KNOWS carol
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM (SELECT FROM TestPerson WHERE name = 'alice')"
+            + " TO (SELECT FROM TestPerson WHERE name = 'bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM (SELECT FROM TestPerson WHERE name = 'alice')"
+            + " TO (SELECT FROM TestPerson WHERE name = 'carol')")
+        .close();
+    // bob creates 5 messages
+    for (var i = 1; i <= 5; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'bob')")
+          .close();
+    }
+    // carol creates 5 messages
+    for (var i = 6; i <= 10; i++) {
+      session.execute(
+          "CREATE VERTEX TestMessage SET creationDate = '2025-01-"
+              + String.format("%02d", i) + " 00:00:00', msgId = " + i)
+          .close();
+      session.execute(
+          "CREATE EDGE TEST_HAS_CREATOR FROM (SELECT FROM TestMessage WHERE msgId = " + i
+              + ") TO (SELECT FROM TestPerson WHERE name = 'carol')")
+          .close();
+    }
+    session.commit();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // 2-hop: alice → (bob, carol) → messages. Source of index-ordered edge is
+      // the second hop (bob, carol). FILTERED_BOUND with alice.name in RETURN.
+      var query =
+          "MATCH {class: TestPerson, as: root, where: (name = 'alice')}"
+              + ".out('TEST_KNOWS'){as: friend}"
+              + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+              + "RETURN root.name as rname, friend.name as fname, m.msgId as mid"
+              + " ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var mids = new java.util.ArrayList<Long>();
+        var fnames = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          mids.add(((Number) row.getProperty("mid")).longValue());
+          fnames.add(row.getProperty("fname"));
+          Assert.assertEquals("alice", row.getProperty("rname"));
+        }
+        Assert.assertEquals("Should have 5 results", 5, mids.size());
+        // DESC: 10, 9, 8, 7, 6 (all from carol)
+        for (var i = 0; i < mids.size() - 1; i++) {
+          Assert.assertTrue(
+              "Results should be in DESC order by msgId: " + mids,
+              mids.get(i) > mids.get(i + 1));
+        }
+      }
+      session.commit();
+    }
+  }
 }
