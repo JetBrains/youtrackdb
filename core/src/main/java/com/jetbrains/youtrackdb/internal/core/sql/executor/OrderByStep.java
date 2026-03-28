@@ -14,6 +14,7 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
+import javax.annotation.Nullable;
 
 /**
  * Intermediate <b>blocking</b> step that sorts all upstream records according to an
@@ -66,7 +67,7 @@ public class OrderByStep extends AbstractExecutionStep {
    * sorted by the primary ORDER BY field, enabling early termination for
    * multi-field ORDER BY queries.
    */
-  @javax.annotation.Nullable private final SQLOrderByItem primaryKeySortedInput;
+  @Nullable private final SQLOrderByItem primaryKeySortedInput;
 
   /**
    * When true, the upstream may be an {@code IndexOrderedEdgeStep} that
@@ -104,7 +105,7 @@ public class OrderByStep extends AbstractExecutionStep {
   public OrderByStep(
       SQLOrderBy orderBy,
       Integer maxResults,
-      @javax.annotation.Nullable SQLOrderByItem primaryKeySortedInput,
+      @Nullable SQLOrderByItem primaryKeySortedInput,
       boolean indexOrderedUpstream,
       CommandContext ctx,
       long timeoutMillis,
@@ -209,9 +210,10 @@ public class OrderByStep extends AbstractExecutionStep {
         // Only active when IndexOrderedEdgeStep confirmed pre-sorted output;
         // when the fallback (unsorted) path was taken, cutoff is unsafe.
         if (primaryKeySortedInput != null
-            && (!indexOrderedUpstream || Boolean.TRUE.equals(
+            && indexOrderedUpstream
+            && Boolean.TRUE.equals(
                 ctx.getSystemVariable(
-                    CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)))
+                    CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
             && heap.size() >= maxResults
             && primaryKeySortedInput.compare(item, heap.peek(), ctx) > 0) {
           break;
