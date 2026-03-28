@@ -345,33 +345,59 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromSourcesUnbound(
       List<RID> sourceRids, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var results = new ArrayList<Result>();
+    // Lazy streaming per source — no full materialization.
+    var sourceIter = sourceRids.iterator();
+    return new ExecutionStream() {
+      private ExecutionStream currentBatch = ExecutionStream.empty();
 
-    for (var sourceRid : sourceRids) {
-      EntityImpl entity;
-      try {
-        var rec = session.getActiveTransaction().load(sourceRid);
-        if (!(rec instanceof EntityImpl e)) {
-          continue;
+      @Override
+      public boolean hasNext(CommandContext c) {
+        while (!currentBatch.hasNext(c)) {
+          if (!sourceIter.hasNext()) {
+            return false;
+          }
+          currentBatch = loadSourceEdgesUnbound(sourceIter.next(), session, c);
         }
-        entity = e;
-      } catch (Exception e) {
-        continue;
+        return true;
       }
-      var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-      if (!(fieldValue instanceof LinkBag linkBag)) {
-        continue;
+
+      @Override
+      public Result next(CommandContext c) {
+        return currentBatch.next(c);
       }
-      for (RidPair pair : linkBag) {
-        var record = loadRecord(pair.secondaryRid(), session);
-        if (record != null && matchesTargetFilter(record, ctx)) {
-          var emptyUpstream = new ResultInternal(session);
-          results.add(
-              new MatchResultRow(session, emptyUpstream, targetAlias, record));
-        }
+
+      @Override
+      public void close(CommandContext c) {
+        currentBatch.close(c);
+      }
+    };
+  }
+
+  private ExecutionStream loadSourceEdgesUnbound(
+      RID sourceRid, DatabaseSessionEmbedded session, CommandContext ctx) {
+    EntityImpl entity;
+    try {
+      var rec = session.getActiveTransaction().load(sourceRid);
+      if (!(rec instanceof EntityImpl e)) {
+        return ExecutionStream.empty();
+      }
+      entity = e;
+    } catch (Exception e) {
+      return ExecutionStream.empty();
+    }
+    var fieldValue = entity.getPropertyInternal(linkBagFieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return ExecutionStream.empty();
+    }
+    var results = new ArrayList<Result>();
+    for (RidPair pair : linkBag) {
+      var record = loadRecord(pair.secondaryRid(), session);
+      if (record != null && matchesTargetFilter(record, ctx)) {
+        var emptyUpstream = new ResultInternal(session);
+        results.add(
+            new MatchResultRow(session, emptyUpstream, targetAlias, record));
       }
     }
-
     return ExecutionStream.resultIterator(results.iterator());
   }
 
@@ -568,45 +594,66 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream loadFromSourcesUnsorted(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var results = new ArrayList<Result>();
+    // Lazy streaming per source — no full materialization.
+    var sourceIter = sourceMap.entrySet().iterator();
+    return new ExecutionStream() {
+      private ExecutionStream currentBatch = ExecutionStream.empty();
 
-    for (var entry : sourceMap.entrySet()) {
-      var sourceRid = entry.getKey();
-      var upstreamRows = entry.getValue();
-
-      EntityImpl entity;
-      try {
-        var rec = session.getActiveTransaction().load(sourceRid);
-        if (!(rec instanceof EntityImpl e)) {
-          continue;
-        }
-        entity = e;
-      } catch (Exception e) {
-        continue;
-      }
-
-      var fieldValue = entity.getPropertyInternal(linkBagFieldName);
-      if (!(fieldValue instanceof LinkBag linkBag)) {
-        continue;
-      }
-
-      for (RidPair pair : linkBag) {
-        var record = loadRecord(pair.secondaryRid(), session);
-        if (record == null) {
-          continue;
-        }
-        if (!matchesTargetFilter(record, ctx)) {
-          continue;
-        }
-        for (var upstreamRow : upstreamRows) {
-          if (!isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
-            results.add(
-                new MatchResultRow(session, upstreamRow, targetAlias, record));
+      @Override
+      public boolean hasNext(CommandContext c) {
+        while (!currentBatch.hasNext(c)) {
+          if (!sourceIter.hasNext()) {
+            return false;
           }
+          currentBatch = loadSourceEdgesBound(sourceIter.next(), session, c);
+        }
+        return true;
+      }
+
+      @Override
+      public Result next(CommandContext c) {
+        return currentBatch.next(c);
+      }
+
+      @Override
+      public void close(CommandContext c) {
+        currentBatch.close(c);
+      }
+    };
+  }
+
+  /** Load edges from one source, emit as MatchResultRows with source binding. */
+  private ExecutionStream loadSourceEdgesBound(
+      Map.Entry<RID, List<Result>> entry,
+      DatabaseSessionEmbedded session, CommandContext ctx) {
+    EntityImpl entity;
+    try {
+      var rec = session.getActiveTransaction().load(entry.getKey());
+      if (!(rec instanceof EntityImpl e)) {
+        return ExecutionStream.empty();
+      }
+      entity = e;
+    } catch (Exception e) {
+      return ExecutionStream.empty();
+    }
+    var fieldValue = entity.getPropertyInternal(linkBagFieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return ExecutionStream.empty();
+    }
+    var upstreamRows = entry.getValue();
+    var results = new ArrayList<Result>();
+    for (RidPair pair : linkBag) {
+      var record = loadRecord(pair.secondaryRid(), session);
+      if (record == null || !matchesTargetFilter(record, ctx)) {
+        continue;
+      }
+      for (var row : upstreamRows) {
+        if (!isAlreadyBoundAndDifferent(row, record, session)) {
+          results.add(
+              new MatchResultRow(session, row, targetAlias, record));
         }
       }
     }
-
     return ExecutionStream.resultIterator(results.iterator());
   }
 
