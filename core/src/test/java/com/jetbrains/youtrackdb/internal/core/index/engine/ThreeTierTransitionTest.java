@@ -79,10 +79,13 @@ public class ThreeTierTransitionTest {
 
   @After
   public void tearDown() {
-    for (var entry : configOverrides.entrySet()) {
-      entry.getKey().setValue(entry.getValue());
+    try {
+      for (var entry : configOverrides.entrySet()) {
+        entry.getKey().setValue(entry.getValue());
+      }
+    } finally {
+      configOverrides.clear();
     }
-    configOverrides.clear();
   }
 
   private void setConfig(GlobalConfiguration key, Object value) {
@@ -98,7 +101,8 @@ public class ThreeTierTransitionTest {
    * and asserts behavior that depends on HISTOGRAM_MIN_SIZE.
    */
   private void pinHistogramDefaults() {
-    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 1000);
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE,
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.getDefValue());
   }
 
   // ═══════════════════════════════════════════════════════════════════════
