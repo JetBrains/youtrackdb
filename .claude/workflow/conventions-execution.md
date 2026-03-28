@@ -14,8 +14,7 @@ These subsections extend the plan file structure defined in
 ### After track completion (user-approved)
 
 The track episode is written to the plan file **only after the user
-approves** the track results (see workflow.md §Track Completion Protocol).
-The episode and `[x]` marker are committed together in a single commit:
+approves** the track results (see workflow.md §Track Completion Protocol):
 
 ```markdown
 - [x] Track 2: <title>
@@ -169,9 +168,9 @@ steps), **Key files** (always), **Critical context** (rare).
 Step failed fields: **What was attempted**, **Why it failed**, **Impact on
 remaining steps**, **Key files**.
 
-Episodes are immutable once committed. Code is committed first, then the
-episode is written and committed as a **separate episode commit**. Episode
-length is proportional to cross-track impact.
+Episodes are immutable once written. Code is committed first, then the
+episode is written to the step file on disk. Episode length is proportional
+to cross-track impact.
 
 **Full format, rules, and examples:**
 [`episode-format-reference.md`](episode-format-reference.md)
@@ -180,21 +179,10 @@ length is proportional to cross-track impact.
 
 ## 2.3 Commit Message Format
 
-Follow the project's commit message conventions (see `CLAUDE.md`). If the
-branch name contains a YTDB issue number, the `prepare-commit-msg` hook
-auto-prepends the prefix.
-
-```
-YTDB-NNN: <imperative summary, under 50 chars>
-
-<detailed explanation of WHY this change was made — motivation, context,
-trade-offs. Not a restatement of the diff.>
-```
-
-Omit the `YTDB-NNN:` prefix when the branch has no associated issue.
-
-**"Why" over "what"** in commit messages. The diff shows what changed; the
-message explains why.
+Follow the project's commit message conventions (see `CLAUDE.md`). Only
+**code changes** are committed — workflow working files are never committed
+(see `conventions.md` §1.2). For commit type prefixes used during execution,
+see [`commit-conventions.md`](commit-conventions.md).
 
 ---
 
@@ -264,11 +252,11 @@ There are two plan-related directories — don't confuse them:
 
 | | Global `~/.claude/plans/` | Project `docs/adr/<dir-name>/` |
 |---|---|---|
-| **Purpose** | Claude Code session artifacts | Durable project plans (lightweight ADRs) |
-| **Names** | Auto-generated (`synthetic-orbiting-gizmo.md`) | `implementation-plan.md` + `tracks/track-N.md` |
-| **Version-controlled** | No | Yes |
-| **Survives context clearing** | Exists on disk but not reliably linked | Yes — referenced by path in prompts |
-| **After feature is complete** | Can be deleted | Keep as decision record |
+| **Purpose** | Claude Code session artifacts | Working files during execution; final artifacts after Phase 4 |
+| **Names** | Auto-generated | Working: `implementation-plan.md`, `tracks/track-N.md`; Final: `design-final.md`, `adr.md` |
+| **Version-controlled** | No | Only Phase 4 artifacts (`design-final.md`, `adr.md`) |
+| **Survives context clearing** | Exists on disk but not reliably linked | Yes — on disk, referenced by path |
+| **After feature is complete** | Can be deleted | Working files deleted with branch; artifacts kept |
 
 Claude may internally use plan mode during execution — that's fine.
 But insights must be captured in the **project's track episodes** (plan

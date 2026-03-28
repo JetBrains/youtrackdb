@@ -23,8 +23,7 @@ diff. There is no cross-step interaction to catch.
 1. Mark `Track-level code review` as `[x]` in the step file's Progress
    section with a note: `(skipped — single-step track, fully reviewed
    in Phase B)`.
-2. Commit the step file update.
-3. Skip directly to **Track Completion** (below) in the same session.
+2. Skip directly to **Track Completion** (below) in the same session.
 
 ---
 
@@ -141,10 +140,8 @@ Iterate on the synthesized findings:
 1. If any findings need fixes:
    - Apply fixes as **additional commits** (never amend prior commits)
    - Run tests to verify fixes don't break anything
-   - **Update the Progress section** to record the completed iteration
-     (e.g., `- [ ] Track-level code review (1/3 iterations)`) and commit
-     this update together with the fix commits. This ensures the iteration
-     count survives session interruptions.
+   - **Update the Progress section** on disk to record the completed
+     iteration (e.g., `- [ ] Track-level code review (1/3 iterations)`).
    - Spawn **fresh sub-agents** to verify (gate check) — only re-run the
      review dimension(s) that had open findings. For example, if only
      crash-safety code findings and test-completeness findings remain,
@@ -168,7 +165,6 @@ Iterate on the synthesized findings:
    to the user during track completion (below).
 4. When all reviews pass (or max iterations reached), mark
    `Track-level code review` as `[x]` in the step file's Progress section.
-   Commit this update.
 
 ---
 
@@ -190,9 +186,8 @@ implementation plan:
      indicator, and dependency notation (typically depends on the current
      track). Follow the same format as other tracks in the plan.
 
-2. **Commit plan changes** — commit the updated `implementation-plan.md`
-   as a separate commit. Reference the finding IDs in the commit message
-   so the plan correction is traceable to the review that motivated it.
+2. **Save plan changes** — update `implementation-plan.md` on disk.
+   Note the finding IDs that motivated each plan correction.
 
 If no findings were deferred, skip this section.
 
@@ -226,8 +221,8 @@ proceed directly to track completion **in the same session**.
    - **Fundamental rework** — trigger ESCALATE (see workflow.md
      §Inline Replanning).
 
-4. **Write the track episode and mark `[x]`** in the plan file (single
-   commit, only after user approval):
+4. **Write the track episode and mark `[x]`** in the plan file on disk
+   (only after user approval):
 
    ```markdown
    - [x] Track N: <title>
@@ -245,9 +240,9 @@ proceed directly to track completion **in the same session**.
 user approval creates a state that cannot be reliably resumed — if the
 session ends between marking `[x]` and receiving approval, the next session
 detects the track as complete (State A: strategy refresh needed) and skips
-user review entirely. By deferring the plan file write, an interrupted
-session simply re-enters track completion on resume (all phases `[x]` in
-the step file, track still `[ ]` in the plan file).
+user review entirely. By deferring the write, an interrupted session simply
+re-enters track completion on resume (all phases `[x]` in the step file,
+track still `[ ]` in the plan file).
 
 **Why merge with code review:** Phase C's code review and track completion
 have no perspective conflict — unlike Phase B→C (where implementation

@@ -42,7 +42,7 @@ after it commits the code changes and completes the code review cycle.
   adapt remaining steps within the track and across tracks.
 - Keep each field concise but complete. A reviewer should understand the
   full step outcome from the episode alone, without reading the diff.
-- Episodes are immutable once committed. If later work reveals an episode
+- Episodes are immutable once written. If later work reveals an episode
   was wrong, add a correction note to the later step's episode, don't edit
   the original.
 
@@ -116,13 +116,12 @@ line; a step that uncovered a concurrency bug needs a full explanation.
 
 ---
 
-## Commit and episode ordering
+## Code commit and episode ordering
 
 Code changes are committed first (including any code review fix commits).
-After all code is committed, the episode is written to the step file and
-committed as a **separate episode commit**. This avoids the chicken-and-egg
-problem of needing the episode before the commit while needing the
-implementation to produce the episode.
+After all code is committed, the episode is written to the step file on
+disk. Episodes are never committed — they are working files that persist
+between sessions and are aggregated into the ADR during Phase 4.
 
 ---
 

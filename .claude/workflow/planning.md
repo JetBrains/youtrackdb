@@ -17,8 +17,8 @@ session. Phase 1 is preceded by Phase 0 (Research) in the same session.
   [`implementation-review.md`](implementation-review.md) — two-step review:
   (1) consistency review (design doc ↔ code ↔ plan), (2) structural review.
 - **Phase 3 (Execution):** See [`workflow.md`](workflow.md).
-- **Phase 4 (Final Design Document):** See [`workflow.md`](workflow.md)
-  §Final Design Document.
+- **Phase 4 (Final Artifacts):** See [`workflow.md`](workflow.md)
+  §Final Artifacts.
 
 ```mermaid
 flowchart TD
@@ -26,7 +26,7 @@ flowchart TD
     P1["Phase 1: Planning\nTracks + architecture notes\n+ design document"]
     P2["/review-plan\nPhase 2: Implementation Review\n1. Consistency review (interactive)\n2. Structural review (automatic)"]
     P3["/execute-tracks\nPhase 3: Execution\n(see workflow.md)\nIncludes replanning via ESCALATE"]
-    P4["Phase 4: Final Design Document\nPost-implementation design\nCompare planned vs actual"]
+    P4["Phase 4: Final Artifacts\ndesign-final.md + adr.md\n(only tracked files)"]
     DONE((Done))
 
     P0 -->|"user: create the plan"| P1
@@ -222,7 +222,8 @@ for complex/opaque parts (concurrency, crash recovery, performance paths).
 
 Required content: (1) Mermaid class diagrams, (2) Mermaid workflow/sequence
 diagrams, (3) dedicated paragraphs for complex parts. All diagrams paired
-with prose. Frozen after Phase 1 — `design-final.md` is produced in Phase 4.
+with prose. Frozen after Phase 1 — `design-final.md` and `adr.md` are
+produced in Phase 4 as the only git-tracked workflow artifacts.
 
 **Full rules, examples, and structure:**
 [`design-document-rules.md`](design-document-rules.md)

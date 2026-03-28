@@ -15,7 +15,6 @@ commit for Phase C's track-level code review:
 1. Run `git rev-parse HEAD` to get the current SHA.
 2. Write it to the step file's `## Base commit` section (creating the
    section if it doesn't exist).
-3. Commit this update to the step file.
 
 This only needs to happen once per track — skip if `## Base commit` already
 has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
@@ -27,28 +26,24 @@ has a SHA (e.g., when resuming Phase B after a mid-phase checkpoint).
 When resuming Phase B (mid-phase checkpoint or session restart), the next
 `[ ]` step may have been **partially completed** in the previous session —
 code committed but episode not yet written. This happens when a session ends
-between sub-step 3 (code commit) and sub-step 5 (episode commit), e.g., due
+between sub-step 3 (code commit) and sub-step 7 (episode writing), e.g., due
 to high context consumption or an unexpected session termination.
 
 **Detection:** After identifying the next `[ ]` step, check for orphan
-commits — implementation commits that exist after the last episoded step
-but have no corresponding episode in the step file:
+commits — code commits that exist but have no corresponding episode in
+the step file on disk:
 
-1. Find the last `[x]` step's episode commit (or the base commit if no
-   steps are complete) by scanning `git log --oneline {base_commit}..HEAD`.
-2. If there are commits after that point that are NOT step file/episode
-   updates (i.e., they are code implementation or review fix commits):
+1. Count the `[x]` steps in the step file. Scan
+   `git log --oneline {base_commit}..HEAD` for code commits.
+2. If there are more code commits than accounted for by completed steps:
    - The previous session committed code for this step but didn't write
      the episode.
    - **Resume from the appropriate sub-step** by checking commit messages
      (see `commit-conventions.md` for the patterns):
      - If any orphan commit message contains `Review fix:` → the code
-       review loop already ran. Skip directly to episode production
-       (sub-step 5).
-     - If no `Review fix:` commits exist → run the code review loop
-       (sub-step 4).
-   - Write the episode, mark the step `[x]`, update the Progress count,
-     and commit the episode.
+       review loop already ran. Skip directly to episode production.
+     - If no `Review fix:` commits exist → run the code review loop.
+   - Write the episode, mark the step `[x]`, update the Progress count.
    - Then proceed to the next `[ ]` step normally.
 3. If no orphan commits exist: implement the step from scratch.
 
@@ -73,7 +68,7 @@ before they compound. Batching these activities across steps loses all
 three benefits.
 
 **Prohibited patterns:**
-- Starting Step N+1 code before Step N's episode is committed
+- Starting Step N+1 code before Step N's episode is written
 - Batching code reviews across multiple steps
 - Batching episodes across multiple steps ("retroactive" episodes)
 - Running tests in the background and continuing to the next step
@@ -168,10 +163,9 @@ completion**, before moving to the next step:
 
    Mark the step as `[x]`. Update the **Progress** section's `Step
    implementation` count (e.g., `(3/5 complete)`). If this is the last step,
-   mark `Step implementation` as `[x]`. Commit the episode as a **separate
-   episode commit**.
+   mark `Step implementation` as `[x]`.
 
-   After the episode commit: if the context level was `warning` or
+   After writing the episode: if the context level was `warning` or
    `critical`, do NOT start the next step. Save all work and ask the user
    for a session refresh (see workflow.md §Context Consumption Check).
 
@@ -195,9 +189,7 @@ The episode includes:
 - **Critical context** — anything essential that doesn't fit above (use
   sparingly)
 
-Write the episode to the step file and commit it as a separate episode commit.
-See `conventions-execution.md` §2.2 (Commit and episode ordering) for the
-rationale behind separate episode commits.
+Write the episode to the step file on disk.
 
 ---
 
@@ -209,7 +201,7 @@ architectural problems, coverage cannot be met):
 
 1. Revert any uncommitted changes (`git checkout -- .`)
 2. Produce a **failed episode** (see conventions-execution.md §2.2)
-3. Write the failed episode to the step file and commit it
+3. Write the failed episode to the step file on disk
 4. Decide: **retry** with a different approach, or **split** the step into
    smaller pieces that can succeed independently
 
@@ -288,7 +280,7 @@ and track-level escalation rules.
 If you've completed 5+ steps and more remain, suggest ending the session
 to shed accumulated context:
 
-- Ensure all episodes are written and committed
+- Ensure all episodes are written to the step file on disk
 - Update the **Progress** section's `Step implementation` count
 - Inform the user: "Completed N of M steps. Suggest clearing session and
   re-running `/execute-tracks` to resume with fresh context."
@@ -305,7 +297,6 @@ in the same session is usually better.
 After the last step's episode is committed:
 
 1. **Mark `Step implementation` as `[x]`** in the Progress section.
-   Commit the step file update.
 2. **Inform the user** that Phase B is complete:
    - How many steps were implemented (including any failed/retried)
    - Key discoveries from step episodes

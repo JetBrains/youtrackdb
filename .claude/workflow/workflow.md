@@ -20,7 +20,7 @@ The overall workflow has five stages:
   (1) consistency review (design doc ↔ code ↔ plan, interactive),
   (2) structural review (plan-internal quality, automatic)
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Design Document)**: produce post-implementation design document (prompt: `prompts/create-final-design.md`)
+- **Phase 4 (Final Artifacts)**: produce `design-final.md` and `adr.md` (prompt: `prompts/create-final-design.md`)
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -58,7 +58,7 @@ flowchart TD
     READ -->|"Fresh start"| PA["Phase A: Review +\nDecomposition"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
-    READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nDesign Document"]
+    READ -->|"All tracks done,\nPhase 4 not complete"| P4["Phase 4: Final\nArtifacts"]
 
     SR -->|CONTINUE / ADJUST| PA
     SR -->|ESCALATE| REPLAN["Inline Replanning"]
@@ -111,7 +111,7 @@ perspective on cross-track impact.
    | Last completed/skipped track (`[x]` or `[~]`) has no `**Strategy refresh:**` line | — | **State A**: strategy refresh first |
    | All `[x]`/`[~]` tracks have `**Strategy refresh:**`; next track is `[ ]` | No step file | **State B**: fresh start (Phase A) |
    | A track is `[ ]` | Step file exists | **State C**: mid-track resume |
-   | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final design document) |
+   | All tracks `[x]` or `[~]`; Phase 4 is `[ ]` or `[>]` | — | **State D**: Phase 4 (final artifacts) |
    | All tracks `[x]` or `[~]`; Phase 4 is `[x]` | — | **Done** |
 
    **State C sub-states** (from step file Progress section):
@@ -126,12 +126,12 @@ perspective on cross-track impact.
 
    Each resume handles exactly **one phase** — end session after that phase.
 
-   **State D** (Phase 4 — final design document):
+   **State D** (Phase 4 — final artifacts):
 
    | Phase 4 marker | Resume action |
    |---|---|
    | `[ ]` | Start Phase 4: mark `[>]`, follow `prompts/create-final-design.md` |
-   | `[>]` | Resume Phase 4: check if `design-final.md` exists. If yes, review and complete. If no, restart from Step 3 of `create-final-design.md` |
+   | `[>]` | Resume Phase 4: check which artifacts exist. If both exist, review and complete. Otherwise, restart from Step 3 of `create-final-design.md` |
 
 4. **Inform the user** of the auto-resume decision:
    - Which track you're working on and why
@@ -196,17 +196,18 @@ Continue to the next step. No user notification needed.
 Phase boundaries are **mandatory** session boundaries. Each session handles
 exactly one phase:
 
-- **After Phase A (review + decomposition)** — step file is written and
-  committed with all steps as `[ ]` and `Review + decomposition` marked
-  `[x]`. Session ends. Next session starts Phase B.
+- **After Phase A (review + decomposition)** — step file is written to disk
+  with all steps as `[ ]` and `Review + decomposition` marked `[x]`. Session
+  ends. Next session starts Phase B.
 
 - **After Phase B (step implementation)** — all steps are implemented,
-  tested, committed, and have episodes. `Step implementation` is marked
-  `[x]`. Session ends. Next session starts Phase C.
+  tested, and committed. Episodes are written to the step file on disk.
+  `Step implementation` is marked `[x]`. Session ends. Next session starts
+  Phase C.
 
 - **After Phase C (code review + track completion)** — review is complete,
-  plan corrections committed (if any), user approved track results, track
-  episode written and track marked `[x]` (single commit after approval).
+  plan corrections saved (if any), user approved track results, track
+  episode written and track marked `[x]` in the plan file on disk.
   Session ends. Strategy refresh happens in the next session. If session
   is interrupted before user approval, the next session re-enters Phase C
   at the track completion stage (all phases `[x]` in step file, track
@@ -259,10 +260,9 @@ yet.
 1. **Do NOT start the next unit of work.** No next step (Phase B), no
    next review iteration (Phase C), no further decomposition (Phase A).
 2. **Save all work:**
-   - Ensure all progress is written to the step/review files and committed
-   - Update the **Progress** section in the step file to reflect current
-     state
-   - Commit the step file update
+   - Ensure all code changes are committed
+   - Ensure all progress is written to the step/review files on disk
+   - Update the **Progress** section in the step file on disk
 3. **Ask the user for a session refresh:**
    - Inform them of current progress and what remains
    - Instruct: "Context window is running low. Please clear the session
@@ -274,10 +274,8 @@ work when context consumption is at `warning` level or above.
 ### What to do before ending a session
 
 - Ensure all code changes are committed
-- Ensure all step episodes are written to the step file and committed
-- Update the **Progress** section in the step file to reflect the
-  current phase completion state
-- Commit the step file update
+- Ensure all step episodes are written to the step file on disk
+- Update the **Progress** section in the step file on disk
 - Inform the user of the session state so the next `/execute-tracks`
   auto-resumes correctly
 
@@ -366,25 +364,25 @@ Completion.
 
 ---
 
-## Final Design Document (Phase 4)
+## Final Artifacts (Phase 4)
 
-After all tracks are complete, a separate session produces `design-final.md`
-reflecting what was actually built. The original `design.md` is never
-modified — both are kept for planned-vs-actual comparison.
+After all tracks are complete, a separate session produces two artifacts
+that are the **only workflow files committed to git**:
 
-**Tracking in the plan file:** The `## Final Design Document` section in
+1. **`design-final.md`** — post-implementation design reflecting what was
+   actually built (the original `design.md` stays unmodified on disk)
+2. **`adr.md`** — architecture decision record with actual outcomes,
+   aggregating discoveries from both track and step episodic memories
+
+**Tracking in the plan file:** The `## Final Artifacts` section in
 `implementation-plan.md` tracks Phase 4 progress:
 
 ```markdown
-## Final Design Document
-- [ ] Phase 4: Final design document (`design-final.md`)   ← not started
-- [>] Phase 4: Final design document (`design-final.md`)   ← in progress
-- [x] Phase 4: Final design document (`design-final.md`)   ← complete
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← not started
+- [>] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← in progress
+- [x] Phase 4: Final artifacts (`design-final.md`, `adr.md`)   ← complete
 ```
-
-The marker transitions are:
-1. `[ ]` → `[>]` when the session begins Phase 4 (before reading code)
-2. `[>]` → `[x]` when `design-final.md` is committed
 
 **Full instructions:** [`prompts/create-final-design.md`](prompts/create-final-design.md)
 
@@ -407,7 +405,7 @@ For other workflow components, see:
 - **`research.md`** — Phase 0 (research: interactive exploration before planning)
 - **`planning.md`** — Phase 1 (planning)
 - **`implementation-review.md`** — Phase 2 (implementation review: consistency + structural)
-- **`prompts/create-final-design.md`** — Phase 4 (final design document)
+- **`prompts/create-final-design.md`** — Phase 4 (final artifacts: `design-final.md`, `adr.md`)
 
 On-demand reference documents (loaded only when their specific situation arises):
 - **`strategy-refresh.md`** — full strategy refresh protocol (State A)

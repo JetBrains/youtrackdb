@@ -31,13 +31,12 @@ defaulting to the current git branch name.
 
 ```
 docs/adr/<dir-name>/
+  ## Working files (untracked — on disk only, deleted with the branch)
   implementation-plan.md          <- strategic: goals, architecture, tracks,
                                      track-level episodic summaries
   design.md                       <- design-level: class diagrams, workflow
                                      diagrams, complex/opaque part explanations
                                      (created in Phase 1, never modified after)
-  design-final.md                 <- post-implementation design document reflecting
-                                     what was actually built (created in Phase 4)
   tracks/
     track-1.md                    <- tactical: decomposed steps, step episodes
     track-2.md
@@ -46,7 +45,17 @@ docs/adr/<dir-name>/
     structural.md
     track-1-technical.md
     ...
+
+  ## Final artifacts (committed in Phase 4 — the only tracked files)
+  design-final.md                 <- post-implementation design reflecting
+                                     what was actually built
+  adr.md                          <- architecture decision record with actual
+                                     outcomes, aggregated from all episodes
 ```
+
+Working files persist on disk between sessions and are never committed.
+The user deletes them alongside the branch after the PR is merged.
+Only the two Phase 4 artifacts are committed to git.
 
 ### Plan file content (`implementation-plan.md`)
 
@@ -76,8 +85,8 @@ docs/adr/<dir-name>/
   > **Scope:** ~N steps covering X, Y, Z
   > **Depends on:** Track 1 (when applicable)
 
-## Final Design Document
-- [ ] Phase 4: Final design document (`design-final.md`)
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
 
 **Planning rule:** If a track would need more than ~5-7 steps or internal
