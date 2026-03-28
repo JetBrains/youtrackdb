@@ -5280,6 +5280,161 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  // =====================================================================
+  // .inE() / .outE() edge traversal tests
+  // =====================================================================
+
+  /**
+   * Setup for .inE()/.outE() tests: Person → Message via HAS_CREATOR,
+   * Person → Person via KNOWS (with creationDate on KNOWS edge + index).
+   */
+  private void initIndexOrderedMatchEdgeTraversalData() {
+    session.execute("CREATE CLASS TestPerson EXTENDS V").close();
+    session.execute("CREATE CLASS TestMessage EXTENDS V").close();
+    session.execute("CREATE PROPERTY TestMessage.creationDate DATETIME").close();
+    session.execute("CREATE PROPERTY TestMessage.msgId LONG").close();
+    session.execute("CREATE CLASS TEST_HAS_CREATOR EXTENDS E").close();
+    session.execute("CREATE CLASS TEST_KNOWS EXTENDS E").close();
+    session.execute("CREATE PROPERTY TEST_KNOWS.creationDate DATETIME").close();
+    session.execute(
+        "CREATE INDEX TEST_KNOWS.creationDate ON TEST_KNOWS(creationDate) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX TestPerson SET name = 'alice'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'bob'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'carol'").close();
+    session.execute("CREATE VERTEX TestPerson SET name = 'dave'").close();
+
+    // alice KNOWS bob (Jan 5), carol (Jan 10), dave (Jan 15)
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM "
+            + "(SELECT FROM TestPerson WHERE name = 'alice') TO "
+            + "(SELECT FROM TestPerson WHERE name = 'bob') "
+            + "SET creationDate = '2025-01-05 00:00:00'")
+        .close();
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM "
+            + "(SELECT FROM TestPerson WHERE name = 'alice') TO "
+            + "(SELECT FROM TestPerson WHERE name = 'carol') "
+            + "SET creationDate = '2025-01-10 00:00:00'")
+        .close();
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM "
+            + "(SELECT FROM TestPerson WHERE name = 'alice') TO "
+            + "(SELECT FROM TestPerson WHERE name = 'dave') "
+            + "SET creationDate = '2025-01-15 00:00:00'")
+        .close();
+
+    // bob KNOWS carol (Jan 20) — for multi-source tests
+    session.execute(
+        "CREATE EDGE TEST_KNOWS FROM "
+            + "(SELECT FROM TestPerson WHERE name = 'bob') TO "
+            + "(SELECT FROM TestPerson WHERE name = 'carol') "
+            + "SET creationDate = '2025-01-20 00:00:00'")
+        .close();
+    session.commit();
+  }
+
+  // .outE() with ORDER BY on edge property, single-source pattern (IS3-like).
+  @Test
+  public void testIndexOrderedMatchOutESingleSource() throws Exception {
+    initIndexOrderedMatchEdgeTraversalData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'alice')}"
+              + ".outE('TEST_KNOWS'){as: k}.inV(){as: friend} "
+              + "RETURN friend.name as fname, k.creationDate as kd"
+              + " ORDER BY kd DESC LIMIT 2";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE for .outE(), but was:\n"
+                + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          names.add(result.next().getProperty("fname"));
+        }
+        Assert.assertEquals("Should have 2 results", 2, names.size());
+        // DESC by creationDate: dave (Jan 15), carol (Jan 10)
+        Assert.assertEquals("dave", names.get(0));
+        Assert.assertEquals("carol", names.get(1));
+      }
+      session.commit();
+    }
+  }
+
+  // .outE() with ASC order.
+  @Test
+  public void testIndexOrderedMatchOutEAsc() throws Exception {
+    initIndexOrderedMatchEdgeTraversalData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name = 'alice')}"
+              + ".outE('TEST_KNOWS'){as: k}.inV(){as: friend} "
+              + "RETURN friend.name as fname, k.creationDate as kd"
+              + " ORDER BY kd ASC LIMIT 2";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          names.add(result.next().getProperty("fname"));
+        }
+        Assert.assertEquals("Should have 2 results", 2, names.size());
+        // ASC: bob (Jan 5), carol (Jan 10)
+        Assert.assertEquals("bob", names.get(0));
+        Assert.assertEquals("carol", names.get(1));
+      }
+      session.commit();
+    }
+  }
+
+  // .outE() multi-source FILTERED_BOUND: multiple persons, ORDER BY edge property.
+  @Test
+  public void testIndexOrderedMatchOutEMultiSourceFilteredBound() throws Exception {
+    initIndexOrderedMatchEdgeTraversalData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // alice has 3 KNOWS edges, bob has 1 → 4 total
+      // p.name in RETURN → FILTERED_BOUND
+      var query =
+          "MATCH {class: TestPerson, as: p, where: (name IN ['alice', 'bob'])}"
+              + ".outE('TEST_KNOWS'){as: k}.inV(){as: friend} "
+              + "RETURN p.name as pname, friend.name as fname, k.creationDate as kd"
+              + " ORDER BY kd DESC LIMIT 3";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCHE, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCHE"));
+
+        var names = new java.util.ArrayList<String>();
+        while (result.hasNext()) {
+          var row = result.next();
+          names.add(row.getProperty("fname"));
+          Assert.assertNotNull("pname should be bound", row.getProperty("pname"));
+        }
+        Assert.assertEquals("Should have 3 results", 3, names.size());
+        // DESC: bob→carol (Jan 20), alice→dave (Jan 15), alice→carol (Jan 10)
+        Assert.assertEquals("carol", names.get(0));
+        Assert.assertEquals("dave", names.get(1));
+        Assert.assertEquals("carol", names.get(2));
+      }
+      session.commit();
+    }
+  }
+
   private void printExecutionPlan(BasicResultSet result) {
     printExecutionPlan(null, result);
   }
