@@ -45,7 +45,9 @@ public interface CommandContext {
   int VAR_MATCHED = 2;
   /** The current recursion depth in a MATCH WHILE/maxDepth traversal. */
   int VAR_DEPTH = 3;
-  // Next available ID: 4
+  /** True when IndexOrderedEdgeStep output is pre-sorted by ORDER BY key. */
+  int VAR_INDEX_ORDERED_PRE_SORTED = 4;
+  // Next available ID: 5
 
   void registerBooleanExpression(SQLBooleanExpression expression);
 
