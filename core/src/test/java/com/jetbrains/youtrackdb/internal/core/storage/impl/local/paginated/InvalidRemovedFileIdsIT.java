@@ -57,26 +57,25 @@ public class InvalidRemovedFileIdsIT {
 
     // create file map of v1 binary format because but with incorrect negative file ids is present
     // only there
-    final var fileMap = new RandomAccessFile(new File(dbPath, "name_id_map.cm"), "rw");
-    // write all existing files so map will be regenerated on open
-    for (var entry : filesWithIntIds.entrySet()) {
-      writeNameIdEntry(fileMap, entry.getKey(), entry.getValue());
+    try (var fileMap = new RandomAccessFile(new File(dbPath, "name_id_map.cm"), "rw")) {
+      // write all existing files so map will be regenerated on open
+      for (var entry : filesWithIntIds.entrySet()) {
+        writeNameIdEntry(fileMap, entry.getKey(), entry.getValue());
+      }
+
+      writeNameIdEntry(fileMap, "c1.cpm", -100);
+      writeNameIdEntry(fileMap, "c1.pcl", -100);
+
+      writeNameIdEntry(fileMap, "c2.cpm", -200);
+      writeNameIdEntry(fileMap, "c2.pcl", -200);
+      writeNameIdEntry(fileMap, "c2.pcl", -400);
+
+      writeNameIdEntry(fileMap, "c3.cpm", -500);
+      writeNameIdEntry(fileMap, "c3.pcl", -500);
+      writeNameIdEntry(fileMap, "c4.cpm", -500);
+      writeNameIdEntry(fileMap, "c4.pcl", -600);
+      writeNameIdEntry(fileMap, "c4.cpm", -600);
     }
-
-    writeNameIdEntry(fileMap, "c1.cpm", -100);
-    writeNameIdEntry(fileMap, "c1.pcl", -100);
-
-    writeNameIdEntry(fileMap, "c2.cpm", -200);
-    writeNameIdEntry(fileMap, "c2.pcl", -200);
-    writeNameIdEntry(fileMap, "c2.pcl", -400);
-
-    writeNameIdEntry(fileMap, "c3.cpm", -500);
-    writeNameIdEntry(fileMap, "c3.pcl", -500);
-    writeNameIdEntry(fileMap, "c4.cpm", -500);
-    writeNameIdEntry(fileMap, "c4.pcl", -600);
-    writeNameIdEntry(fileMap, "c4.cpm", -600);
-
-    fileMap.close();
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory, config);
     db = youTrackDB.open(dbName, "admin", "admin");

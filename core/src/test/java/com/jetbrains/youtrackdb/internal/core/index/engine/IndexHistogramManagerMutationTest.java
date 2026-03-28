@@ -603,7 +603,7 @@ public class IndexHistogramManagerMutationTest {
     var hll = new HyperLogLogSketch();
     for (int i = 0; i < 500; i++) {
       hll.add(MurmurHash3.murmurHash3_x64_64(
-          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+          String.valueOf(i).getBytes(StandardCharsets.UTF_8), 0x9747b28c));
     }
     long baseEstimate = hll.estimate();
 
@@ -613,7 +613,7 @@ public class IndexHistogramManagerMutationTest {
     var deltaHll = new HyperLogLogSketch();
     for (int i = 500; i < 1000; i++) {
       deltaHll.add(MurmurHash3.murmurHash3_x64_64(
-          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+          String.valueOf(i).getBytes(StandardCharsets.UTF_8), 0x9747b28c));
     }
     var delta = new HistogramDelta();
     delta.totalCountDelta = 500;

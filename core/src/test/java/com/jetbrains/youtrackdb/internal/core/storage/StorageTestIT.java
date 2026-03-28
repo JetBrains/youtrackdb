@@ -75,14 +75,14 @@ public class StorageTestIT {
     var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
     var position = File.HEADER_SIZE + pageSize + (3 << 10);
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
 
-    var bt = file.read();
-    file.seek(position);
-    file.write(bt + 1);
-    file.close();
+      var bt = file.read();
+      file.seek(position);
+      file.write(bt + 1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     session = youTrackDB.open(StorageTestIT.class.getSimpleName(),
@@ -143,11 +143,11 @@ public class StorageTestIT {
     var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
     var position = File.HEADER_SIZE + pageSize + DurablePage.MAGIC_NUMBER_OFFSET;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
-    file.write(1);
-    file.close();
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
+      file.write(1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
@@ -209,11 +209,11 @@ public class StorageTestIT {
     youTrackDB.close();
     var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
-    file.write(1);
-    file.close();
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
+      file.write(1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
@@ -274,14 +274,14 @@ public class StorageTestIT {
 
     var position = 3 << 10;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
 
-    var bt = file.read();
-    file.seek(position);
-    file.write(bt + 1);
-    file.close();
+      var bt = file.read();
+      file.seek(position);
+      file.write(bt + 1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
