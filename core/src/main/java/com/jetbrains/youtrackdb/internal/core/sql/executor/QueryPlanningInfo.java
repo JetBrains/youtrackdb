@@ -193,6 +193,13 @@ public class QueryPlanningInfo {
   @javax.annotation.Nullable public com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem primaryKeySortedInput;
 
   /**
+   * When {@code true}, upstream is an IndexOrderedEdgeStep that may produce
+   * pre-sorted output. OrderByStep checks a runtime context variable to
+   * decide between pass-through and normal sort.
+   */
+  public boolean indexOrderedUpstream;
+
+  /**
    * Set to {@code true} once projection steps have been appended to the plan.
    * Prevents double-appending (projections may be triggered from multiple code paths).
    */

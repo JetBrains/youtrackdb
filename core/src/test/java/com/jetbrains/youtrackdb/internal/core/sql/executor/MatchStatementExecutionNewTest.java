@@ -3061,8 +3061,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       Assert.assertTrue(
           "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
           plan.contains("INDEX ORDERED MATCH"));
-      Assert.assertFalse(
-          "OrderByStep should be suppressed for single-field ORDER BY, but plan was:\n" + plan,
+      // OrderByStep is always present but acts as pass-through when
+      // IndexOrderedEdgeStep signals pre-sorted output at runtime.
+      Assert.assertTrue(
+          "OrderByStep should be present (pass-through mode), but plan was:\n" + plan,
           plan.contains("ORDER BY"));
 
       Assert.assertTrue("Expected results but got none. Plan:\n" + plan, result.hasNext());
@@ -3687,7 +3689,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   }
 
   // Single-source, single-field: IndexOrderedEdgeStep replaces MatchStep,
-  // OrderByStep is fully suppressed, LIMIT is present.
+  // OrderByStep is always present (pass-through when pre-sorted), LIMIT is present.
   @Test
   public void testExplainSingleSourceSingleField() {
     initIndexOrderedMatchData(false);
@@ -3699,8 +3701,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             + "RETURN m.creationDate as cd ORDER BY cd DESC LIMIT 10")) {
       var plan = getPlan(result);
       assertPlanContains(plan,
-          new String[] {"INDEX ORDERED MATCH DESC", "TestMessage.creationDate", "LIMIT"},
-          new String[] {"ORDER BY", "MATCH      ---->"}); // no standard MatchStep
+          new String[] {"INDEX ORDERED MATCH DESC", "TestMessage.creationDate",
+              "ORDER BY", "LIMIT"},
+          new String[] {"MATCH      ---->"}); // no standard MatchStep
     }
     session.commit();
   }

@@ -19,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -135,21 +134,21 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    int maxRidSetSize =
-        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
-    if (ridSet.size() > maxRidSetSize) {
-      return loadAllAndSort(ridSet, ctx, upstreamRow);
-    }
-
     if (shouldUseIndexScan(ridSet.size(), session)) {
+      // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
       return indexScanFiltered(ridSet, ctx, upstreamRow);
     } else {
-      return loadAllAndSort(ridSet, ctx, upstreamRow);
+      // Low density: load directly from RidSet (unsorted).
+      // OrderByStep will sort with bounded heap.
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromRidSet(ridSet, ctx, upstreamRow);
     }
   }
 
   /**
    * Single-source index scan: filtered by RidSet, only matching records loaded.
+   * Output is sorted by the ORDER BY property (pre-sorted).
    */
   private ExecutionStream indexScanFiltered(
       RidSet ridSet, CommandContext ctx, Result upstreamRow) {
@@ -176,29 +175,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Single-source fallback: load all targets, sort in-memory.
+   * Single-source low-density fallback: load targets directly from RidSet
+   * without sorting. Downstream OrderByStep handles sorting with bounded heap.
    */
-  private ExecutionStream loadAllAndSort(
+  private ExecutionStream loadFromRidSet(
       RidSet ridSet, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
-    var propertyName = index.getDefinition().getProperties().get(0);
-    var loaded = new ArrayList<Result>(ridSet.size());
-    for (var rid : ridSet) {
-      var record = loadRecord(rid, session);
-      if (record == null) {
-        continue;
-      }
-      if (!matchesTargetFilter(record, ctx)) {
-        continue;
-      }
-      if (isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
-        continue;
-      }
-      loaded.add(record);
-    }
-    loaded.sort(propertyComparator(propertyName));
     return ExecutionStream.resultIterator(
-        loaded.stream()
+        ridSet.stream()
+            .map(rid -> loadRecord(rid, session))
+            .filter(record -> record != null
+                && matchesTargetFilter(record, ctx)
+                && !isAlreadyBoundAndDifferent(upstreamRow, record, session))
             .map(record -> (Result) new MatchResultRow(
                 session, upstreamRow, targetAlias, record))
             .iterator());
@@ -213,8 +201,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return switch (multiSourceMode) {
       case FILTERED_BOUND -> filteredBound(ctx);
       case FILTERED_UNBOUND -> filteredUnbound(ctx);
-      case UNFILTERED_BOUND -> unfilteredBound(ctx);
-      case UNFILTERED_UNBOUND -> unfilteredUnbound(ctx);
+      case UNFILTERED_BOUND -> {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        yield unfilteredBound(ctx);
+      }
+      case UNFILTERED_UNBOUND -> {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        yield unfilteredUnbound(ctx);
+      }
       case null -> throw new IllegalStateException("multiSourceMode is null");
     };
   }
@@ -248,7 +242,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     if (sourceCount > maxSources) {
-      return loadAllMultiSource(sourceMap, ctx);
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
     long indexSize = index.size(session);
@@ -257,9 +252,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         estimatedTotalEdges, indexSize, session);
 
     return switch (strategy) {
-      case UNION_RIDSET_SCAN -> indexScanWithUnion(sourceMap, ctx);
-      case GLOBAL_SCAN -> indexScanGlobal(sourceMap, ctx);
-      case LOAD_ALL_SORT -> loadAllMultiSource(sourceMap, ctx);
+      case UNION_RIDSET_SCAN -> {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        yield indexScanWithUnion(sourceMap, ctx);
+      }
+      case GLOBAL_SCAN -> {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
+        yield indexScanGlobal(sourceMap, ctx);
+      }
+      case LOAD_ALL_SORT -> {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        yield loadFromSourcesUnsorted(sourceMap, ctx);
+      }
     };
   }
 
@@ -306,19 +310,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    // If union overflowed, fall back to load-all from source LinkBags
-    if (ridSetOverflow) {
-      return loadAllFromSourcesUnbound(sourceRids, ctx);
+    // If union overflowed or cost model rejects, stream from source
+    // LinkBags without sorting. OrderByStep handles sort downstream.
+    if (ridSetOverflow || unionRidSet.isEmpty()
+        || !shouldUseIndexScan(unionRidSet.size(), session)) {
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnbound(sourceRids, ctx);
     }
 
-    if (unionRidSet.isEmpty()) {
-      return ExecutionStream.empty();
-    }
-
-    if (!shouldUseIndexScan(unionRidSet.size(), session)) {
-      return loadAllAndSortUnbound(unionRidSet, ctx);
-    }
-
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.TRUE);
     var indexDesc = new IndexSearchDescriptor(index);
     var filteredStep = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, ctx, profilingEnabled, unionRidSet);
@@ -338,39 +338,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }).filter(ExecutionStream.SKIP_NULLS);
   }
 
-  /** Mode B fallback: load union entries, sort, emit without source binding. */
-  private ExecutionStream loadAllAndSortUnbound(
-      RidSet ridSet, CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    var propertyName = index.getDefinition().getProperties().get(0);
-    var loaded = new ArrayList<Result>(ridSet.size());
-    for (var rid : ridSet) {
-      var record = loadRecord(rid, session);
-      if (record != null && matchesTargetFilter(record, ctx)) {
-        loaded.add(record);
-      }
-    }
-    loaded.sort(propertyComparator(propertyName));
-    return ExecutionStream.resultIterator(
-        loaded.stream()
-            .map(record -> {
-              var emptyUpstream = new ResultInternal(session);
-              return (Result) new MatchResultRow(
-                  session, emptyUpstream, targetAlias, record);
-            })
-            .iterator());
-  }
-
   /**
-   * Mode B overflow fallback: iterate source LinkBags directly, load all
-   * targets, sort, emit without source binding. Used when union RidSet
-   * exceeds maxRidSetSize.
+   * Mode B fallback: iterate source LinkBags, load targets, emit
+   * without sorting or source binding. OrderByStep sorts downstream.
    */
-  private ExecutionStream loadAllFromSourcesUnbound(
+  private ExecutionStream loadFromSourcesUnbound(
       List<RID> sourceRids, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var propertyName = index.getDefinition().getProperties().get(0);
-    var loaded = new ArrayList<Result>();
+    var results = new ArrayList<Result>();
 
     for (var sourceRid : sourceRids) {
       EntityImpl entity;
@@ -390,20 +365,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       for (RidPair pair : linkBag) {
         var record = loadRecord(pair.secondaryRid(), session);
         if (record != null && matchesTargetFilter(record, ctx)) {
-          loaded.add(record);
+          var emptyUpstream = new ResultInternal(session);
+          results.add(
+              new MatchResultRow(session, emptyUpstream, targetAlias, record));
         }
       }
     }
 
-    loaded.sort(propertyComparator(propertyName));
-    return ExecutionStream.resultIterator(
-        loaded.stream()
-            .map(record -> {
-              var emptyUpstream = new ResultInternal(session);
-              return (Result) new MatchResultRow(
-                  session, emptyUpstream, targetAlias, record);
-            })
-            .iterator());
+    return ExecutionStream.resultIterator(results.iterator());
   }
 
   // ---- Mode C: UNFILTERED_BOUND (class check + lazy load) ----
@@ -525,7 +494,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
 
     // Build union RidSet from all sources' LinkBags.
-    // If union exceeds maxRidSetSize, fall back to loadAllMultiSource.
+    // If union exceeds maxRidSetSize, fall back to unsorted streaming.
     int maxRidSetSize =
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
     var unionRidSet = new RidSet();
@@ -556,7 +525,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     if (overflow) {
-      return loadAllMultiSource(sourceMap, ctx);
+      return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
     if (unionRidSet.isEmpty()) {
@@ -592,17 +561,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Strategy 3: Iterate all sources' LinkBags, load all targets, sort
-   * globally, emit in order. Fallback when index scan is too expensive.
+   * Low-density fallback: iterate all sources' LinkBags, load targets,
+   * emit WITHOUT sorting. Downstream OrderByStep handles sort with
+   * bounded heap (O(LIMIT) memory).
    */
-  private ExecutionStream loadAllMultiSource(
+  private ExecutionStream loadFromSourcesUnsorted(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var propertyName = index.getDefinition().getProperties().get(0);
-
-    record Hit(Result record, Result upstream) {
-    }
-    var hits = new ArrayList<Hit>();
+    var results = new ArrayList<Result>();
 
     for (var entry : sourceMap.entrySet()) {
       var sourceRid = entry.getKey();
@@ -634,20 +600,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         }
         for (var upstreamRow : upstreamRows) {
           if (!isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
-            hits.add(new Hit(record, upstreamRow));
+            results.add(
+                new MatchResultRow(session, upstreamRow, targetAlias, record));
           }
         }
       }
     }
 
-    hits.sort((a, b) -> propertyComparator(propertyName)
-        .compare(a.record, b.record));
-
-    return ExecutionStream.resultIterator(
-        hits.stream()
-            .map(h -> (Result) new MatchResultRow(
-                session, h.upstream, targetAlias, h.record))
-            .iterator());
+    return ExecutionStream.resultIterator(results.iterator());
   }
 
   // =====================================================================
@@ -884,28 +844,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
     }
     return true;
-  }
-
-  /**
-   * Comparator that sorts by a property value, with NULLs always first
-   * (matching the B-tree index NULL ordering used by the index scan path).
-   */
-  private Comparator<Result> propertyComparator(String propertyName) {
-    return (a, b) -> {
-      var va = (Comparable) a.getProperty(propertyName);
-      var vb = (Comparable) b.getProperty(propertyName);
-      if (va == null && vb == null) {
-        return 0;
-      }
-      // NULLs first — consistent with index scan NULL ordering
-      if (va == null) {
-        return -1;
-      }
-      if (vb == null) {
-        return 1;
-      }
-      return orderAsc ? va.compareTo(vb) : vb.compareTo(va);
-    };
   }
 
   @Override
