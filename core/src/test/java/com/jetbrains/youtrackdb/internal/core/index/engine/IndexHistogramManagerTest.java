@@ -288,8 +288,9 @@ public class IndexHistogramManagerTest {
     // Frequency clamped to 0
     assertEquals(0, result.histogram().frequencies()[0]);
     assertEquals(200, result.histogram().frequencies()[1]);
-    // nonNullCount recalculated from clamped frequencies
-    assertEquals(200, result.histogram().nonNullCount());
+    // nonNullCount = max(0, newTotal - newNull) = max(0, 190 - 0) = 190
+    // (uses accurate scalar counters, not the sum of clamped frequencies)
+    assertEquals(190, result.histogram().nonNullCount());
     // Drift flag set
     assertTrue(result.hasDriftedBuckets());
   }
