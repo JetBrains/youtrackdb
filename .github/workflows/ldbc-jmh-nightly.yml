@@ -14,6 +14,11 @@ on:
         description: 'Branch to benchmark'
         required: false
         default: 'develop'
+      use_prebuilt_db:
+        description: 'Use pre-built DB from S3 (skip CSV loading). Nightly always loads fresh.'
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: ldbc-jmh-nightly-${{ github.event_name }}
@@ -25,11 +30,12 @@ env:
   SERVER_IMAGE: ubuntu-24.04
   SERVER_LOCATION: fsn1
   SSH_KEY_NAME: bench-key
+  LDBC_SCALE_FACTOR: '1'
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 720
 
     steps:
       - name: Checkout
@@ -45,6 +51,19 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
           echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Determine load mode
+        id: mode
+        run: |
+          # Nightly (schedule) always loads fresh from CSV.
+          # Manual (workflow_dispatch) uses pre-built DB by default.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "load=csv" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.use_prebuilt_db }}" = "true" ]; then
+            echo "load=prebuilt" >> "$GITHUB_OUTPUT"
+          else
+            echo "load=csv" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup SSH key
         env:
@@ -131,7 +150,13 @@ jobs:
             git tag spotless-baseline
           '
 
-      - name: Download LDBC dataset from S3
+      - name: Install S3 tools
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} \
+            'apt-get install -y -qq python3-pip > /dev/null 2>&1 && pip install --break-system-packages boto3 -q'
+
+      - name: Download LDBC CSV dataset from S3
+        if: steps.mode.outputs.load == 'csv'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
@@ -140,9 +165,38 @@ jobs:
           SERVER_IP="${{ steps.server.outputs.ip }}"
 
           ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
-            'apt-get install -y -qq python3-pip > /dev/null 2>&1 && pip install --break-system-packages boto3 -q'
+            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1', exist_ok=True)
+          print('Downloading SF 1 CSV dataset from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-composite-merged-fk.tar.zst',
+              '/tmp/dataset.tar.zst')
+          print('Downloaded from S3')
+          PYEOF
 
-          # Pipe the download script over SSH stdin to avoid YAML indentation issues
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
+            set -euo pipefail
+            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1
+            zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
+            tar xf /tmp/dataset.tar
+            rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
+            echo "CSV dataset extracted"
+            ls -la static/ dynamic/
+          '
+
+      - name: Download pre-built LDBC database from S3
+        if: steps.mode.outputs.load == 'prebuilt'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+        run: |
+          SERVER_IP="${{ steps.server.outputs.ip }}"
+
           ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
             "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
           import boto3, os
@@ -150,21 +204,21 @@ jobs:
               endpoint_url=os.environ['S3_ENDPOINT'],
               aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
               aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1', exist_ok=True)
-          print('Downloading dataset from S3...')
-          s3.download_file('bench-cache', 'ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst',
-              '/tmp/dataset.tar.zst')
+          print('Downloading pre-built SF 1 database from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-bench-db.tar.zst',
+              '/tmp/bench-db.tar.zst')
           print('Downloaded from S3')
           PYEOF
 
           ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
             set -euo pipefail
-            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf0.1
-            zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
-            tar xf /tmp/dataset.tar
-            rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
-            echo "Dataset extracted"
-            ls -la static/ dynamic/
+            mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-bench-db
+            cd /root/ytdb/jmh-ldbc/target/ldbc-bench-db
+            zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
+            tar xf /tmp/bench-db.tar
+            rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
+            echo "Pre-built database extracted"
+            ls -la
           '
 
       - name: Compile
@@ -175,12 +229,25 @@ jobs:
           '
 
       - name: Pre-load LDBC database
+        if: steps.mode.outputs.load == 'csv'
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
             cd /root/ytdb
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="LdbcSingleThread.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+              -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+          '
+
+      - name: Warm OS page cache
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
+            cd /root/ytdb
+            # Run every query once in-process to populate OS page cache.
+            # This ensures all 10 forked JVM processes start with warm cache,
+            # eliminating the cold-cache variance that inflates score-error.
+            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+              -Dspotless.check.skip=true -Dcentral.skip=true \
+              -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1"
           '
 
       - name: Run benchmarks
@@ -189,7 +256,7 @@ jobs:
             cd /root/ytdb
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="-f 1 -wi 3 -w 5s -i 5 -r 10s -rf json -rff /root/results.json" \
+              -Djmh.args="-rf json -rff /root/results.json" \
               2>&1 | tee /root/bench.log
           '
 
@@ -197,6 +264,39 @@ jobs:
         run: |
           scp root@${{ steps.server.outputs.ip }}:/root/results.json /tmp/jmh-results.json
           cp /tmp/jmh-results.json results.json
+
+      - name: Upload built database to S3
+        if: success() && steps.mode.outputs.load == 'csv'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+        run: |
+          SERVER_IP="${{ steps.server.outputs.ip }}"
+
+          # Archive the freshly-built database and upload to S3,
+          # replacing the previous pre-built DB snapshot.
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
+            set -euo pipefail
+            cd /root/ytdb/jmh-ldbc/target/ldbc-bench-db
+            tar cf /tmp/bench-db.tar .
+            zstd -9 /tmp/bench-db.tar -o /tmp/bench-db.tar.zst
+            rm -f /tmp/bench-db.tar
+            echo "Database archived: $(du -sh /tmp/bench-db.tar.zst | cut -f1)"
+          '
+
+          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
+            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          print('Uploading built database to S3...')
+          s3.upload_file('/tmp/bench-db.tar.zst', 'bench-cache',
+              'ldbc/ldbc-sf1-bench-db.tar.zst')
+          print('Uploaded to S3: ldbc/ldbc-sf1-bench-db.tar.zst')
+          PYEOF
 
       - name: Push results to InfluxDB
         if: success()

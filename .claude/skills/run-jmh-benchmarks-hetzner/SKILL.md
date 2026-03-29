@@ -33,6 +33,7 @@ Defaults (good for comparison runs):
 
 For **jmh-ldbc** specifically:
 - Expected runtime: ~90 minutes for 40 benchmarks (20 queries x 2 suites) with `-f 1 -wi 3 -w 5s -i 5 -r 10s`
+- Expected runtime: ~7-8 hours for a full validation run using class-level annotations (no `-Djmh.args` override — each tier has its own fork/warmup/measurement settings)
 
 ### Step 1: Provision the server
 
@@ -83,53 +84,75 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
   cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet'
 ```
 
-### Step 3b: Download dataset from Hetzner S3 (jmh-ldbc only — MANDATORY)
+### Step 3b: Download LDBC data from Hetzner S3 (jmh-ldbc only — MANDATORY)
 
-The LDBC dataset must be pre-downloaded before running benchmarks. The benchmark no longer auto-downloads from SURF (the SURF format is incompatible). Download it from Hetzner Object Storage (S3):
+The LDBC SF 1 data must be available before running benchmarks. Download from Hetzner Object Storage (S3 bucket `bench-cache`).
 
+**Available S3 artifacts:**
+| Key | Size | Description |
+|-----|------|-------------|
+| `ldbc/ldbc-sf1-bench-db.tar.zst` | ~1.3 GB | Pre-built YouTrackDB database (SF 1) — **default** |
+| `ldbc/ldbc-sf1-composite-merged-fk.tar.zst` | ~195 MB | Raw CSV dataset (SF 1) — use when user explicitly asks (e.g. testing storage format changes) |
+| `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst` | ~19 MB | Raw CSV dataset (SF 0.1) — for quick smoke tests only |
+
+**Default: Use the pre-built database.** This skips the ~21 min CSV loading step. Only fall back to the CSV dataset when the user explicitly asks — e.g. when testing storage format changes, serializer changes, or any code that affects how data is written to disk.
+
+**Step 1**: Generate a presigned HTTPS URL locally (boto3 required on the local machine):
 ```bash
-ssh root@<IP> 'apt-get install -y -qq python3-pip zstd > /dev/null 2>&1 && \
-  pip install --break-system-packages boto3 -q && \
-  mkdir -p /root/ytdb/<module>/target/ldbc-dataset/sf0.1 && \
-  python3 -c "
+# For pre-built DB (default):
+S3_KEY="ldbc/ldbc-sf1-bench-db.tar.zst"
+
+# For CSV dataset (only when user explicitly asks):
+# S3_KEY="ldbc/ldbc-sf1-composite-merged-fk.tar.zst"
+
+python3 -c "
 import boto3, os
-s3 = boto3.client(\"s3\",
-    endpoint_url=os.environ[\"S3_ENDPOINT\"],
-    aws_access_key_id=os.environ[\"S3_ACCESS_KEY\"],
-    aws_secret_access_key=os.environ[\"S3_SECRET_KEY\"])
-print(\"Downloading dataset from S3...\")
-s3.download_file(\"bench-cache\", \"ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst\", \"/tmp/dataset.tar.zst\")
-print(\"Downloaded\")
-" && \
-  cd /root/ytdb/<module>/target/ldbc-dataset/sf0.1 && \
+s3 = boto3.client('s3',
+    endpoint_url='https://nbg1.your-objectstorage.com',
+    aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
+    aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
+url = s3.generate_presigned_url('get_object',
+    Params={'Bucket': 'bench-cache', 'Key': '$S3_KEY'},
+    ExpiresIn=7200)
+print(url)
+"
+```
+
+**Step 2a — Pre-built DB (default)**: Download and extract:
+```bash
+ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
+  mkdir -p /root/ytdb/<module>/target && \
+  curl -sS -o /tmp/bench-db.tar.zst '<PRESIGNED_URL>' && \
+  cd /root/ytdb/<module>/target && \
+  zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar && \
+  tar xf /tmp/bench-db.tar && \
+  rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar && \
+  echo 'DB ready' && du -sh ldbc-bench-db/"
+```
+
+After extracting, clear any stale curation caches so the current code's curation logic runs fresh:
+```bash
+ssh root@<IP> 'rm -f /root/ytdb/<module>/target/ldbc-bench-db/curated-params*.json \
+  /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json'
+```
+
+**Step 2b — CSV dataset (only when user asks)**: Download and extract:
+```bash
+ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
+  mkdir -p /root/ytdb/<module>/target/ldbc-dataset/sf1 && \
+  curl -sS -o /tmp/dataset.tar.zst '<PRESIGNED_URL>' && \
+  cd /root/ytdb/<module>/target/ldbc-dataset/sf1 && \
   zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar && \
   tar xf /tmp/dataset.tar && \
   rm -f /tmp/dataset.tar.zst /tmp/dataset.tar && \
-  echo "Dataset ready" && ls static/ dynamic/'
+  echo 'Dataset ready' && ls static/ dynamic/"
 ```
 
-**Important**: The command above requires S3 credentials as environment variables on the remote server. Pass them via SSH:
-```bash
-ssh root@<IP> "export S3_ENDPOINT='<endpoint>' S3_ACCESS_KEY='<key>' S3_SECRET_KEY='<secret>' && ..."
-```
+The CSV dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format. The DB will be created from CSVs during the pre-load step (Step 4b), which takes ~21 minutes for SF 1.
 
-Credentials are stored as GitHub secrets: `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`. Retrieve them from GitHub or ask the user.
+Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`) and `<PRESIGNED_URL>` with the URL from Step 1.
 
-Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`).
-
-The dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format (~19 MB). It is stored in Hetzner Object Storage bucket `bench-cache` at key `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`.
-
-**If S3 credentials are unavailable**, generate the dataset locally using the LDBC datagen Docker image, then rsync it to the server:
-```bash
-# On the local machine
-docker run --rm \
-    -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" \
-    ldbc/datagen:latest \
-    --scale-factor 0.1 --mode raw --format CsvCompositeMergeForeign
-
-# Then rsync the dataset to the server
-rsync -az jmh-ldbc/target/ldbc-dataset/ root@<IP>:/root/ytdb/jmh-ldbc/target/ldbc-dataset/
-```
+**Important**: Use presigned HTTPS URLs + curl for S3 downloads. Do NOT use boto3 or awscli on the server — pip install is slow and boto3 downloads can hang over HTTP (port 80 is often blocked). The presigned URL approach is faster and more reliable.
 
 **Do not use** the SURF repository at `repository.surfsara.nl` — it provides CsvComposite format (v0.3.5), which is incompatible with the benchmark loaders.
 
@@ -144,28 +167,33 @@ Replace `<module>` with the target benchmark module (e.g. `jmh-ldbc`).
 
 Wait for BUILD SUCCESS (typically ~60-90 seconds on CCX33).
 
-### Step 4b: Pre-load LDBC dataset (jmh-ldbc only)
+### Step 4b: Pre-load and curate parameters (jmh-ldbc only)
 
-**Critical for jmh-ldbc**: The LDBC dataset is downloaded and loaded into the database inside JMH's `@Setup(Level.Trial)` method. This means the first fork's warmup iteration includes dataset download + DB creation time. For multi-threaded benchmarks, threads start executing queries on a partially-loaded database, producing wildly inaccurate results (e.g., 300+ ops/s when the real throughput is ~3 ops/s).
+**Critical for jmh-ldbc**: The first JMH fork triggers DB loading (if using CSV) and parameter curation inside `@Setup(Level.Trial)`. For multi-threaded benchmarks, threads start executing queries on a partially-loaded database, producing wildly inaccurate results.
 
-**Always pre-load the dataset** before running actual benchmarks:
+**Always run a pre-load fork** before the real benchmarks to ensure the DB is ready and curated parameters are cached:
 
 ```bash
 ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl <module> -am verify -P bench -DskipTests -Dspotless.check.skip=true \
-  -Djmh.args="ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20'
+  -Djmh.args="ic5_newGroups -f 1 -wi 0 -i 1 -r 1s -t 1" 2>&1 | tail -20'
 ```
 
-This runs a single in-process iteration (`-f 0`) that triggers dataset download and DB creation. Subsequent forked runs will find the existing DB at `./target/ldbc-bench-db` and skip loading.
+This runs a single fork (`-f 1`) that triggers:
+1. DB creation from CSV files (if no pre-built DB exists) — ~21 min for SF 1
+2. Factor table computation and caching to `factor-tables.json`
+3. Parameter curation (including IC4 oldPost-count difficulty sampling) and caching to `curated-params-v<N>.json` (versioned filename — bumped when curation logic changes)
 
-**If the dataset was pre-downloaded via Step 3b**: The pre-load step is still required — it creates the YouTrackDB database from the CSV files. However, the download phase will be skipped automatically because the dataset files already exist in `target/ldbc-dataset/`.
+Subsequent forked runs will find the existing DB and load curated parameters from the JSON cache — zero SQL queries needed.
 
-**When comparing two code versions (A/B testing)**: After running version A, delete the benchmark database before running version B to avoid stale cached data:
+**Important**: Use `-f 1` (not `-f 0`). With `-f 0` the benchmark runs in-process and the database may not persist to disk.
+
+**When comparing two code versions (A/B testing)**: After running version A, delete the benchmark database and curation caches before running version B:
 
 ```bash
 ssh root@<IP> 'rm -rf /root/ytdb/jmh-ldbc/target/ldbc-bench-db'
 ```
 
-The dataset files (`target/ldbc-dataset/`) can be kept — only the DB needs to be recreated.
+The CSV dataset files (`target/ldbc-dataset/`) can be kept — only the DB needs to be recreated.
 
 ### Step 5: Run benchmarks
 
@@ -266,10 +294,10 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 
 - **Server type**: CCX33 provides 8 dedicated AMD EPYC vCPUs — dedicated (not shared) cores ensure consistent benchmark results. For heavier benchmarks, consider CCX43 (16 vCPUs) or CCX53 (32 vCPUs).
 - **jmh-ldbc Threads.MAX**: The multi-threaded LDBC benchmark uses `@Threads(Threads.MAX)` — one thread per available processor. On CCX33 this means 8 threads.
-- **jmh-ldbc dataset loading**: The LDBC dataset must be pre-downloaded via Step 3b (Hetzner S3) — the benchmark no longer auto-downloads from SURF. DB creation happens inside `LdbcBenchmarkState.@Setup(Level.Trial)` on first run. Always pre-load with `-f 0` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`; the dataset cache is `./target/ldbc-dataset/`.
+- **jmh-ldbc dataset loading**: By default, use the pre-built SF 1 database from S3 (see Step 3b). Fall back to CSV dataset only when the user explicitly asks (e.g. for storage format testing). Always pre-load with `-f 1` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`.
+- **jmh-ldbc curated params caching**: Parameter curation results are cached to a versioned file (`curated-params-v<N>.json`) alongside the DB. The version suffix is bumped in `ParameterCurator.CURATED_PARAMS_CACHE_FILE` when curation logic changes, automatically invalidating old caches. The first fork computes factor tables and curated parameters (~2 min on SF 1), subsequent forks load from cache instantly. To force recomputation: `rm -f target/ldbc-bench-db/curated-params*.json target/ldbc-bench-db/factor-tables.json`
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
-- **S3 dataset cache**: The LDBC dataset archive (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB, datagen v1.0.0 CsvCompositeMergeForeign format) is cached in Hetzner Object Storage bucket `bench-cache` at `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`. Credentials are stored as GitHub secrets `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them in code or commit them to the repository.
-- **Dataset without S3 access**: If S3 credentials are unavailable, generate the dataset locally using the LDBC datagen Docker image: `docker run --rm -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" ldbc/datagen:latest --scale-factor 0.1 --mode raw --format CsvCompositeMergeForeign`. Then rsync the generated dataset to the server. See `jmh-ldbc/README.md` for details.
+- **S3 artifacts**: S3 bucket `bench-cache` contains pre-built DB (`ldbc-sf1-bench-db.tar.zst`, ~1.3 GB), SF 1 CSV (`ldbc-sf1-composite-merged-fk.tar.zst`, ~195 MB), and SF 0.1 CSV (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB). Credentials are in env vars `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them.
 - **Do not use SURF**: The SURF Data Repository (`repository.surfsara.nl`) provides the CsvComposite format (v0.3.5), which is **incompatible** with the benchmark loaders that expect CsvCompositeMergeForeign column layouts.

@@ -12,7 +12,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -29,22 +28,25 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Shared JMH state for LDBC SNB benchmarks.
- * Creates and loads a YouTrackDB database from LDBC SF 0.1 dataset on first run,
- * reuses the existing database on subsequent runs.
+ * Reuses a pre-built YouTrackDB database if present at the configured path,
+ * otherwise creates and loads one from the LDBC CSV dataset.
  *
- * <p>The dataset must use LDBC datagen v1.0.0 CsvCompositeMergeForeign format,
- * where 1-to-N relationships are embedded as foreign key columns in entity CSV
- * files. The dataset must be obtained before running benchmarks — either from
- * Hetzner Object Storage (team members) or by generating it locally using the
- * LDBC datagen Docker image. See {@code jmh-ldbc/README.md} for details.
+ * <p>The recommended workflow for nightly CI is to download the pre-built database
+ * archive from Hetzner Object Storage and extract it to the DB path. This skips
+ * the ~21-minute CSV loading step for SF 1.
+ *
+ * <p>If no pre-built database exists, the CSV dataset must use LDBC datagen v1.0.0
+ * CsvCompositeMergeForeign format, where 1-to-N relationships are embedded as
+ * foreign key columns in entity CSV files. See {@code jmh-ldbc/README.md} for details.
  *
  * <p>Configure via system properties:
  * <ul>
- *   <li>{@code -Dldbc.dataset.path=/path/to/sf0.1} - path to LDBC dataset root
- *       (must contain static/ and dynamic/ subdirectories)</li>
+ *   <li>{@code -Dldbc.dataset.path=/path/to/sf1} - path to LDBC dataset root
+ *       (must contain static/ and dynamic/ subdirectories; only needed if DB
+ *       does not already exist)</li>
  *   <li>{@code -Dldbc.db.path=./target/ldbc-bench-db} - path to store the database</li>
  *   <li>{@code -Dldbc.batch.size=1000} - batch size for data loading</li>
- *   <li>{@code -Dldbc.scale.factor=0.1} - scale factor (used in default dataset path)</li>
+ *   <li>{@code -Dldbc.scale.factor=1} - scale factor (used in default dataset path)</li>
  * </ul>
  */
 @State(Scope.Benchmark)
@@ -53,20 +55,13 @@ public class LdbcBenchmarkState {
   private static final Logger log = LoggerFactory.getLogger(LdbcBenchmarkState.class);
 
   private static final String DB_NAME = "ldbc_benchmark";
-  private static final int MAX_PARAMS = 200;
   private static final int DEFAULT_BATCH_SIZE = 1000;
 
   YouTrackDB db;
   YTDBGraphTraversalSource traversal;
 
-  // Query parameters - populated after data load
-  long[] personIds;
-  long[] messageIds;
-  String[] firstNames;
-  String[] tagNames;
-  String[] countryNames;
-  String[] tagClassNames;
-  Date[] messageDates;
+  // Curated per-query parameters — populated by ParameterCurator after DB load
+  private ParameterCurator.CuratedParams curatedParams;
 
   private final AtomicLong counter = new AtomicLong();
 
@@ -79,40 +74,157 @@ public class LdbcBenchmarkState {
     return counter.getAndIncrement();
   }
 
-  public long personId(long idx) {
-    return personIds[(int) (idx % personIds.length)];
+  // ==================== IS QUERY PARAMETERS ====================
+
+  public long isPersonId(long idx) {
+    return curatedParams.isPersonIds()[(int) (idx
+        % curatedParams.isPersonIds().length)];
   }
 
-  public long personId2(long idx) {
-    return personIds[(int) ((idx + personIds.length / 2) % personIds.length)];
+  public long isMessageId(long idx) {
+    return curatedParams.isMessageIds()[(int) (idx
+        % curatedParams.isMessageIds().length)];
   }
 
-  public long messageId(long idx) {
-    return messageIds[(int) (idx % messageIds.length)];
+  // ==================== IC QUERY PARAMETERS ====================
+
+  /** IC1: person + firstName tuple. */
+  public long ic1PersonId(long idx) {
+    var p = curatedParams.ic1()[(int) (idx % curatedParams.ic1().length)];
+    return p.personId();
   }
 
-  public String firstName(long idx) {
-    return firstNames[(int) (idx % firstNames.length)];
+  public String ic1FirstName(long idx) {
+    var p = curatedParams.ic1()[(int) (idx % curatedParams.ic1().length)];
+    return p.firstName();
   }
 
-  public String tagName(long idx) {
-    return tagNames[(int) (idx % tagNames.length)];
+  /** IC2: person + date tuple. */
+  public long ic2PersonId(long idx) {
+    var p = curatedParams.ic2()[(int) (idx % curatedParams.ic2().length)];
+    return p.personId();
   }
 
-  public String countryName(long idx) {
-    return countryNames[(int) (idx % countryNames.length)];
+  public Date ic2MaxDate(long idx) {
+    var p = curatedParams.ic2()[(int) (idx % curatedParams.ic2().length)];
+    return p.maxDate();
   }
 
-  public String countryName2(long idx) {
-    return countryNames[(int) ((idx + 1) % countryNames.length)];
+  /** IC3: person + countryX + countryY + startDate tuple. */
+  public long ic3PersonId(long idx) {
+    var p = curatedParams.ic3()[(int) (idx % curatedParams.ic3().length)];
+    return p.personId();
   }
 
-  public String tagClassName(long idx) {
-    return tagClassNames[(int) (idx % tagClassNames.length)];
+  public String ic3CountryX(long idx) {
+    var p = curatedParams.ic3()[(int) (idx % curatedParams.ic3().length)];
+    return p.countryX();
   }
 
-  public Date maxDate(long idx) {
-    return messageDates[(int) (idx % messageDates.length)];
+  public String ic3CountryY(long idx) {
+    var p = curatedParams.ic3()[(int) (idx % curatedParams.ic3().length)];
+    return p.countryY();
+  }
+
+  public Date ic3StartDate(long idx) {
+    var p = curatedParams.ic3()[(int) (idx % curatedParams.ic3().length)];
+    return p.startDate();
+  }
+
+  /** IC4: person + startDate tuple. */
+  public long ic4PersonId(long idx) {
+    var p = curatedParams.ic4()[(int) (idx % curatedParams.ic4().length)];
+    return p.personId();
+  }
+
+  public Date ic4StartDate(long idx) {
+    var p = curatedParams.ic4()[(int) (idx % curatedParams.ic4().length)];
+    return p.startDate();
+  }
+
+  /** IC5: person ID. */
+  public long ic5PersonId(long idx) {
+    return curatedParams.ic5PersonIds()[(int) (idx
+        % curatedParams.ic5PersonIds().length)];
+  }
+
+  /** IC5: date from the shared date pool. */
+  public Date ic5Date(long idx) {
+    return curatedParams.dates()[(int) (idx
+        % curatedParams.dates().length)];
+  }
+
+  /** IC6: person + tag tuple. */
+  public long ic6PersonId(long idx) {
+    var p = curatedParams.ic6()[(int) (idx % curatedParams.ic6().length)];
+    return p.personId();
+  }
+
+  public String ic6TagName(long idx) {
+    var p = curatedParams.ic6()[(int) (idx % curatedParams.ic6().length)];
+    return p.tagName();
+  }
+
+  /** IC7: person ID from friends-selected pool. */
+  public long ic7PersonId(long idx) {
+    return curatedParams.ic7PersonIds()[(int) (idx
+        % curatedParams.ic7PersonIds().length)];
+  }
+
+  /** IC8: person ID from friends-selected pool. */
+  public long ic8PersonId(long idx) {
+    return curatedParams.ic8PersonIds()[(int) (idx
+        % curatedParams.ic8PersonIds().length)];
+  }
+
+  /** IC9: person + date tuple. */
+  public long ic9PersonId(long idx) {
+    var p = curatedParams.ic9()[(int) (idx % curatedParams.ic9().length)];
+    return p.personId();
+  }
+
+  public Date ic9MaxDate(long idx) {
+    var p = curatedParams.ic9()[(int) (idx % curatedParams.ic9().length)];
+    return p.maxDate();
+  }
+
+  /** IC10: person ID from FoF-selected pool. */
+  public long ic10PersonId(long idx) {
+    return curatedParams.ic10PersonIds()[(int) (idx
+        % curatedParams.ic10PersonIds().length)];
+  }
+
+  /** IC11: person + country. */
+  public long ic11PersonId(long idx) {
+    return curatedParams.ic11PersonIds()[(int) (idx
+        % curatedParams.ic11PersonIds().length)];
+  }
+
+  public String ic11CountryName(long idx) {
+    return curatedParams.ic11CountryNames()[(int) (idx
+        % curatedParams.ic11CountryNames().length)];
+  }
+
+  /** IC12: person + tagClass tuple. */
+  public long ic12PersonId(long idx) {
+    var p = curatedParams.ic12()[(int) (idx % curatedParams.ic12().length)];
+    return p.personId();
+  }
+
+  public String ic12TagClassName(long idx) {
+    var p = curatedParams.ic12()[(int) (idx % curatedParams.ic12().length)];
+    return p.tagClassName();
+  }
+
+  /** IC13: two distinct person IDs. */
+  public long ic13Person1Id(long idx) {
+    return curatedParams.ic13PersonIds1()[(int) (idx
+        % curatedParams.ic13PersonIds1().length)];
+  }
+
+  public long ic13Person2Id(long idx) {
+    return curatedParams.ic13PersonIds2()[(int) (idx
+        % curatedParams.ic13PersonIds2().length)];
   }
 
   /**
@@ -130,29 +242,28 @@ public class LdbcBenchmarkState {
 
   @Setup(Level.Trial)
   public void setup() throws Exception {
-    String scaleFactor = System.getProperty("ldbc.scale.factor", "0.1");
+    String scaleFactor = System.getProperty("ldbc.scale.factor", "1");
     String datasetPath = System.getProperty("ldbc.dataset.path",
         "./target/ldbc-dataset/sf" + scaleFactor);
     String dbPath = System.getProperty("ldbc.db.path", "./target/ldbc-bench-db");
     int batchSize = Integer.getInteger("ldbc.batch.size", DEFAULT_BATCH_SIZE);
 
-    Path datasetDir = Path.of(datasetPath);
-
-    // Dataset must be pre-obtained (from Hetzner S3 or generated via datagen)
-    if (!Files.exists(datasetDir.resolve("static"))
-        || !Files.exists(datasetDir.resolve("dynamic"))) {
-      throw new IllegalStateException(
-          "LDBC dataset not found at: " + datasetDir.toAbsolutePath()
-              + ". The dataset must contain static/ and dynamic/ subdirectories"
-              + " in CsvCompositeMergeForeign format."
-              + " Download it from Hetzner Object Storage"
-              + " or generate it using the LDBC datagen Docker image."
-              + " See jmh-ldbc/README.md for instructions.");
-    }
-
     db = YourTracks.instance(dbPath);
 
     if (!db.exists(DB_NAME)) {
+      // No pre-built database — load from CSV dataset
+      Path datasetDir = Path.of(datasetPath);
+      if (!Files.exists(datasetDir.resolve("static"))
+          || !Files.exists(datasetDir.resolve("dynamic"))) {
+        throw new IllegalStateException(
+            "LDBC dataset not found at: " + datasetDir.toAbsolutePath()
+                + ". Either provide a pre-built database at " + dbPath
+                + " or ensure the dataset contains static/ and dynamic/ subdirectories"
+                + " in CsvCompositeMergeForeign format."
+                + " Download from Hetzner Object Storage"
+                + " or generate using the LDBC datagen Docker image."
+                + " See jmh-ldbc/README.md for instructions.");
+      }
       log.info("Creating and loading LDBC database from: {}", datasetDir);
       db.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
       traversal = db.openTraversal(DB_NAME, "admin", "admin");
@@ -164,10 +275,14 @@ public class LdbcBenchmarkState {
       traversal = db.openTraversal(DB_NAME, "admin", "admin");
     }
 
-    sampleQueryParameters();
+    curatedParams = ParameterCurator.curate(this, Path.of(dbPath));
     log.info(
-        "Benchmark state ready: {} persons, {} messages, {} tags, {} countries",
-        personIds.length, messageIds.length, tagNames.length, countryNames.length);
+        "Benchmark state ready: {} IS persons, {} IS messages,"
+            + " {} IC1 params, {} IC3 params",
+        curatedParams.isPersonIds().length,
+        curatedParams.isMessageIds().length,
+        curatedParams.ic1().length,
+        curatedParams.ic3().length);
   }
 
   @TearDown(Level.Trial)
@@ -858,70 +973,4 @@ public class LdbcBenchmarkState {
     return List.of(value.split(";"));
   }
 
-  // ==================== PARAMETER SAMPLING ====================
-
-  @SuppressWarnings("unchecked")
-  private void sampleQueryParameters() {
-    List<Map<String, Object>> persons = executeSql(
-        "SELECT id FROM Person LIMIT " + MAX_PARAMS);
-    List<Long> pIds = new ArrayList<>(
-        persons.stream()
-            .map(r -> ((Number) r.get("id")).longValue()).toList());
-    Collections.shuffle(pIds);
-    personIds = pIds.stream().mapToLong(Long::longValue).toArray();
-
-    List<Map<String, Object>> messages = executeSql(
-        "SELECT id FROM Message LIMIT " + (MAX_PARAMS * 2));
-    List<Long> mIds = new ArrayList<>(
-        messages.stream()
-            .map(r -> ((Number) r.get("id")).longValue()).toList());
-    Collections.shuffle(mIds);
-    messageIds =
-        mIds.stream().limit(MAX_PARAMS).mapToLong(Long::longValue).toArray();
-
-    List<Map<String, Object>> fNames = executeSql(
-        "SELECT DISTINCT(firstName) as firstName FROM Person LIMIT "
-            + MAX_PARAMS);
-    List<String> fnList = new ArrayList<>(
-        fNames.stream()
-            .map(r -> r.get("firstName").toString()).toList());
-    Collections.shuffle(fnList);
-    firstNames = fnList.isEmpty()
-        ? new String[] {"John"} : fnList.toArray(new String[0]);
-
-    List<Map<String, Object>> tNames = executeSql(
-        "SELECT DISTINCT(name) as name FROM Tag LIMIT " + MAX_PARAMS);
-    List<String> tnList = new ArrayList<>(
-        tNames.stream().map(r -> r.get("name").toString()).toList());
-    Collections.shuffle(tnList);
-    tagNames = tnList.isEmpty()
-        ? new String[] {"Tag1"} : tnList.toArray(new String[0]);
-
-    List<Map<String, Object>> cNames = executeSql(
-        "SELECT DISTINCT(name) as name FROM Place"
-            + " WHERE type = 'Country' LIMIT " + MAX_PARAMS);
-    List<String> cnList = new ArrayList<>(
-        cNames.stream().map(r -> r.get("name").toString()).toList());
-    Collections.shuffle(cnList);
-    countryNames = cnList.isEmpty()
-        ? new String[] {"China"} : cnList.toArray(new String[0]);
-
-    List<Map<String, Object>> tcNames = executeSql(
-        "SELECT DISTINCT(name) as name FROM TagClass LIMIT " + MAX_PARAMS);
-    List<String> tcList = new ArrayList<>(
-        tcNames.stream().map(r -> r.get("name").toString()).toList());
-    Collections.shuffle(tcList);
-    tagClassNames = tcList.isEmpty()
-        ? new String[] {"MusicalArtist"} : tcList.toArray(new String[0]);
-
-    List<Map<String, Object>> dates = executeSql(
-        "SELECT creationDate FROM Message LIMIT " + MAX_PARAMS);
-    List<Date> dateList = new ArrayList<>(dates.stream().map(r -> {
-      Object d = r.get("creationDate");
-      return d instanceof Date ? (Date) d : new Date(((Number) d).longValue());
-    }).toList());
-    Collections.shuffle(dateList);
-    messageDates = dateList.isEmpty()
-        ? new Date[] {new Date()} : dateList.toArray(new Date[0]);
-  }
 }

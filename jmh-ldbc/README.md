@@ -41,21 +41,39 @@ The benchmark covers 20 read-only queries from the LDBC SNB Interactive v1 speci
 
 ## Benchmark Classes
 
-- **`LdbcSingleThreadBenchmark`** — runs all 20 queries with a single thread.
-- **`LdbcMultiThreadBenchmark`** — runs all 20 queries with one thread per available processor (`Threads.MAX`, configurable at runtime via `-t`).
+Benchmarks are split into 6 tiers based on SF 1 throughput characteristics. With [curated parameters](#parameter-curation) eliminating parameter-dependent variance, shorter measurement iterations are sufficient. The tier split is tuned so that all 40 benchmarks (20 queries × 2 suites) achieve score-error < 7% on CCX33:
 
-Both classes inherit from `LdbcReadBenchmarkBase` and differ only in the `@Threads` annotation.
+| Tier | Base Class | Queries | Forks | Warmup | Measurement | ST ops/s |
+|------|-----------|---------|-------|--------|-------------|----------|
+| IS-ultra-fast | `LdbcISUltraFastBenchmarkBase` | IS1, IS3-IS6, IC13 | 5 | 1×5s | 3×10s | >2,700 |
+| IS-noisy | `LdbcISBenchmarkBase` | IS2, IS7, IC8 | 10 | 3×5s | 3×10s | 400-2,700 |
+| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 5 | 3×5s | 5×10s | 17-215 |
+| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 5 | 3×10s | 5×10s | 1-21 |
+| IC-ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | 5 | 1×60s | 3×120s | <0.2 |
+
+Each tier has single-threaded and multi-threaded concrete classes:
+
+- **`LdbcSingleThreadISUltraFastBenchmark`** / **`LdbcMultiThreadISUltraFastBenchmark`** — IS-ultra-fast tier
+- **`LdbcSingleThreadISBenchmark`** / **`LdbcMultiThreadISBenchmark`** — IS-noisy tier
+- **`LdbcSingleThreadICBenchmark`** / **`LdbcMultiThreadICBenchmark`** — IC tier
+- **`LdbcSingleThreadICSlowBenchmark`** / **`LdbcMultiThreadICSlowBenchmark`** — IC-slow tier
+- **`LdbcSingleThreadICUltraSlowBenchmark`** / **`LdbcMultiThreadICUltraSlowBenchmark`** — IC-ultra-slow tier
+
+Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available processor).
 
 ## Execution Time
 
-Default JMH settings per benchmark: 3 warmup iterations (5s each) + 5 measurement iterations (10s each) + 1 fork.
+Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget. Parameter curation significantly reduces total runtime compared to the random-sampling approach.
 
-| Suite | Benchmarks | Approx. Time |
-|-------|-----------|-------------|
-| `LdbcSingleThreadBenchmark` | 20 | ~22 min |
-| `LdbcMultiThreadBenchmark` | 20 | ~22 min |
-| **Both suites** | 40 | **~44 min** |
-| First run (includes DB init) | — | adds ~5 min |
+| Suite | Benchmarks | Approx. Time per mode (SF 1) |
+|-------|-----------|------------------------------|
+| IS-ultra-fast (ST or MT) | 6 | ~18 min |
+| IS-noisy (ST or MT) | 3 | ~23 min |
+| IC (ST or MT) | 3 | ~16 min |
+| IC-slow (ST or MT) | 5 | ~33 min |
+| IC-ultra-slow (ST or MT) | 3 | ~54 min |
+| **All suites (ST + MT)** | 40 | **~7-8 hours** |
+| First run from CSV (includes DB init + factor tables) | — | adds ~25 min (SF 1) |
 
 ## Prerequisites
 
@@ -106,11 +124,12 @@ Both approaches fork a new JVM with all required `--add-opens` flags and 4 GB he
 ### First Run
 
 On the first run, the benchmark setup phase will:
-1. Look for the LDBC dataset at `./target/ldbc-dataset/sf0.1` (or the path specified by `-Dldbc.dataset.path`). The dataset must be obtained beforehand — see [Dataset](#dataset).
-2. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~1.8M records, ~5 min).
-3. Sample query parameters (person IDs, message IDs, tag names, etc.) from the loaded data.
+1. Check for an existing database at `./target/ldbc-bench-db` (or the path specified by `-Dldbc.db.path`). If a pre-built database exists, it is reused directly (skips steps 2-3).
+2. Otherwise, look for the LDBC CSV dataset at `./target/ldbc-dataset/sf1` (or the path specified by `-Dldbc.dataset.path`). The dataset must be obtained beforehand — see [Dataset](#dataset).
+3. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~3.6M records for SF 1, ~21 min on CCX33).
+4. Run **parameter curation** — compute factor tables from the loaded data (friend counts, FoF/FoFoF counts, name frequencies, etc.), apply gap-based grouping to select entities with similar query difficulty, and generate 500 per-query parameter tuples. Factor tables are cached to `factor-tables.json` alongside the DB so they are computed only once.
 
-Subsequent runs reuse the existing database (~2s startup).
+Subsequent runs reuse the existing database and cached factor tables (~2s startup).
 
 ## Running via Uber-Jar
 
@@ -155,33 +174,92 @@ java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool backup 
 java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool restore ./target/ldbc-backup ./target/new-db
 ```
 
+## Parameter Curation
+
+Query parameters are **curated** rather than randomly sampled, following the approach from the [LDBC SNB parameter generation](https://github.com/ldbc/ldbc_snb_interactive_v2_driver/tree/main/paramgen) framework. This eliminates parameter-dependent throughput variance — the main source of benchmark noise.
+
+### Why curation matters
+
+Different persons have vastly different KNOWS neighborhoods (10 friends vs 500 friends). A random `personId` can make IC1 run in 0.1s or 5s. Without curation, extremely long measurement iterations (60-300s) and many forks (5-10) are needed to average out this parameter sensitivity, resulting in ~10 hour total runtime.
+
+With curation, all parameter sets produce similar query difficulty, so shorter iterations suffice.
+
+### How it works
+
+The `ParameterCurator` class implements a 3-step pipeline:
+
+1. **Factor table computation** — For each entity type, compute the metric that drives query difficulty:
+
+   | Factor | Metric | Used by |
+   |--------|--------|---------|
+   | Person friend count | `out('KNOWS').size()` | IC4, IC7, IC8, IC11, IC13 |
+   | Person FoF count | 2-hop KNOWS count | IC2, IC3, IC5, IC6, IC9, IC10, IC12 |
+   | Person FoFoF count | 3-hop KNOWS count | IC1 |
+   | First name frequency | `count(*) GROUP BY firstName` | IC1 |
+   | Creation day message count | Messages per day | IC3, IC4, IC9 |
+   | Tag person count | `in('HAS_INTEREST').size()` | IC6 |
+   | IC4 oldPost count | Friends' posts before startDate | IC4 (NOT-pattern cost) |
+
+   Factor tables are cached to `factor-tables.json` alongside the database, so the expensive 2/3-hop traversals are computed only once.
+
+2. **Gap-based grouping** — For each factor table:
+   - Sort entities by the metric
+   - Filter out trivially small values
+   - Walk sorted values; start a new group when consecutive difference exceeds a threshold
+   - Among qualifying groups (≥ N members), pick the one with the lowest standard deviation
+
+   This selects a pool of entities that all have similar query difficulty. If the official LDBC thresholds are too strict for the current scale factor, the algorithm auto-escalates (threshold × 2, × 3, ... up to × 100) until a qualifying group is found.
+
+3. **Per-query parameter generation** — Cross-join curated pools to produce 500 parameter tuples per query. Each query uses its own dedicated parameter array instead of drawing from shared pools:
+
+   | Query | Person pool | Secondary pool |
+   |-------|------------|----------------|
+   | IC1 | FoFoF-selected | first names |
+   | IC3 | FoF-selected | country pairs × dates |
+   | IC4 | friends-selected | dates |
+   | IC6 | FoF-selected | tags |
+   | IC9 | FoF-selected | dates |
+   | IC12 | FoF-selected | tag classes |
+   | IS1-7 | friends-selected | messages |
+
+### Per-query parameter access
+
+Each `@Benchmark` method accesses its own curated parameters via typed accessors on `LdbcBenchmarkState`:
+
+```java
+// Before (shared random pool):
+state.personId(i)      // same pool for all queries
+state.firstName(i)     // independent of personId
+
+// After (per-query curated tuples):
+state.ic1PersonId(i)   // person from FoFoF-selected pool
+state.ic1FirstName(i)  // name paired with that person
+```
+
 ## Configuration
 
 All settings are passed as JVM system properties. When using Maven, add `-D` flags before `exec:exec`; when using the uber-jar, add them before `-jar`:
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `ldbc.dataset.path` | `./target/ldbc-dataset/sf0.1` | Path to the LDBC dataset root (must contain `static/` and `dynamic/` subdirectories). If absent, the dataset is auto-downloaded. |
-| `ldbc.db.path` | `./target/ldbc-bench-db` | Directory where the YouTrackDB database is stored. |
-| `ldbc.scale.factor` | `0.1` | Scale factor for auto-download. Determines which dataset archive to fetch. |
+| `ldbc.dataset.path` | `./target/ldbc-dataset/sf1` | Path to the LDBC dataset root (must contain `static/` and `dynamic/` subdirectories). Only needed if no pre-built DB exists. |
+| `ldbc.db.path` | `./target/ldbc-bench-db` | Directory where the YouTrackDB database is stored. If a pre-built DB exists here, CSV loading is skipped. |
+| `ldbc.scale.factor` | `1` | Scale factor (used in default dataset path). |
 | `ldbc.batch.size` | `1000` | Batch size for CSV data loading. |
 
-Example with a pre-downloaded dataset and larger scale factor:
+Example with a custom dataset path or smaller scale factor:
 
 ```bash
-# Maven (single command)
+# Use SF 0.1 for quick local testing
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-    -Dldbc.dataset.path=/data/ldbc/sf1 \
-    -Dldbc.scale.factor=1
+    -Dldbc.scale.factor=0.1
 
-# Maven (two-step)
-./mvnw -pl jmh-ldbc -am compile exec:exec \
-    -Dldbc.dataset.path=/data/ldbc/sf1 \
-    -Dldbc.scale.factor=1
+# Use a pre-built database from a custom path
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Dldbc.db.path=/data/ldbc-bench-db
 
-# Uber-jar
+# Uber-jar with custom dataset
 java -Dldbc.dataset.path=/data/ldbc/sf1 \
-     -Dldbc.scale.factor=1 \
      -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar
 ```
 
@@ -191,41 +269,63 @@ The benchmark uses the LDBC SNB Interactive dataset in **CsvCompositeMergeForeig
 
 **Important**: The dataset format must be CsvCompositeMergeForeign. Other formats (CsvComposite, CsvBasic, etc.) have different column layouts and are **not compatible** with the benchmark loaders.
 
-SF 0.1 (default) contains:
+SF 1 (default) contains:
 
 | Entity | Count |
 |--------|-------|
-| Person | 1,528 |
-| Post | 135,701 |
-| Comment | 151,043 |
-| Forum | 13,750 |
+| Person | 10,621 |
+| Post | 1,192,944 |
+| Comment | 2,391,709 |
+| Forum | ~130K |
 | Tag | 16,080 |
 | Organisation | 7,955 |
 | Place | 1,460 |
-| **Total records** | **~1.8M** |
+| **Total messages** | **~3.58M** |
+
+SF 0.1 (for quick local testing) is also available — see below.
 
 The dataset is loaded into YouTrackDB with the full LDBC schema: 15 vertex classes, 15 edge classes, and 21 indexes.
 
 ### Obtaining the dataset
 
-There are two ways to obtain the dataset:
+There are three ways to set up the benchmark database:
 
-#### Option 1: Download from Hetzner Object Storage (team members)
+#### Option 1: Download pre-built database from S3 (fastest, recommended for manual runs)
 
-The pre-built SF 0.1 dataset (~19 MB compressed) is cached in Hetzner Object Storage. This is the fastest option for team members with access to the project's cloud credentials.
+A pre-built YouTrackDB database for SF 1 is maintained in Hetzner Object Storage. This is the fastest option — it skips the ~21-minute CSV loading step entirely. The nightly CI workflow automatically uploads a fresh DB snapshot after each successful run.
 
 - **Bucket**: `bench-cache`
-- **Key**: `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst`
+- **Key**: `ldbc/ldbc-sf1-bench-db.tar.zst` (~1.3 GB)
 - **Credentials**: stored as GitHub repository secrets `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
 
 ```bash
 # Download and extract using the AWS CLI (or any S3-compatible client)
-aws s3 cp s3://bench-cache/ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst /tmp/dataset.tar.zst \
+aws s3 cp s3://bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst /tmp/bench-db.tar.zst \
+    --endpoint-url "$HETZNER_S3_ENDPOINT"
+
+# Extract to the expected DB path
+mkdir -p jmh-ldbc/target/ldbc-bench-db
+cd jmh-ldbc/target/ldbc-bench-db
+zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
+tar xf /tmp/bench-db.tar
+rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
+```
+
+#### Option 2: Download CSV dataset from S3 and load fresh
+
+Download the raw CSV dataset and let the benchmark load it into a new database. This is what the nightly CI workflow does.
+
+- **SF 1 CSV**: `ldbc/ldbc-sf1-composite-merged-fk.tar.zst` (~196 MB, loads in ~21 min on CCX33)
+- **SF 0.1 CSV**: `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst` (~19 MB, loads in ~30s)
+
+```bash
+# Download SF 1 CSV dataset
+aws s3 cp s3://bench-cache/ldbc/ldbc-sf1-composite-merged-fk.tar.zst /tmp/dataset.tar.zst \
     --endpoint-url "$HETZNER_S3_ENDPOINT"
 
 # Extract to the expected location
-mkdir -p jmh-ldbc/target/ldbc-dataset/sf0.1
-cd jmh-ldbc/target/ldbc-dataset/sf0.1
+mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
+cd jmh-ldbc/target/ldbc-dataset/sf1
 zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
 tar xf /tmp/dataset.tar
 rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
@@ -239,26 +339,27 @@ s3 = boto3.client("s3",
     aws_access_key_id=HETZNER_S3_ACCESS_KEY,
     aws_secret_access_key=HETZNER_S3_SECRET_KEY)
 s3.download_file("bench-cache",
-    "ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst",
+    "ldbc/ldbc-sf1-composite-merged-fk.tar.zst",
     "/tmp/dataset.tar.zst")
 ```
 
-#### Option 2: Generate using LDBC datagen Docker image
+#### Option 3: Generate using LDBC datagen Docker image
 
 If you don't have access to the Hetzner S3 credentials, generate the dataset locally using the official [LDBC datagen](https://github.com/ldbc/ldbc_snb_datagen_spark) Docker image:
 
 ```bash
-# Generate SF 0.1 dataset in CsvCompositeMergeForeign format
+# Generate SF 1 dataset in CsvCompositeMergeForeign format
 docker run --rm \
-    -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf0.1:/out" \
-    ldbc/datagen:latest \
-    --scale-factor 0.1 \
+    -v "$(pwd)/jmh-ldbc/target/ldbc-dataset/sf1:/out" \
+    ldbc/datagen-standalone:latest \
+    --scale-factor 1 \
     --mode raw \
-    --format CsvCompositeMergeForeign
+    --format CsvCompositeMergeForeign \
+    --epoch-millis
 
 # Verify the expected structure
-ls jmh-ldbc/target/ldbc-dataset/sf0.1/static/   # Place, Tag, Organisation, ...
-ls jmh-ldbc/target/ldbc-dataset/sf0.1/dynamic/  # Person, Post, Comment, Forum, ...
+ls jmh-ldbc/target/ldbc-dataset/sf1/static/   # Place, Tag, Organisation, ...
+ls jmh-ldbc/target/ldbc-dataset/sf1/dynamic/  # Person, Post, Comment, Forum, ...
 ```
 
 The generated dataset directory must contain `static/` and `dynamic/` subdirectories. Entity files should contain foreign key columns (e.g., `Person` should have `LocationCityId`, `Post` should have `CreatorPersonId`, `ContainerForumId`, etc.).
@@ -272,19 +373,25 @@ jmh-ldbc/
   pom.xml
   README.md
   src/main/java/.../ldbc/
-    LdbcBenchmarkState.java        # @State — DB lifecycle, dataset download, data loading,
-                                   #   parameter sampling, SQL execution helper
-    LdbcQuerySql.java              # Loads SQL query strings from classpath resources
-    LdbcReadBenchmarkBase.java     # Abstract base with 20 @Benchmark methods
-    LdbcSingleThreadBenchmark.java # @Threads(1) — single-threaded suite
-    LdbcMultiThreadBenchmark.java  # @Threads(8) — multi-threaded suite
-    LdbcDatabaseTool.java          # CLI for export/import/backup/restore operations
+    LdbcBenchmarkState.java            # @State — DB lifecycle, data loading, curated param access
+    ParameterCurator.java              # Factor tables, gap-based grouping, per-query param gen
+    LdbcQuerySql.java                  # Loads SQL query strings from classpath resources
+    LdbcISUltraFastBenchmarkBase.java  # IS-ultra-fast: IS1,IS3-6,IC13 (5f, 1×5s, 3×10s)
+    LdbcISBenchmarkBase.java           # IS-noisy: IS2,IS7,IC8 (10f, 3×5s, 3×10s)
+    LdbcICBenchmarkBase.java           # IC: IC2,IC7,IC11 (5f, 3×5s, 5×10s)
+    LdbcICSlowBenchmarkBase.java       # IC-slow: IC1,4,6,9,12 (5f, 3×10s, 5×10s)
+    LdbcICUltraSlowBenchmarkBase.java  # IC-ultra-slow: IC3,5,10 (5f, 1×60s, 3×120s)
+    LdbcSingleThread{ISUltraFast,IS,IC,ICSlow,ICUltraSlow}Benchmark.java  # @Threads(1)
+    LdbcMultiThread{ISUltraFast,IS,IC,ICSlow,ICUltraSlow}Benchmark.java   # @Threads(MAX)
+    LdbcDatabaseTool.java              # CLI for export/import/backup/restore operations
+    LdbcExplainTool.java               # EXPLAIN/PROFILE for all queries
   src/main/resources/
-    ldbc-schema.sql                # DDL: vertex/edge classes, properties, indexes
+    ldbc-schema.sql                    # DDL: vertex/edge classes, properties, indexes
     ldbc-queries/
-      IS1.sql .. IS7.sql           # Interactive Short queries (YouTrackDB MATCH SQL)
-      IC1.sql .. IC13.sql          # Interactive Complex queries (YouTrackDB MATCH SQL)
-    log4j2.xml                     # Logging configuration
+      IS1.sql .. IS7.sql               # Interactive Short queries (YouTrackDB MATCH SQL)
+      IC1.sql .. IC13.sql              # Interactive Complex queries (YouTrackDB MATCH SQL)
+      IC4-oldpost-count.sql            # IC4 curation factor query (NOT-pattern cost)
+    log4j2.xml                         # Logging configuration
 ```
 
 ### SQL file conventions

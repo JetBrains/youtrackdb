@@ -16,57 +16,68 @@ public class LdbcExplainTool {
 
     try {
       long idx = 0;
-      Date startDate = state.maxDate(idx);
-      Date endDate = new Date(startDate.getTime() + 30L * 24 * 60 * 60 * 1000);
+      Date ic3Start = state.ic3StartDate(idx);
+      Date ic3End = new Date(ic3Start.getTime() + 30L * 24 * 60 * 60 * 1000);
+      Date ic4Start = state.ic4StartDate(idx);
+      Date ic4End = new Date(ic4Start.getTime() + 30L * 24 * 60 * 60 * 1000);
 
       var queries = new LinkedHashMap<String, Object[]>();
 
       queries.put("IS1", new Object[] {LdbcQuerySql.IS1,
-          "personId", state.personId(idx)});
+          "personId", state.isPersonId(idx)});
       queries.put("IS2", new Object[] {LdbcQuerySql.IS2,
-          "personId", state.personId(idx), "limit", 20});
+          "personId", state.isPersonId(idx), "limit", 20});
       queries.put("IS3", new Object[] {LdbcQuerySql.IS3,
-          "personId", state.personId(idx)});
+          "personId", state.isPersonId(idx)});
       queries.put("IS4", new Object[] {LdbcQuerySql.IS4,
-          "messageId", state.messageId(idx)});
+          "messageId", state.isMessageId(idx)});
       queries.put("IS5", new Object[] {LdbcQuerySql.IS5,
-          "messageId", state.messageId(idx)});
+          "messageId", state.isMessageId(idx)});
       queries.put("IS6", new Object[] {LdbcQuerySql.IS6,
-          "messageId", state.messageId(idx)});
+          "messageId", state.isMessageId(idx)});
       queries.put("IS7", new Object[] {LdbcQuerySql.IS7,
-          "messageId", state.messageId(idx)});
+          "messageId", state.isMessageId(idx)});
       queries.put("IC1", new Object[] {LdbcQuerySql.IC1,
-          "personId", state.personId(idx), "firstName", state.firstName(idx), "limit", 20});
+          "personId", state.ic1PersonId(idx),
+          "firstName", state.ic1FirstName(idx), "limit", 20});
       queries.put("IC2", new Object[] {LdbcQuerySql.IC2,
-          "personId", state.personId(idx), "maxDate", state.maxDate(idx), "limit", 20});
+          "personId", state.ic2PersonId(idx),
+          "maxDate", state.ic2MaxDate(idx), "limit", 20});
       queries.put("IC3", new Object[] {LdbcQuerySql.IC3,
-          "personId", state.personId(idx), "countryX", state.countryName(idx),
-          "countryY", state.countryName2(idx), "startDate", startDate, "endDate", endDate,
-          "limit", 20});
+          "personId", state.ic3PersonId(idx),
+          "countryX", state.ic3CountryX(idx),
+          "countryY", state.ic3CountryY(idx),
+          "startDate", ic3Start, "endDate", ic3End, "limit", 20});
       queries.put("IC4", new Object[] {LdbcQuerySql.IC4,
-          "personId", state.personId(idx), "startDate", startDate, "endDate", endDate,
-          "limit", 20});
+          "personId", state.ic4PersonId(idx),
+          "startDate", ic4Start, "endDate", ic4End, "limit", 20});
       queries.put("IC5", new Object[] {LdbcQuerySql.IC5,
-          "personId", state.personId(idx), "minDate", state.maxDate(idx), "limit", 20});
+          "personId", state.ic5PersonId(idx),
+          "minDate", state.ic5Date(idx), "limit", 20});
       queries.put("IC6", new Object[] {LdbcQuerySql.IC6,
-          "personId", state.personId(idx), "tagName", state.tagName(idx), "limit", 20});
+          "personId", state.ic6PersonId(idx),
+          "tagName", state.ic6TagName(idx), "limit", 20});
       queries.put("IC7", new Object[] {LdbcQuerySql.IC7,
-          "personId", state.personId(idx), "limit", 20});
+          "personId", state.ic7PersonId(idx), "limit", 20});
       queries.put("IC8", new Object[] {LdbcQuerySql.IC8,
-          "personId", state.personId(idx), "limit", 20});
+          "personId", state.ic8PersonId(idx), "limit", 20});
       queries.put("IC9", new Object[] {LdbcQuerySql.IC9,
-          "personId", state.personId(idx), "maxDate", state.maxDate(idx), "limit", 20});
+          "personId", state.ic9PersonId(idx),
+          "maxDate", state.ic9MaxDate(idx), "limit", 20});
       queries.put("IC10", new Object[] {LdbcQuerySql.IC10,
-          "personId", state.personId(idx), "startMd", "0621", "endMd", "0722",
+          "personId", state.ic10PersonId(idx),
+          "startMd", "0621", "endMd", "0722",
           "wrap", false, "limit", 20});
       queries.put("IC11", new Object[] {LdbcQuerySql.IC11,
-          "personId", state.personId(idx), "countryName", state.countryName(idx),
+          "personId", state.ic11PersonId(idx),
+          "countryName", state.ic11CountryName(idx),
           "workFromYear", 2010, "limit", 20});
       queries.put("IC12", new Object[] {LdbcQuerySql.IC12,
-          "personId", state.personId(idx), "tagClassName", state.tagClassName(idx),
-          "limit", 20});
+          "personId", state.ic12PersonId(idx),
+          "tagClassName", state.ic12TagClassName(idx), "limit", 20});
       queries.put("IC13", new Object[] {LdbcQuerySql.IC13,
-          "person1Id", state.personId(idx), "person2Id", state.personId2(idx)});
+          "person1Id", state.ic13Person1Id(idx),
+          "person2Id", state.ic13Person2Id(idx)});
 
       for (var entry : queries.entrySet()) {
         String name = entry.getKey();

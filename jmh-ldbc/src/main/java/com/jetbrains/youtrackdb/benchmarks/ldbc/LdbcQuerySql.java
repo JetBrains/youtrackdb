@@ -23,6 +23,9 @@ final class LdbcQuerySql {
   static final String IC2 = loadResource("ldbc-queries/IC2.sql");
   static final String IC3 = loadResource("ldbc-queries/IC3.sql");
   static final String IC4 = loadResource("ldbc-queries/IC4.sql");
+  /** Counts friends' posts before startDate — the NOT pattern scan cost in IC4. */
+  static final String IC4_OLDPOST_COUNT =
+      loadResource("ldbc-queries/IC4-oldpost-count.sql");
   static final String IC5 = loadResource("ldbc-queries/IC5.sql");
   static final String IC6 = loadResource("ldbc-queries/IC6.sql");
   static final String IC7 = loadResource("ldbc-queries/IC7.sql");
