@@ -1,0 +1,12 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: zulip-jmh-bench
+    receivers:
+      - uid: zulip-jmh-bench-webhook
+        type: webhook
+        settings:
+          url: >-
+            https://youtrackdb.zulipchat.com/api/v1/external/grafana?api_key=${ZULIP_API_KEY}&stream=ytdb&topic=jmh-ldbc-bench
+          httpMethod: POST

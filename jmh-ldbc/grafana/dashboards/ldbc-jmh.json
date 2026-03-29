@@ -48,7 +48,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
           "refId": "A"
         }
       ]
@@ -83,7 +83,7 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
           "refId": "A"
         }
       ]
@@ -127,116 +127,125 @@
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"scalability\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"ratio\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])",
+          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"scalability\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"ratio\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])",
           "refId": "A"
         }
       ]
     },
     {
-      "title": "Latest vs Previous Run (Single-Thread)",
-      "description": "Delta table comparing the last two runs",
+      "title": "Run-over-Run History (Single-Thread)",
+      "description": "Last 14 nightly runs with run-over-run percentage change. Green = improvement, red = regression.",
       "type": "table",
-      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 30 },
-      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "delta_pct" },
-            "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
-              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
-                { "color": "red", "value": null },
-                { "color": "yellow", "value": -5 },
-                { "color": "green", "value": 0 }
-              ]}}
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "sortBy": [{ "displayName": "query", "desc": false }]
-      },
-      "targets": [
-        {
-          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "latest = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> last()\n  |> set(key: \"run\", value: \"latest\")\n\nprevious = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 2)\n  |> last()\n  |> set(key: \"run\", value: \"previous\")\n\nunion(tables: [latest, previous])\n  |> pivot(rowKey: [\"query\"], columnKey: [\"run\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      query: r.query,\n      latest: r.latest,\n      previous: r.previous,\n      delta_pct: if r.previous > 0.0 then (r.latest - r.previous) / r.previous * 100.0 else 0.0\n  }))",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Latest vs Previous Run (Multi-Thread)",
-      "description": "Delta table comparing the last two runs",
-      "type": "table",
-      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 30 },
-      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "delta_pct" },
-            "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
-              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
-                { "color": "red", "value": null },
-                { "color": "yellow", "value": -5 },
-                { "color": "green", "value": 0 }
-              ]}}
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "sortBy": [{ "displayName": "query", "desc": false }]
-      },
-      "targets": [
-        {
-          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "latest = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> last()\n  |> set(key: \"run\", value: \"latest\")\n\nprevious = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -30d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"], desc: true)\n  |> limit(n: 2)\n  |> last()\n  |> set(key: \"run\", value: \"previous\")\n\nunion(tables: [latest, previous])\n  |> pivot(rowKey: [\"query\"], columnKey: [\"run\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      query: r.query,\n      latest: r.latest,\n      previous: r.previous,\n      delta_pct: if r.previous > 0.0 then (r.latest - r.previous) / r.previous * 100.0 else 0.0\n  }))",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "title": "Per-Query Detail: ${query}",
-      "description": "Score with error band for the selected query",
-      "type": "timeseries",
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 42 },
+      "gridPos": { "h": 16, "w": 12, "x": 0, "y": 30 },
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisBorderShow": false,
-            "axisLabel": "ops/s",
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "always"
-          },
-          "unit": "ops",
-          "links": [
-            {
-              "title": "View commit",
-              "url": "https://github.com/JetBrains/youtrackdb/commit/${__data.fields.commit_sha}",
-              "targetBlank": true
-            }
-          ]
+          "custom": { "align": "auto" }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "delta_pct" },
+            "properties": [
+              { "id": "displayName", "value": "\u0394%" },
+              { "id": "unit", "value": "percent" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": -5 },
+                { "color": "green", "value": 0 }
+              ]}}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "score" },
+            "properties": [
+              { "id": "displayName", "value": "Score (ops/s)" },
+              { "id": "unit", "value": "ops" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "_time" },
+            "properties": [
+              { "id": "displayName", "value": "Run Date" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "query" },
+            "properties": [
+              { "id": "displayName", "value": "Query" }
+            ]
+          }
+        ]
       },
       "options": {
-        "legend": { "calcs": ["lastNotNull", "min", "max", "mean"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Query", "desc": false }, { "displayName": "Run Date", "desc": true }]
       },
       "targets": [
         {
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
-          "query": "from(bucket: \"jmh-benchmarks\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.query == \"${query}\")\n  |> filter(fn: (r) => r.suite =~ /${suite}/)\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r._field == \"score\" or r._field == \"score_error\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      r with\n      _value: r.score,\n      score_low: r.score - r.score_error,\n      score_high: r.score + r.score_error\n  }))",
+          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"SingleThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Run-over-Run History (Multi-Thread)",
+      "description": "Last 14 nightly runs with run-over-run percentage change. Green = improvement, red = regression.",
+      "type": "table",
+      "gridPos": { "h": 16, "w": 12, "x": 12, "y": 30 },
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "delta_pct" },
+            "properties": [
+              { "id": "displayName", "value": "\u0394%" },
+              { "id": "unit", "value": "percent" },
+              { "id": "decimals", "value": 1 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": -5 },
+                { "color": "green", "value": 0 }
+              ]}}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "score" },
+            "properties": [
+              { "id": "displayName", "value": "Score (ops/s)" },
+              { "id": "unit", "value": "ops" },
+              { "id": "decimals", "value": 1 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "_time" },
+            "properties": [
+              { "id": "displayName", "value": "Run Date" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "query" },
+            "properties": [
+              { "id": "displayName", "value": "Query" }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Query", "desc": false }, { "displayName": "Run Date", "desc": true }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "query": "base = from(bucket: \"jmh-benchmarks\")\n  |> range(start: -90d)\n  |> filter(fn: (r) => r._measurement == \"jmh_benchmark\")\n  |> filter(fn: (r) => r.suite == \"MultiThread\")\n  |> filter(fn: (r) => r.branch =~ /${branch}/)\n  |> filter(fn: (r) => r.query =~ /${query:regex}/)\n  |> filter(fn: (r) => r._field == \"score\")\n  |> group(columns: [\"query\"])\n  |> sort(columns: [\"_time\"])\n  |> tail(n: 15)\n\nscores = base\n  |> tail(n: 14)\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\ndiffs = base\n  |> difference(columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"query\"])\n  |> group()\n\njoin(tables: {s: scores, d: diffs}, on: [\"_time\", \"query\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      query: r.query,\n      score: r._value_s,\n      delta_pct: if (r._value_s - r._value_d) > 0.0 then r._value_d / (r._value_s - r._value_d) * 100.0 else 0.0\n  }))\n  |> sort(columns: [\"query\", \"_time\"], desc: false)",
           "refId": "A"
         }
       ]
@@ -257,26 +266,49 @@
       {
         "current": { "selected": false, "text": "develop", "value": "develop" },
         "name": "branch",
+        "label": "Branch",
         "type": "custom",
         "query": "develop,main,.*",
+        "options": [
+          { "selected": true, "text": "develop", "value": "develop" },
+          { "selected": false, "text": "main", "value": "main" },
+          { "selected": false, "text": ".*", "value": ".*" }
+        ],
         "includeAll": false,
         "multi": false
       },
-      {
-        "name": "suite",
-        "type": "custom",
-        "query": "SingleThread,MultiThread,.*",
-        "current": { "selected": false, "text": ".*", "value": ".*" },
-        "includeAll": false,
-        "multi": false
-      },
-      {
+{
         "name": "query",
+        "label": "Query",
         "type": "custom",
         "query": "is1_personProfile,is2_personPosts,is3_personFriends,is4_messageContent,is5_messageCreator,is6_messageForum,is7_messageReplies,ic1_transitiveFriends,ic2_recentFriendMessages,ic3_friendsInCountries,ic4_newTopics,ic5_newGroups,ic6_tagCoOccurrence,ic7_recentLikers,ic8_recentReplies,ic9_recentFofMessages,ic10_friendRecommendation,ic11_jobReferral,ic12_expertSearch,ic13_shortestPath",
-        "current": { "selected": false, "text": "is1_personProfile", "value": "is1_personProfile" },
-        "includeAll": false,
-        "multi": false
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "options": [
+          { "selected": true, "text": "All", "value": "$__all" },
+          { "selected": false, "text": "is1_personProfile", "value": "is1_personProfile" },
+          { "selected": false, "text": "is2_personPosts", "value": "is2_personPosts" },
+          { "selected": false, "text": "is3_personFriends", "value": "is3_personFriends" },
+          { "selected": false, "text": "is4_messageContent", "value": "is4_messageContent" },
+          { "selected": false, "text": "is5_messageCreator", "value": "is5_messageCreator" },
+          { "selected": false, "text": "is6_messageForum", "value": "is6_messageForum" },
+          { "selected": false, "text": "is7_messageReplies", "value": "is7_messageReplies" },
+          { "selected": false, "text": "ic1_transitiveFriends", "value": "ic1_transitiveFriends" },
+          { "selected": false, "text": "ic2_recentFriendMessages", "value": "ic2_recentFriendMessages" },
+          { "selected": false, "text": "ic3_friendsInCountries", "value": "ic3_friendsInCountries" },
+          { "selected": false, "text": "ic4_newTopics", "value": "ic4_newTopics" },
+          { "selected": false, "text": "ic5_newGroups", "value": "ic5_newGroups" },
+          { "selected": false, "text": "ic6_tagCoOccurrence", "value": "ic6_tagCoOccurrence" },
+          { "selected": false, "text": "ic7_recentLikers", "value": "ic7_recentLikers" },
+          { "selected": false, "text": "ic8_recentReplies", "value": "ic8_recentReplies" },
+          { "selected": false, "text": "ic9_recentFofMessages", "value": "ic9_recentFofMessages" },
+          { "selected": false, "text": "ic10_friendRecommendation", "value": "ic10_friendRecommendation" },
+          { "selected": false, "text": "ic11_jobReferral", "value": "ic11_jobReferral" },
+          { "selected": false, "text": "ic12_expertSearch", "value": "ic12_expertSearch" },
+          { "selected": false, "text": "ic13_shortestPath", "value": "ic13_shortestPath" }
+        ],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true
       }
     ]
   },

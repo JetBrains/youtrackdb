@@ -1,0 +1,11 @@
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: zulip-jmh-bench
+    group_by:
+      - alertname
+      - suite
+    group_wait: 1m
+    group_interval: 10m
+    repeat_interval: 24h
