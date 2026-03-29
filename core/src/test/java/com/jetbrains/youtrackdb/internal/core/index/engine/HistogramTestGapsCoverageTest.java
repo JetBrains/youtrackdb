@@ -350,8 +350,9 @@ public class HistogramTestGapsCoverageTest {
         250, result.histogram().frequencies()[1]);
     assertTrue("hasDriftedBuckets must be set when frequency is clamped",
         result.hasDriftedBuckets());
-    // nonNullCount = sum of clamped frequencies = 0 + 250 + 250 + 250 = 750
-    assertEquals(750, result.histogram().nonNullCount());
+    // nonNullCount = max(0, newTotal - newNull) = max(0, 700 - 0) = 700
+    // (uses accurate scalar counters, not the sum of clamped frequencies)
+    assertEquals(700, result.histogram().nonNullCount());
   }
 
   @Test

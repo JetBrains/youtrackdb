@@ -464,7 +464,10 @@ public class IndexHistogramManagerMutationTest {
     assertEquals("Bucket 0 freq clamped to 0", 0, result.histogram().frequencies()[0]);
     assertEquals("Bucket 1 freq unchanged", 100, result.histogram().frequencies()[1]);
     assertTrue("hasDriftedBuckets should be set", result.hasDriftedBuckets());
-    assertEquals("nonNullCount = 0 + 100 = 100", 100, result.histogram().nonNullCount());
+    // nonNullCount = max(0, newTotal - newNull) = max(0, 50 - 0) = 50
+    // (uses accurate scalar counters, not the sum of clamped frequencies)
+    assertEquals("nonNullCount = max(0, 50 - 0) = 50", 50,
+        result.histogram().nonNullCount());
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -600,7 +603,7 @@ public class IndexHistogramManagerMutationTest {
     var hll = new HyperLogLogSketch();
     for (int i = 0; i < 500; i++) {
       hll.add(MurmurHash3.murmurHash3_x64_64(
-          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+          String.valueOf(i).getBytes(StandardCharsets.UTF_8), 0x9747b28c));
     }
     long baseEstimate = hll.estimate();
 
@@ -610,7 +613,7 @@ public class IndexHistogramManagerMutationTest {
     var deltaHll = new HyperLogLogSketch();
     for (int i = 500; i < 1000; i++) {
       deltaHll.add(MurmurHash3.murmurHash3_x64_64(
-          String.valueOf(i).getBytes(java.nio.charset.StandardCharsets.UTF_8), 0x9747b28c));
+          String.valueOf(i).getBytes(StandardCharsets.UTF_8), 0x9747b28c));
     }
     var delta = new HistogramDelta();
     delta.totalCountDelta = 500;

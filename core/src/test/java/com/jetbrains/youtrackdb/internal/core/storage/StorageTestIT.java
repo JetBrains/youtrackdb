@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -65,7 +66,8 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
+    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
+    var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
 
@@ -73,14 +75,14 @@ public class StorageTestIT {
     var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
     var position = File.HEADER_SIZE + pageSize + (3 << 10);
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
 
-    var bt = file.read();
-    file.seek(position);
-    file.write(bt + 1);
-    file.close();
+      var bt = file.read();
+      file.seek(position);
+      file.write(bt + 1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath, config);
     session = youTrackDB.open(StorageTestIT.class.getSimpleName(),
@@ -132,7 +134,8 @@ public class StorageTestIT {
     db.close();
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
+    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
+    var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
     youTrackDB.close();
 
@@ -140,11 +143,11 @@ public class StorageTestIT {
     var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
     var position = File.HEADER_SIZE + pageSize + DurablePage.MAGIC_NUMBER_OFFSET;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
-    file.write(1);
-    file.close();
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
+      file.write(1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
@@ -199,17 +202,18 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
+    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
+    var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     youTrackDB.close();
     var position = File.HEADER_SIZE + DurablePage.MAGIC_NUMBER_OFFSET;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
-    file.write(1);
-    file.close();
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
+      file.write(1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
@@ -262,21 +266,22 @@ public class StorageTestIT {
 
     final var storagePath = storage.getStoragePath();
 
-    var fileId = wowCache.fileIdByName("pagebreak.pcl");
+    var pclFileName = findFileName(wowCache, "pagebreak", ".pcl");
+    var fileId = wowCache.fileIdByName(pclFileName);
     var nativeFileName = wowCache.nativeFileNameById(fileId);
 
     youTrackDB.close();
 
     var position = 3 << 10;
 
-    var file =
-        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw");
-    file.seek(position);
+    try (var file =
+        new RandomAccessFile(storagePath.resolve(nativeFileName).toFile(), "rw")) {
+      file.seek(position);
 
-    var bt = file.read();
-    file.seek(position);
-    file.write(bt + 1);
-    file.close();
+      var bt = file.read();
+      file.seek(position);
+      file.write(bt + 1);
+    }
 
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(directoryPath,
         config);
@@ -312,6 +317,20 @@ public class StorageTestIT {
       Assert.assertEquals(YouTrackDBConstants.getVersion(), result.getProperty("createdAtVersion"));
     }
     tx.commit();
+  }
+
+  /**
+   * Finds a file name in the write cache by class-name prefix and extension.
+   * Collection names include a numeric suffix (e.g., "pagebreak_0.pcl"),
+   * so we match "{prefix}_" to avoid false positives on longer class names.
+   */
+  private static String findFileName(
+      WriteCache cache, String prefix, String extension) {
+    return cache.files().keySet().stream()
+        .filter(name -> name.startsWith(prefix + "_") && name.endsWith(extension))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError(
+            "No " + extension + " file found for class prefix '" + prefix + "'"));
   }
 
   @After
