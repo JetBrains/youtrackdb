@@ -6254,6 +6254,79 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
+  // True single-source via {rid:} where the source has NO edges of the target
+  // edge class. ridSet == null or isEmpty → ExecutionStream.empty().
+  @Test
+  public void testIndexOrderedMatchSingleSourceEmptyRidSet() throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      // Create a person with NO TEST_HAS_CREATOR edges
+      session.execute("CREATE VERTEX TestPerson SET name = 'loner'").close();
+      session.commit();
+
+      session.begin();
+      String rid;
+      try (var ridResult = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'loner'")) {
+        Assert.assertTrue(ridResult.hasNext());
+        rid = ridResult.next().getProperty("r").toString();
+      }
+
+      var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+          + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+          + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        Assert.assertFalse("Loner has no edges, should return 0 results",
+            result.hasNext());
+      }
+      session.commit();
+    }
+  }
+
+  // True single-source via {rid:} with target WHERE + loadFromRidSet path.
+  // MAX_SCAN=1 forces runtime cost rejection → loadFromRidSet with target filter.
+  @Test
+  public void testIndexOrderedMatchSingleSourceLoadFromRidSetWithTargetFilter()
+      throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      var oldMaxScan = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValue();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(1L);
+      try {
+        session.begin();
+        String rid;
+        try (var ridResult = session.query(
+            "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+          Assert.assertTrue(ridResult.hasNext());
+          rid = ridResult.next().getProperty("r").toString();
+        }
+
+        // {rid:} → single-source. MAX_SCAN=1 → loadFromRidSet.
+        // Target WHERE (msgId > 190) → matchesTargetFilter exercised in stream.
+        var query = "MATCH {class: TestPerson, as: p, rid: " + rid + "}"
+            + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m,"
+            + " where: (msgId > 190)} "
+            + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+        try (var result = session.query(query)) {
+          var mids = new java.util.ArrayList<Long>();
+          while (result.hasNext()) {
+            mids.add(((Number) result.next().getProperty("mid")).longValue());
+          }
+          Assert.assertEquals("Should have 5 results", 5, mids.size());
+          for (var mid : mids) {
+            Assert.assertTrue("msgId should be > 190, got: " + mid, mid > 190);
+          }
+        }
+        session.commit();
+      } finally {
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.setValue(oldMaxScan);
+      }
+    }
+  }
+
   // Single-source cost model rejection (small data) exercises loadFromRidSet with
   // target WHERE filter. Covers the filter branches in the stream pipeline.
   @Test
