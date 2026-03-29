@@ -1,0 +1,386 @@
+name: CI Failure Fix Agent
+on:
+  workflow_dispatch:
+    inputs:
+      failed_run_url:
+        description: 'URL of the failed GitHub Actions workflow run'
+        required: true
+        type: string
+      failed_workflow_name:
+        description: 'Name of the failed workflow'
+        required: true
+        type: string
+      trigger_sha:
+        description: 'SHA of the commit that triggered the failure'
+        required: true
+        type: string
+
+concurrency:
+  group: ci-failure-fix-agent
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: read
+
+jobs:
+  fix-ci-failure:
+    name: Auto-fix CI Failure
+    runs-on:
+      - self-hosted
+      - type-cpx42
+      - image-x86-system-ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      FAILED_RUN_URL: ${{ inputs.failed_run_url }}
+      FAILED_WORKFLOW_NAME: ${{ inputs.failed_workflow_name }}
+      TRIGGER_SHA: ${{ inputs.trigger_sha }}
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          architecture: x64
+          overwrite-settings: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure Git
+        run: |
+          git config user.name "ci-fix-agent[bot]"
+          git config user.email "ci-fix-agent[bot]@users.noreply.github.com"
+
+      - name: Build agent prompt
+        id: prompt
+        run: |
+          cat > /tmp/fix-agent-prompt-$$.md << 'AGENT_PROMPT_EOF'
+          You are an autonomous CI failure fix agent running in GitHub Actions.
+          There is NO human operator — you must make all decisions independently.
+
+          Your goal: investigate the CI failure, fix it if possible, create a PR
+          with the fix, and write a summary report.
+
+          **Key constraints:**
+          - You are running on a Hetzner CPX42 Linux x86_64 node with JDK 21,
+            Maven, and `gh` CLI available.
+          - You have full repository access and can create branches, commit,
+            push, and create PRs.
+          - There is no user to ask questions — make reasonable decisions
+            autonomously.
+          - At the end, write your final summary to `/tmp/fix-agent-summary.md`.
+          - If you cannot fix the issue, still write a summary documenting your
+            investigation findings.
+          - NEVER run multiple test processes simultaneously in the same
+            directory.
+
+          ## Step 0: Check for existing fix PRs
+
+          Before any investigation, check whether someone (human or previous
+          agent run) has already opened a PR that addresses this failure.
+
+          1. List open PRs targeting `develop`:
+             ```bash
+             gh pr list --base develop --state open \
+               --json number,title,headRefName,body,labels --limit 50
+             ```
+          2. Look for PRs whose title or body mentions:
+             - The failing test class name (extract from the failed run logs)
+             - "ci-fix" or "fix ci" or "flaky" keywords
+             - A branch name starting with `ci-fix/`
+          3. If a matching PR exists:
+             - Write a summary to `/tmp/fix-agent-summary.md` noting
+               that a fix PR already exists (include PR number and URL).
+             - Exit without making changes.
+          4. If no matching PR exists, proceed to Step 1.
+
+          ## Step 1: Identify the failure
+
+          1. Use `gh` CLI to fetch the failed workflow run details:
+             ```bash
+             gh run view {run_id} --json jobs,conclusion,headSha
+             ```
+          2. Find failed jobs and get their logs:
+             ```bash
+             gh run view {run_id} --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .databaseId'
+             gh run view --job {job_id} --log-failed
+             ```
+          3. Get check run annotations for exact test names and error messages:
+             ```bash
+             gh api "repos/{owner}/{repo}/check-runs/{check_run_id}/annotations"
+             ```
+
+          ## Step 2: Classify the failure type
+
+          Identify the category before diving into code:
+
+          - **Test failure**: A test assertion or error — go to Step 3.
+          - **CI gate failure** (coverage gate, test count gate): A policy
+            check failed, not a test. Read PR comments for gate details.
+            Understand the gate's threshold and why it triggered — go to
+            Step 2a.
+          - **Build failure**: Compilation error, dependency issue — read
+            build logs.
+          - **Infrastructure failure**: Timeout, runner issue, flaky network
+            — write a summary noting this is infra-related and skip fix.
+
+          ### Step 2a: Diagnose CI gate failures
+
+          1. Read the gate's PR comment — it has specific data.
+          2. Check CLAUDE.md and gate scripts for exact rules.
+          3. **Test Count Gate**: Compare baseline vs current per module. A
+             big drop usually means tests were excluded by build config
+             changes. Trace WHY — don't just bypass.
+          4. **Coverage Gate**: Check which lines are uncovered and whether
+             existing tests should cover them.
+          5. The fix is often in build configuration, not test code.
+
+          ## Step 3: Locate and understand the failing test
+
+          1. Find the test file: `Glob **/{TestClassName}.java`
+          2. Read the full test file — understand the failing assertion.
+          3. Identify the failure type:
+             - Timing/flakiness: race conditions, thread scheduling
+             - Logic bug: wrong assertion, incorrect expected value
+             - Environment issue: path separators, locale, OS-specific
+             - Actual regression: code change broke the test
+
+          ## Step 4: Trace the root cause
+
+          1. Read the production code exercised by the failing test.
+          2. Understand the full data flow from code under test to assertion.
+          3. Determine if the fix goes in the test or production code:
+             - Test asserts a contract production code violates → fix prod
+             - Test has overly strict assertion → fix test
+          4. For build config issues: trace the Maven profile chain — which
+             profile was removed, what did it activate, which `pom.xml`
+             depended on it.
+          5. Document your root cause analysis before making changes.
+
+          ## Step 5: Apply the fix
+
+          1. Make the minimal change that fixes the root cause.
+          2. Add comments explaining **why** the fix is correct.
+          3. Update Javadoc for affected methods/classes.
+          4. Add Java `assert` statements in production code touched by the
+             fix (zero overhead when disabled in production):
+             - Preconditions/postconditions at method entry/exit
+             - Invariant checks after state mutations
+             - Null checks on values that should never be null by contract
+             Do NOT add assertions that duplicate existing checks or have
+             side effects.
+          5. Internal classes under `com.jetbrains.youtrackdb.internal` can
+             be refactored for testability, but **never modify the public
+             API** under `com.jetbrains.youtrackdb.api`.
+          6. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
+
+          ## Step 6: Verify locally
+
+          1. Run the failing test to confirm the fix:
+             ```bash
+             ./mvnw -pl {module} clean test -Dtest={TestClass} \
+               -Dyoutrackdb.test.env=ci
+             ```
+          2. For gate failures, run the full module test suite:
+             ```bash
+             ./mvnw -pl {module} clean test -Dyoutrackdb.test.env=ci
+             ```
+          3. If the test requires a suite runner (GremlinProcessRunner, graph
+             provider), note it cannot run standalone — verify by inspection.
+          4. Run `./mvnw -pl {module} spotless:check` for formatting.
+
+          ## Step 7: Dimensional review (MANDATORY)
+
+          **BLOCKING: Do NOT proceed until this step completes.**
+
+          If you changed any code or tests, launch review agents in parallel:
+
+          **Five code review agents:**
+          - `review-code-quality`
+          - `review-bugs-concurrency`
+          - `review-crash-safety`
+          - `review-security`
+          - `review-performance`
+
+          **Five test quality agents:**
+          - `review-test-behavior`
+          - `review-test-completeness`
+          - `review-test-structure`
+          - `review-test-concurrency`
+          - `review-test-crash-safety`
+
+          Address all **blocker** and **should-fix** findings. Re-run
+          affected tests after fixes. Maximum 3 review iterations.
+
+          ## Step 8: Commit, push, and create PR
+
+          1. Create a fix branch:
+             ```bash
+             git checkout -b ci-fix/$(date +%Y%m%d-%H%M%S) develop
+             ```
+          2. Stage and commit with a descriptive message:
+             ```bash
+             git add <changed-files>
+             git commit -m "$(cat <<'EOF'
+             Fix <test/gate> failure in <module>
+
+             <Why the failure happened and what was changed>
+             EOF
+             )"
+             ```
+          3. Push and create PR:
+             ```bash
+             git push -u origin HEAD
+             gh pr create --base develop \
+               --title "Fix <description>" \
+               --body "$(cat <<'EOF'
+             ## Summary
+             - <what was fixed and why>
+
+             ## Motivation
+             CI failure on develop: <failed_run_url>
+
+             ## Test plan
+             - [ ] Failing test passes locally
+             - [ ] No other tests broken
+             EOF
+             )"
+             ```
+          4. If no code changes are needed (infra issue, already fixed),
+             skip PR creation.
+
+          ## Step 9: Write summary report
+
+          Write your final summary to `/tmp/fix-agent-summary.md`:
+
+          ```markdown
+          ## Status
+          <!-- One of: FIX_PR_CREATED, EXISTING_PR_FOUND, NO_FIX_NEEDED,
+               INVESTIGATION_ONLY -->
+          <status>
+
+          ## Problem
+          <exact failure: test name, error message, CI link>
+
+          ## Root Cause
+          <why it failed — detailed technical explanation>
+
+          ## Fix Applied
+          <what was changed and why, or "No changes needed">
+
+          ## PR
+          <PR URL or "No PR created" with reason>
+          ```
+
+          ## Important Rules
+
+          - Always use `gh` CLI for GitHub API, not WebFetch.
+          - Read before editing — always read full test and production code.
+          - Minimal changes — fix root cause, don't refactor surroundings.
+          - Don't blindly relax assertions — understand why they fail first.
+          - Don't bypass CI gates without understanding why tests disappeared.
+          - Build config changes have test side effects — check Maven profiles.
+          - NEVER run multiple test processes simultaneously.
+          - Add `assert` statements generously in production code (zero cost).
+          - Internal classes may be refactored for testability, never public API.
+          - Dimensional review is mandatory after any code/test change.
+
+          ## YouTrackDB-Specific Knowledge
+
+          ### CI Gates
+          - **Test Count Gate**: per-module comparison against git notes
+            baseline. Fails if any module drops >5%.
+          - **Coverage Gate**: 85% line / 70% branch on changed code.
+
+          ### Common Patterns
+          - **Profile-gated tests**: Some modules exclude heavyweight tests
+            by default; `ci-integration-tests` profile includes them via
+            `<excludes combine.self="override"/>`.
+          - **Surefire vs Failsafe**: Unit tests = surefire (`test` phase),
+            integration tests = failsafe (`verify` + `-P ci-integration-tests`).
+          - **Embedded Cucumber tests**: ~1900 TinkerPop Gremlin scenarios,
+            requires 4GB heap.
+          AGENT_PROMPT_EOF
+
+          # Append the dynamic inputs
+          cat >> /tmp/fix-agent-prompt-$$.md << EOF
+
+          ---
+          ## Failed Workflow Details
+
+          - **Failed run URL**: ${FAILED_RUN_URL}
+          - **Failed workflow name**: ${FAILED_WORKFLOW_NAME}
+          - **Commit SHA**: ${TRIGGER_SHA}
+          EOF
+
+          echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
+
+      - name: Run Fix Agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+          MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
+          MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
+        run: |
+          claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
+            --dangerously-skip-permissions \
+            --model claude-sonnet-4-6 \
+            --max-turns 200 \
+            --output-format text \
+            > /tmp/fix-agent-output-$$.txt 2>&1 || true
+
+          echo "Agent finished. Output length: $(wc -c < /tmp/fix-agent-output-$$.txt) bytes"
+
+      - name: Prepare Zulip summary
+        id: summary
+        if: always()
+        run: |
+          if [ -f /tmp/fix-agent-summary.md ]; then
+            SUMMARY=$(head -c 3000 /tmp/fix-agent-summary.md)
+          else
+            SUMMARY="Agent completed without writing a structured summary. Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          fi
+
+          # Write to file for the Zulip step (avoids escaping issues)
+          cat > /tmp/zulip-message-$$.md <<EOF
+          **CI Fix Agent Report** :robot:
+          Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
+          [Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          ${SUMMARY}
+          EOF
+
+          echo "zulip_message_file=/tmp/zulip-message-$$.md" >> "$GITHUB_OUTPUT"
+
+      - name: Send Zulip summary
+        if: always()
+        env:
+          ZULIP_API_KEY: ${{ secrets.ZULIP_API_KEY }}
+        run: |
+          MESSAGE_FILE="${{ steps.summary.outputs.zulip_message_file }}"
+          if [ ! -f "$MESSAGE_FILE" ]; then
+            MESSAGE_FILE="/tmp/zulip-fallback-$$.md"
+            echo "**CI Fix Agent Report** :robot: — agent produced no summary. Check [logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})." > "$MESSAGE_FILE"
+          fi
+
+          curl -s -X POST "https://youtrackdb.zulipchat.com/api/v1/messages" \
+            -u "ci-status-bot@youtrackdb.zulipchat.com:${ZULIP_API_KEY}" \
+            --data-urlencode type=stream \
+            --data-urlencode to=ytdb \
+            --data-urlencode topic="ci status" \
+            --data-urlencode "content@${MESSAGE_FILE}"

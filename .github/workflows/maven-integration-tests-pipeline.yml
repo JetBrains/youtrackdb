@@ -260,6 +260,16 @@ jobs:
     if: always() && github.event_name != 'workflow_dispatch' && (needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure' || needs.merge-to-main.result == 'failure')
     runs-on: ubuntu-latest
     steps:
+      - name: Dispatch CI Fix Agent
+        if: needs.test-linux.result == 'failure' || needs.test-windows.result == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+        run: |
+          gh workflow run ci-failure-fix-agent.yml \
+            --repo "${{ github.repository }}" \
+            -f failed_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f failed_workflow_name="${{ github.workflow }}" \
+            -f trigger_sha="${{ github.sha }}"
       - name: Send Zulip Notification
         uses: zulip/github-actions-zulip/send-message@v1
         with:
@@ -273,6 +283,7 @@ jobs:
             **BUILD FAILED** :rotating_light:
             Integration tests or merge failed on branch `${{ github.ref_name }}` for commit ${{ github.sha }} for repo ${{ github.repository }}.
             [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            :robot: Automated fix agent has been dispatched and is investigating...
 
   notify-fixed:
     name: Notify build fixed on Zulip
