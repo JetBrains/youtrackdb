@@ -836,13 +836,10 @@ final class ParameterCurator {
   }
 
   /** Parse "yyyy-MM-dd" to a Date at midnight UTC. */
-  @SuppressWarnings("deprecation")
   private static Date parseDayToDate(String day) {
-    String[] parts = day.split("-");
-    int year = Integer.parseInt(parts[0]) - 1900;
-    int month = Integer.parseInt(parts[1]) - 1;
-    int dayOfMonth = Integer.parseInt(parts[2]);
-    return new Date(year, month, dayOfMonth);
+    java.time.LocalDate localDate = java.time.LocalDate.parse(day);
+    return Date.from(
+        localDate.atStartOfDay(java.time.ZoneOffset.UTC).toInstant());
   }
 
   // ==================== JSON PERSISTENCE ====================
