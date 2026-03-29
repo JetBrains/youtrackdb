@@ -66,9 +66,14 @@ public abstract class LdbcICSlowBenchmarkBase {
   /**
    * IC4: New topics.
    * Find Tags attached to friends' Posts in a time interval that were never
-   * used before. ~2.7 ops/s (ST) on SF 1 — highly parameter-sensitive.
+   * used before. ~0.85 ops/s (ST) on SF 1.
+   * Extended warmup: at 0.85 ops/s the default 1×30s warmup gives only ~25
+   * invocations — not enough for JIT to fully optimize the MATCH+NOT traversal.
+   * 3×30s gives ~76 invocations across 3 rounds, allowing JIT recompilation
+   * cycles to settle.
    */
   @Benchmark
+  @Warmup(iterations = 3, time = 30)
   public List<Map<String, Object>> ic4_newTopics(LdbcBenchmarkState state) {
     long i = state.nextIndex();
     Date startDate = state.ic4StartDate(i);

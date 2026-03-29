@@ -20,7 +20,7 @@ import org.openjdk.jmh.annotations.Warmup;
  * <p>Even with curated parameters, these queries need long measurement windows
  * because individual operations are so slow. 120s iterations ensure at least
  * 1-3 operations per iteration for IC10 (40s/op) and IC3 (83s/op).
- * 3 forks × 3 iterations gives 9 data points.
+ * 5 forks × 3 iterations gives 15 data points.
  *
  * <p>Subclasses specify the thread count via @Threads annotation.
  */
@@ -28,7 +28,7 @@ import org.openjdk.jmh.annotations.Warmup;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 1, time = 60)
 @Measurement(iterations = 3, time = 120)
-@Fork(value = 3, jvmArgsAppend = {
+@Fork(value = 5, jvmArgsAppend = {
     "-Xms4g", "-Xmx4g",
     "--add-opens=java.base/java.lang=ALL-UNNAMED",
     "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",

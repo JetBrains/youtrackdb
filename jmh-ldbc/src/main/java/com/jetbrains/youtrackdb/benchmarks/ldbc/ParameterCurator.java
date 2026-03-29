@@ -41,9 +41,14 @@ final class ParameterCurator {
   private static final Logger log = LoggerFactory.getLogger(ParameterCurator.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private static final String FACTOR_CACHE_FILE = "factor-tables.json";
+  // Bump version suffix when curation logic changes to invalidate old caches
+  private static final String CURATED_PARAMS_CACHE_FILE = "curated-params-v3.json";
 
   // Target number of curated parameter tuples per query
   static final int PARAMS_PER_QUERY = 500;
+
+  // Number of (person, date) pairs to sample for IC4 factor computation
+  private static final int IC4_SAMPLE_SIZE = 200;
 
   private ParameterCurator() {
   }
@@ -120,13 +125,54 @@ final class ParameterCurator {
   /**
    * Computes or loads curated parameters for all LDBC queries.
    *
+   * <p>Curated parameters are cached to a JSON file alongside the database so
+   * they are computed only once and reused across JMH forks. This eliminates
+   * ~2.3 hours of overhead from re-running expensive SQL queries (especially
+   * the Message GROUP BY creation day query at ~43s) on every fork.
+   *
+   * <p>The cache is invalidated when the factor tables file is newer, which
+   * indicates that the underlying data has changed.
+   *
    * @param state the benchmark state (for executing SQL queries)
-   * @param dbPath path to the database directory (for caching factor tables)
+   * @param dbPath path to the database directory (for caching)
    * @return curated parameter arrays for all queries
    */
   static CuratedParams curate(LdbcBenchmarkState state, Path dbPath) {
+    Path cacheFile = dbPath.resolve(CURATED_PARAMS_CACHE_FILE);
+    Path factorCacheFile = dbPath.resolve(FACTOR_CACHE_FILE);
+
+    if (Files.exists(cacheFile)) {
+      try {
+        // Invalidate if factor tables are newer than curated params
+        if (Files.exists(factorCacheFile)
+            && Files.getLastModifiedTime(factorCacheFile)
+                .compareTo(Files.getLastModifiedTime(cacheFile)) > 0) {
+          log.info("Factor tables newer than curated params cache,"
+              + " recomputing...");
+        } else {
+          log.info("Loading cached curated params from: {}", cacheFile);
+          CuratedParams cached = loadCuratedParamsFromJson(cacheFile);
+          log.info("Curated params loaded from cache ({} IC1, {} IC4 params)",
+              cached.ic1().length, cached.ic4().length);
+          return cached;
+        }
+      } catch (Exception e) {
+        log.warn("Failed to load curated params cache, recomputing: {}",
+            e.getMessage());
+      }
+    }
+
     FactorTables factors = loadOrComputeFactors(state, dbPath);
-    return generateParams(factors, state);
+    CuratedParams params = generateParams(factors, state);
+
+    try {
+      saveCuratedParamsToJson(params, cacheFile);
+      log.info("Curated params cached to: {}", cacheFile);
+    } catch (IOException e) {
+      log.warn("Failed to cache curated params: {}", e.getMessage());
+    }
+
+    return params;
   }
 
   // ==================== FACTOR TABLE COMPUTATION ====================
@@ -598,16 +644,70 @@ final class ParameterCurator {
       }
     }
 
-    // IC4: friends-selected × dates
-    log.info("  Generating IC4 params...");
-    List<Ic4Params> ic4List = new ArrayList<>();
-    for (int pi = 0; pi < friendsSelected.size()
-        && ic4List.size() < PARAMS_PER_QUERY; pi++) {
-      for (int di = 0; di < selectedDates.size()
-          && ic4List.size() < PARAMS_PER_QUERY; di++) {
-        ic4List.add(new Ic4Params(friendsSelected.get(pi),
-            selectedDates.get(di)));
+    // IC4: friends-selected × dates, with oldPost-count-based difficulty
+    // factor. IC4 ("new topics") cost is dominated by the NOT pattern which
+    // checks all posts by friends before startDate. Result count alone misses
+    // this — two pairs with the same number of "new" tags can have vastly
+    // different execution times if one person's friends have many more old
+    // posts. We count oldPosts (friends' posts before startDate) per sample
+    // and gap-group on that count. This is a data-derived factor that is
+    // stable across code changes, hardware, and JIT state.
+    log.info("  Generating IC4 params (with oldPost-count factor)...");
+    List<Ic4Params> ic4Candidates = new ArrayList<>();
+    for (Long pid : friendsSelected) {
+      for (Date d : selectedDates) {
+        ic4Candidates.add(new Ic4Params(pid, d));
+        if (ic4Candidates.size() >= friendsSelected.size()
+            * selectedDates.size()) {
+          break;
+        }
       }
+    }
+
+    // Sample up to IC4_SAMPLE_SIZE pairs for factor computation
+    int sampleSize = Math.min(IC4_SAMPLE_SIZE, ic4Candidates.size());
+    // Use stride-based sampling for even coverage across the cross-product
+    int stride = Math.max(1, ic4Candidates.size() / sampleSize);
+    List<Ic4Params> ic4Sample = new ArrayList<>();
+    for (int si = 0; si < ic4Candidates.size()
+        && ic4Sample.size() < sampleSize; si += stride) {
+      ic4Sample.add(ic4Candidates.get(si));
+    }
+
+    log.info("    Counting oldPosts for {} IC4 pairs...",
+        ic4Sample.size());
+    long ic4FactorStart = System.currentTimeMillis();
+    List<FactorEntry<Ic4Params>> ic4Factors = new ArrayList<>();
+    for (int si = 0; si < ic4Sample.size(); si++) {
+      Ic4Params p = ic4Sample.get(si);
+      List<Map<String, Object>> result = state.executeSql(
+          LdbcQuerySql.IC4_OLDPOST_COUNT,
+          "personId", p.personId(),
+          "startDate", p.startDate());
+      long oldPostCount = result.isEmpty() ? 0
+          : ((Number) result.getFirst().get("cnt")).longValue();
+      ic4Factors.add(new FactorEntry<>(p, oldPostCount));
+      if ((si + 1) % 50 == 0) {
+        log.info("    IC4 factor progress: {}/{}", si + 1,
+            ic4Sample.size());
+      }
+    }
+    long ic4FactorElapsed = System.currentTimeMillis() - ic4FactorStart;
+    log.info("    IC4 oldPost-count factor computed in {}s for {} pairs",
+        ic4FactorElapsed / 1000.0, ic4Sample.size());
+
+    // Gap-group on oldPost count to find pairs with similar NOT-pattern cost.
+    // threshold=50 (consecutive pairs differ by ≤50 old posts),
+    // minGroupSize=20, minValue=10 (exclude pairs with very few old posts
+    // where the NOT pattern is trivially cheap).
+    List<Ic4Params> ic4Selected = gapBasedGrouping(
+        ic4Factors, 50, 20, 10);
+    log.info("    IC4 gap-grouped: {} pairs selected", ic4Selected.size());
+
+    // Fill to PARAMS_PER_QUERY by cycling through the selected pairs
+    List<Ic4Params> ic4List = new ArrayList<>();
+    for (int i = 0; i < PARAMS_PER_QUERY; i++) {
+      ic4List.add(ic4Selected.get(i % ic4Selected.size()));
     }
 
     // IC5: FoF-selected (person only)
@@ -787,5 +887,196 @@ final class ParameterCurator {
         json.tagPersonCounts(),
         json.tagClassNames(),
         json.countryPairs());
+  }
+
+  // ==================== CURATED PARAMS JSON PERSISTENCE ====================
+
+  /**
+   * JSON-serializable representation of CuratedParams. Dates are stored as
+   * epoch millis (long) for portability. Jackson handles records natively
+   * in 2.12+, so the inner param records serialize automatically.
+   */
+  record CuratedParamsJson(
+      long[] isPersonIds,
+      long[] isMessageIds,
+      Ic1Params[] ic1,
+      PersonDateParamsJson[] ic2,
+      Ic3ParamsJson[] ic3,
+      Ic4ParamsJson[] ic4,
+      long[] ic5PersonIds,
+      Ic6Params[] ic6,
+      long[] ic7PersonIds,
+      long[] ic8PersonIds,
+      Ic9ParamsJson[] ic9,
+      long[] ic10PersonIds,
+      long[] ic11PersonIds,
+      String[] ic11CountryNames,
+      Ic12Params[] ic12,
+      long[] ic13PersonIds1,
+      long[] ic13PersonIds2,
+      long[] dates) {
+  }
+
+  /** PersonDateParams with Date as epoch millis. */
+  record PersonDateParamsJson(long personId, long maxDate) {
+  }
+
+  /** Ic3Params with Date as epoch millis. */
+  record Ic3ParamsJson(long personId, String countryX, String countryY,
+      long startDate) {
+  }
+
+  /** Ic4Params with Date as epoch millis. */
+  record Ic4ParamsJson(long personId, long startDate) {
+  }
+
+  /** Ic9Params with Date as epoch millis. */
+  record Ic9ParamsJson(long personId, long maxDate) {
+  }
+
+  private static void saveCuratedParamsToJson(
+      CuratedParams params, Path path) throws IOException {
+    var json = new CuratedParamsJson(
+        params.isPersonIds(),
+        params.isMessageIds(),
+        params.ic1(),
+        toPersonDateJson(params.ic2()),
+        toIc3Json(params.ic3()),
+        toIc4Json(params.ic4()),
+        params.ic5PersonIds(),
+        params.ic6(),
+        params.ic7PersonIds(),
+        params.ic8PersonIds(),
+        toIc9Json(params.ic9()),
+        params.ic10PersonIds(),
+        params.ic11PersonIds(),
+        params.ic11CountryNames(),
+        params.ic12(),
+        params.ic13PersonIds1(),
+        params.ic13PersonIds2(),
+        datesToMillis(params.dates()));
+    MAPPER.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), json);
+  }
+
+  private static CuratedParams loadCuratedParamsFromJson(Path path)
+      throws IOException {
+    var json = MAPPER.readValue(path.toFile(),
+        new TypeReference<CuratedParamsJson>() {
+        });
+    return new CuratedParams(
+        json.isPersonIds(),
+        json.isMessageIds(),
+        json.ic1(),
+        fromPersonDateJson(json.ic2()),
+        fromIc3Json(json.ic3()),
+        fromIc4Json(json.ic4()),
+        json.ic5PersonIds(),
+        json.ic6(),
+        json.ic7PersonIds(),
+        json.ic8PersonIds(),
+        fromIc9Json(json.ic9()),
+        json.ic10PersonIds(),
+        json.ic11PersonIds(),
+        json.ic11CountryNames(),
+        json.ic12(),
+        json.ic13PersonIds1(),
+        json.ic13PersonIds2(),
+        millisToDates(json.dates()));
+  }
+
+  // --- Date conversion helpers ---
+
+  private static long[] datesToMillis(Date[] dates) {
+    long[] millis = new long[dates.length];
+    for (int i = 0; i < dates.length; i++) {
+      millis[i] = dates[i].getTime();
+    }
+    return millis;
+  }
+
+  private static Date[] millisToDates(long[] millis) {
+    Date[] dates = new Date[millis.length];
+    for (int i = 0; i < millis.length; i++) {
+      dates[i] = new Date(millis[i]);
+    }
+    return dates;
+  }
+
+  // --- Record conversion helpers (Date <-> long millis) ---
+
+  private static PersonDateParamsJson[] toPersonDateJson(
+      PersonDateParams[] params) {
+    var json = new PersonDateParamsJson[params.length];
+    for (int i = 0; i < params.length; i++) {
+      json[i] = new PersonDateParamsJson(
+          params[i].personId(), params[i].maxDate().getTime());
+    }
+    return json;
+  }
+
+  private static PersonDateParams[] fromPersonDateJson(
+      PersonDateParamsJson[] json) {
+    var params = new PersonDateParams[json.length];
+    for (int i = 0; i < json.length; i++) {
+      params[i] = new PersonDateParams(
+          json[i].personId(), new Date(json[i].maxDate()));
+    }
+    return params;
+  }
+
+  private static Ic3ParamsJson[] toIc3Json(Ic3Params[] params) {
+    var json = new Ic3ParamsJson[params.length];
+    for (int i = 0; i < params.length; i++) {
+      json[i] = new Ic3ParamsJson(
+          params[i].personId(), params[i].countryX(),
+          params[i].countryY(), params[i].startDate().getTime());
+    }
+    return json;
+  }
+
+  private static Ic3Params[] fromIc3Json(Ic3ParamsJson[] json) {
+    var params = new Ic3Params[json.length];
+    for (int i = 0; i < json.length; i++) {
+      params[i] = new Ic3Params(
+          json[i].personId(), json[i].countryX(),
+          json[i].countryY(), new Date(json[i].startDate()));
+    }
+    return params;
+  }
+
+  private static Ic4ParamsJson[] toIc4Json(Ic4Params[] params) {
+    var json = new Ic4ParamsJson[params.length];
+    for (int i = 0; i < params.length; i++) {
+      json[i] = new Ic4ParamsJson(
+          params[i].personId(), params[i].startDate().getTime());
+    }
+    return json;
+  }
+
+  private static Ic4Params[] fromIc4Json(Ic4ParamsJson[] json) {
+    var params = new Ic4Params[json.length];
+    for (int i = 0; i < json.length; i++) {
+      params[i] = new Ic4Params(
+          json[i].personId(), new Date(json[i].startDate()));
+    }
+    return params;
+  }
+
+  private static Ic9ParamsJson[] toIc9Json(Ic9Params[] params) {
+    var json = new Ic9ParamsJson[params.length];
+    for (int i = 0; i < params.length; i++) {
+      json[i] = new Ic9ParamsJson(
+          params[i].personId(), params[i].maxDate().getTime());
+    }
+    return json;
+  }
+
+  private static Ic9Params[] fromIc9Json(Ic9ParamsJson[] json) {
+    var params = new Ic9Params[json.length];
+    for (int i = 0; i < json.length; i++) {
+      params[i] = new Ic9Params(
+          json[i].personId(), new Date(json[i].maxDate()));
+    }
+    return params;
   }
 }

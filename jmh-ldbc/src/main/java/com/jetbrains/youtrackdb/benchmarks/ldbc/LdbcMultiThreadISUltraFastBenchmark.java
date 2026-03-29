@@ -6,22 +6,24 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 /**
- * Single-threaded LDBC SNB noisy IS-tier benchmark.
- * Runs IS2, IS7, and IC8 with a single thread, 10 forks, and extended warmup.
+ * Multi-threaded LDBC SNB ultra-fast query benchmark.
+ * Runs IS1, IS3-IS6, IC13 with one thread per available processor.
  *
  * <p>Usage:
  * <pre>
  * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
- *   -Djmh.args="LdbcSingleThreadISBenchmark.*"
+ *   -Djmh.args="LdbcMultiThreadISUltraFast.*"
  * </pre>
  */
-@Threads(1)
-public class LdbcSingleThreadISBenchmark extends LdbcISBenchmarkBase {
+@Threads(Threads.MAX)
+public class LdbcMultiThreadISUltraFastBenchmark
+    extends LdbcISUltraFastBenchmarkBase {
 
   public static void main(String[] args) throws RunnerException {
     new Runner(
         new OptionsBuilder()
-            .include(LdbcSingleThreadISBenchmark.class.getSimpleName())
+            .include(
+                LdbcMultiThreadISUltraFastBenchmark.class.getSimpleName())
             .build())
         .run();
   }
