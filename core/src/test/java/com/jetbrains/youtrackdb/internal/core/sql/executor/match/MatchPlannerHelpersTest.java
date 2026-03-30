@@ -1,13 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -204,6 +212,93 @@ public class MatchPlannerHelpersTest {
     assertThat(shared).containsExactly("person");
   }
 
+  // ── estimateNotPatternCardinality ────────────────────────────────────────
+
+  /**
+   * Origin alias with a known class (100 records), one edge, no intermediate
+   * filter. estimateRootEntries adds +1 for unfiltered classes, so origin
+   * estimate is 101. Expected: 101 * 10 (fan-out) = 1010.
+   */
+  @Test
+  public void estimateNotPatternCardinality_knownOrigin_oneEdge_noFilter() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 100);
+
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
+    assertThat(estimate).isEqualTo(1010);
+  }
+
+  /**
+   * Origin alias with no class/RID/filter in the maps — cannot estimate, must
+   * return Long.MAX_VALUE to force fallback to nested-loop.
+   */
+  @Test
+  public void estimateNotPatternCardinality_unknownOrigin_returnsMaxValue() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 100);
+
+    // Empty maps — origin alias not found
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of(), Map.of(), Map.of(), ctx);
+    assertThat(estimate).isEqualTo(Long.MAX_VALUE);
+  }
+
+  /**
+   * Two edges with an intermediate WHERE filter: (100+1) * 10 * 10 / 2 = 5050.
+   * The filter on the second hop applies 0.5 selectivity.
+   */
+  @Test
+  public void estimateNotPatternCardinality_twoEdges_withFilter() {
+    var exp = new SQLMatchExpression(-1);
+    var origin = new SQLMatchFilter(-1);
+    origin.setAlias("person");
+    exp.setOrigin(origin);
+
+    // First edge: no filter
+    var item1 = new SQLMatchPathItem(-1);
+    var filter1 = new SQLMatchFilter(-1);
+    filter1.setAlias("friend");
+    item1.setFilter(filter1);
+
+    // Second edge: has WHERE filter
+    var item2 = new SQLMatchPathItem(-1);
+    var filter2 = new SQLMatchFilter(-1);
+    filter2.setAlias("tag");
+    filter2.setFilter(buildWhereClause("name = 'X'", false));
+    item2.setFilter(filter2);
+
+    exp.setItems(List.of(item1, item2));
+    var ctx = buildMockContext("Person", 100);
+
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
+    // (100+1) * 10 * 10 / 2 = 5050
+    assertThat(estimate).isEqualTo(5050);
+  }
+
+  /**
+   * Single edge with no intermediate filter (full fan-out only).
+   * Origin has 50 records → (50+1) * 10 = 510.
+   */
+  @Test
+  public void estimateNotPatternCardinality_oneEdge_fullFanout() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 50);
+
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
+    assertThat(estimate).isEqualTo(510);
+  }
+
+  /**
+   * Verify HASH_JOIN_THRESHOLD constant value is 10,000.
+   */
+  @Test
+  public void hashJoinThreshold_isExpectedValue() {
+    assertThat(MatchExecutionPlanner.HASH_JOIN_THRESHOLD).isEqualTo(10_000);
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**
@@ -269,5 +364,26 @@ public class MatchPlannerHelpersTest {
         return refersToParent;
       }
     };
+  }
+
+  /**
+   * Builds a mock {@link CommandContext} with a schema containing the given class
+   * with the specified approximate record count.
+   */
+  private static CommandContext buildMockContext(String className, long recordCount) {
+    var db = mock(DatabaseSessionEmbedded.class);
+    var metadata = mock(MetadataDefault.class);
+    var schema = mock(ImmutableSchema.class);
+    var schemaClass = mock(SchemaClassInternal.class);
+
+    when(db.getMetadata()).thenReturn(metadata);
+    when(metadata.getImmutableSchemaSnapshot()).thenReturn(schema);
+    when(schema.existsClass(className)).thenReturn(true);
+    when(schema.getClassInternal(className)).thenReturn(schemaClass);
+    when(schemaClass.approximateCount(db)).thenReturn(recordCount);
+
+    var ctx = mock(CommandContext.class);
+    when(ctx.getDatabaseSession()).thenReturn(db);
+    return ctx;
   }
 }
