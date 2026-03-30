@@ -2,19 +2,19 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import java.io.IOException;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
@@ -32,6 +33,13 @@ import org.junit.Test;
  * <p>Verifies that put/remove/delete/close/clear operations correctly
  * delegate to the histogram manager when one is set, and that operations
  * work normally when no manager is set.
+ *
+ * <p>After snapshot isolation, single-value engines wrap every user key
+ * into a {@link CompositeKey} with an appended version timestamp before
+ * storing it in the B-tree. The version comes from
+ * {@link AtomicOperation#getCommitTs()} (mocked to return {@code 1L} in
+ * the fixture). For example, user key {@code "key1"} becomes
+ * {@code CompositeKey("key1", 1L)}.
  */
 public class BTreeEngineHistogramWiringTest {
 
@@ -44,7 +52,8 @@ public class BTreeEngineHistogramWiringTest {
     // Given a single-value engine with a histogram manager and a B-tree
     // that returns true (key was newly inserted)
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.put(any(), eq("key1"), any(RID.class))).thenReturn(true);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called
     boolean result = fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
@@ -58,7 +67,8 @@ public class BTreeEngineHistogramWiringTest {
   public void singleValue_put_update_callsOnPutWithWasInsertFalse() throws IOException {
     // Given a B-tree that returns false (key existed, value updated)
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.put(any(), eq("key1"), any(RID.class))).thenReturn(false);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(false);
 
     // When put is called
     boolean result = fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
@@ -70,9 +80,13 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void singleValue_put_nullKey_callsOnPutWithNullKey() throws IOException {
-    // Given a B-tree that accepts a null key insert
+    // Given a B-tree that accepts a null key insert.
+    // convertToCompositeKey(null) produces CompositeKey(null), then
+    // addKey(1L) yields CompositeKey(null, 1L).
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.put(any(), eq(null), any(RID.class))).thenReturn(true);
+    when(fixture.sbTree.put(
+        any(), eq(new CompositeKey((Object) null, 1L)), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called with a null key
     fixture.engine.put(fixture.op, null, new RecordId(1, 1));
@@ -86,7 +100,8 @@ public class BTreeEngineHistogramWiringTest {
     // Given a single-value engine without a histogram manager
     var fixture = new SingleValueFixture();
     fixture.engine.setHistogramManager(null);
-    when(fixture.sbTree.put(any(), eq("key1"), any(RID.class))).thenReturn(true);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
     // When put is called
     boolean result = fixture.engine.put(fixture.op, "key1", new RecordId(1, 1));
@@ -97,15 +112,20 @@ public class BTreeEngineHistogramWiringTest {
 
   // ═══════════════════════════════════════════════════════════════════════
   // Single-value engine: validatedPut() wiring
+  //
+  // After snapshot isolation, validatedPut() no longer delegates to
+  // sbTree.validatedPut(). Instead it runs the full
+  // iterateEntriesBetween → remove → validate → put flow inline.
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
   public void singleValue_validatedPut_insert_callsOnPutWithWasInsertTrue()
       throws IOException {
-    // Given a B-tree that returns 1 (insert via validated put)
+    // Given no existing entry (iterateEntriesBetween returns empty stream
+    // by default) and sbTree.put returns true
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(1);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
     // When validatedPut is called
     var validator = mock(
@@ -119,49 +139,66 @@ public class BTreeEngineHistogramWiringTest {
   }
 
   @Test
-  public void singleValue_validatedPut_update_callsOnPutWithWasInsertFalse()
+  public void singleValue_validatedPut_existingEntry_callsOnPut()
       throws IOException {
-    // Given a B-tree where key exists and value is updated (returns 0)
+    // Given an existing entry in the B-tree (simulates update scenario).
+    // With SI, the old versioned entry is removed and a new one is inserted.
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(0);
+    var existingKey = new CompositeKey("key1", 0L);
+    var existingRid = new RecordId(2, 2);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
+    when(fixture.sbTree.remove(any(), eq(existingKey))).thenReturn(existingRid);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
-    // When validatedPut is called
+    // When validatedPut is called with a validator that accepts the change
     var validator = mock(
         com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.class);
     boolean result =
         fixture.engine.validatedPut(fixture.op, "key1", new RecordId(1, 1), validator);
 
-    // Then onPut is called with wasInsert=false (key existed, value updated)
-    assertFalse(result);
-    verify(fixture.manager).onPut(fixture.op, "key1", true, false);
+    // Then onPut is called (new versioned entry was inserted)
+    assertTrue(result);
+    verify(fixture.manager).onPut(fixture.op, "key1", true, true);
   }
 
   @Test
   public void singleValue_validatedPut_ignored_doesNotCallOnPut()
       throws IOException {
-    // Given a B-tree where validator returns IGNORE (returns -1, no B-tree change)
+    // Given an existing entry in the B-tree and a validator that returns
+    // IGNORE. The engine calls the validator at the engine level (not
+    // delegated to sbTree.validatedPut) with the captured removedRID.
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(-1);
+    var existingKey = new CompositeKey("key1", 0L);
+    var existingRid = new RecordId(2, 2);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
 
-    // When validatedPut is called
     var validator = mock(
         com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.class);
+    when(validator.validate(any(), any(), any()))
+        .thenReturn(
+            com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.IGNORE);
+
+    // When validatedPut is called
     boolean result =
         fixture.engine.validatedPut(fixture.op, "key1", new RecordId(1, 1), validator);
 
-    // Then onPut is NOT called — the B-tree was not modified
+    // Then onPut is NOT called — validator returned IGNORE, no B-tree modification
     assertFalse(result);
     verify(fixture.manager, never()).onPut(any(), any(), anyBoolean(), anyBoolean());
   }
 
   @Test
   public void singleValue_validatedPut_noManager_worksNormally() throws IOException {
+    // Given no histogram manager
     var fixture = new SingleValueFixture();
     fixture.engine.setHistogramManager(null);
-    when(fixture.sbTree.validatedPut(any(), eq("key1"), any(RID.class), any()))
-        .thenReturn(1);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
     var validator = mock(
         com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator.class);
@@ -173,13 +210,25 @@ public class BTreeEngineHistogramWiringTest {
 
   // ═══════════════════════════════════════════════════════════════════════
   // Single-value engine: remove() wiring
+  //
+  // After snapshot isolation, remove() uses iterateEntriesBetween to find
+  // the existing entry, removes it, and inserts a TombstoneRID marker
+  // with a new version key.
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
   public void singleValue_remove_success_callsOnRemove() throws IOException {
-    // Given a B-tree that successfully removes a key
+    // Given a B-tree with an existing entry that can be found and removed
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.remove(any(), eq("key1"))).thenReturn(new RecordId(1, 1));
+    var existingKey = new CompositeKey("key1", 0L);
+    var existingRid = new RecordId(1, 1);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
+    when(fixture.sbTree.remove(any(), eq(existingKey))).thenReturn(existingRid);
+    // Tombstone insertion
+    when(fixture.sbTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, "key1");
@@ -191,9 +240,11 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void singleValue_remove_notFound_doesNotCallOnRemove() throws IOException {
-    // Given a B-tree where the key doesn't exist
+    // Given an empty B-tree where iterateEntriesBetween returns no entries
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.remove(any(), eq("key1"))).thenReturn(null);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.empty());
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, "key1");
@@ -205,9 +256,17 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void singleValue_remove_nullKey_callsOnRemoveWithNull() throws IOException {
-    // Given a successful removal of null key
+    // Given an existing null-keyed entry. With SI, null keys use the same
+    // path as non-null: iterateEntriesBetween → remove → tombstone.
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.remove(any(), eq(null))).thenReturn(new RecordId(1, 1));
+    var existingKey = new CompositeKey((Object) null, 0L);
+    var existingRid = new RecordId(1, 1);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
+    when(fixture.sbTree.remove(any(), eq(existingKey))).thenReturn(existingRid);
+    when(fixture.sbTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When remove is called with null key
     boolean result = fixture.engine.remove(fixture.op, null);
@@ -219,10 +278,17 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void singleValue_remove_noManager_worksNormally() throws IOException {
-    // Given no histogram manager
+    // Given no histogram manager, with an existing entry
     var fixture = new SingleValueFixture();
     fixture.engine.setHistogramManager(null);
-    when(fixture.sbTree.remove(any(), eq("key1"))).thenReturn(new RecordId(1, 1));
+    var existingKey = new CompositeKey("key1", 0L);
+    var existingRid = new RecordId(1, 1);
+    when(fixture.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
+    when(fixture.sbTree.remove(any(), eq(existingKey))).thenReturn(existingRid);
+    when(fixture.sbTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, "key1");
@@ -360,14 +426,24 @@ public class BTreeEngineHistogramWiringTest {
 
   // ═══════════════════════════════════════════════════════════════════════
   // Multi-value engine: remove() wiring
+  //
+  // After snapshot isolation, multi-value remove for null keys uses
+  // iterateEntriesBetween → remove → put(tombstone) flow, similar to
+  // single-value. The key is CompositeKey(NULL_KEY_SENTINEL, rid).
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
   public void multiValue_remove_nullKey_success_callsOnRemove() throws IOException {
-    // Given a multi-value engine with a null-tree that successfully removes
+    // Given a multi-value engine where the null-tree has an existing entry
     var fixture = new MultiValueFixture();
     var rid = new RecordId(1, 1);
-    when(fixture.nullTree.remove(any(), eq(rid))).thenReturn(rid);
+    var existingKey = new CompositeKey(Long.MIN_VALUE, rid, 0L);
+    when(fixture.nullTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, rid)));
+    when(fixture.nullTree.remove(any(), eq(existingKey))).thenReturn(rid);
+    when(fixture.nullTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When remove is called with a null key
     boolean result = fixture.engine.remove(fixture.op, null, rid);
@@ -380,10 +456,12 @@ public class BTreeEngineHistogramWiringTest {
   @Test
   public void multiValue_remove_nullKey_notFound_doesNotCallOnRemove()
       throws IOException {
-    // Given a null-tree where the entry doesn't exist
+    // Given a null-tree where no matching entry is found
     var fixture = new MultiValueFixture();
     var rid = new RecordId(1, 1);
-    when(fixture.nullTree.remove(any(), eq(rid))).thenReturn(null);
+    when(fixture.nullTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.empty());
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, null, rid);
@@ -395,11 +473,17 @@ public class BTreeEngineHistogramWiringTest {
 
   @Test
   public void multiValue_remove_noManager_worksNormally() throws IOException {
-    // Given no histogram manager
+    // Given no histogram manager, null-tree has an existing entry
     var fixture = new MultiValueFixture();
     fixture.engine.setHistogramManager(null);
     var rid = new RecordId(1, 1);
-    when(fixture.nullTree.remove(any(), eq(rid))).thenReturn(rid);
+    var existingKey = new CompositeKey(Long.MIN_VALUE, rid, 0L);
+    when(fixture.nullTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenReturn(Stream.of(new RawPair<>(existingKey, rid)));
+    when(fixture.nullTree.remove(any(), eq(existingKey))).thenReturn(rid);
+    when(fixture.nullTree.put(any(), any(CompositeKey.class), any(RID.class)))
+        .thenReturn(true);
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, null, rid);
@@ -413,18 +497,16 @@ public class BTreeEngineHistogramWiringTest {
     // Given a multi-value engine with a svTree that returns entries
     var fixture = new MultiValueFixture();
     var rid = new RecordId(1, 1);
-    var compositeKey = new com.jetbrains.youtrackdb.internal.core.index.CompositeKey(
-        "key1");
-    compositeKey.addKey(rid);
+    var compositeKey = new CompositeKey("key1", rid, 0L);
     // Mock the iterateEntriesBetween to return one entry matching the composite
     when(fixture.svTree.iterateEntriesBetween(
         any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenReturn(java.util.stream.Stream.of(
-            new com.jetbrains.youtrackdb.internal.common.util.RawPair<>(
-                compositeKey, rid)));
-    // Mock successful removal of the composite key
+        .thenReturn(Stream.of(new RawPair<>(compositeKey, rid)));
+    // Mock successful removal and tombstone insertion
     try {
       when(fixture.svTree.remove(any(), any())).thenReturn(rid);
+      when(fixture.svTree.put(any(), any(CompositeKey.class), any(RID.class)))
+          .thenReturn(true);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
@@ -444,7 +526,7 @@ public class BTreeEngineHistogramWiringTest {
     var rid = new RecordId(1, 1);
     when(fixture.svTree.iterateEntriesBetween(
         any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenReturn(java.util.stream.Stream.empty());
+        .thenReturn(Stream.empty());
 
     // When remove is called
     boolean result = fixture.engine.remove(fixture.op, "key1", rid);
@@ -541,7 +623,8 @@ public class BTreeEngineHistogramWiringTest {
       throws IOException {
     // Given a histogram manager that throws on onPut
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.put(any(), eq("key1"), any(RID.class))).thenReturn(true);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
     doThrow(new RuntimeException("histogram error"))
         .when(fixture.manager).onPut(any(), any(), anyBoolean(), anyBoolean());
 
@@ -580,7 +663,8 @@ public class BTreeEngineHistogramWiringTest {
   public void v1IndexEngine_put_returnsBoolean() throws IOException {
     // Verify the interface contract: V1IndexEngine.put() returns boolean
     var fixture = new SingleValueFixture();
-    when(fixture.sbTree.put(any(), eq("key1"), any(RID.class))).thenReturn(true);
+    when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
+        .thenReturn(true);
 
     // Call via the V1IndexEngine interface
     boolean result =
@@ -609,6 +693,8 @@ public class BTreeEngineHistogramWiringTest {
     SingleValueFixture() {
       storage = createMockStorage();
       op = mock(AtomicOperation.class);
+      // Mock getCommitTs — validatedPut/remove append version to CompositeKey
+      when(op.getCommitTs()).thenReturn(1L);
       manager = mock(IndexHistogramManager.class);
 
       // Create engine with a mocked sbTree injected via Mockito field access
@@ -638,6 +724,8 @@ public class BTreeEngineHistogramWiringTest {
     MultiValueFixture() {
       storage = createMockStorage();
       op = mock(AtomicOperation.class);
+      // Mock getCommitTs — remove appends version to CompositeKey
+      when(op.getCommitTs()).thenReturn(1L);
       manager = mock(IndexHistogramManager.class);
 
       engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
@@ -656,6 +744,8 @@ public class BTreeEngineHistogramWiringTest {
         .thenReturn(mock(AtomicOperationsManager.class));
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
+    when(storage.subIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
+    when(storage.subNullIndexSnapshot(anyLong())).thenReturn(mock(IndexesSnapshot.class));
     return storage;
   }
 

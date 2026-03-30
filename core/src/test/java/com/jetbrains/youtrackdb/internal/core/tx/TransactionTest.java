@@ -29,7 +29,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 /** Tests for transaction lifecycle including begin, commit, and rollback operations. */
@@ -1100,7 +1099,6 @@ public class TransactionTest {
    *   Thread A: re-query -> still empty (snapshot isolation)
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSISqlQueryIsolationMultiThread() throws Exception {
     db.createVertexClass("Item");
@@ -1169,7 +1167,6 @@ public class TransactionTest {
    *   Thread A: lookup sku='AAA' -> still found (snapshot isolation)
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSIIndexQueryIsolationMultiThread() throws Exception {
     var product = db.createVertexClass("Product");
@@ -2683,7 +2680,6 @@ public class TransactionTest {
    *   Thread A: re-query count -> still N
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSISqlInsertIsolationMultiThread() throws Exception {
     // Create at least one record so the class exists
@@ -3007,7 +3003,6 @@ public class TransactionTest {
    *   Thread A: re-query by index email='b@test.com' -> still not found
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSIUniqueIndexInsertIsolationMultiThread() throws Exception {
     var person = db.createVertexClass("Person");
@@ -3081,7 +3076,6 @@ public class TransactionTest {
    *   Thread A: re-count -> still 3
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSINonUniqueIndexCountIsolationMultiThread() throws Exception {
     var tag = db.createVertexClass("Tag");
@@ -3161,7 +3155,6 @@ public class TransactionTest {
    *   Thread A: re-query -> still [20, 30], not [20, 25, 30]
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSIIndexRangeQueryIsolationMultiThread() throws Exception {
     var score = db.createVertexClass("Score");
@@ -3240,7 +3233,6 @@ public class TransactionTest {
    *   Thread A: re-query by index code='T-001' -> still found (snapshot isolation)
    * </pre>
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSIIndexDeleteIsolationMultiThread() throws Exception {
     var ticket = db.createVertexClass("Ticket");
@@ -3309,7 +3301,6 @@ public class TransactionTest {
    * indexed records while readers verify that their snapshot-time index query results
    * remain stable throughout the transaction.
    */
-  @Ignore("Indexes do not support snapshot isolation yet")
   @Test
   public void testSIIndexRandomStressMultiThread() throws Exception {
     var item = db.createVertexClass("StressItem");

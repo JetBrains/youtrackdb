@@ -28,6 +28,8 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
@@ -292,8 +294,8 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final int collectionId = getShortValue(entryPosition);
       final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-      return new CellBTreeSingleValueEntryV3<>(
-          -1, -1, key, new RecordId(collectionId, collectionPosition));
+      var ridValue = decodeRID(collectionId, collectionPosition);
+      return new CellBTreeSingleValueEntryV3<>(-1, -1, key, ridValue);
     } else {
       final var leftChild = getIntValue(entryPosition);
       entryPosition += IntegerSerializer.INT_SIZE;
@@ -304,6 +306,22 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
       final var key = deserializeFromDirectMemory(keySerializer, serializerFactory, entryPosition);
 
       return new CellBTreeSingleValueEntryV3<>(leftChild, rightChild, key, null);
+    }
+  }
+
+  static RID decodeRID(int collectionId, long collectionPosition) {
+    if (collectionId < 0) {
+      // TombstoneRID — decode the shifted collectionId (0 → -1, 1 → -2, etc.)
+      RID value = new RecordId(-(collectionId + 1), collectionPosition);
+      return new TombstoneRID(value);
+    } else if (collectionPosition < 0) {
+      // SnapshotMarkerRID — decode the shifted position
+      long realPosition = -(collectionPosition + 1);
+      RID value = new RecordId(collectionId, realPosition);
+      return new SnapshotMarkerRID(value);
+    } else {
+      // Normal RID
+      return new RecordId(collectionId, collectionPosition);
     }
   }
 
@@ -362,7 +380,7 @@ public final class CellBTreeSingleValueBucketV3<K> extends DurablePage {
     final int collectionId = getShortValue(entryPosition);
     final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-    return new RecordId(collectionId, collectionPosition);
+    return decodeRID(collectionId, collectionPosition);
   }
 
   byte[] getRawValue(final int entryIndex, final BinarySerializer<K> keySerializer,
