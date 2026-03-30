@@ -162,7 +162,7 @@ whenever code or tests were modified.
    |---|---|
    | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
    | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
-   | **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
+   | **review-crash-safety** | `crash-durability` |
    | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
    | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
 
@@ -174,7 +174,7 @@ whenever code or tests were modified.
    | **review-test-completeness** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
    | **review-test-structure** | Any test files are changed |
    | **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
-   | **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved) |
+   | **review-test-crash-safety** | `crash-durability` |
 
    **1d: Log your triage decision**
 
@@ -190,7 +190,7 @@ whenever code or tests were modified.
 
    **1e: Edge cases**
    - If **all categories are `docs-only`**: Skip all agents. Report that only documentation changed and no code review is needed.
-   - If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations).
+   - If **all categories are `build-config`**: Launch `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes).
    - If **all categories are `tests-only`**: Launch `review-code-quality`, `review-bugs-concurrency` for code agents, and `review-test-behavior`, `review-test-completeness`, `review-test-structure` for test agents.
    - If **in doubt** about whether an agent is relevant: **launch it**. False positives are better than false negatives.
 

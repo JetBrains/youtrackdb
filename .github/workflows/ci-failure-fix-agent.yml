@@ -250,7 +250,7 @@ jobs:
              |---|---|
              | **review-code-quality** | Always (unless `docs-only` is the ONLY category) |
              | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
-             | **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
+             | **review-crash-safety** | `crash-durability` |
              | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR new dependencies in `pom.xml` |
              | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
 
@@ -262,13 +262,13 @@ jobs:
              | **review-test-completeness** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
              | **review-test-structure** | Any test files are changed |
              | **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
-             | **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved) |
+             | **review-test-crash-safety** | `crash-durability` |
 
              **1d: Log your triage decision** before launching agents.
 
              **1e: Edge cases**
              - All `docs-only`: skip all agents, report no code review needed.
-             - All `build-config`: launch only `review-code-quality`.
+             - All `build-config`: launch `review-code-quality` and `review-security` (dependency changes).
              - All `tests-only`: launch `review-code-quality`, `review-bugs-concurrency`, `review-test-behavior`, `review-test-completeness`, `review-test-structure`.
              - If in doubt: **launch the agent**. False positives > false negatives.
 
