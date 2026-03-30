@@ -324,6 +324,21 @@ public class MatchExecutionPlanner {
   private static final long THRESHOLD = 100;
 
   /**
+   * Maximum estimated build-side cardinality for which the planner will choose a
+   * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
+   * If the estimated NOT-pattern result set exceeds this threshold, the planner
+   * falls back to {@link FilterNotMatchPatternStep}.
+   */
+  static final long HASH_JOIN_THRESHOLD = 10_000;
+
+  /**
+   * Fixed fan-out heuristic per edge traversal hop in NOT-pattern cardinality
+   * estimation. Each edge in the NOT pattern multiplies the estimated cardinality
+   * by this factor (before applying any filter selectivity).
+   */
+  private static final long FANOUT_PER_HOP = 10;
+
+  /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
    * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
    * Intended for non-SQL front-ends (e.g. GQL) that build the match IR directly.
@@ -737,6 +752,70 @@ public class MatchExecutionPlanner {
     assert !result.isEmpty()
         : "NOT expression must share at least the origin alias with the positive pattern";
     return result;
+  }
+
+  /**
+   * Estimates the cardinality of a NOT pattern's build side (the materialized result
+   * set used for hash-based evaluation). The estimate drives the planner's decision
+   * to use hash join vs. nested-loop.
+   *
+   * <p>Algorithm:
+   * <ol>
+   *   <li>Get the origin alias's base cardinality via {@link #estimateRootEntries}.
+   *       If the origin alias has no estimable class/RID/filter, returns
+   *       {@code Long.MAX_VALUE} to force fallback to nested-loop.</li>
+   *   <li>For each edge in the NOT expression, multiply by {@link #FANOUT_PER_HOP}.</li>
+   *   <li>For each intermediate filter (non-null WHERE clause), apply 0.5 selectivity.</li>
+   *   <li>Cap at {@code Long.MAX_VALUE} to avoid overflow.</li>
+   * </ol>
+   *
+   * @return estimated cardinality, or {@code Long.MAX_VALUE} if not estimable
+   */
+  static long estimateNotPatternCardinality(
+      SQLMatchExpression exp,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var originAlias = exp.getOrigin().getAlias();
+    assert originAlias != null : "NOT expression origin must have an alias";
+
+    // Build single-alias maps for the origin to reuse estimateRootEntries()
+    var originClasses = new HashMap<String, String>();
+    var originFilters = new HashMap<String, SQLWhereClause>();
+    var originRids = new HashMap<String, SQLRid>();
+    if (aliasClasses.containsKey(originAlias)) {
+      originClasses.put(originAlias, aliasClasses.get(originAlias));
+    }
+    if (aliasFilters.containsKey(originAlias)) {
+      originFilters.put(originAlias, aliasFilters.get(originAlias));
+    }
+    if (aliasRids.containsKey(originAlias)) {
+      originRids.put(originAlias, aliasRids.get(originAlias));
+    }
+
+    var rootEstimates = estimateRootEntries(originClasses, originRids, originFilters, context);
+    var originCount = rootEstimates.get(originAlias);
+    if (originCount == null) {
+      // Origin alias has no class, RID, or filter — cannot estimate
+      return Long.MAX_VALUE;
+    }
+
+    long estimate = originCount;
+    for (var item : exp.getItems()) {
+      // Each edge multiplies cardinality by fan-out heuristic
+      if (estimate > Long.MAX_VALUE / FANOUT_PER_HOP) {
+        return Long.MAX_VALUE; // overflow guard
+      }
+      estimate *= FANOUT_PER_HOP;
+
+      // Apply selectivity for intermediate filters
+      var filter = item.getFilter();
+      if (filter != null && filter.getFilter() != null) {
+        estimate = estimate / 2; // 0.5 selectivity heuristic
+      }
+    }
+    return estimate;
   }
 
   /**
