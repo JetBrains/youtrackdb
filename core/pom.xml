@@ -466,7 +466,7 @@
       <plugin>
         <groupId>com.vmlens</groupId>
         <artifactId>vmlens-maven-plugin</artifactId>
-        <version>1.2.26</version>
+        <version>1.2.27</version>
         <executions>
           <execution>
             <id>test</id>
