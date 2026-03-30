@@ -2245,14 +2245,11 @@ public class MatchExecutionPlanner {
               ? methodName.toLowerCase(Locale.ROOT) : null;
 
           // Update currentEdgeClass state based on the method type.
+          // inV/outV is deferred: it consumes currentEdgeClass after inference below.
+          var isInVOrOutV = "inv".equals(methodLower) || "outv".equals(methodLower);
           if ("oute".equals(methodLower) || "ine".equals(methodLower)) {
             currentEdgeClass = extractEdgeClassName(method);
-          } else if ("inv".equals(methodLower) || "outv".equals(methodLower)) {
-            // inV/outV consumes the currentEdgeClass — pass it to inference,
-            // then reset so a subsequent inV/outV without a preceding outE/inE
-            // correctly gets null.
-            // (currentEdgeClass is read below, then reset after inference)
-          } else {
+          } else if (!isInVOrOutV) {
             // Any other method (out, in, both, bothE, etc.) resets the state.
             currentEdgeClass = null;
           }
@@ -2273,7 +2270,7 @@ public class MatchExecutionPlanner {
           }
 
           // Reset currentEdgeClass after inV/outV consumes it.
-          if ("inv".equals(methodLower) || "outv".equals(methodLower)) {
+          if (isInVOrOutV) {
             currentEdgeClass = null;
           }
         }

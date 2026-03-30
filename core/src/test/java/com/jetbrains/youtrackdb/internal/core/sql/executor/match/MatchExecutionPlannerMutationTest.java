@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -1206,7 +1207,7 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
-    assertThat(aliasClasses).containsEntry(edgeAlias, "KNOWS");
+    assertThat(aliasClasses).containsOnly(entry(edgeAlias, "KNOWS"));
   }
 
   /**
@@ -1224,7 +1225,7 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
-    assertThat(aliasClasses).containsEntry(edgeAlias, "HAS_MEMBER");
+    assertThat(aliasClasses).containsOnly(entry(edgeAlias, "HAS_MEMBER"));
   }
 
   /**
@@ -1251,8 +1252,7 @@ public class MatchExecutionPlannerMutationTest {
         mockContext(), false);
 
     assertThat(aliasClasses)
-        .containsEntry("e", "KNOWS")
-        .containsEntry("v", "Person");
+        .containsOnly(entry("e", "KNOWS"), entry("v", "Person"));
   }
 
   /**
@@ -1279,12 +1279,46 @@ public class MatchExecutionPlannerMutationTest {
         mockContext(), false);
 
     assertThat(aliasClasses)
-        .containsEntry("e", "WORK_AT")
-        .containsEntry("v", "Person");
+        .containsOnly(entry("e", "WORK_AT"), entry("v", "Person"));
   }
 
   /**
-   * inV() without a preceding outE → vertex alias should NOT be in aliasClasses
+   * outE('KNOWS') followed by outV() → aliasClasses should contain the edge alias
+   * mapped to "KNOWS" and the vertex alias mapped to KNOWS.out (the source vertex).
+   * Both in/out properties are registered with different classes to catch a
+   * direction-swap mutation in the inV/outV property mapping.
+   */
+  @Test
+  public void addAliases_outE_then_outV_infersSourceVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var messageClass = registerClass("Message", 200);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    // KNOWS.out → Person, KNOWS.in → Message
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(messageClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e"),
+        mockPathItem("outV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    // outV reads "out" property → Person, NOT "in" → Message
+    assertThat(aliasClasses)
+        .containsOnly(entry("e", "KNOWS"), entry("v", "Person"));
+  }
+
+  /**
+   * inV() without a preceding outE → aliasClasses should be empty
    * (no currentEdgeClass to propagate).
    */
   @Test
@@ -1297,7 +1331,7 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
-    assertThat(aliasClasses).doesNotContainKey("v");
+    assertThat(aliasClasses).isEmpty();
   }
 
   /**
@@ -1325,9 +1359,7 @@ public class MatchExecutionPlannerMutationTest {
         mockContext(), false);
 
     assertThat(aliasClasses)
-        .containsEntry("e", "KNOWS")
-        .containsEntry("v1", "Person")
-        .doesNotContainKey("v2");
+        .containsOnly(entry("e", "KNOWS"), entry("v1", "Person"));
   }
 
   /**
@@ -1363,14 +1395,14 @@ public class MatchExecutionPlannerMutationTest {
         mockContext(), false);
 
     assertThat(aliasClasses)
-        .containsEntry("e1", "KNOWS")
-        .containsEntry("e2", "WORK_AT")
-        .containsEntry("v", "Company");
+        .containsOnly(
+            entry("e1", "KNOWS"), entry("e2", "WORK_AT"), entry("v", "Company"));
   }
 
   /**
    * bothE resets currentEdgeClass: outE('KNOWS') followed by bothE('X') followed by
-   * inV() → inV should NOT infer a class because bothE reset the state.
+   * inV() → inV should NOT infer a class because bothE reset the state. bothE('X')
+   * itself also gets no inference (not a recognized edge-method type).
    */
   @Test
   public void addAliases_bothE_resetsCurrentEdgeClass() {
@@ -1386,9 +1418,27 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
-    assertThat(aliasClasses)
-        .containsEntry("e1", "KNOWS")
-        .doesNotContainKey("v");
+    assertThat(aliasClasses).containsOnly(entry("e1", "KNOWS"));
+  }
+
+  /**
+   * If aliasClasses already contains an entry for the alias (e.g., from an explicit
+   * class constraint), inference must not overwrite it.
+   */
+  @Test
+  public void addAliases_existingAliasClass_notOverwritten() {
+    registerClass("KNOWS", 500);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e"));
+    var aliasClasses = new HashMap<String, String>();
+    aliasClasses.put("e", "PreExisting");
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses).containsOnly(entry("e", "PreExisting"));
   }
 
   /**
@@ -1434,9 +1484,7 @@ public class MatchExecutionPlannerMutationTest {
         mockContext(), false);
 
     assertThat(aliasClasses)
-        .containsEntry("e", "X")
-        .containsEntry("mid", "Person")
-        .doesNotContainKey("v");
+        .containsOnly(entry("e", "X"), entry("mid", "Person"));
   }
 
   // ── addAliases helper methods ──
