@@ -655,7 +655,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
         if (fileChanges.isNew) {
           readCache.addFile(
-              fileChanges.fileName, newFileNamesId.getLong(fileChanges.fileName), writeCache);
+              fileChanges.fileName,
+              newFileNamesId.getLong(fileChanges.fileName),
+              writeCache,
+              fileChanges.nonDurable);
         } else if (fileChanges.truncate) {
           LogManager.instance()
               .warn(

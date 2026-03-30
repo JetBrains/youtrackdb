@@ -470,6 +470,34 @@ public class StorageComponentOptimisticReadTest {
     assertEquals(false, nonDurableComponent.isDurable());
   }
 
+  @Test
+  public void testAddFilePassesNonDurableFlagFromComponent() throws IOException {
+    // When a non-durable StorageComponent calls addFile(), it should pass
+    // nonDurable=true (i.e. !durable) to the atomic operation.
+    var nonDurableComponent = new TestStorageComponent(
+        component.storage, false);
+    var op = mock(AtomicOperation.class);
+    when(op.addFile("test-file.dat", true)).thenReturn(42L);
+
+    long fileId = nonDurableComponent.testAddFile(op, "test-file.dat");
+
+    assertEquals(42L, fileId);
+    verify(op).addFile("test-file.dat", true);
+  }
+
+  @Test
+  public void testAddFilePassesDurableFlagFromComponent() throws IOException {
+    // When a durable StorageComponent (default) calls addFile(), it should pass
+    // nonDurable=false to the atomic operation.
+    var op = mock(AtomicOperation.class);
+    when(op.addFile("test-file.dat", false)).thenReturn(99L);
+
+    long fileId = component.testAddFile(op, "test-file.dat");
+
+    assertEquals(99L, fileId);
+    verify(op).addFile("test-file.dat", false);
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();
@@ -513,6 +541,10 @@ public class StorageComponentOptimisticReadTest {
         OptimisticReadAction optimistic,
         PinnedReadAction pinned) throws IOException {
       executeOptimisticStorageRead(op, optimistic, pinned);
+    }
+
+    long testAddFile(AtomicOperation op, String fileName) throws IOException {
+      return addFile(op, fileName);
     }
   }
 }

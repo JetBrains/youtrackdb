@@ -366,6 +366,7 @@ public class CollectionDirtyPageBitSetTest {
     var op = mock(AtomicOperation.class);
 
     when(op.addFile(anyString())).thenReturn(FILE_ID);
+    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_ID);
 
     when(op.loadFile(anyString())).thenReturn(FILE_ID);
 

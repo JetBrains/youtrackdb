@@ -943,8 +943,8 @@ public class CollectionPositionMapV2Test {
     fillPositions(0, 1, 2);
 
     var visited = new ArrayList<long[]>();
-    positionMap.forEachEntry(atomicOperation, (pos, status, version) ->
-        visited.add(new long[]{pos, status, version}));
+    positionMap.forEachEntry(atomicOperation,
+        (pos, status, version) -> visited.add(new long[] {pos, status, version}));
 
     assertThat(visited).hasSize(3);
     for (var i = 0; i < 3; i++) {
@@ -961,8 +961,8 @@ public class CollectionPositionMapV2Test {
     positionMap.remove(1, 77, atomicOperation);
 
     var visited = new ArrayList<long[]>();
-    positionMap.forEachEntry(atomicOperation, (pos, status, version) ->
-        visited.add(new long[]{pos, status, version}));
+    positionMap.forEachEntry(atomicOperation,
+        (pos, status, version) -> visited.add(new long[] {pos, status, version}));
 
     assertThat(visited).hasSize(2);
     assertThat(visited.get(0)[1]).isEqualTo(CollectionPositionMapBucket.FILLED);
@@ -1195,6 +1195,7 @@ public class CollectionPositionMapV2Test {
     var op = mock(AtomicOperation.class);
 
     when(op.addFile(anyString())).thenReturn(FILE_ID);
+    when(op.addFile(anyString(), anyBoolean())).thenReturn(FILE_ID);
 
     when(op.loadFile(anyString())).thenReturn(FILE_ID);
 

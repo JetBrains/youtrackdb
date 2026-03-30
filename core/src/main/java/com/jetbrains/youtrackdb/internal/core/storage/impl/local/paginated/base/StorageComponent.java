@@ -186,7 +186,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   protected long addFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addFile(fileName);
+    return atomicOperation.addFile(fileName, !durable);
   }
 
   protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)

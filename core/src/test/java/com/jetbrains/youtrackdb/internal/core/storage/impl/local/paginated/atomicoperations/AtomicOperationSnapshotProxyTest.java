@@ -1536,4 +1536,51 @@ public class AtomicOperationSnapshotProxyTest {
     assertThat(result).isEqualTo(123L);
     verify(mockOp).addFile("test.dat", false);
   }
+
+  // --- commitChanges nonDurable flag propagation to readCache ---
+
+  @Test
+  public void testCommitChangesPassesNonDurableFlagToReadCache() throws IOException {
+    // When a non-durable file is added and commitChanges() runs, the 4-arg
+    // readCache.addFile(name, id, writeCache, nonDurable=true) must be called
+    // instead of the 3-arg overload.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 55;
+    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    op.addFile("nd-file.dat", true);
+    op.commitChanges(42L, createMockWal());
+
+    verify(readCache).addFile("nd-file.dat", composedFileId, writeCache, true);
+  }
+
+  @Test
+  public void testCommitChangesPassesDurableFlagToReadCache() throws IOException {
+    // When a durable file is added (default), commitChanges() must call
+    // readCache.addFile(name, id, writeCache, nonDurable=false).
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 66;
+    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    op.addFile("durable-file.dat", false);
+    op.commitChanges(42L, createMockWal());
+
+    verify(readCache).addFile("durable-file.dat", composedFileId, writeCache, false);
+  }
 }
