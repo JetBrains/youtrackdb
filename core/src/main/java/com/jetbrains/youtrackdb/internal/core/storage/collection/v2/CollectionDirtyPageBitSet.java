@@ -41,7 +41,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
       @Nonnull String name,
       String extension,
       String lockName) {
-    super(storage, name, extension, lockName);
+    super(storage, name, extension, lockName, true);
   }
 
   /**

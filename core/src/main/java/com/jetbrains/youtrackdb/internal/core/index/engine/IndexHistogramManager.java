@@ -217,7 +217,7 @@ public class IndexHistogramManager extends StorageComponent {
       @Nonnull BinarySerializer<?> keySerializer,
       @Nonnull BinarySerializerFactory serializerFactory,
       byte serializerId) {
-    super(storage, name, IXS_EXTENSION, name + IXS_EXTENSION);
+    super(storage, name, IXS_EXTENSION, name + IXS_EXTENSION, true);
     this.engineId = engineId;
     this.isSingleValue = isSingleValue;
     this.cache = cache;

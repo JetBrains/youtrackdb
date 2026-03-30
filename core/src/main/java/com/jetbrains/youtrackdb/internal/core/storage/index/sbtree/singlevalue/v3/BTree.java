@@ -122,7 +122,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final String dataFileExtension,
       final String nullFileExtension,
       final AbstractStorage storage) {
-    super(storage, name, dataFileExtension, name + dataFileExtension);
+    super(storage, name, dataFileExtension, name + dataFileExtension, true);
     acquireExclusiveLock();
     try {
       this.nullFileExtension = nullFileExtension;
@@ -137,7 +137,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final String dataFileExtension,
       final String nullFileExtension,
       final AbstractStorage storage, BinarySerializerFactory serializerFactory) {
-    super(storage, name, dataFileExtension, name + dataFileExtension);
+    super(storage, name, dataFileExtension, name + dataFileExtension, true);
     acquireExclusiveLock();
     try {
       this.nullFileExtension = nullFileExtension;

@@ -8,7 +8,8 @@ public abstract class CollectionPositionMap extends StorageComponent {
   public static final String DEF_EXTENSION = ".cpm";
 
   public CollectionPositionMap(
-      AbstractStorage storage, String name, String extension, String lockName) {
-    super(storage, name, extension, lockName);
+      AbstractStorage storage, String name, String extension, String lockName,
+      boolean durable) {
+    super(storage, name, extension, lockName, durable);
   }
 }

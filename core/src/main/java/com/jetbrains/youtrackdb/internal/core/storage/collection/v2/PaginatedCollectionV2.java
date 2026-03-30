@@ -279,7 +279,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final String fsmExtension,
       final String dpbExtension,
       final AbstractStorage storage) {
-    super(storage, name, dataExtension, name + dataExtension);
+    super(storage, name, dataExtension, name + dataExtension, true);
 
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),

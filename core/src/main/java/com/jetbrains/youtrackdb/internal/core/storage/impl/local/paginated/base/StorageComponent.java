@@ -56,11 +56,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   private final String lockName;
 
+  protected final boolean durable;
+
   public StorageComponent(
       @Nonnull final AbstractStorage storage,
       @Nonnull final String name,
       final String extension,
-      final String lockName) {
+      final String lockName,
+      final boolean durable) {
     super();
 
     this.extension = extension;
@@ -71,6 +74,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     this.readCache = storage.getReadCache();
     this.writeCache = storage.getWriteCache();
     this.lockName = lockName;
+    this.durable = durable;
+  }
+
+  public boolean isDurable() {
+    return durable;
   }
 
   public String getLockName() {

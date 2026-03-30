@@ -92,7 +92,7 @@ public final class FreeSpaceMap extends StorageComponent {
       @Nonnull String name,
       String extension,
       String lockName) {
-    super(storage, name, extension, lockName);
+    super(storage, name, extension, lockName, true);
   }
 
   public boolean exists(final AtomicOperation atomicOperation) {

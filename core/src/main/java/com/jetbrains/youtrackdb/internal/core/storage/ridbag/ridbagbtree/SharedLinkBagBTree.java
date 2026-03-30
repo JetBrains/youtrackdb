@@ -39,7 +39,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   public SharedLinkBagBTree(final AbstractStorage storage, final String name,
       final String fileExtension) {
-    super(storage, name, fileExtension, name + fileExtension);
+    super(storage, name, fileExtension, name + fileExtension, true);
 
     this.serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
   }

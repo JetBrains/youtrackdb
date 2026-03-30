@@ -117,7 +117,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final String name,
       final String lockName,
       final String extension) {
-    super(storage, name, extension, lockName);
+    super(storage, name, extension, lockName, true);
   }
 
   /** Opens an existing position-map file by name through the disk cache. */

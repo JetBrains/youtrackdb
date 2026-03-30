@@ -25,8 +25,9 @@ public abstract class PaginatedCollection extends StorageComponent implements St
       final AbstractStorage storage,
       final String name,
       final String extension,
-      final String lockName) {
-    super(storage, name, extension, lockName);
+      final String lockName,
+      final boolean durable) {
+    super(storage, name, extension, lockName, durable);
   }
 
   public abstract RECORD_STATUS getRecordStatus(final long collectionPosition,

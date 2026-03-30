@@ -476,7 +476,7 @@ public class StorageComponentOptimisticReadTest {
    */
   private static class TestStorageComponent extends StorageComponent {
     TestStorageComponent(AbstractStorage storage) {
-      super(storage, "test", ".tst", "test.lock");
+      super(storage, "test", ".tst", "test.lock", true);
     }
 
     PageView testLoadPageOptimistic(AtomicOperation op, long fileId, long pageIndex) {
