@@ -2235,7 +2235,7 @@ public class MatchExecutionPlanner {
           // LINK Message, the target class is Message.
           var alias = item.getFilter().getAlias();
           if (alias != null && !aliasClasses.containsKey(alias)) {
-            var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
+            var inferred = inferClassFromEdgeSchema(item.getMethod(), null, context);
             if (inferred != null) {
               aliasClasses.put(alias, inferred);
               logger.debug(
@@ -2250,14 +2250,25 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Infers the target vertex class from the edge schema LINK declarations.
-   * For {@code out('X')}, the target is the "in" endpoint of edge class X;
-   * for {@code in('X')}, the target is the "out" endpoint.
+   * Infers the alias class from the edge schema LINK declarations.
    *
-   * @return the linked class name, or {@code null} if it cannot be inferred
+   * <p>Handles six method types:
+   * <ul>
+   *   <li>{@code out('X')} / {@code in('X')}: target is the opposite endpoint
+   *       of edge class X (vertex class)</li>
+   *   <li>{@code outE('X')} / {@code inE('X')}: alias class is X itself
+   *       (the edge class)</li>
+   *   <li>{@code inV()} / {@code outV()}: alias class is the linked vertex
+   *       class from the preceding edge's LINK schema ({@code currentEdgeClass})</li>
+   * </ul>
+   *
+   * @param currentEdgeClass the edge class set by a preceding {@code outE}/{@code inE},
+   *     or {@code null} if none
+   * @return the inferred class name, or {@code null} if it cannot be inferred
    */
   @Nullable static String inferClassFromEdgeSchema(
-      @Nullable SQLMethodCall method, CommandContext context) {
+      @Nullable SQLMethodCall method, @Nullable String currentEdgeClass,
+      CommandContext context) {
     if (method == null) {
       return null;
     }
@@ -2266,24 +2277,51 @@ public class MatchExecutionPlanner {
       return null;
     }
     dirName = dirName.toLowerCase(Locale.ROOT);
+
+    // outE('X') / inE('X'): the edge class itself is the alias class
+    if ("oute".equals(dirName) || "ine".equals(dirName)) {
+      return extractEdgeClassName(method);
+    }
+
+    // inV() / outV(): look up the linked vertex class from the preceding edge
+    if ("inv".equals(dirName) || "outv".equals(dirName)) {
+      if (currentEdgeClass == null) {
+        return null;
+      }
+      return lookupLinkedVertexClass(currentEdgeClass, dirName, context);
+    }
+
+    // out('X') / in('X'): infer the target vertex class from the edge LINK schema
     if (!"in".equals(dirName) && !"out".equals(dirName)) {
       return null;
     }
 
-    if (method.getParams() == null || method.getParams().isEmpty()) {
+    var edgeClassName = extractEdgeClassName(method);
+    if (edgeClassName == null) {
       return null;
     }
-    String edgeClassName;
-    try {
-      var value = method.getParams().getFirst()
-          .execute((Result) null, new BasicCommandContext());
-      if (!(value instanceof String s) || s.isEmpty()) {
-        return null;
-      }
-      edgeClassName = s;
-    } catch (RuntimeException e) {
-      return null;
-    }
+
+    // out('X') targets the "in" side; in('X') targets the "out" side
+    var targetPropName = "out".equals(dirName) ? "in" : "out";
+    return lookupLinkedVertexClass(edgeClassName, targetPropName, context);
+  }
+
+  /**
+   * Looks up the linked vertex class from an edge class's LINK property.
+   *
+   * @param edgeClassName the edge class to look up
+   * @param propName the property name to read ("in" or "out", or "inv"/"outv"
+   *     which are mapped to "in"/"out" respectively)
+   * @return the linked class name, or {@code null} if not found
+   */
+  @Nullable private static String lookupLinkedVertexClass(
+      String edgeClassName, String propName, CommandContext context) {
+    // Map inV/outV method names to the corresponding edge property
+    var resolvedProp = switch (propName) {
+      case "inv" -> "in";
+      case "outv" -> "out";
+      default -> propName;
+    };
 
     var session = context.getDatabaseSession();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
@@ -2291,9 +2329,7 @@ public class MatchExecutionPlanner {
     if (edgeClass == null) {
       return null;
     }
-    // out('X') targets the "in" side; in('X') targets the "out" side
-    var targetPropName = "out".equals(dirName) ? "in" : "out";
-    var prop = edgeClass.getPropertyInternal(targetPropName);
+    var prop = edgeClass.getPropertyInternal(resolvedProp);
     if (prop == null || prop.getLinkedClass() == null) {
       return null;
     }

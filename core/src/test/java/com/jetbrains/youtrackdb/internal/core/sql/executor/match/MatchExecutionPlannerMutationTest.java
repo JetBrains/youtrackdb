@@ -764,7 +764,7 @@ public class MatchExecutionPlannerMutationTest {
     var method = mockMethodCallWithDirection("out", "HAS_CREATOR");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isEqualTo("Person");
   }
 
@@ -784,7 +784,7 @@ public class MatchExecutionPlannerMutationTest {
     var method = mockMethodCallWithDirection("in", "CONTAINER_OF");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isEqualTo("Forum");
   }
 
@@ -794,7 +794,7 @@ public class MatchExecutionPlannerMutationTest {
   @Test
   public void inferClassFromEdgeSchema_nullMethod_returnsNull() {
     var ctx = mockContext();
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(null, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(null, null, ctx))
         .isNull();
   }
 
@@ -808,19 +808,19 @@ public class MatchExecutionPlannerMutationTest {
     when(method.getParams()).thenReturn(List.of());
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isNull();
   }
 
   /**
-   * Non-traversal method (e.g., outE) → returns null (only in/out supported).
+   * Non-traversal method (e.g., both) → returns null.
    */
   @Test
   public void inferClassFromEdgeSchema_nonTraversalMethod_returnsNull() {
-    var method = mockMethodCallWithDirection("outE", "HAS_CREATOR");
+    var method = mockMethodCallWithDirection("both", "HAS_CREATOR");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isNull();
   }
 
@@ -836,7 +836,7 @@ public class MatchExecutionPlannerMutationTest {
     var method = mockMethodCallWithDirection("out", "HAS_TAG");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isNull();
   }
 
@@ -850,7 +850,7 @@ public class MatchExecutionPlannerMutationTest {
     var method = mockMethodCallWithDirection("out", "NONEXISTENT");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isNull();
   }
 
@@ -870,7 +870,7 @@ public class MatchExecutionPlannerMutationTest {
     var method = mockMethodCallWithDirection("Out", "HAS_CREATOR");
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isEqualTo("Person");
   }
 
@@ -888,7 +888,175 @@ public class MatchExecutionPlannerMutationTest {
     when(method.getParams()).thenReturn(List.of(param));
     var ctx = mockContext();
 
-    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, ctx))
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isNull();
+  }
+
+  // ── inferClassFromEdgeSchema: outE/inE → edge class inference ──
+
+  /**
+   * outE('KNOWS') returns "KNOWS" — the edge class itself is the alias class.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outE_returnsEdgeClass() {
+    var method = mockMethodCallWithDirection("outE", "KNOWS");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isEqualTo("KNOWS");
+  }
+
+  /**
+   * inE('HAS_MEMBER') returns "HAS_MEMBER" — the edge class itself is the alias class.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inE_returnsEdgeClass() {
+    var method = mockMethodCallWithDirection("inE", "HAS_MEMBER");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isEqualTo("HAS_MEMBER");
+  }
+
+  /**
+   * outE() without params returns null — no edge class can be inferred.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outE_noParams_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "outE");
+    when(method.getParams()).thenReturn(List.of());
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isNull();
+  }
+
+  /**
+   * inE() without params returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inE_noParams_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "inE");
+    when(method.getParams()).thenReturn(List.of());
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isNull();
+  }
+
+  // ── inferClassFromEdgeSchema: inV/outV → linked vertex class inference ──
+
+  /**
+   * inV() with currentEdgeClass "KNOWS" and KNOWS.in LINK Person → returns "Person".
+   * inV() reads the "in" property on the edge schema.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inV_returnsLinkedVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "inV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
+        .isEqualTo("Person");
+  }
+
+  /**
+   * outV() with currentEdgeClass "KNOWS" and KNOWS.out LINK Person → returns "Person".
+   * outV() reads the "out" property on the edge schema.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outV_returnsLinkedVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "outV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
+        .isEqualTo("Person");
+  }
+
+  /**
+   * inV() without currentEdgeClass returns null — no preceding edge context.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inV_noPrecedingEdge_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "inV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isNull();
+  }
+
+  /**
+   * outV() without currentEdgeClass returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outV_noPrecedingEdge_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "outV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isNull();
+  }
+
+  /**
+   * inV() with currentEdgeClass "UNKNOWN" (not in schema) returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inV_unknownEdgeClass_returnsNull() {
+    when(schema.getClassInternal("UNKNOWN")).thenReturn(null);
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "inV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "UNKNOWN", ctx))
+        .isNull();
+  }
+
+  /**
+   * inV() with currentEdgeClass but no "in" LINK property on the edge → returns null.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inV_noLinkProperty_returnsNull() {
+    registerClass("KNOWS", 500);
+    // No "in" property registered on KNOWS
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "inV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
+        .isNull();
+  }
+
+  /**
+   * null method name → returns null regardless of currentEdgeClass.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_nullMethodName_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    when(method.getMethodNameString()).thenReturn(null);
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
         .isNull();
   }
 
