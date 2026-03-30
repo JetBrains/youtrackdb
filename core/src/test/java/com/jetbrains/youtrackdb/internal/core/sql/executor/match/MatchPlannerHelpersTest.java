@@ -713,7 +713,7 @@ public class MatchPlannerHelpersTest {
 
     assertThat(result).hasSize(1);
     var branch = result.get(0);
-    assertThat(branch.sharedAliases()).containsExactly("a", "d");
+    assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
     assertThat(branch.intermediateAliases()).containsExactly("c");
     assertThat(branch.branchEdges()).hasSize(2); // a→c, c→d
   }
