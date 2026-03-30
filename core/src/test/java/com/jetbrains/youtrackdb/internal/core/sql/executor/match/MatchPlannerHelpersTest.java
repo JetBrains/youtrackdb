@@ -366,11 +366,10 @@ public class MatchPlannerHelpersTest {
   @Test
   public void canUseHashJoin_eligible_returnsTrue() {
     var exp = buildNotExpression("person", null, "tag", null);
-    var pattern = buildPattern("person", "tag");
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isTrue();
   }
 
@@ -381,11 +380,10 @@ public class MatchPlannerHelpersTest {
   public void canUseHashJoin_matchedDependency_returnsFalse() {
     var where = buildWhereClause("$matched.startPerson = $currentMatch", false);
     var exp = buildNotExpression("person", null, "tag", where);
-    var pattern = buildPattern("person", "tag");
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -395,12 +393,11 @@ public class MatchPlannerHelpersTest {
   @Test
   public void canUseHashJoin_noOriginClass_returnsFalse() {
     var exp = buildNotExpression("person", null, "tag", null);
-    var pattern = buildPattern("person", "tag");
     var ctx = buildMockContext("Person", 100);
 
     // Empty aliasClasses — origin has no class
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, pattern, Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of(), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -410,12 +407,11 @@ public class MatchPlannerHelpersTest {
   @Test
   public void canUseHashJoin_highCardinality_returnsFalse() {
     var exp = buildNotExpression("person", null, "tag", null);
-    var pattern = buildPattern("person", "tag");
     // 1,000,000 records → (1,000,001) * 10 = 10,000,010 > 10,000 threshold
     var ctx = buildMockContext("Person", 1_000_000);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
