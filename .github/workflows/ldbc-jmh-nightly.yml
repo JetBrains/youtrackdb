@@ -21,23 +21,24 @@ on:
         default: true
 
 concurrency:
-  group: ldbc-jmh-nightly-${{ github.event_name }}
+  group: ldbc-jmh-nightly
   cancel-in-progress: false
 
 env:
-  SERVER_NAME: jmh-nightly-${{ github.run_id }}
-  SERVER_TYPE: ccx33
-  SERVER_IMAGE: ubuntu-24.04
-  SERVER_LOCATION: fsn1
-  SSH_KEY_NAME: bench-key
   LDBC_SCALE_FACTOR: '1'
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, embedded-jmh-benchmark-baremetal]
     timeout-minutes: 720
 
     steps:
+      - name: Clean workspace
+        run: |
+          rm -rf "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.??* || true
+          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar \
+                /tmp/bench-db.tar.zst /tmp/bench-db.tar
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -65,95 +66,9 @@ jobs:
             echo "load=csv" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Setup SSH key
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "::error::SSH_PRIVATE_KEY secret is not set"
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          # Verify the key is valid
-          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null
-          echo "SSH key fingerprint: $(ssh-keygen -lf ~/.ssh/id_ed25519)"
-
-      - name: Install hcloud CLI
-        run: |
-          curl -fsSL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
-            | tar xzf - -C /usr/local/bin hcloud
-
-      - name: Create CCX33 server
-        id: server
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          # Create the server
-          output=$(hcloud server create \
-            --name "$SERVER_NAME" \
-            --type "$SERVER_TYPE" \
-            --image "$SERVER_IMAGE" \
-            --location "$SERVER_LOCATION" \
-            --ssh-key "$SSH_KEY_NAME" \
-            --output json)
-
-          ip=$(echo "$output" | jq -r '.server.public_net.ipv4.ip')
-          echo "ip=$ip" >> "$GITHUB_OUTPUT"
-          echo "Server IP: $ip"
-
-          # Wait for SSH to become available
-          ssh_ready=false
-          for i in $(seq 1 30); do
-            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-                root@"$ip" 'echo ok' 2>/dev/null; then
-              echo "SSH ready after $i attempts"
-              ssh_ready=true
-              break
-            fi
-            sleep 5
-          done
-          if [ "$ssh_ready" != "true" ]; then
-            echo "::error::SSH connection to $ip failed after 30 attempts"
-            exit 1
-          fi
-
-      - name: Install JDK 21 and tools
-        run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            # Wait for any unattended-upgrades to finish
-            for i in $(seq 1 12); do
-              if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; then
-                break
-              fi
-              sleep 5
-            done
-            apt-get update -qq
-            apt-get install -y -qq openjdk-21-jdk-headless git zstd > /dev/null 2>&1
-            java -version
-          '
-
-      - name: Deploy project
-        run: |
-          rsync -az --exclude='.git' --exclude='target' --exclude='.idea' --exclude='*.iml' \
-            ./ root@${{ steps.server.outputs.ip }}:/root/ytdb/
-
-          # Initialize git repo (required by Spotless)
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            git config --global --add safe.directory /root/ytdb
-            git config --global user.email "bench@ci"
-            git config --global user.name "bench"
-            cd /root/ytdb && git init && git add -A && git commit -m "baseline" --quiet
-            git tag spotless-baseline
-          '
-
       - name: Install S3 tools
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} \
-            'apt-get install -y -qq python3-pip > /dev/null 2>&1 && pip install --break-system-packages boto3 -q'
+          pip install --break-system-packages boto3 -q 2>/dev/null || pip install boto3 -q
 
       - name: Download LDBC CSV dataset from S3
         if: steps.mode.outputs.load == 'csv'
@@ -162,31 +77,25 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          SERVER_IP="${{ steps.server.outputs.ip }}"
-
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
-            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          python3 - << 'PYEOF'
           import boto3, os
           s3 = boto3.client('s3',
               endpoint_url=os.environ['S3_ENDPOINT'],
               aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
               aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          os.makedirs('/root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1', exist_ok=True)
+          os.makedirs('jmh-ldbc/target/ldbc-dataset/sf1', exist_ok=True)
           print('Downloading SF 1 CSV dataset from S3...')
           s3.download_file('bench-cache', 'ldbc/ldbc-sf1-composite-merged-fk.tar.zst',
               '/tmp/dataset.tar.zst')
           print('Downloaded from S3')
           PYEOF
 
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
-            set -euo pipefail
-            cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1
-            zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
-            tar xf /tmp/dataset.tar
-            rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
-            echo "CSV dataset extracted"
-            ls -la static/ dynamic/
-          '
+          cd jmh-ldbc/target/ldbc-dataset/sf1
+          zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
+          tar xf /tmp/dataset.tar
+          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
+          echo "CSV dataset extracted"
+          ls -la static/ dynamic/
 
       - name: Download pre-built LDBC database from S3
         if: steps.mode.outputs.load == 'prebuilt'
@@ -195,10 +104,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          SERVER_IP="${{ steps.server.outputs.ip }}"
-
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
-            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          python3 - << 'PYEOF'
           import boto3, os
           s3 = boto3.client('s3',
               endpoint_url=os.environ['S3_ENDPOINT'],
@@ -210,60 +116,38 @@ jobs:
           print('Downloaded from S3')
           PYEOF
 
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
-            set -euo pipefail
-            mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-bench-db
-            cd /root/ytdb/jmh-ldbc/target/ldbc-bench-db
-            zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
-            tar xf /tmp/bench-db.tar
-            rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
-            echo "Pre-built database extracted"
-            ls -la
-          '
+          mkdir -p jmh-ldbc/target/ldbc-bench-db
+          cd jmh-ldbc/target/ldbc-bench-db
+          zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
+          tar xf /tmp/bench-db.tar
+          rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
+          echo "Pre-built database extracted"
+          ls -la
 
       - name: Compile
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            cd /root/ytdb && chmod +x mvnw
-            ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
-          '
+          chmod +x mvnw
+          ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
 
       - name: Pre-load LDBC database
         if: steps.mode.outputs.load == 'csv'
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-              -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
-          '
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
 
       - name: Warm OS page cache
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            cd /root/ytdb
-            # Run every query once in-process to populate OS page cache.
-            # This ensures all 10 forked JVM processes start with warm cache,
-            # eliminating the cold-cache variance that inflates score-error.
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-              -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1"
-          '
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1"
 
       - name: Run benchmarks
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ steps.server.outputs.ip }} '
-            cd /root/ytdb
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-              -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="-rf json -rff /root/results.json" \
-              2>&1 | tee /root/bench.log
-          '
-
-      - name: Collect results
-        run: |
-          scp root@${{ steps.server.outputs.ip }}:/root/results.json /tmp/jmh-results.json
-          cp /tmp/jmh-results.json results.json
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="-rf json -rff ${{ github.workspace }}/results.json" \
+            2>&1 | tee bench.log
 
       - name: Upload built database to S3
         if: success() && steps.mode.outputs.load == 'csv'
@@ -272,21 +156,15 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
           S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          SERVER_IP="${{ steps.server.outputs.ip }}"
+          set -euo pipefail
+          cd jmh-ldbc/target/ldbc-bench-db
+          tar cf /tmp/bench-db.tar .
+          zstd -9 /tmp/bench-db.tar -o /tmp/bench-db.tar.zst
+          rm -f /tmp/bench-db.tar
+          echo "Database archived: $(du -sh /tmp/bench-db.tar.zst | cut -f1)"
 
-          # Archive the freshly-built database and upload to S3,
-          # replacing the previous pre-built DB snapshot.
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" '
-            set -euo pipefail
-            cd /root/ytdb/jmh-ldbc/target/ldbc-bench-db
-            tar cf /tmp/bench-db.tar .
-            zstd -9 /tmp/bench-db.tar -o /tmp/bench-db.tar.zst
-            rm -f /tmp/bench-db.tar
-            echo "Database archived: $(du -sh /tmp/bench-db.tar.zst | cut -f1)"
-          '
-
-          ssh -o StrictHostKeyChecking=no root@"$SERVER_IP" \
-            "S3_ENDPOINT='${S3_ENDPOINT}' AWS_ACCESS_KEY_ID='${AWS_ACCESS_KEY_ID}' AWS_SECRET_ACCESS_KEY='${AWS_SECRET_ACCESS_KEY}' python3 -" << 'PYEOF'
+          cd "$GITHUB_WORKSPACE"
+          python3 - << 'PYEOF'
           import boto3, os
           s3 = boto3.client('s3',
               endpoint_url=os.environ['S3_ENDPOINT'],
@@ -322,9 +200,8 @@ jobs:
           path: results.json
           retention-days: 90
 
-      - name: Destroy server
+      - name: Clean up temp files
         if: always()
-        env:
-          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
         run: |
-          hcloud server delete "$SERVER_NAME" || true
+          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar \
+                /tmp/bench-db.tar.zst /tmp/bench-db.tar
