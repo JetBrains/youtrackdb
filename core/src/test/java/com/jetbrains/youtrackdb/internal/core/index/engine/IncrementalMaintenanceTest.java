@@ -30,6 +30,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -39,6 +40,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -47,6 +50,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -62,6 +67,39 @@ public class IncrementalMaintenanceTest {
 
   /** Generous timeout for CI environments where thread scheduling can be slow. */
   private static final int CI_TIMEOUT_SECONDS = 30;
+
+  // GlobalConfiguration is JVM-global mutable state. Other test classes
+  // (e.g. IndexHistogramManagerUnitTest) override rebalance-related config
+  // values. Because surefire runs classes in parallel, we must pin the
+  // values we depend on and restore them after each test.
+  private final Map<GlobalConfiguration, Object> configOverrides =
+      new LinkedHashMap<>();
+
+  @Before
+  public void setUp() {
+    // Pin rebalance-related defaults so that config contamination from
+    // parallel test classes (e.g. IndexHistogramManagerUnitTest setting
+    // rebalanceMutationFraction=0.5) does not alter threshold computations.
+    pinConfig(
+        GlobalConfiguration.QUERY_STATS_REBALANCE_MUTATION_FRACTION, 0.3);
+    pinConfig(
+        GlobalConfiguration.QUERY_STATS_MIN_REBALANCE_MUTATIONS, 1000L);
+    pinConfig(
+        GlobalConfiguration.QUERY_STATS_MAX_REBALANCE_MUTATIONS, 10_000_000L);
+    pinConfig(
+        GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 1000);
+  }
+
+  @After
+  public void tearDown() {
+    configOverrides.forEach(GlobalConfiguration::setValue);
+    configOverrides.clear();
+  }
+
+  private void pinConfig(GlobalConfiguration key, Object value) {
+    configOverrides.putIfAbsent(key, key.getValue());
+    key.setValue(value);
+  }
 
   // ═════════════════════════════════════════════════════════════════
   // Frequency updates on insert/remove
