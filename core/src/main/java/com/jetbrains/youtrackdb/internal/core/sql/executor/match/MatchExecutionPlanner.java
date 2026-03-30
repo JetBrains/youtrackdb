@@ -675,7 +675,7 @@ public class MatchExecutionPlanner {
         lastFilter = item.getFilter();
       }
 
-      if (canUseHashJoin(exp, pattern, aliasClasses, aliasFilters, aliasRids, context)) {
+      if (canUseHashJoin(exp, aliasClasses, aliasFilters, aliasRids, context)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
             exp, matchSteps, aliasClasses, aliasFilters, aliasRids, context, enableProfiling);
@@ -852,7 +852,6 @@ public class MatchExecutionPlanner {
    */
   static boolean canUseHashJoin(
       SQLMatchExpression exp,
-      Pattern pattern,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, SQLRid> aliasRids,
