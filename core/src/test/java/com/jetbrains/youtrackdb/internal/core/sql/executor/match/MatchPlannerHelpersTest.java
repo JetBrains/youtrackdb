@@ -658,6 +658,263 @@ public class MatchPlannerHelpersTest {
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
   }
 
+  // ── identifySemiJoinBranches ────────────────────────────────────────────
+
+  /**
+   * A simple 2-branch diamond: a→b→d and a→c→d. When only "a" and "d" are
+   * downstream, the branch a→c→d should be detected as semi-join eligible.
+   * Schedule: [a→b, b→d, a→c, c→d(check)]. Edge c→d is a consistency-check
+   * edge because d was already visited via a→b→d.
+   */
+  @Test
+  public void identifySemiJoinBranches_diamondPattern_detectsBranch() {
+    // Build nodes
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var nodeC = new PatternNode();
+    nodeC.alias = "c";
+    var nodeD = new PatternNode();
+    nodeD.alias = "d";
+
+    // Build edges: a→b, b→d, a→c, c→d
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+    nodeB.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeBD = nodeB.out.iterator().next();
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeC);
+    // nodeA has 2 out edges now — find the one to C
+    PatternEdge edgeAC = null;
+    for (var e : nodeA.out) {
+      if (e.in == nodeC) {
+        edgeAC = e;
+        break;
+      }
+    }
+    nodeC.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeCD = nodeC.out.iterator().next();
+
+    // Schedule: a→b (fwd), b→d (fwd), a→c (fwd), c→d (fwd, check)
+    var schedule = List.of(
+        new EdgeTraversal(edgeAB, true),
+        new EdgeTraversal(edgeBD, true),
+        new EdgeTraversal(edgeAC, true),
+        new EdgeTraversal(edgeCD, true));
+
+    // Only a and d are downstream → c is intermediate
+    var downstream = Set.of("a", "d");
+    var ctx = buildMockContext("Person", 50);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, downstream,
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).hasSize(1);
+    var branch = result.get(0);
+    assertThat(branch.sharedAliases()).containsExactly("a", "d");
+    assertThat(branch.intermediateAliases()).containsExactly("c");
+    assertThat(branch.branchEdges()).hasSize(2); // a→c, c→d
+  }
+
+  /**
+   * Same diamond but "c" is referenced downstream (in RETURN) → no semi-join
+   * because the intermediate alias is needed.
+   */
+  @Test
+  public void identifySemiJoinBranches_intermediateInReturn_noBranch() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var nodeC = new PatternNode();
+    nodeC.alias = "c";
+    var nodeD = new PatternNode();
+    nodeD.alias = "d";
+
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+    nodeB.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeBD = nodeB.out.iterator().next();
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeC);
+    PatternEdge edgeAC = null;
+    for (var e : nodeA.out) {
+      if (e.in == nodeC) {
+        edgeAC = e;
+        break;
+      }
+    }
+    nodeC.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeCD = nodeC.out.iterator().next();
+
+    var schedule = List.of(
+        new EdgeTraversal(edgeAB, true),
+        new EdgeTraversal(edgeBD, true),
+        new EdgeTraversal(edgeAC, true),
+        new EdgeTraversal(edgeCD, true));
+
+    // c is downstream → intermediate alias is needed
+    var downstream = Set.of("a", "c", "d");
+    var ctx = buildMockContext("Person", 50);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, downstream,
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Branch with a $matched reference in the intermediate node's filter → not eligible.
+   */
+  @Test
+  public void identifySemiJoinBranches_matchedDependency_noBranch() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var nodeC = new PatternNode();
+    nodeC.alias = "c";
+    var nodeD = new PatternNode();
+    nodeD.alias = "d";
+
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+    nodeB.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeBD = nodeB.out.iterator().next();
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeC);
+    PatternEdge edgeAC = null;
+    for (var e : nodeA.out) {
+      if (e.in == nodeC) {
+        edgeAC = e;
+        break;
+      }
+    }
+    nodeC.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeCD = nodeC.out.iterator().next();
+
+    var schedule = List.of(
+        new EdgeTraversal(edgeAB, true),
+        new EdgeTraversal(edgeBD, true),
+        new EdgeTraversal(edgeAC, true),
+        new EdgeTraversal(edgeCD, true));
+
+    var downstream = Set.of("a", "d");
+    var ctx = buildMockContext("Person", 50);
+    // c's filter references $matched
+    var cFilter = buildWhereClause("$matched.a.name = name", false);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, downstream,
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of("c", cFilter), Map.of(), ctx);
+
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Single edge schedule → no consistency-check edge possible → empty result.
+   */
+  @Test
+  public void identifySemiJoinBranches_singleEdge_empty() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+
+    var schedule = List.of(new EdgeTraversal(edgeAB, true));
+    var ctx = buildMockContext("Person", 50);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, Set.of("a", "b"),
+        Map.of("a", "Person", "b", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Branch with cardinality exceeding threshold (1M records × FANOUT_PER_HOP) → rejected.
+   */
+  @Test
+  public void identifySemiJoinBranches_highCardinality_noBranch() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var nodeC = new PatternNode();
+    nodeC.alias = "c";
+    var nodeD = new PatternNode();
+    nodeD.alias = "d";
+
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+    nodeB.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeBD = nodeB.out.iterator().next();
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeC);
+    PatternEdge edgeAC = null;
+    for (var e : nodeA.out) {
+      if (e.in == nodeC) {
+        edgeAC = e;
+        break;
+      }
+    }
+    nodeC.addEdge(new SQLMatchPathItem(-1), nodeD);
+    var edgeCD = nodeC.out.iterator().next();
+
+    var schedule = List.of(
+        new EdgeTraversal(edgeAB, true),
+        new EdgeTraversal(edgeBD, true),
+        new EdgeTraversal(edgeAC, true),
+        new EdgeTraversal(edgeCD, true));
+
+    var downstream = Set.of("a", "d");
+    // 1M records → branch cardinality = 1M * 10 * 10 = 100M > 10K threshold
+    var ctx = buildMockContext("Person", 1_000_000);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, downstream,
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Linear chain a→b→c with no consistency-check edge → empty result.
+   */
+  @Test
+  public void identifySemiJoinBranches_linearChain_noBranch() {
+    var nodeA = new PatternNode();
+    nodeA.alias = "a";
+    var nodeB = new PatternNode();
+    nodeB.alias = "b";
+    var nodeC = new PatternNode();
+    nodeC.alias = "c";
+
+    nodeA.addEdge(new SQLMatchPathItem(-1), nodeB);
+    var edgeAB = nodeA.out.iterator().next();
+    nodeB.addEdge(new SQLMatchPathItem(-1), nodeC);
+    var edgeBC = nodeB.out.iterator().next();
+
+    var schedule = List.of(
+        new EdgeTraversal(edgeAB, true),
+        new EdgeTraversal(edgeBC, true));
+
+    var ctx = buildMockContext("Person", 50);
+
+    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+        schedule, Set.of("a", "c"),
+        Map.of("a", "Person", "b", "Person", "c", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).isEmpty();
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**
