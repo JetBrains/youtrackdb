@@ -10,12 +10,19 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -437,6 +444,220 @@ public class MatchPlannerHelpersTest {
         .isFalse();
   }
 
+  // ── collectDownstreamAliases ────────────────────────────────────────────
+
+  /**
+   * RETURN with a single dotted expression (friend.name) should detect the
+   * "friend" alias as referenced downstream.
+   */
+  @Test
+  public void collectDownstreamAliases_singleDottedReturn_detectsAlias() {
+    var allAliases = Set.of("person", "friend", "tag");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("friend.name")),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactly("friend");
+  }
+
+  /**
+   * RETURN referencing multiple aliases in different expressions should detect
+   * all of them.
+   */
+  @Test
+  public void collectDownstreamAliases_multipleReturnExpressions_detectsAll() {
+    var allAliases = Set.of("person", "friend", "tag");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("person.name"), buildExpression("tag.value")),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "tag");
+  }
+
+  /**
+   * GROUP BY adds alias references: an alias in GROUP BY but not in RETURN
+   * should still be detected.
+   */
+  @Test
+  public void collectDownstreamAliases_groupByAddsAlias() {
+    var allAliases = Set.of("person", "friend", "city");
+    var groupBy = new SQLGroupBy(-1);
+    groupBy.addItem(buildExpression("city.name"));
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("person.name")),
+        false, false, false, false,
+        groupBy, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "city");
+  }
+
+  /**
+   * ORDER BY adds alias references via its item alias.
+   */
+  @Test
+  public void collectDownstreamAliases_orderByAddsAlias() {
+    var allAliases = Set.of("person", "friend", "tag");
+    var orderBy = new SQLOrderBy(-1);
+    var orderItem = new SQLOrderByItem();
+    orderItem.setAlias("friend");
+    orderBy.setItems(new java.util.ArrayList<>(List.of(orderItem)));
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("person.name")),
+        false, false, false, false,
+        null, orderBy, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "friend");
+  }
+
+  /**
+   * UNWIND adds alias references for the identifier being unwound.
+   */
+  @Test
+  public void collectDownstreamAliases_unwindAddsAlias() {
+    var allAliases = Set.of("person", "friend", "tags");
+    var unwind = new SQLUnwind(-1);
+    var ident = new SQLIdentifier("tags");
+    unwind.addItem(ident);
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("person.name")),
+        false, false, false, false,
+        null, null, unwind,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "tags");
+  }
+
+  /**
+   * Wildcard return mode ($elements) should return all pattern aliases
+   * regardless of RETURN expressions.
+   */
+  @Test
+  public void collectDownstreamAliases_returnElements_returnsAllAliases() {
+    var allAliases = Set.of("person", "friend", "tag");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("person.name")),
+        true, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "friend", "tag");
+  }
+
+  /**
+   * Wildcard return mode ($paths) should return all pattern aliases.
+   */
+  @Test
+  public void collectDownstreamAliases_returnPaths_returnsAllAliases() {
+    var allAliases = Set.of("person", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(),
+        false, true, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "friend");
+  }
+
+  /**
+   * Wildcard return mode ($patterns) should return all pattern aliases.
+   */
+  @Test
+  public void collectDownstreamAliases_returnPatterns_returnsAllAliases() {
+    var allAliases = Set.of("a", "b", "c");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(),
+        false, false, true, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("a", "b", "c");
+  }
+
+  /**
+   * Wildcard return mode ($pathElements) should return all pattern aliases.
+   */
+  @Test
+  public void collectDownstreamAliases_returnPathElements_returnsAllAliases() {
+    var allAliases = Set.of("x", "y");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(),
+        false, false, false, true,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("x", "y");
+  }
+
+  /**
+   * An expression that references no alias (e.g., count(*)) should produce
+   * an empty result set (aside from aliases in other expressions).
+   */
+  @Test
+  public void collectDownstreamAliases_noAliasInExpression_emptySet() {
+    var allAliases = Set.of("person", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("count(*)")),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Short alias name must not be falsely matched inside a longer identifier.
+   * E.g., alias "a" should not match in "abandonment" or "data".
+   */
+  @Test
+  public void collectDownstreamAliases_shortAliasNotFalselyMatched() {
+    var allAliases = Set.of("a", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("abandonment.data")),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * Short alias "a" should match when it appears as a standalone word:
+   * "a.name" starts with the alias followed by a dot.
+   */
+  @Test
+  public void collectDownstreamAliases_shortAliasMatchesStandalone() {
+    var allAliases = Set.of("a", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(buildExpression("a.name")),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactly("a");
+  }
+
+  /**
+   * Empty RETURN items (defensive case) should return all aliases.
+   */
+  @Test
+  public void collectDownstreamAliases_emptyReturnItems_returnsAllAliases() {
+    var allAliases = Set.of("person", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        List.of(),
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "friend");
+  }
+
+  /**
+   * Null RETURN items (defensive case) should return all aliases.
+   */
+  @Test
+  public void collectDownstreamAliases_nullReturnItems_returnsAllAliases() {
+    var allAliases = Set.of("person", "friend");
+    var result = MatchExecutionPlanner.collectDownstreamAliases(
+        null,
+        false, false, false, false,
+        null, null, null,
+        allAliases);
+    assertThat(result).containsExactlyInAnyOrder("person", "friend");
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**
@@ -500,6 +721,18 @@ public class MatchPlannerHelpersTest {
       @Override
       public boolean refersToParent() {
         return refersToParent;
+      }
+    };
+  }
+
+  /**
+   * Builds a stub {@link SQLExpression} whose {@code toString()} returns the given text.
+   */
+  private static SQLExpression buildExpression(String text) {
+    return new SQLExpression(-1) {
+      @Override
+      public String toString() {
+        return text;
       }
     };
   }

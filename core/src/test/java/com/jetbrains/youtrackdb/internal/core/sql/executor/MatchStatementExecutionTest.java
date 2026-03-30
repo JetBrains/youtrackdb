@@ -2337,8 +2337,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
-   * Exercises explain() with NOT pattern to cover FilterNotMatchPatternStep.prettyPrint().
-   * Verifies the plan contains "NOT".
+   * Exercises explain() with NOT pattern. After Track 2 (YTDB-592), NOT patterns that
+   * qualify for hash anti-join produce "HASH ANTI_JOIN" in the EXPLAIN output instead
+   * of "NOT". This test accepts either form.
    */
   @Test
   public void testExplainMatchNotPattern() {
@@ -2351,7 +2352,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    assertTrue("plan should contain NOT step", plan.contains("NOT"));
+    assertTrue(
+        "plan should contain NOT or HASH ANTI_JOIN step",
+        plan.contains("NOT") || plan.contains("HASH ANTI_JOIN"));
     session.commit();
   }
 
