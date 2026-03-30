@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -1559,7 +1560,9 @@ public class AtomicOperationSnapshotProxyTest {
     op.addFile("nd-file.dat", true);
     op.commitChanges(42L, createMockWal());
 
+    // Verify the 4-arg overload was called and the 3-arg was NOT called
     verify(readCache).addFile("nd-file.dat", composedFileId, writeCache, true);
+    verify(readCache, never()).addFile(anyString(), anyLong(), any(WriteCache.class));
   }
 
   @Test
@@ -1581,6 +1584,8 @@ public class AtomicOperationSnapshotProxyTest {
     op.addFile("durable-file.dat", false);
     op.commitChanges(42L, createMockWal());
 
+    // Verify the 4-arg overload was called and the 3-arg was NOT called
     verify(readCache).addFile("durable-file.dat", composedFileId, writeCache, false);
+    verify(readCache, never()).addFile(anyString(), anyLong(), any(WriteCache.class));
   }
 }

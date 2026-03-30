@@ -472,8 +472,8 @@ public class StorageComponentOptimisticReadTest {
 
   @Test
   public void testAddFilePassesNonDurableFlagFromComponent() throws IOException {
-    // When a non-durable StorageComponent calls addFile(), it should pass
-    // nonDurable=true (i.e. !durable) to the atomic operation.
+    // When a non-durable StorageComponent calls addFile(), it must call the 2-arg
+    // addFile(name, true) directly — not the 1-arg default which would pass false.
     var nonDurableComponent = new TestStorageComponent(
         component.storage, false);
     var op = mock(AtomicOperation.class);
@@ -483,6 +483,8 @@ public class StorageComponentOptimisticReadTest {
 
     assertEquals(42L, fileId);
     verify(op).addFile("test-file.dat", true);
+    // Ensure the 1-arg overload was NOT called (would silently pass false via default)
+    verify(op, never()).addFile("test-file.dat");
   }
 
   @Test
