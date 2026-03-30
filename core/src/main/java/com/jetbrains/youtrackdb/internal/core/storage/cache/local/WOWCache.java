@@ -121,6 +121,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import net.jpountz.xxhash.XXHash64;
+import net.jpountz.xxhash.XXHashFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -213,6 +215,31 @@ public final class WOWCache extends AbstractWriteCache
    * @see #NAME_ID_MAP_V3
    */
   private static final int MAX_FILE_RECORD_LEN = 16 << 10;
+
+  /**
+   * Primary side file for persisting non-durable file IDs.
+   */
+  private static final String NON_DURABLE_FILES = "non_durable_files" + NAME_ID_MAP_EXTENSION;
+
+  /**
+   * Shadow copy of the non-durable files side file. Written first during updates; if the primary
+   * is corrupt on read, the shadow is used as fallback.
+   */
+  private static final String NON_DURABLE_FILES_SHADOW =
+      "non_durable_files_shadow" + NAME_ID_MAP_EXTENSION;
+
+  /**
+   * Binary format version for the non-durable files side file. Format:
+   * {@code [4 bytes version][8 bytes xxHash64][4 bytes count][count × 4 bytes fileId]}
+   */
+  private static final int NON_DURABLE_FILES_VERSION = 1;
+
+  private static final long XX_HASH_SEED = 0xADF678FE45L;
+  private static final XXHash64 XX_HASH_64;
+
+  static {
+    XX_HASH_64 = XXHashFactory.fastestInstance().hash64();
+  }
 
   /**
    * Marks pages which have a checksum stored.
@@ -935,6 +962,7 @@ public final class WOWCache extends AbstractWriteCache
         final var updated = new IntOpenHashSet(nonDurableFileIds);
         updated.add(intId);
         nonDurableFileIds = updated;
+        writeNonDurableRegistry();
       }
 
       return fileId;
@@ -1328,6 +1356,7 @@ public final class WOWCache extends AbstractWriteCache
           final var updated = new IntOpenHashSet(nonDurableFileIds);
           updated.remove(intId);
           nonDurableFileIds = updated;
+          writeNonDurableRegistry();
         }
 
         writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
@@ -1460,6 +1489,7 @@ public final class WOWCache extends AbstractWriteCache
         final var updated = new IntOpenHashSet(nonDurableFileIds);
         updated.remove(newIntFileId);
         nonDurableFileIds = updated;
+        writeNonDurableRegistry();
       }
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
@@ -1573,6 +1603,10 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       doubleWriteLog.close();
+
+      // Persist the final non-durable state before clearing, so crash recovery can
+      // identify non-durable files on next startup
+      writeNonDurableRegistry();
 
       nameIdMap.clear();
       idNameMap.clear();
@@ -1830,6 +1864,9 @@ public final class WOWCache extends AbstractWriteCache
         nameIdMapHolderPath = null;
       }
 
+      // Delete non-durable side files alongside name-id map deletion
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
       nonDurableFileIds = new IntOpenHashSet();
     } finally {
       filesLock.releaseWriteLock();
@@ -1935,6 +1972,10 @@ public final class WOWCache extends AbstractWriteCache
     } else {
       storedNameIdMapToV3();
     }
+
+    // Load non-durable file IDs after all name-id map migrations are complete, so we can
+    // filter out IDs that no longer exist in idNameMap.
+    nonDurableFileIds = readNonDurableRegistry();
   }
 
   private void storedNameIdMapToV3() throws IOException {
@@ -1976,6 +2017,170 @@ public final class WOWCache extends AbstractWriteCache
           StandardCopyOption.ATOMIC_MOVE);
     } catch (AtomicMoveNotSupportedException e) {
       Files.move(nameIdMapHolderFileV3T, storagePath.resolve(NAME_ID_MAP_V3));
+    }
+  }
+
+  /**
+   * Writes the current set of non-durable file IDs to the shadow-copy side file pair.
+   * Write protocol: write shadow → fsync → write primary → fsync.
+   *
+   * <p>Format: {@code [4 bytes version][8 bytes xxHash64][4 bytes count][count × 4 bytes fileId]}
+   *
+   * <p>Must be called under {@link #filesLock} write lock.
+   */
+  private void writeNonDurableRegistry() throws IOException {
+    final var currentSet = nonDurableFileIds;
+    if (currentSet.isEmpty()) {
+      // No non-durable files — delete both side files if they exist
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
+      return;
+    }
+
+    final var count = currentSet.size();
+    // version(4) + xxHash(8) + count(4) + count*fileId(4)
+    final var buffer = ByteBuffer.allocate(4 + 8 + 4 + count * 4);
+    buffer.order(ByteOrder.BIG_ENDIAN);
+
+    // Write version first
+    buffer.putInt(NON_DURABLE_FILES_VERSION);
+
+    // Reserve space for xxHash (will be written after content)
+    final var hashPosition = buffer.position();
+    buffer.position(hashPosition + 8);
+
+    // Write count and file IDs
+    buffer.putInt(count);
+    for (final var intIterator = currentSet.iterator(); intIterator.hasNext();) {
+      buffer.putInt(intIterator.nextInt());
+    }
+
+    // Compute xxHash over the content after the hash field (from count onward)
+    final var contentStart = hashPosition + 8;
+    final var xxHash =
+        XX_HASH_64.hash(buffer, contentStart, buffer.capacity() - contentStart, XX_HASH_SEED);
+    buffer.putLong(hashPosition, xxHash);
+
+    buffer.rewind();
+
+    // Write shadow first, then primary
+    final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
+    try (final var channel =
+        FileChannel.open(
+            shadowPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.TRUNCATE_EXISTING)) {
+      IOUtils.writeByteBuffer(buffer, channel, 0);
+      if (callFsync) {
+        channel.force(true);
+      }
+    }
+
+    buffer.rewind();
+
+    final var primaryPath = storagePath.resolve(NON_DURABLE_FILES);
+    try (final var channel =
+        FileChannel.open(
+            primaryPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.TRUNCATE_EXISTING)) {
+      IOUtils.writeByteBuffer(buffer, channel, 0);
+      if (callFsync) {
+        channel.force(true);
+      }
+    }
+  }
+
+  /**
+   * Reads non-durable file IDs from the shadow-copy side file pair.
+   * Read protocol: try primary, if hash invalid → try shadow, if both invalid → return empty.
+   * Filters out IDs not present in {@link #idNameMap}.
+   *
+   * <p>Must be called under {@link #filesLock} write lock, after name-id map is fully loaded.
+   */
+  private IntOpenHashSet readNonDurableRegistry() {
+    final var primaryPath = storagePath.resolve(NON_DURABLE_FILES);
+    final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
+
+    var result = readNonDurableRegistryFile(primaryPath);
+    if (result != null) {
+      return result;
+    }
+
+    result = readNonDurableRegistryFile(shadowPath);
+    if (result != null) {
+      return result;
+    }
+
+    // Both missing or corrupt — safe fallback: treat all files as durable
+    return new IntOpenHashSet();
+  }
+
+  /**
+   * Attempts to read non-durable file IDs from a single side file. Returns null if the file
+   * does not exist, is too small, or has an invalid xxHash.
+   */
+  private IntOpenHashSet readNonDurableRegistryFile(final Path path) {
+    if (!Files.exists(path)) {
+      return null;
+    }
+
+    try (final var channel =
+        FileChannel.open(path, StandardOpenOption.READ)) {
+      final var size = channel.size();
+
+      // Minimum valid size: version(4) + hash(8) + count(4) = 16 bytes
+      if (size < 16) {
+        logger.warn("Non-durable registry file {} is too small ({}), ignoring", path, size);
+        return null;
+      }
+
+      final var buffer = ByteBuffer.allocate((int) size);
+      buffer.order(ByteOrder.BIG_ENDIAN);
+      IOUtils.readByteBuffer(buffer, channel);
+      buffer.rewind();
+
+      final var version = buffer.getInt();
+      if (version != NON_DURABLE_FILES_VERSION) {
+        logger.warn(
+            "Non-durable registry file {} has unsupported version {}, ignoring",
+            path, version);
+        return null;
+      }
+
+      final var storedHash = buffer.getLong();
+
+      // Verify xxHash over content after the hash field
+      final var contentStart = 4 + 8; // version + hash
+      final var xxHash =
+          XX_HASH_64.hash(buffer, contentStart, buffer.capacity() - contentStart, XX_HASH_SEED);
+      if (xxHash != storedHash) {
+        logger.warn("Non-durable registry file {} has invalid checksum, ignoring", path);
+        return null;
+      }
+
+      final var count = buffer.getInt();
+      if (count < 0 || count > (size - contentStart - 4) / 4) {
+        logger.warn(
+            "Non-durable registry file {} has invalid count {}, ignoring", path, count);
+        return null;
+      }
+
+      final var result = new IntOpenHashSet(count);
+      for (var i = 0; i < count; i++) {
+        final var fileId = buffer.getInt();
+        // Only keep IDs that still exist in the name-id map (filter stale entries)
+        if (idNameMap.containsKey(fileId)) {
+          result.add(fileId);
+        }
+      }
+
+      return result;
+    } catch (final IOException e) {
+      logger.warn("Failed to read non-durable registry file {}", path, e);
+      return null;
     }
   }
 
