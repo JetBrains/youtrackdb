@@ -144,6 +144,37 @@ public class EdgeFromLinkBagIterableTest {
     assertFalse(iterator.hasNext());
   }
 
+  /**
+   * Chaining withClassFilter() then withRidFilter() should produce an iterable
+   * that applies both filters, because each method preserves the other filter.
+   * An edge must pass both the collection ID check and the RID set check.
+   */
+  @Test
+  public void testChainingBothFiltersPreservesBoth() {
+    var matchingRid = new RecordId(20, 1); // collection 20 + in RID set
+    var wrongClassRid = new RecordId(30, 1); // collection 30 (rejected by class)
+    var wrongRidRid = new RecordId(20, 2); // collection 20 but not in RID set
+
+    when(linkBag.iterator()).thenReturn(List.of(
+        RidPair.ofPair(wrongClassRid, new RecordId(10, 1)),
+        RidPair.ofPair(wrongRidRid, new RecordId(10, 2)),
+        RidPair.ofPair(matchingRid, new RecordId(10, 3))).iterator());
+    when(linkBag.size()).thenReturn(3);
+    mockLoadReturnsEdge(matchingRid);
+
+    var acceptedRids = new HashSet<RID>();
+    acceptedRids.add(matchingRid);
+
+    var filtered = new EdgeFromLinkBagIterable(linkBag, session)
+        .withClassFilter(IntOpenHashSet.of(20))
+        .withRidFilter(acceptedRids);
+
+    var iter = filtered.iterator();
+    assertTrue(iter.hasNext());
+    assertEquals(matchingRid, iter.next().getIdentity());
+    assertFalse(iter.hasNext());
+  }
+
   private void mockLoadReturnsEdge(RID rid) {
     var entity = mock(Entity.class);
     var edge = mock(Edge.class, org.mockito.Mockito.withSettings()

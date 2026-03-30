@@ -3,7 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -15,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -99,9 +103,10 @@ public class EdgeFromLinkBagIteratorTest {
 
   /**
    * When the primary RID points to a vertex entity (legacy lightweight edge),
-   * the iterator should throw IllegalStateException.
+   * the iterator should throw IllegalStateException with a message identifying
+   * the legacy edge and the offending RID.
    */
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testThrowsOnLegacyVertexEntry() {
     var vertexRid = new RecordId(20, 1);
     var pair = RidPair.ofPair(vertexRid, new RecordId(10, 1));
@@ -114,7 +119,15 @@ public class EdgeFromLinkBagIteratorTest {
     var iterator = new EdgeFromLinkBagIterator(
         List.of(pair).iterator(), session, 1);
 
-    iterator.hasNext(); // triggers loadEdge → IllegalStateException
+    try {
+      iterator.hasNext();
+      fail("Expected IllegalStateException for legacy vertex entry");
+    } catch (IllegalStateException e) {
+      assertTrue("Message should mention legacy lightweight edge",
+          e.getMessage().contains("Legacy lightweight edge detected"));
+      assertTrue("Message should contain the offending RID",
+          e.getMessage().contains(vertexRid.toString()));
+    }
   }
 
   /**
@@ -239,9 +252,10 @@ public class EdgeFromLinkBagIteratorTest {
   /**
    * RidPair.validateEdgePair() rejects legacy lightweight pairs where
    * primaryRid == secondaryRid. After edge unification (YTDB-605), all edges
-   * must have distinct edge and vertex RIDs.
+   * must have distinct edge and vertex RIDs. Verify the exception comes from
+   * validateEdgePair (not from the legacy-vertex branch) by checking its message.
    */
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testValidateEdgePairRejectsEqualRids() {
     var rid = new RecordId(10, 1);
     var pair = new RidPair(rid, rid);
@@ -249,7 +263,13 @@ public class EdgeFromLinkBagIteratorTest {
     var iterator = new EdgeFromLinkBagIterator(
         List.of(pair).iterator(), session, 1);
 
-    iterator.hasNext(); // triggers validateEdgePair → IllegalStateException
+    try {
+      iterator.hasNext();
+      fail("Expected IllegalStateException from validateEdgePair");
+    } catch (IllegalStateException e) {
+      assertTrue("Message should mention primaryRid == secondaryRid",
+          e.getMessage().contains("primaryRid == secondaryRid"));
+    }
   }
 
   // =========================================================================
@@ -269,13 +289,15 @@ public class EdgeFromLinkBagIteratorTest {
     mockLoadReturnsEdge(matchingRid);
     // nonMatchingRid should never be loaded — no mock needed
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(20);
+    var accepted = IntOpenHashSet.of(20);
     var iterator = new EdgeFromLinkBagIterator(
         List.of(nonMatchingPair, matchingPair).iterator(), session, 2, accepted);
 
     assertTrue(iterator.hasNext());
     assertEquals(matchingRid, iterator.next().getIdentity());
     assertFalse(iterator.hasNext());
+    // Verify zero-I/O: nonMatchingRid should never have been loaded from storage
+    verify(transaction, never()).loadEntity(nonMatchingRid);
   }
 
   /**
@@ -288,7 +310,7 @@ public class EdgeFromLinkBagIteratorTest {
     mockLoadReturnsEdge(rid1);
     mockLoadReturnsEdge(rid2);
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(20);
+    var accepted = IntOpenHashSet.of(20);
     var iterator = new EdgeFromLinkBagIterator(
         List.of(
             RidPair.ofPair(rid1, new RecordId(10, 1)),
@@ -310,7 +332,7 @@ public class EdgeFromLinkBagIteratorTest {
   public void classFilter_noneMatch_yieldsEmpty_noIO() {
     var rid = new RecordId(30, 1); // collection 30 — not accepted
 
-    var accepted = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(20);
+    var accepted = IntOpenHashSet.of(20);
     var iterator = new EdgeFromLinkBagIterator(
         List.of(RidPair.ofPair(rid, new RecordId(10, 1))).iterator(),
         session, 1, accepted);
@@ -348,13 +370,16 @@ public class EdgeFromLinkBagIteratorTest {
     assertTrue(iterator.hasNext());
     assertEquals(matchingRid, iterator.next().getIdentity());
     assertFalse(iterator.hasNext());
+    // Verify zero-I/O: nonMatchingRid should never have been loaded from storage
+    verify(transaction, never()).loadEntity(nonMatchingRid);
   }
 
   /**
-   * When acceptedRids is empty, no edges are yielded.
+   * When acceptedRids is empty, no edges are yielded and no records are loaded
+   * from storage (zero-I/O optimization).
    */
   @Test
-  public void ridFilter_emptySet_yieldsEmpty() {
+  public void ridFilter_emptySet_yieldsEmpty_noIO() {
     var rid = new RecordId(20, 1);
 
     var iterator = new EdgeFromLinkBagIterator(
@@ -362,6 +387,8 @@ public class EdgeFromLinkBagIteratorTest {
         session, 1, null, new HashSet<>());
 
     assertFalse(iterator.hasNext());
+    // Verify zero-I/O: loadEntity should never have been called
+    verifyNoMoreInteractions(transaction);
   }
 
   // =========================================================================
@@ -383,7 +410,7 @@ public class EdgeFromLinkBagIteratorTest {
 
     mockLoadReturnsEdge(rid1);
 
-    var acceptedCollections = it.unimi.dsi.fastutil.ints.IntOpenHashSet.of(20);
+    var acceptedCollections = IntOpenHashSet.of(20);
     var acceptedRids = new HashSet<RID>();
     acceptedRids.add(rid1);
 
@@ -397,6 +424,24 @@ public class EdgeFromLinkBagIteratorTest {
     assertTrue(iterator.hasNext());
     assertEquals(rid1, iterator.next().getIdentity());
     assertFalse(iterator.hasNext());
+  }
+
+  /**
+   * Calling next() directly without a preceding hasNext() should still return
+   * the correct edge, since next() delegates to hasNext() internally. This
+   * verifies the iterator contract holds for callers that skip hasNext().
+   */
+  @Test
+  public void testNextWithoutHasNextReturnsEdge() {
+    var edgeRid = new RecordId(20, 1);
+    var pair = RidPair.ofPair(edgeRid, new RecordId(10, 1));
+    mockLoadReturnsEdge(edgeRid);
+
+    var iterator = new EdgeFromLinkBagIterator(
+        List.of(pair).iterator(), session, 1);
+
+    // Call next() directly without hasNext()
+    assertEquals(edgeRid, iterator.next().getIdentity());
   }
 
   /**
