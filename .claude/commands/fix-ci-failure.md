@@ -182,10 +182,10 @@ whenever code or tests were modified.
    ```
    ### Triage Summary
    - **Categories detected**: storage-engine, concurrency
-   - **Code review agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
-   - **Code review agents skipped**: review-security (no network/API/SQL/config/dependency changes)
+   - **Code review agents selected**: review-code-quality, review-bugs-concurrency, review-performance
+   - **Code review agents skipped**: review-crash-safety (no crash-durability category), review-security (no network/API/SQL/config/dependency changes)
    - **Test quality agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency
-   - **Test quality agents skipped**: review-test-crash-safety (no WAL/page/durability code)
+   - **Test quality agents skipped**: review-test-crash-safety (no crash-durability category)
    ```
 
    **1e: Edge cases**
