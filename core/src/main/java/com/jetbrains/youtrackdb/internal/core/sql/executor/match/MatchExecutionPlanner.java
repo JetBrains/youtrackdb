@@ -2213,8 +2213,12 @@ public class MatchExecutionPlanner {
   /**
    * Extracts alias metadata (filters, class, collection, RID) from a single match
    * expression and merges them into the accumulation maps.
+   *
+   * <p>Tracks a {@code currentEdgeClass} state across items: {@code outE('X')}/{@code inE('X')}
+   * set it to {@code X}; {@code inV()}/{@code outV()} consume it for vertex class inference
+   * then reset it; all other methods reset it to {@code null}.
    */
-  private static void addAliases(
+  static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
@@ -2224,18 +2228,41 @@ public class MatchExecutionPlanner {
       boolean skipClassInference) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
 
+    // Track the edge class set by the most recent outE/inE item, so that a
+    // following inV/outV can look up the linked vertex class from the edge schema.
+    // Reset after inV/outV consumes it, or when a non-edge-method item is seen.
+    @Nullable String currentEdgeClass = null;
+
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
         if (!skipClassInference) {
+          // Determine the method name for edge-class state tracking.
+          var method = item.getMethod();
+          var methodName = method != null ? method.getMethodNameString() : null;
+          var methodLower = methodName != null
+              ? methodName.toLowerCase(Locale.ROOT) : null;
+
+          // Update currentEdgeClass state based on the method type.
+          if ("oute".equals(methodLower) || "ine".equals(methodLower)) {
+            currentEdgeClass = extractEdgeClassName(method);
+          } else if ("inv".equals(methodLower) || "outv".equals(methodLower)) {
+            // inV/outV consumes the currentEdgeClass — pass it to inference,
+            // then reset so a subsequent inV/outV without a preceding outE/inE
+            // correctly gets null.
+            // (currentEdgeClass is read below, then reset after inference)
+          } else {
+            // Any other method (out, in, both, bothE, etc.) resets the state.
+            currentEdgeClass = null;
+          }
+
           // Infer target class from edge LINK schema when no explicit class
-          // is set. For out('CONTAINER_OF'), the target vertices are the "in"
-          // endpoint of the CONTAINER_OF edge class; if that endpoint declares
-          // LINK Message, the target class is Message.
+          // is set. Handles both vertex-to-vertex traversals (out/in) and
+          // edge-method traversals (outE/inE/inV/outV).
           var alias = item.getFilter().getAlias();
           if (alias != null && !aliasClasses.containsKey(alias)) {
-            var inferred = inferClassFromEdgeSchema(item.getMethod(), null, context);
+            var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
             if (inferred != null) {
               aliasClasses.put(alias, inferred);
               logger.debug(
@@ -2243,6 +2270,11 @@ public class MatchExecutionPlanner {
                       + "(from edge LINK schema)",
                   alias, inferred);
             }
+          }
+
+          // Reset currentEdgeClass after inV/outV consumes it.
+          if ("inv".equals(methodLower) || "outv".equals(methodLower)) {
+            currentEdgeClass = null;
           }
         }
       }

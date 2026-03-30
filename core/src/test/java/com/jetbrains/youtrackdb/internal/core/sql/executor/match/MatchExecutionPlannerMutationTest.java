@@ -19,10 +19,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.Before;
@@ -1182,6 +1185,304 @@ public class MatchExecutionPlannerMutationTest {
     var patternEdge = nodeA.out.iterator().next();
 
     return new EdgeTraversal(patternEdge, out);
+  }
+
+  // =========================================================================
+  // addAliases (expression-level) — currentEdgeClass tracking
+  // =========================================================================
+
+  /**
+   * outE('KNOWS') item → aliasClasses should contain the edge alias mapped to "KNOWS".
+   * Verifies that outE sets currentEdgeClass and inference returns the edge class directly.
+   */
+  @Test
+  public void addAliases_outE_infersEdgeClass() {
+    var edgeAlias = "e";
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", edgeAlias));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses).containsEntry(edgeAlias, "KNOWS");
+  }
+
+  /**
+   * inE('HAS_MEMBER') item → aliasClasses should contain the edge alias mapped to
+   * "HAS_MEMBER".
+   */
+  @Test
+  public void addAliases_inE_infersEdgeClass() {
+    var edgeAlias = "e";
+    var expr = mockExpression(
+        mockPathItem("inE", "HAS_MEMBER", edgeAlias));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses).containsEntry(edgeAlias, "HAS_MEMBER");
+  }
+
+  /**
+   * outE('KNOWS') followed by inV() → aliasClasses should contain the edge alias
+   * mapped to "KNOWS" and the vertex alias mapped to the linked class from KNOWS.in.
+   * This verifies currentEdgeClass is propagated from outE to inV.
+   */
+  @Test
+  public void addAliases_outE_then_inV_infersVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e", "KNOWS")
+        .containsEntry("v", "Person");
+  }
+
+  /**
+   * inE('WORK_AT') followed by outV() → aliasClasses should contain the edge alias
+   * mapped to "WORK_AT" and the vertex alias mapped to the linked class from
+   * WORK_AT.out.
+   */
+  @Test
+  public void addAliases_inE_then_outV_infersVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("WORK_AT", 300);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var expr = mockExpression(
+        mockPathItem("inE", "WORK_AT", "e"),
+        mockPathItem("outV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e", "WORK_AT")
+        .containsEntry("v", "Person");
+  }
+
+  /**
+   * inV() without a preceding outE → vertex alias should NOT be in aliasClasses
+   * (no currentEdgeClass to propagate).
+   */
+  @Test
+  public void addAliases_inV_withoutPrecedingOutE_noInference() {
+    var expr = mockExpression(
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses).doesNotContainKey("v");
+  }
+
+  /**
+   * outE('KNOWS') followed by inV() followed by another inV() →
+   * the second inV() should NOT infer a class because currentEdgeClass
+   * was reset after the first inV() consumed it.
+   */
+  @Test
+  public void addAliases_currentEdgeClass_resetAfterInV() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e"),
+        mockPathItem("inV", null, "v1"),
+        mockPathItem("inV", null, "v2"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e", "KNOWS")
+        .containsEntry("v1", "Person")
+        .doesNotContainKey("v2");
+  }
+
+  /**
+   * Consecutive outE overwrites currentEdgeClass: outE('KNOWS') followed by
+   * outE('WORK_AT') followed by inV() → the inV should resolve from WORK_AT,
+   * not KNOWS.
+   */
+  @Test
+  public void addAliases_consecutiveOutE_overwritesCurrentEdgeClass() {
+    var personClass = registerClass("Person", 100);
+    var companyClass = registerClass("Company", 50);
+    var knowsEdge = registerClass("KNOWS", 500);
+    var workAtEdge = registerClass("WORK_AT", 300);
+
+    // KNOWS.in → Person
+    var knowsInProp = mock(SchemaPropertyInternal.class);
+    when(knowsInProp.getLinkedClass()).thenReturn(personClass);
+    when(knowsEdge.getPropertyInternal("in")).thenReturn(knowsInProp);
+
+    // WORK_AT.in → Company
+    var workAtInProp = mock(SchemaPropertyInternal.class);
+    when(workAtInProp.getLinkedClass()).thenReturn(companyClass);
+    when(workAtEdge.getPropertyInternal("in")).thenReturn(workAtInProp);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e1"),
+        mockPathItem("outE", "WORK_AT", "e2"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e1", "KNOWS")
+        .containsEntry("e2", "WORK_AT")
+        .containsEntry("v", "Company");
+  }
+
+  /**
+   * bothE resets currentEdgeClass: outE('KNOWS') followed by bothE('X') followed by
+   * inV() → inV should NOT infer a class because bothE reset the state.
+   */
+  @Test
+  public void addAliases_bothE_resetsCurrentEdgeClass() {
+    registerClass("KNOWS", 500);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e1"),
+        mockPathItem("bothE", "X", "e2"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e1", "KNOWS")
+        .doesNotContainKey("v");
+  }
+
+  /**
+   * skipClassInference=true → no class inference at all, even for edge methods.
+   */
+  @Test
+  public void addAliases_skipClassInference_noInference() {
+    var expr = mockExpression(
+        mockPathItem("outE", "KNOWS", "e"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), true);
+
+    assertThat(aliasClasses).isEmpty();
+  }
+
+  /**
+   * out('KNOWS') between outE and inV resets currentEdgeClass: outE('X') → out('Y') → inV()
+   * should NOT infer a class for inV because out() reset the edge state.
+   */
+  @Test
+  public void addAliases_outBetweenOutEAndInV_resetsCurrentEdgeClass() {
+    // Register KNOWS for the out('KNOWS') inference (vertex class)
+    var personClass = registerClass("Person", 100);
+    var knowsEdge = registerClass("KNOWS", 500);
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(knowsEdge.getPropertyInternal("in")).thenReturn(inProp);
+
+    registerClass("X", 100);
+
+    var expr = mockExpression(
+        mockPathItem("outE", "X", "e"),
+        mockPathItem("out", "KNOWS", "mid"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    assertThat(aliasClasses)
+        .containsEntry("e", "X")
+        .containsEntry("mid", "Person")
+        .doesNotContainKey("v");
+  }
+
+  // ── addAliases helper methods ──
+
+  /**
+   * Creates a mock SQLMatchExpression with the given path items and an empty origin.
+   */
+  private SQLMatchExpression mockExpression(SQLMatchPathItem... items) {
+    var expr = mock(SQLMatchExpression.class);
+    var origin = mock(SQLMatchFilter.class);
+    when(origin.getAlias()).thenReturn(null);
+    when(expr.getOrigin()).thenReturn(origin);
+    when(expr.getItems()).thenReturn(List.of(items));
+    return expr;
+  }
+
+  /**
+   * Creates a mock SQLMatchPathItem with the given method name, optional edge class
+   * parameter, and filter alias.
+   *
+   * @param methodName the method name (e.g., "outE", "inV", "out")
+   * @param edgeClassParam the edge class parameter (e.g., "KNOWS"), or null for
+   *     parameterless methods like inV/outV
+   * @param alias the alias for the filter (e.g., "e", "v")
+   */
+  private SQLMatchPathItem mockPathItem(
+      String methodName, String edgeClassParam, String alias) {
+    var item = mock(SQLMatchPathItem.class);
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, methodName);
+    if (edgeClassParam != null) {
+      var param = mock(SQLExpression.class);
+      when(param.execute(nullable(Result.class), any(CommandContext.class)))
+          .thenReturn(edgeClassParam);
+      when(method.getParams()).thenReturn(List.of(param));
+    } else {
+      when(method.getParams()).thenReturn(List.of());
+    }
+    when(item.getMethod()).thenReturn(method);
+
+    var filter = mock(SQLMatchFilter.class);
+    when(filter.getAlias()).thenReturn(alias);
+    when(item.getFilter()).thenReturn(filter);
+
+    return item;
   }
 
 }
