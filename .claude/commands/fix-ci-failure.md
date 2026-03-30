@@ -130,21 +130,71 @@ in the fix itself before presenting to the user.**
 dimensional code review and test quality review. This step is mandatory
 whenever code or tests were modified.
 
-1. **Launch ten review agents in parallel** (fresh sub-agents):
+1. **Triage — Categorize changes and select relevant agents**
 
-   **Five dimensional code review agents:**
-   - `review-code-quality` — conventions, readability, DRY, API boundaries
-   - `review-bugs-concurrency` — logic errors, null safety, concurrency, leaks
-   - `review-crash-safety` — WAL correctness, durability, crash recovery
-   - `review-security` — injection, auth, data exposure, dependencies
-   - `review-performance` — complexity, allocations, contention, I/O
+   Before launching agents, perform a quick triage pass over the diff to determine which review dimensions are actually relevant. This avoids wasting time on agents that have nothing meaningful to review.
 
-   **Five dimensional test quality agents:**
-   - `review-test-behavior` — behavior-driven quality, assertion precision, exception testing
-   - `review-test-completeness` — corner cases, boundary conditions, test data quality
-   - `review-test-structure` — isolation, independence, readability, documentation
-   - `review-test-concurrency` — concurrent behavior testing quality
-   - `review-test-crash-safety` — crash/recovery test quality, production assert statements
+   **1a: Categorize each changed file**
+
+   Scan the diff and assign one or more categories to every changed file (production, test, and other):
+
+   | Category | Signals |
+   |---|---|
+   | **storage-engine** | Files in `storage/`, `cache/`, `wal/`, `DurableComponent` subclasses, page read/write logic, `DiskStorage`, `WriteCache`, `ReadCache`, `LogSequenceNumber`, double-write log |
+   | **concurrency** | `synchronized`, `Lock`, `Atomic*`, `volatile`, `StampedLock`, `ReentrantLock`, thread pools, `ConcurrentHashMap`, `CompletableFuture`, shared mutable state, `@GuardedBy`, `ConcurrentTestHelper`, `CountDownLatch`, `CyclicBarrier` |
+   | **crash-durability** | WAL operations, crash simulation, `DurableComponent` recovery, page corruption handling, transaction atomicity under failure, `LogSequenceNumber` manipulation, double-write log, Java `assert` statements in production code |
+   | **index-data-structures** | Files in `index/`, B-tree, hash index, `SBTree`, `CellBTree`, histogram, `IndexEngine` |
+   | **network-server** | Files in `server/`, `driver/`, Gremlin Server, protocol handling, TLS/SSL, authentication, session management |
+   | **sql-query** | Files in `sql/` (excluding `parser/`), query execution, command handlers |
+   | **gremlin** | Files in `gremlin/`, traversal steps, `YTDBGraph*` classes, TinkerPop integration |
+   | **public-api** | Files in `com.jetbrains.youtrackdb.api`, `YourTracks`, `YouTrackDB` interface |
+   | **serialization** | Record serializers, binary format, property map encoding/decoding |
+   | **configuration** | `GlobalConfiguration`, config parameters, system properties |
+   | **tests-only** | Changes exclusively in test files with no production code changes |
+   | **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
+   | **docs-only** | Markdown, documentation, comments-only changes |
+
+   A file can belong to multiple categories.
+
+   **1b: Select code review agents based on categories**
+
+   | Agent | Launch when ANY of these categories are present |
+   |---|---|
+   | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
+   | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
+   | **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
+   | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
+   | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
+
+   **1c: Select test quality agents based on categories**
+
+   | Agent | When to launch |
+   |---|---|
+   | **review-test-behavior** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
+   | **review-test-completeness** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
+   | **review-test-structure** | Any test files are changed |
+   | **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
+   | **review-test-crash-safety** | `crash-durability`, `storage-engine`, `index-data-structures` (when WAL/page/durability code is involved) |
+
+   **1d: Log your triage decision**
+
+   Before launching agents, output a brief triage summary:
+   ```
+   ### Triage Summary
+   - **Categories detected**: storage-engine, concurrency
+   - **Code review agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
+   - **Code review agents skipped**: review-security (no network/API/SQL/config/dependency changes)
+   - **Test quality agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency
+   - **Test quality agents skipped**: review-test-crash-safety (no WAL/page/durability code)
+   ```
+
+   **1e: Edge cases**
+   - If **all categories are `docs-only`**: Skip all agents. Report that only documentation changed and no code review is needed.
+   - If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations).
+   - If **all categories are `tests-only`**: Launch `review-code-quality`, `review-bugs-concurrency` for code agents, and `review-test-behavior`, `review-test-completeness`, `review-test-structure` for test agents.
+   - If **in doubt** about whether an agent is relevant: **launch it**. False positives are better than false negatives.
+
+2. **Launch selected review agents in parallel** (fresh sub-agents):
 
    Each agent receives the same context:
    ```
@@ -162,22 +212,24 @@ whenever code or tests were modified.
    {git diff develop...HEAD}
    ```
 
-2. **Synthesize findings**: After all ten complete, deduplicate across
-   dimensions. Prioritize: blocker > should-fix > suggestion.
+   Set `subagent_type` to the agent name and `model` to `opus` for each.
 
-3. Address all **blocker** and **should-fix** findings:
+3. **Synthesize findings**: After all selected agents complete, deduplicate
+   across dimensions. Prioritize: blocker > should-fix > suggestion.
+
+4. Address all **blocker** and **should-fix** findings:
    - Fix code quality, bug, safety, security, and performance issues
    - Add missing behavior assertions flagged by the test quality reviewer
    - Add corner case tests for gaps identified
    - Add recommended `assert` statements in production code (zero-overhead)
    - Fix any test isolation, readability, or precision issues
 
-4. After applying fixes, run `./mvnw -pl {module} spotless:apply` and
+5. After applying fixes, run `./mvnw -pl {module} spotless:apply` and
    re-run the affected tests to confirm they pass.
 
-5. **Re-run only the agent(s) with open findings** on the updated changes.
+6. **Re-run only the agent(s) with open findings** on the updated changes.
 
-6. **Repeat steps 3-5** until no blocker/should-fix findings remain.
+7. **Repeat steps 4-6** until no blocker/should-fix findings remain.
    - A maximum of 3 iterations. If after 3 rounds there are still
      critical issues, present the remaining findings to the user and ask
      for guidance.
@@ -214,7 +266,7 @@ Present to the user:
 - **NEVER run multiple test processes simultaneously**: Always wait for one `./mvnw test` or `./mvnw verify` invocation to finish before starting another. Running tests in parallel across separate Maven processes causes classloading errors, database file locking conflicts, and false test failures. This includes any combination of unit tests, integration tests, and coverage runs.
 - **Add `assert` statements generously**: When fixing or testing production code, add Java `assert` statements for invariants, preconditions, postconditions, and consistency checks. These cost nothing in production (assertions disabled by default) but catch bugs during development and testing. Do not add assertions that duplicate existing checks or have side effects.
 - **Internal classes may be refactored for testability**: Classes under `com.jetbrains.youtrackdb.internal` can be modified to improve testability (e.g., extract methods, widen visibility to package-private, add state-inspection accessors). **Never modify the public API** under `com.jetbrains.youtrackdb.api`.
-- **Dimensional review is mandatory**: After making any code or test changes, run all five dimensional review agents + test-quality-reviewer in parallel, synthesize findings, and iterate until no blocker/should-fix findings remain. Do not skip this step.
+- **Dimensional review is mandatory**: After making any code or test changes, triage the diff to select relevant code review and test quality agents, launch selected agents in parallel, synthesize findings, and iterate until no blocker/should-fix findings remain. Do not skip this step. Do not launch agents for irrelevant dimensions — use the category-to-agent mapping to decide.
 
 ## YouTrackDB-Specific Knowledge
 
