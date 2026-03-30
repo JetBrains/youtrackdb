@@ -105,6 +105,28 @@ public class MatchPlannerHelpersTest {
     assertThat(MatchExecutionPlanner.notPatternDependsOnMatched(exp)).isTrue();
   }
 
+  /**
+   * Mixed-case $MATCHED reference must still be detected — filterDependsOnContext
+   * lowercases before checking.
+   */
+  @Test
+  public void notPatternDependsOnMatched_mixedCaseMatched_returnsTrue() {
+    var where = buildWhereClause("$MATCHED.person = $currentMatch", false);
+    var exp = buildNotExpression("friend", null, "tag", where);
+    assertThat(MatchExecutionPlanner.notPatternDependsOnMatched(exp)).isTrue();
+  }
+
+  /**
+   * The string "$matched" without a trailing dot should NOT trigger context dependency,
+   * because it's the dot-access pattern ($matched.alias) that indicates a reference.
+   */
+  @Test
+  public void notPatternDependsOnMatched_matchedWithoutDot_returnsFalse() {
+    var where = buildWhereClause("name = '$matched'", false);
+    var exp = buildNotExpression("friend", null, "tag", where);
+    assertThat(MatchExecutionPlanner.notPatternDependsOnMatched(exp)).isFalse();
+  }
+
   // ── findSharedAliases ───────────────────────────────────────────────────
 
   /**
