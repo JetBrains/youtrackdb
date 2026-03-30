@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Test;
 
@@ -21,6 +22,7 @@ import org.junit.Test;
  *   Person(n3) --Likes--> Tag(t1)
  *   Person(n2) --Likes--> Tag(t1)
  *   Person(n2) --Likes--> Tag(t2)
+ *   Person(n4) --Likes--> Tag(t1)
  * </pre>
  *
  * <p>The Person class has small cardinality (5 records), well below
@@ -105,6 +107,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertNotNull(plan);
     assertTrue("plan should use hash anti-join, got:\n" + plan,
         plan.contains("HASH ANTI_JOIN"));
+    assertFalse("plan should NOT use nested-loop NOT step, got:\n" + plan,
+        plan.contains("+ NOT ("));
     session.commit();
   }
 
@@ -180,8 +184,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     var names = result.stream()
         .map(r -> r.getProperty("fname") + ":" + r.getProperty("tname"))
         .collect(Collectors.toSet());
-    assertTrue(names.contains("n2:t2"));
-    assertTrue(names.contains("n3:t1"));
+    assertEquals(Set.of("n2:t2", "n3:t1"), names);
     session.commit();
   }
 
@@ -203,8 +206,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     var names = result.stream()
         .map(r -> (String) r.getProperty("bName"))
         .collect(Collectors.toSet());
-    assertTrue(names.contains("n2"));
-    assertTrue(names.contains("n3"));
+    assertEquals(Set.of("n2", "n3"), names);
     session.commit();
   }
 

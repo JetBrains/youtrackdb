@@ -292,11 +292,33 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Verify HASH_JOIN_THRESHOLD constant value is 10,000.
+   * Boundary: estimated cardinality exactly at HASH_JOIN_THRESHOLD should still be
+   * eligible. Origin with 999 records: estimateRootEntries returns 999+1=1000,
+   * times fan-out 10 = 10,000 == HASH_JOIN_THRESHOLD.
    */
   @Test
-  public void hashJoinThreshold_isExpectedValue() {
-    assertThat(MatchExecutionPlanner.HASH_JOIN_THRESHOLD).isEqualTo(10_000);
+  public void canUseHashJoin_exactlyAtThreshold_returnsTrue() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 999);
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        .isTrue();
+  }
+
+  /**
+   * Boundary: estimated cardinality one above HASH_JOIN_THRESHOLD must fall back to
+   * nested-loop. Origin with 1000 records: estimateRootEntries returns 1000+1=1001,
+   * times fan-out 10 = 10,010 > HASH_JOIN_THRESHOLD.
+   */
+  @Test
+  public void canUseHashJoin_oneAboveThreshold_returnsFalse() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 1000);
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        .isFalse();
   }
 
   /**

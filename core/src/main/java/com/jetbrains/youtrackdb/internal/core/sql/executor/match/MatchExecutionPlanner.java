@@ -704,8 +704,8 @@ public class MatchExecutionPlanner {
    * @return {@code true} if any filter depends on execution context
    */
   static boolean notPatternDependsOnMatched(SQLMatchExpression exp) {
-    // Check origin filter (currently always null per parser validation at line ~615,
-    // but check defensively in case that constraint is relaxed)
+    // Check origin filter (currently always null per parser validation in
+    // manageNotPatterns, but check defensively in case that constraint is relaxed)
     if (filterDependsOnContext(exp.getOrigin().getFilter())) {
       return true;
     }
@@ -736,13 +736,14 @@ public class MatchExecutionPlanner {
    * Finds aliases shared between a NOT expression and the positive pattern. These
    * shared aliases form the join key for hash-based evaluation.
    *
-   * <p>The origin alias is guaranteed to be shared (enforced by parser validation at
-   * line ~609). Additional shared aliases may exist if intermediate path items
+   * <p>The origin alias is guaranteed to be shared (enforced by the origin-alias
+   * validation in {@code manageNotPatterns}). Additional shared aliases may exist if intermediate path items
    * reference aliases that also appear in the positive pattern.
    *
    * @param exp     the NOT match expression
    * @param pattern the positive pattern
-   * @return shared alias names, origin first, then others in pattern order; never empty
+   * @return shared alias names, origin first, then others in NOT-expression traversal order;
+   *     never empty
    */
   static List<String> findSharedAliases(SQLMatchExpression exp, Pattern pattern) {
     // Collect all alias names from the NOT expression
