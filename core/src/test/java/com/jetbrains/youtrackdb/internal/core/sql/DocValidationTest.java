@@ -2776,4 +2776,63 @@ public class DocValidationTest {
     g.command("DROP CLASS ApLinked IF EXISTS");
     g.command("DROP CLASS ApTarget IF EXISTS");
   }
+
+  // ==========================================================================
+  // YQL-Alter-Security-Policy.md
+  // ==========================================================================
+
+  @Test
+  public void testAlterSecurityPolicy_setCreateAndRead() {
+    // Doc line 28: ALTER SECURITY POLICY foo SET CREATE = (name = 'foo'), READ = (TRUE)
+    // First create the policy, then alter it.
+    g.command("CREATE SECURITY POLICY aspTestPolicy1");
+    g.command("ALTER SECURITY POLICY aspTestPolicy1 SET CREATE = (name = 'foo'), READ = (TRUE)");
+
+    // Cleanup
+    g.command("ALTER SECURITY POLICY aspTestPolicy1 REMOVE CREATE, READ");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_removeCreateAndRead() {
+    // Doc line 34: ALTER SECURITY POLICY foo REMOVE CREATE, READ
+    // Create a policy with predicates, then remove them.
+    g.command("CREATE SECURITY POLICY aspTestPolicy2");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy2 SET CREATE = (name = 'bar'), READ = (name = 'bar')");
+    g.command("ALTER SECURITY POLICY aspTestPolicy2 REMOVE CREATE, READ");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_requiresSetOrRemove() {
+    // Factual claim: at least one of SET or REMOVE is required.
+    // ALTER SECURITY POLICY <name> alone should fail.
+    g.command("CREATE SECURITY POLICY aspTestPolicy3");
+    assertThatThrownBy(() -> g.command("ALTER SECURITY POLICY aspTestPolicy3"));
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_allOperationTypes() {
+    // Validates all 6 operation types from the syntax: CREATE, READ,
+    // BEFORE UPDATE, AFTER UPDATE, DELETE, EXECUTE.
+    g.command("CREATE SECURITY POLICY aspTestPolicy4");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy4"
+            + " SET CREATE = (name = 'a'), READ = (name = 'b'),"
+            + " BEFORE UPDATE = (name = 'c'), AFTER UPDATE = (name = 'd'),"
+            + " DELETE = (name = 'e'), EXECUTE = (name = 'f')");
+
+    // Remove all
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy4"
+            + " REMOVE CREATE, READ, BEFORE UPDATE, AFTER UPDATE, DELETE, EXECUTE");
+  }
+
+  @Test
+  public void testAlterSecurityPolicy_setAndRemoveInSameStatement() {
+    // Factual claim from doc: both SET and REMOVE can appear in the same statement.
+    g.command("CREATE SECURITY POLICY aspTestPolicy5");
+    g.command(
+        "ALTER SECURITY POLICY aspTestPolicy5"
+            + " SET CREATE = (name = 'foo') REMOVE DELETE");
+  }
 }
