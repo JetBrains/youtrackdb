@@ -870,6 +870,109 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Determines which pattern aliases are referenced downstream of the MATCH traversal —
+   * in the RETURN clause, GROUP BY, ORDER BY, and UNWIND. This is needed to decide if
+   * a branch's non-shared aliases can be elided via semi-join (i.e., if they are not
+   * referenced downstream, the branch only needs to be probed for existence).
+   *
+   * <p>If any wildcard return mode is active ({@code $elements}, {@code $paths},
+   * {@code $patterns}, {@code $pathElements}), all pattern aliases are implicitly
+   * needed and the method returns the full {@code allPatternAliases} set.
+   *
+   * @param returnItems         expressions in the RETURN clause
+   * @param returnElements      true if RETURN $elements
+   * @param returnPaths         true if RETURN $paths
+   * @param returnPatterns      true if RETURN $patterns
+   * @param returnPathElements  true if RETURN $pathElements
+   * @param groupBy             GROUP BY clause (nullable)
+   * @param orderBy             ORDER BY clause (nullable)
+   * @param unwind              UNWIND clause (nullable)
+   * @param allPatternAliases   all aliases defined in the pattern graph
+   * @return the subset of aliases that are referenced downstream
+   */
+  static Set<String> collectDownstreamAliases(
+      List<SQLExpression> returnItems,
+      boolean returnElements,
+      boolean returnPaths,
+      boolean returnPatterns,
+      boolean returnPathElements,
+      @Nullable SQLGroupBy groupBy,
+      @Nullable SQLOrderBy orderBy,
+      @Nullable SQLUnwind unwind,
+      Set<String> allPatternAliases) {
+    // Wildcard return modes implicitly reference all aliases
+    if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+      return Set.copyOf(allPatternAliases);
+    }
+
+    // Defensive: empty RETURN items shouldn't happen, but return all aliases
+    if (returnItems == null || returnItems.isEmpty()) {
+      return Set.copyOf(allPatternAliases);
+    }
+
+    var referenced = new HashSet<String>();
+
+    // Scan RETURN expressions
+    for (var expr : returnItems) {
+      collectAliasesFromText(expr.toString(), allPatternAliases, referenced);
+    }
+
+    // Scan GROUP BY expressions
+    if (groupBy != null) {
+      for (var expr : groupBy.getItems()) {
+        collectAliasesFromText(expr.toString(), allPatternAliases, referenced);
+      }
+    }
+
+    // Scan ORDER BY items — use getAlias() which holds the expression text
+    // (e.g., "friend.name"), not Object.toString() which is not overridden
+    if (orderBy != null && orderBy.getItems() != null) {
+      for (var item : orderBy.getItems()) {
+        var alias = item.getAlias();
+        if (alias != null) {
+          collectAliasesFromText(alias, allPatternAliases, referenced);
+        }
+      }
+    }
+
+    // Scan UNWIND identifiers
+    if (unwind != null) {
+      for (var ident : unwind.getItems()) {
+        collectAliasesFromText(ident.toString(), allPatternAliases, referenced);
+      }
+    }
+
+    return referenced;
+  }
+
+  /**
+   * Scans a text string for references to any of the known pattern aliases using
+   * word-boundary matching. An alias is considered referenced if it appears as a
+   * standalone word (e.g., {@code friend} or {@code friend.name}, but not as a
+   * substring of a longer identifier like {@code friendship}).
+   *
+   * @param text               the string to scan
+   * @param allPatternAliases  all known aliases to check for
+   * @param result             set to add found aliases to
+   */
+  private static void collectAliasesFromText(
+      String text, Set<String> allPatternAliases, Set<String> result) {
+    if (text == null || text.isEmpty()) {
+      return;
+    }
+    for (var alias : allPatternAliases) {
+      // Use word-boundary regex to avoid false positives from substrings.
+      // The regex is compiled per alias per expression — acceptable because
+      // the number of aliases and expressions is small (typically < 20 each).
+      var pattern =
+          java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(alias) + "\\b");
+      if (pattern.matcher(text).find()) {
+        result.add(alias);
+      }
+    }
+  }
+
+  /**
    * Constructs the build-side {@link SelectExecutionPlan} for a NOT pattern's hash
    * anti-join. The plan scans the origin alias's class and chains the NOT pattern's
    * {@link MatchStep}s to traverse the negative edges.
