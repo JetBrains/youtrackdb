@@ -171,9 +171,34 @@ jobs:
       - name: 'Base: extract pre-built database'
         if: inputs.use_prebuilt_db == true
         run: |
-          mkdir -p jmh-ldbc/target/ldbc-bench-db
-          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" \
-            -C jmh-ldbc/target/ldbc-bench-db
+          set -euo pipefail
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" -C "$DB_DIR"
+
+          # Verify the extracted database structure.
+          # Handle tars created from within the directory (./ldbc_benchmark/...)
+          # and tars created from parent (ldbc-bench-db/ldbc_benchmark/...).
+          echo "=== Extracted DB contents (top-level) ==="
+          ls -la "$DB_DIR/"
+
+          if [ -d "$DB_DIR/ldbc_benchmark" ]; then
+            echo "Database found at expected path"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+          elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
+            echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
+            # Move contents up one level to fix double-nesting
+            tmp_dir="${DB_DIR}_tmp_$$"
+            mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
+            rm -rf "$DB_DIR"
+            mv "$tmp_dir" "$DB_DIR"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+          else
+            echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
+            echo "Top-level contents:"
+            find "$DB_DIR" -maxdepth 3 -type d
+            exit 1
+          fi
 
       - name: 'Base: extract CSV dataset'
         if: inputs.use_prebuilt_db == false
@@ -199,7 +224,22 @@ jobs:
           fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1"
+            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            2>&1 | tee /tmp/jmh-warm-base-${{ github.run_id }}.txt
+
+          # JMH exits 0 even when all benchmarks fail with -f 0.
+          # Detect this by checking for failures with no successful results.
+          if grep -q '<failure>' /tmp/jmh-warm-base-${{ github.run_id }}.txt; then
+            # Check if ANY benchmark produced a score (successful result line)
+            if ! grep -qE '^[A-Za-z].*\s+avgt\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+thrpt\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt; then
+              echo "::error::All warm-up benchmarks failed. Check database setup."
+              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-base-${{ github.run_id }}.txt | head -5
+              exit 1
+            fi
+          fi
 
       - name: 'Base: run benchmarks'
         env:
@@ -214,6 +254,19 @@ jobs:
             -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-base-log-${{ github.run_id }}.txt
 
+          # Validate that JMH produced results (it exits 0 even on total failure)
+          if [ ! -s "/tmp/jmh-base-${{ github.run_id }}.json" ]; then
+            echo "::error::Base benchmark produced no results (empty or missing JSON)."
+            tail -50 /tmp/jmh-base-log-${{ github.run_id }}.txt
+            exit 1
+          fi
+          RESULT_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/jmh-base-${{ github.run_id }}.json'))))")
+          echo "Base benchmarks completed: $RESULT_COUNT results"
+          if [ "$RESULT_COUNT" -eq 0 ]; then
+            echo "::error::Base benchmark JSON contains zero results."
+            exit 1
+          fi
+
       # ── Head run (branch tip) ────────────────────────────────────────────
       - name: 'Head: checkout branch tip'
         run: git checkout ${{ steps.commits.outputs.head_sha }}
@@ -227,9 +280,31 @@ jobs:
       - name: 'Head: extract pre-built database'
         if: inputs.use_prebuilt_db == true
         run: |
-          mkdir -p jmh-ldbc/target/ldbc-bench-db
-          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" \
-            -C jmh-ldbc/target/ldbc-bench-db
+          set -euo pipefail
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" -C "$DB_DIR"
+
+          # Verify the extracted database structure.
+          echo "=== Extracted DB contents (top-level) ==="
+          ls -la "$DB_DIR/"
+
+          if [ -d "$DB_DIR/ldbc_benchmark" ]; then
+            echo "Database found at expected path"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+          elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
+            echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
+            tmp_dir="${DB_DIR}_tmp_$$"
+            mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
+            rm -rf "$DB_DIR"
+            mv "$tmp_dir" "$DB_DIR"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+          else
+            echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
+            echo "Top-level contents:"
+            find "$DB_DIR" -maxdepth 3 -type d
+            exit 1
+          fi
 
       - name: 'Head: extract CSV dataset'
         if: inputs.use_prebuilt_db == false
@@ -255,7 +330,20 @@ jobs:
           fi
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1"
+            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            2>&1 | tee /tmp/jmh-warm-head-${{ github.run_id }}.txt
+
+          # JMH exits 0 even when all benchmarks fail with -f 0.
+          if grep -q '<failure>' /tmp/jmh-warm-head-${{ github.run_id }}.txt; then
+            if ! grep -qE '^[A-Za-z].*\s+avgt\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+thrpt\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt; then
+              echo "::error::All warm-up benchmarks failed. Check database setup."
+              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-head-${{ github.run_id }}.txt | head -5
+              exit 1
+            fi
+          fi
 
       - name: 'Head: run benchmarks'
         env:
@@ -269,6 +357,19 @@ jobs:
             -Dspotless.check.skip=true -Dcentral.skip=true \
             -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
             2>&1 | tee /tmp/jmh-head-log-${{ github.run_id }}.txt
+
+          # Validate that JMH produced results
+          if [ ! -s "/tmp/jmh-head-${{ github.run_id }}.json" ]; then
+            echo "::error::Head benchmark produced no results (empty or missing JSON)."
+            tail -50 /tmp/jmh-head-log-${{ github.run_id }}.txt
+            exit 1
+          fi
+          RESULT_COUNT=$(python3 -c "import json; print(len(json.load(open('/tmp/jmh-head-${{ github.run_id }}.json'))))")
+          echo "Head benchmarks completed: $RESULT_COUNT results"
+          if [ "$RESULT_COUNT" -eq 0 ]; then
+            echo "::error::Head benchmark JSON contains zero results."
+            exit 1
+          fi
 
       # ── Compare & publish ────────────────────────────────────────────────
       - name: Compare results
@@ -291,6 +392,8 @@ jobs:
             /tmp/jmh-comparison-${{ github.run_id }}.md
             /tmp/jmh-base-log-${{ github.run_id }}.txt
             /tmp/jmh-head-log-${{ github.run_id }}.txt
+            /tmp/jmh-warm-base-${{ github.run_id }}.txt
+            /tmp/jmh-warm-head-${{ github.run_id }}.txt
           retention-days: 90
 
       - name: Post comparison to open PRs
@@ -359,4 +462,6 @@ jobs:
                 /tmp/jmh-head-${{ github.run_id }}.json \
                 /tmp/jmh-comparison-${{ github.run_id }}.md \
                 /tmp/jmh-base-log-${{ github.run_id }}.txt \
-                /tmp/jmh-head-log-${{ github.run_id }}.txt
+                /tmp/jmh-head-log-${{ github.run_id }}.txt \
+                /tmp/jmh-warm-base-${{ github.run_id }}.txt \
+                /tmp/jmh-warm-head-${{ github.run_id }}.txt
