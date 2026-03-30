@@ -66,7 +66,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " to (select from Person where name='n5')")
         .close();
 
-    // Likes edges: n3→t1, n2→t1, n2→t2
+    // Likes edges: n3→t1, n2→t1, n2→t2, n4→t1
     session.execute(
         "CREATE EDGE Likes from (select from Person where name='n3')"
             + " to (select from Tag where name='t1')")
@@ -78,6 +78,10 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.execute(
         "CREATE EDGE Likes from (select from Person where name='n2')"
             + " to (select from Tag where name='t2')")
+        .close();
+    session.execute(
+        "CREATE EDGE Likes from (select from Person where name='n4')"
+            + " to (select from Tag where name='t1')")
         .close();
     session.commit();
   }
@@ -119,8 +123,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    assertTrue("plan should use nested-loop NOT, got:\n" + plan,
-        plan.contains("NOT"));
+    assertTrue("plan should use nested-loop NOT step, got:\n" + plan,
+        plan.contains("+ NOT ("));
     assertFalse("plan should NOT use hash anti-join, got:\n" + plan,
         plan.contains("HASH ANTI_JOIN"));
     session.commit();
@@ -156,8 +160,9 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
    *   n1→n2→{t1,t2}, n1→n3→{t1} → results: (n2,t1), (n2,t2), (n3,t1)
    *
    * NOT pattern: NOT {as:friend}.out('Friend'){}.out('Likes'){as:tag}
-   *   n2→n4→(no Likes), n3→n5→(no Likes) → no (friend,tag) pairs in NOT
-   *   So all 3 positive results should remain.
+   *   n2→n4→t1 → (n2,t1) in NOT set
+   *   n3→n5→(no Likes) → nothing
+   * Anti-join removes (n2,t1) from positive results → (n2,t2), (n3,t1) remain.
    */
   @Test
   public void notPattern_compositeSharedAliases_correctResults() {
@@ -169,13 +174,12 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " RETURN friend.name as fname, tag.name as tname")
         .toList();
 
-    // n2 friends with n4 (no Likes edges from n4), n3 friends with n5 (no Likes)
-    // So NOT set is empty → all 3 positive rows remain
-    assertEquals(3, result.size());
+    // NOT set = {(n2,t1)} → removed from positive results
+    // Remaining: (n2,t2), (n3,t1)
+    assertEquals(2, result.size());
     var names = result.stream()
         .map(r -> r.getProperty("fname") + ":" + r.getProperty("tname"))
         .collect(Collectors.toSet());
-    assertTrue(names.contains("n2:t1"));
     assertTrue(names.contains("n2:t2"));
     assertTrue(names.contains("n3:t1"));
     session.commit();
@@ -188,7 +192,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   @Test
   public void notPattern_emptyBuildSide_allRowsPass() {
     session.begin();
-    // NOT pattern uses a non-existent edge class — zero matches
+    // n1 has no outgoing Likes edges to Person vertices, so build side is empty
     var result = session.query(
         "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
             + " NOT {as:a}.out('Likes'){as:b}"
