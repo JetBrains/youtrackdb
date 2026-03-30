@@ -2778,6 +2778,29 @@ public class DocValidationTest {
   }
 
   // ==========================================================================
+  // YQL-Create-Security-Policy.md
+  // ==========================================================================
+
+  @Test
+  public void testCreateSecurityPolicy_emptyPolicy() {
+    // Doc line 23: CREATE SECURITY POLICY foo
+    // Creates an empty policy with no predicates.
+    g.command("CREATE SECURITY POLICY cspTestPolicy1");
+  }
+
+  @Test
+  public void testCreateSecurityPolicy_allPredicates() {
+    // Doc line 29: CREATE SECURITY POLICY foo SET CREATE = (name = 'foo'), READ = (TRUE),
+    // BEFORE UPDATE = (name = 'foo'), AFTER UPDATE = (name = 'foo'),
+    // DELETE = (name = 'foo'), EXECUTE = (name = 'foo')
+    g.command(
+        "CREATE SECURITY POLICY cspTestPolicy2"
+            + " SET CREATE = (name = 'foo'), READ = (TRUE),"
+            + " BEFORE UPDATE = (name = 'foo'), AFTER UPDATE = (name = 'foo'),"
+            + " DELETE = (name = 'foo'), EXECUTE = (name = 'foo')");
+  }
+
+  // ==========================================================================
   // YQL-Alter-Security-Policy.md
   // ==========================================================================
 
