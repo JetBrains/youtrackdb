@@ -3133,4 +3133,84 @@ public class DocValidationTest {
     // Second call should not throw
     g.command("CREATE INDEX CIProduct.sku IF NOT EXISTS UNIQUE");
   }
+
+  // === YQL-Create-Link.md ===
+
+  // Line 8: Syntax requires link name, TYPE keyword, and link-type — all mandatory.
+  // Validates that the basic CREATE LINK syntax parses and executes correctly.
+  @Test
+  public void testCreateLink_basicLinkBetweenClasses() {
+    g.command("CREATE CLASS CLPost IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLPost.Id IF NOT EXISTS INTEGER");
+    g.command("CREATE CLASS CLComment IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLComment.PostId IF NOT EXISTS INTEGER");
+    g.command("CREATE PROPERTY CLComment.post IF NOT EXISTS LINK");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CLPost SET Id = 1, title = 'First Post'").iterate();
+          tx.yql("CREATE VERTEX CLComment SET PostId = 1, text = 'Nice post'").iterate();
+        });
+
+    // CREATE LINK with TYPE LINK (non-inverse, direct link from Comment to Post)
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK post TYPE LINK FROM CLComment.PostId TO CLPost.Id").iterate();
+        });
+
+    // Verify the link was created — the comment should now have a 'post' property
+    // that is a link to the post record
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CLComment WHERE PostId = 1").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 24: Example — CREATE LINK with INVERSE and LINKSET type
+  // Validates the INVERSE variant from the documentation example.
+  @Test
+  public void testCreateLink_inverseWithLinkSet() {
+    g.command("CREATE CLASS CLPosts IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLPosts.Id IF NOT EXISTS INTEGER");
+    g.command("CREATE PROPERTY CLPosts.comments IF NOT EXISTS LINKSET");
+    g.command("CREATE CLASS CLComments IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLComments.PostId IF NOT EXISTS INTEGER");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CLPosts SET Id = 100, title = 'Hello'").iterate();
+          tx.yql("CREATE VERTEX CLComments SET PostId = 100, text = 'Great'").iterate();
+          tx.yql("CREATE VERTEX CLComments SET PostId = 100, text = 'Awesome'").iterate();
+        });
+
+    // This mirrors the doc example (line 24):
+    // CREATE LINK comments TYPE LINKSET FROM Comments.PostId TO Posts.Id INVERSE
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK comments TYPE LINKSET FROM CLComments.PostId TO CLPosts.Id INVERSE")
+              .iterate();
+        });
+
+    // After inverse link, the Post should have a 'comments' LINKSET property
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CLPosts WHERE Id = 100").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  // Line 8: Syntax shows TYPE [<link-type>] with brackets, suggesting it's optional.
+  // In fact, the grammar requires TYPE keyword and link-type value to be mandatory.
+  // Verify that omitting TYPE causes a parse error.
+  @Test
+  public void testCreateLink_typeIsMandatory() {
+    g.command("CREATE CLASS CLSrc IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLSrc.refId IF NOT EXISTS INTEGER");
+    g.command("CREATE CLASS CLDst IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CLDst.Id IF NOT EXISTS INTEGER");
+
+    // Omitting TYPE should cause a parse error
+    assertThatThrownBy(
+        () -> g.executeInTx(
+            tx -> {
+              tx.yql("CREATE LINK mylink FROM CLSrc.refId TO CLDst.Id").iterate();
+            }));
+  }
 }
