@@ -30,7 +30,7 @@ public final class OptimisticReadScope {
 
   /**
    * Records a page frame and its optimistic stamp. Called by
-   * {@code DurableComponent.loadPageOptimistic()} for each page accessed.
+   * {@code StorageComponent.loadPageOptimistic()} for each page accessed.
    */
   public void record(PageFrame frame, long stamp) {
     assert frame != null : "PageFrame must not be null";

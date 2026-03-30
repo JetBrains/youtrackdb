@@ -34,8 +34,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
@@ -84,7 +84,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private boolean rollback;
 
   private final Set<String> lockedObjects = new HashSet<>();
-  private final ArrayList<DurableComponent> lockedComponents = new ArrayList<>();
+  private final ArrayList<StorageComponent> lockedComponents = new ArrayList<>();
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
@@ -757,12 +757,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void addLockedComponent(DurableComponent component) {
+  public void addLockedComponent(StorageComponent component) {
     lockedComponents.add(component);
   }
 
   @Override
-  public Iterable<DurableComponent> lockedComponents() {
+  public Iterable<StorageComponent> lockedComponents() {
     return lockedComponents;
   }
 

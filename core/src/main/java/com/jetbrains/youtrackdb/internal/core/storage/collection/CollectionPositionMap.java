@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 
-public abstract class CollectionPositionMap extends DurableComponent {
+public abstract class CollectionPositionMap extends StorageComponent {
 
   public static final String DEF_EXTENSION = ".cpm";
 

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
 import javax.annotation.Nonnull;
 
@@ -22,13 +22,13 @@ import javax.annotation.Nonnull;
  *
  * <p>All bit set mutations are WAL-logged via the {@link AtomicOperation} passed to each method.
  * The caller is responsible for holding the collection's component lock (via
- * {@link DurableComponent#executeInsideComponentOperation}) to serialize bit set access against
+ * {@link StorageComponent#executeInsideComponentOperation}) to serialize bit set access against
  * concurrent writes and GC.
  *
  * @see DirtyPageBitSetPage
  * @see PaginatedCollectionV2
  */
-public final class CollectionDirtyPageBitSet extends DurableComponent {
+public final class CollectionDirtyPageBitSet extends StorageComponent {
 
   /** File extension for dirty page bit set files. */
   public static final String DEF_EXTENSION = ".dpb";

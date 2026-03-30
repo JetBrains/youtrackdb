@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
@@ -72,11 +72,11 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  /** Tracks a locked DurableComponent so it can be released at operation end. */
-  void addLockedComponent(DurableComponent component);
+  /** Tracks a locked StorageComponent so it can be released at operation end. */
+  void addLockedComponent(StorageComponent component);
 
-  /** Returns the DurableComponents locked by this operation. */
-  Iterable<DurableComponent> lockedComponents();
+  /** Returns the StorageComponents locked by this operation. */
+  Iterable<StorageComponent> lockedComponents();
 
   void addDeletedRecordPosition(final int collectionId, final int pageIndex,
       final int recordPosition);

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.exception;
 
-public final class CommonDurableComponentException extends CoreException {
+public final class CommonStorageComponentException extends CoreException {
 
   /**
    * This is constructor that used on remote client to restore exception content.
@@ -8,11 +8,11 @@ public final class CommonDurableComponentException extends CoreException {
    * @param exception Exception thrown on remote client.
    */
   @SuppressWarnings("unused")
-  public CommonDurableComponentException(CommonDurableComponentException exception) {
+  public CommonStorageComponentException(CommonStorageComponentException exception) {
     super(exception);
   }
 
-  public CommonDurableComponentException(String message,
+  public CommonStorageComponentException(String message,
       String componentName,
       String dbName) {
     super(dbName, message, componentName);

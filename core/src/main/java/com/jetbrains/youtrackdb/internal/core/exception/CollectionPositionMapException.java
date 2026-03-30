@@ -7,14 +7,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
  *
  * @since 10/2/2015
  */
-public class CollectionPositionMapException extends DurableComponentException {
+public class CollectionPositionMapException extends StorageComponentException {
 
   @SuppressWarnings("unused")
   public CollectionPositionMapException(CollectionPositionMapException exception) {
     super(exception);
   }
 
-  public CollectionPositionMapException(String dbName, String message, CollectionPositionMap component) {
+  public CollectionPositionMapException(String dbName, String message,
+      CollectionPositionMap component) {
     super(dbName, message, component);
   }
 }

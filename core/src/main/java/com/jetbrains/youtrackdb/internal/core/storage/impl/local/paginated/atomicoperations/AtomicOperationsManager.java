@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CommonDurableComponentException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
@@ -44,7 +44,7 @@ import javax.annotation.Nullable;
 /**
  * Manages the lifecycle of atomic operations for the storage engine.
  *
- * <p>Write locks are acquired directly on each {@link DurableComponent}'s
+ * <p>Write locks are acquired directly on each {@link StorageComponent}'s
  * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
  * ReentrantReadWriteLock}, giving per-component granularity.
  *
@@ -165,7 +165,7 @@ public class AtomicOperationsManager {
 
   public void executeInsideComponentOperation(
       final AtomicOperation atomicOperation,
-      final DurableComponent component,
+      final StorageComponent component,
       final TxConsumer consumer) {
     Objects.requireNonNull(atomicOperation);
     acquireExclusiveLockTillOperationComplete(atomicOperation, component);
@@ -178,7 +178,7 @@ public class AtomicOperationsManager {
       }
 
       throw BaseException.wrapException(
-          new CommonDurableComponentException(
+          new CommonStorageComponentException(
               "Exception during execution of component operation inside component "
                   + component.getLockName()
                   + " in storage "
@@ -190,7 +190,7 @@ public class AtomicOperationsManager {
 
   public <T> T calculateInsideComponentOperation(
       final AtomicOperation atomicOperation,
-      final DurableComponent component,
+      final StorageComponent component,
       final TxFunction<T> function) {
     Objects.requireNonNull(atomicOperation);
     acquireExclusiveLockTillOperationComplete(atomicOperation, component);
@@ -198,7 +198,7 @@ public class AtomicOperationsManager {
       return function.accept(atomicOperation);
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new CommonDurableComponentException(
+          new CommonStorageComponentException(
               "Exception during execution of component operation inside component "
                   + component.getLockName()
                   + " in storage "
@@ -258,7 +258,7 @@ public class AtomicOperationsManager {
   }
 
   private void releaseLocks(AtomicOperation operation) {
-    // Release DurableComponent locks (the common case).
+    // Release StorageComponent locks (the common case).
     // Check isExclusiveOwner() to make this method idempotent — it may be called
     // twice (once by endAtomicOperation, once by ensureThatComponentsUnlocked
     // in the finally block of AbstractStorage.commit).
@@ -280,14 +280,14 @@ public class AtomicOperationsManager {
   }
 
   /**
-   * Acquires exclusive lock on the given {@link DurableComponent} for the lifetime of the
+   * Acquires exclusive lock on the given {@link StorageComponent} for the lifetime of the
    * atomic operation. Uses the component's own
    * {@link com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract
    * ReentrantReadWriteLock} directly — no external map lookup needed. The lock is natively
    * reentrant.
    */
   public void acquireExclusiveLockTillOperationComplete(
-      @Nonnull AtomicOperation operation, @Nonnull DurableComponent component) {
+      @Nonnull AtomicOperation operation, @Nonnull StorageComponent component) {
     storage.checkErrorState();
 
     if (operation.containsInLockedObjects(component.getLockName())) {

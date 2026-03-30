@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
 import javax.annotation.Nonnull;
 
@@ -71,7 +71,7 @@ import javax.annotation.Nonnull;
  * @see FreeSpaceMapPage
  * @see PaginatedCollectionV2
  */
-public final class FreeSpaceMap extends DurableComponent {
+public final class FreeSpaceMap extends StorageComponent {
 
   /** File extension for free-space map files. */
   public static final String DEF_EXTENSION = ".fsm";

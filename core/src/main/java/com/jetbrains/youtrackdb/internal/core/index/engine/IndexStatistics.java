@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 /**
  * Per-index summary statistics for cost-based query optimization.
  *
- * <p>Managed by {@code IndexHistogramManager} (a DurableComponent separate from
+ * <p>Managed by {@code IndexHistogramManager} (a StorageComponent separate from
  * the B-tree). Incrementally updated on every put/remove via engine callbacks.
  *
  * <p>Invariant (approximate): when a histogram exists,

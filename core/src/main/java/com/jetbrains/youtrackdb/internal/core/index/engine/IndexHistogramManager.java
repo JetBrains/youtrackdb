@@ -32,8 +32,8 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Manages persistent equi-depth histogram statistics for a single index engine.
  *
- * <p>Extends {@link DurableComponent} with its own file ({@code .ixs} extension).
+ * <p>Extends {@link StorageComponent} with its own file ({@code .ixs} extension).
  * Provides lifecycle, incremental maintenance, histogram construction, background
  * rebalancing, and planner read access.
  *
@@ -68,7 +68,7 @@ import org.slf4j.LoggerFactory;
  * {@link ConcurrentHashMap ConcurrentHashMap&lt;Integer, HistogramSnapshot&gt;}.
  * Delta application on commit uses {@code cache.compute()} for atomicity.
  */
-public class IndexHistogramManager extends DurableComponent {
+public class IndexHistogramManager extends StorageComponent {
 
   private static final Logger logger =
       LoggerFactory.getLogger(IndexHistogramManager.class);

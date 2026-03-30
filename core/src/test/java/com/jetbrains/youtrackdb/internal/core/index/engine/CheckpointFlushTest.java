@@ -225,7 +225,7 @@ public class CheckpointFlushTest {
 
   /**
    * Creates a real IndexHistogramManager with a mock storage that supports
-   * basic DurableComponent initialization. The atomicOperationsManager is
+   * basic StorageComponent initialization. The atomicOperationsManager is
    * mock-based so flushSnapshotToPage returns early on cache miss.
    */
   private static class ManagerFixture {

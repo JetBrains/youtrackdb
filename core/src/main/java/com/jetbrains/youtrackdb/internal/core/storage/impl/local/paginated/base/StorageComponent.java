@@ -37,13 +37,13 @@ import java.io.IOException;
 import javax.annotation.Nonnull;
 
 /**
- * Base class for all durable data structures, that is data structures state of which can be
- * consistently restored after system crash but results of last operations in small interval before
- * crash may be lost.
+ * Base class for all storage-backed data structures that participate in the page cache lifecycle.
+ * Durable components have their state restored from WAL after a crash; non-durable components are
+ * deleted on crash recovery and recreated on next open.
  *
  * @since 8/27/13
  */
-public abstract class DurableComponent extends SharedResourceAbstract {
+public abstract class StorageComponent extends SharedResourceAbstract {
   protected final AtomicOperationsManager atomicOperationsManager;
   protected final AbstractStorage storage;
   protected final ReadCache readCache;
@@ -56,7 +56,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
 
   private final String lockName;
 
-  public DurableComponent(
+  public StorageComponent(
       @Nonnull final AbstractStorage storage,
       @Nonnull final String name,
       final String extension,

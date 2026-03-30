@@ -28,10 +28,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests for DurableComponent.loadPageOptimistic() and executeOptimisticStorageRead().
+ * Tests for StorageComponent.loadPageOptimistic() and executeOptimisticStorageRead().
  * Uses a test subclass that exposes the protected methods.
  */
-public class DurableComponentOptimisticReadTest {
+public class StorageComponentOptimisticReadTest {
 
   private static final int PAGE_SIZE = 4096;
   private static final long FILE_ID = 1;
@@ -42,7 +42,7 @@ public class DurableComponentOptimisticReadTest {
   private ReadCache mockReadCache;
   private AtomicOperation mockAtomicOp;
   private OptimisticReadScope scope;
-  private TestDurableComponent component;
+  private TestStorageComponent component;
 
   @Before
   public void setUp() {
@@ -62,7 +62,7 @@ public class DurableComponentOptimisticReadTest {
     mockAtomicOp = mock(AtomicOperation.class);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
-    component = new TestDurableComponent(mockStorage);
+    component = new TestStorageComponent(mockStorage);
   }
 
   @After
@@ -472,10 +472,10 @@ public class DurableComponentOptimisticReadTest {
   }
 
   /**
-   * Test subclass that exposes protected DurableComponent methods.
+   * Test subclass that exposes protected StorageComponent methods.
    */
-  private static class TestDurableComponent extends DurableComponent {
-    TestDurableComponent(AbstractStorage storage) {
+  private static class TestStorageComponent extends StorageComponent {
+    TestStorageComponent(AbstractStorage storage) {
       super(storage, "test", ".tst", "test.lock");
     }
 

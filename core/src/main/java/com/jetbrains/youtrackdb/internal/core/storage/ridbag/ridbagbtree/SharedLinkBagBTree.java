@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailed
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import java.io.IOException;
@@ -26,7 +26,7 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public final class SharedLinkBagBTree extends DurableComponent {
+public final class SharedLinkBagBTree extends StorageComponent {
 
   private static final int MAX_PATH_LENGTH =
       GlobalConfiguration.BTREE_MAX_DEPTH.getValueAsInteger();
