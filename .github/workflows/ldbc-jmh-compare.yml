@@ -1,0 +1,362 @@
+name: LDBC JMH Benchmark Compare
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_prebuilt_db:
+        description: >
+          Use pre-built DB from S3 (fast, ~2 min setup).
+          When false, loads from CSV (~21 min per run).
+        required: false
+        type: boolean
+        default: true
+      queries:
+        description: >
+          Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
+          Leave empty to run the full suite.
+        required: false
+        type: string
+        default: ''
+
+# Prevent duplicate runs for the same branch; different branches run in parallel
+# on separate ephemeral runners provisioned by TestFlows.
+concurrency:
+  group: jmh-compare-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LDBC_SCALE_FACTOR: '1'
+
+jobs:
+  compare:
+    runs-on:
+      - self-hosted
+      - type-ccx33
+      - image-x86-system-ubuntu-24.04
+    timeout-minutes: 1200
+
+    steps:
+      # ── Setup ────────────────────────────────────────────────────────────
+      - name: Checkout (full history for fork-point detection)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd python3-pip > /dev/null 2>&1
+          pip install --break-system-packages boto3 -q
+
+      - name: Resolve commits
+        id: commits
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(git rev-parse HEAD)
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+          # Ensure we have the develop branch ref for merge-base
+          git fetch origin develop:refs/remotes/origin/develop --no-tags
+
+          FORK_POINT=$(git merge-base HEAD origin/develop)
+
+          if [ "$HEAD_SHA" = "$FORK_POINT" ]; then
+            echo "::error::Fork-point equals HEAD — nothing to compare."
+            exit 1
+          fi
+
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "fork_point=$FORK_POINT" >> "$GITHUB_OUTPUT"
+          echo "fork_short=$(git rev-parse --short $FORK_POINT)" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          echo "Branch:     $BRANCH"
+          echo "HEAD:       $HEAD_SHA"
+          echo "Fork-point: $FORK_POINT"
+
+      - name: Build JMH filter from query list
+        id: filter
+        run: |
+          set -euo pipefail
+          QUERIES="${{ inputs.queries }}"
+          if [ -n "$QUERIES" ]; then
+            # Convert "IS1,IC2,IC13" → ".*is1_.*|.*ic2_.*|.*ic13_.*"
+            JMH_FILTER=$(echo "$QUERIES" \
+              | tr '[:upper:]' '[:lower:]' \
+              | tr ',' '\n' \
+              | sed 's/.*/.*&_.*/' \
+              | paste -sd'|')
+            echo "jmh_filter=$JMH_FILTER" >> "$GITHUB_OUTPUT"
+            echo "Filter: $JMH_FILTER"
+          else
+            echo "jmh_filter=" >> "$GITHUB_OUTPUT"
+            echo "Filter: (all benchmarks)"
+          fi
+
+      - name: Save helper scripts
+        run: |
+          # Copy comparison script to /tmp/ so it survives git checkouts
+          cp jmh-ldbc/jmh-compare.py /tmp/jmh-compare-${{ github.run_id }}.py
+
+      # ── Download data (once) ─────────────────────────────────────────────
+      - name: Download pre-built database from S3
+        if: inputs.use_prebuilt_db == true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          print('Downloading pre-built SF 1 database from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-bench-db.tar.zst',
+              '/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst')
+          print('Downloaded.')
+          PYEOF
+          zstd -d "/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst" \
+               -o "/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
+          rm -f "/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst"
+
+      - name: Download LDBC CSV dataset from S3
+        if: inputs.use_prebuilt_db == false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          print('Downloading SF 1 CSV dataset from S3...')
+          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-composite-merged-fk.tar.zst',
+              '/tmp/ldbc-csv-${{ github.run_id }}.tar.zst')
+          print('Downloaded.')
+          PYEOF
+          zstd -d "/tmp/ldbc-csv-${{ github.run_id }}.tar.zst" \
+               -o "/tmp/ldbc-csv-${{ github.run_id }}.tar"
+          rm -f "/tmp/ldbc-csv-${{ github.run_id }}.tar.zst"
+
+      # ── Base run (fork-point) ────────────────────────────────────────────
+      - name: 'Base: checkout fork-point'
+        run: git checkout ${{ steps.commits.outputs.fork_point }}
+
+      - name: 'Base: compile'
+        run: |
+          chmod +x mvnw
+          ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
+            -Dspotless.check.skip=true -q
+
+      - name: 'Base: extract pre-built database'
+        if: inputs.use_prebuilt_db == true
+        run: |
+          mkdir -p jmh-ldbc/target/ldbc-bench-db
+          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" \
+            -C jmh-ldbc/target/ldbc-bench-db
+
+      - name: 'Base: extract CSV dataset'
+        if: inputs.use_prebuilt_db == false
+        run: |
+          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
+          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" \
+            -C jmh-ldbc/target/ldbc-dataset/sf1
+
+      - name: 'Base: load database from CSV'
+        if: inputs.use_prebuilt_db == false
+        run: |
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+
+      - name: 'Base: warm OS page cache'
+        env:
+          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+        run: |
+          FILTER_ARG=""
+          if [ -n "$JMH_FILTER" ]; then
+            FILTER_ARG="$JMH_FILTER "
+          fi
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1"
+
+      - name: 'Base: run benchmarks'
+        env:
+          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+        run: |
+          FILTER_ARG=""
+          if [ -n "$JMH_FILTER" ]; then
+            FILTER_ARG="$JMH_FILTER "
+          fi
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-base-${{ github.run_id }}.json" \
+            2>&1 | tee /tmp/jmh-base-log-${{ github.run_id }}.txt
+
+      # ── Head run (branch tip) ────────────────────────────────────────────
+      - name: 'Head: checkout branch tip'
+        run: git checkout ${{ steps.commits.outputs.head_sha }}
+
+      - name: 'Head: compile'
+        run: |
+          chmod +x mvnw
+          ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
+            -Dspotless.check.skip=true -q
+
+      - name: 'Head: extract pre-built database'
+        if: inputs.use_prebuilt_db == true
+        run: |
+          mkdir -p jmh-ldbc/target/ldbc-bench-db
+          tar xf "/tmp/ldbc-bench-db-${{ github.run_id }}.tar" \
+            -C jmh-ldbc/target/ldbc-bench-db
+
+      - name: 'Head: extract CSV dataset'
+        if: inputs.use_prebuilt_db == false
+        run: |
+          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
+          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" \
+            -C jmh-ldbc/target/ldbc-dataset/sf1
+
+      - name: 'Head: load database from CSV'
+        if: inputs.use_prebuilt_db == false
+        run: |
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+
+      - name: 'Head: warm OS page cache'
+        env:
+          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+        run: |
+          FILTER_ARG=""
+          if [ -n "$JMH_FILTER" ]; then
+            FILTER_ARG="$JMH_FILTER "
+          fi
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="${FILTER_ARG}-f 0 -wi 0 -i 1 -r 5s -t 1"
+
+      - name: 'Head: run benchmarks'
+        env:
+          JMH_FILTER: ${{ steps.filter.outputs.jmh_filter }}
+        run: |
+          FILTER_ARG=""
+          if [ -n "$JMH_FILTER" ]; then
+            FILTER_ARG="$JMH_FILTER "
+          fi
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="${FILTER_ARG}-rf json -rff /tmp/jmh-head-${{ github.run_id }}.json" \
+            2>&1 | tee /tmp/jmh-head-log-${{ github.run_id }}.txt
+
+      # ── Compare & publish ────────────────────────────────────────────────
+      - name: Compare results
+        run: |
+          python3 "/tmp/jmh-compare-${{ github.run_id }}.py" \
+            --base "/tmp/jmh-base-${{ github.run_id }}.json" \
+            --head "/tmp/jmh-head-${{ github.run_id }}.json" \
+            --base-sha "${{ steps.commits.outputs.fork_point }}" \
+            --head-sha "${{ steps.commits.outputs.head_sha }}" \
+            --output "/tmp/jmh-comparison-${{ github.run_id }}.md"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jmh-compare-${{ steps.commits.outputs.head_short }}-vs-${{ steps.commits.outputs.fork_short }}-${{ github.run_id }}
+          path: |
+            /tmp/jmh-base-${{ github.run_id }}.json
+            /tmp/jmh-head-${{ github.run_id }}.json
+            /tmp/jmh-comparison-${{ github.run_id }}.md
+            /tmp/jmh-base-log-${{ github.run_id }}.txt
+            /tmp/jmh-head-log-${{ github.run_id }}.txt
+          retention-days: 90
+
+      - name: Post comparison to open PRs
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync(
+              '/tmp/jmh-comparison-${{ github.run_id }}.md', 'utf8');
+            const branch = '${{ steps.commits.outputs.branch }}';
+
+            // Find open PRs whose head branch matches this branch
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              state: 'open',
+            });
+
+            if (prs.length === 0) {
+              console.log(`No open PRs found for branch: ${branch}`);
+              return;
+            }
+
+            const HEADER = '<!-- jmh-ldbc-compare -->';
+            const fullBody = `${HEADER}\n${body}`;
+
+            for (const pr of prs) {
+              // Look for an existing benchmark comment to update
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+
+              const existing = comments.find(c => c.body.startsWith(HEADER));
+
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: fullBody,
+                });
+                console.log(`Updated benchmark comment on PR #${pr.number}`);
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: fullBody,
+                });
+                console.log(`Created benchmark comment on PR #${pr.number}`);
+              }
+            }
+
+      # ── Cleanup temp files ──────────────────────────────────────────────
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
+                /tmp/ldbc-csv-${{ github.run_id }}.tar \
+                /tmp/jmh-compare-${{ github.run_id }}.py \
+                /tmp/jmh-base-${{ github.run_id }}.json \
+                /tmp/jmh-head-${{ github.run_id }}.json \
+                /tmp/jmh-comparison-${{ github.run_id }}.md \
+                /tmp/jmh-base-log-${{ github.run_id }}.txt \
+                /tmp/jmh-head-log-${{ github.run_id }}.txt
