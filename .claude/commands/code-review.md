@@ -102,6 +102,7 @@ Scan the diff and assign one or more categories to each changed file:
 | **gremlin** | Files in `gremlin/`, traversal steps, `YTDBGraph*` classes, TinkerPop integration |
 | **public-api** | Files in `com.jetbrains.youtrackdb.api`, `YourTracks`, `YouTrackDB` interface |
 | **serialization** | Record serializers, binary format, property map encoding/decoding |
+| **crash-durability** | WAL operations, crash simulation, `DurableComponent` recovery, page corruption handling, transaction atomicity under failure, `LogSequenceNumber` manipulation, double-write log, Java `assert` statements in production code |
 | **configuration** | `GlobalConfiguration`, config parameters, system properties |
 | **tests-only** | Changes exclusively in test files with no production code changes |
 | **build-config** | `pom.xml`, CI workflows, Maven profiles, Docker configs |
@@ -117,7 +118,7 @@ Use the following mapping to decide which agents to launch:
 |---|---|
 | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
 | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
-| **review-crash-safety** | `storage-engine`, `index-data-structures`, `serialization` (only when WAL/page/durability code is touched) |
+| **review-crash-safety** | `crash-durability` |
 | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
 | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
 
@@ -134,7 +135,7 @@ Before launching agents, output a brief triage summary so the user can see the r
 
 ### 5d: Edge Cases
 - If **all categories are `docs-only`**: Skip all agents. Just report that only documentation changed and no code review is needed.
-- If **all categories are `build-config`**: Launch only `review-code-quality` (to check for misconfigurations).
+- If **all categories are `build-config`**: Launch `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes).
 - If **all categories are `tests-only`**: Launch only `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too).
 - If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
 
