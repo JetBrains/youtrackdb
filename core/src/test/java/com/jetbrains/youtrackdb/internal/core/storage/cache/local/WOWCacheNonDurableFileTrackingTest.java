@@ -402,11 +402,18 @@ public class WOWCacheNonDurableFileTrackingTest {
 
   /**
    * Reopens the WOWCache by closing the current instance and creating a new one against the
-   * same storage path. The WAL is also closed and reopened. Returns the new WOWCache instance.
+   * same storage path. The WAL is also closed and reopened.
    */
   private void reopenCache() throws Exception {
     wowCache.close();
+    createNewCache();
+  }
 
+  /**
+   * Creates a new WAL + WOWCache against the same storage path. Callers that already closed
+   * the old cache (e.g., to corrupt side files before reopening) call this directly.
+   */
+  private void createNewCache() throws Exception {
     writeAheadLog.close();
     writeAheadLog =
         new CASDiskWriteAheadLog(
@@ -473,12 +480,14 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // After reopen, non-durable file should still be non-durable
     final var restoredNdId = wowCache.fileIdByName("ndPersist.tst");
+    assertTrue("Non-durable file must be findable by name after reopen", restoredNdId >= 0);
     assertTrue(
         "Non-durable status must survive close/reopen via side file persistence",
         wowCache.isNonDurable(restoredNdId));
 
     // Durable file should still be durable
     final var restoredDurableId = wowCache.fileIdByName("durablePersist.tst");
+    assertTrue("Durable file must be findable by name after reopen", restoredDurableId >= 0);
     assertFalse(
         "Durable file should remain durable after close/reopen",
         wowCache.isNonDurable(restoredDurableId));
@@ -505,26 +514,10 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
 
     // Reopen — should fall back to shadow
-    writeAheadLog.close();
-    writeAheadLog =
-        new CASDiskWriteAheadLog(
-            storageName, storagePath, storagePath,
-            ContextConfiguration.WAL_DEFAULT_NAME, 12_000, 128,
-            null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25,
-            true, Locale.US, -1, 1000, false, false, true, 10);
-    files = new ClosableLinkedContainer<>(1024);
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE, false, bufferPool, writeAheadLog,
-            new DoubleWriteLogNoOP(), PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT, EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath, storageName, files, 1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify, null, null, false,
-            Executors.newCachedThreadPool());
-    wowCache.loadRegisteredFiles();
+    createNewCache();
 
     final var restoredId = wowCache.fileIdByName("ndCorrupt.tst");
+    assertTrue(restoredId >= 0);
     assertTrue(
         "Non-durable status must be recovered from shadow when primary is corrupt",
         wowCache.isNonDurable(restoredId));
@@ -547,26 +540,10 @@ public class WOWCacheNonDurableFileTrackingTest {
     Files.deleteIfExists(storagePath.resolve("non_durable_files_shadow.cm"));
 
     // Reopen — should treat all files as durable
-    writeAheadLog.close();
-    writeAheadLog =
-        new CASDiskWriteAheadLog(
-            storageName, storagePath, storagePath,
-            ContextConfiguration.WAL_DEFAULT_NAME, 12_000, 128,
-            null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25,
-            true, Locale.US, -1, 1000, false, false, true, 10);
-    files = new ClosableLinkedContainer<>(1024);
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE, false, bufferPool, writeAheadLog,
-            new DoubleWriteLogNoOP(), PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT, EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath, storageName, files, 1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify, null, null, false,
-            Executors.newCachedThreadPool());
-    wowCache.loadRegisteredFiles();
+    createNewCache();
 
     final var restoredId = wowCache.fileIdByName("ndBothCorrupt.tst");
+    assertTrue(restoredId >= 0);
     assertFalse(
         "With both side files missing, all files should be treated as durable",
         wowCache.isNonDurable(restoredId));
@@ -594,26 +571,10 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
 
     // Reopen — should fall back to shadow
-    writeAheadLog.close();
-    writeAheadLog =
-        new CASDiskWriteAheadLog(
-            storageName, storagePath, storagePath,
-            ContextConfiguration.WAL_DEFAULT_NAME, 12_000, 128,
-            null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25,
-            true, Locale.US, -1, 1000, false, false, true, 10);
-    files = new ClosableLinkedContainer<>(1024);
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE, false, bufferPool, writeAheadLog,
-            new DoubleWriteLogNoOP(), PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT, EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath, storageName, files, 1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify, null, null, false,
-            Executors.newCachedThreadPool());
-    wowCache.loadRegisteredFiles();
+    createNewCache();
 
     final var restoredId = wowCache.fileIdByName("ndChecksum.tst");
+    assertTrue(restoredId >= 0);
     assertTrue(
         "Non-durable status must be recovered from shadow when primary has bad checksum",
         wowCache.isNonDurable(restoredId));
@@ -640,26 +601,10 @@ public class WOWCacheNonDurableFileTrackingTest {
       }
     }
 
-    writeAheadLog.close();
-    writeAheadLog =
-        new CASDiskWriteAheadLog(
-            storageName, storagePath, storagePath,
-            ContextConfiguration.WAL_DEFAULT_NAME, 12_000, 128,
-            null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25,
-            true, Locale.US, -1, 1000, false, false, true, 10);
-    files = new ClosableLinkedContainer<>(1024);
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE, false, bufferPool, writeAheadLog,
-            new DoubleWriteLogNoOP(), PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT, EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath, storageName, files, 1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify, null, null, false,
-            Executors.newCachedThreadPool());
-    wowCache.loadRegisteredFiles();
+    createNewCache();
 
     final var restoredId = wowCache.fileIdByName("ndBothBad.tst");
+    assertTrue(restoredId >= 0);
     assertFalse(
         "With both checksums corrupt, all files should be treated as durable",
         wowCache.isNonDurable(restoredId));
@@ -688,28 +633,57 @@ public class WOWCacheNonDurableFileTrackingTest {
       }
     }
 
-    writeAheadLog.close();
-    writeAheadLog =
-        new CASDiskWriteAheadLog(
-            storageName, storagePath, storagePath,
-            ContextConfiguration.WAL_DEFAULT_NAME, 12_000, 128,
-            null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25,
-            true, Locale.US, -1, 1000, false, false, true, 10);
-    files = new ClosableLinkedContainer<>(1024);
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE, false, bufferPool, writeAheadLog,
-            new DoubleWriteLogNoOP(), PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT, EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath, storageName, files, 1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify, null, null, false,
-            Executors.newCachedThreadPool());
-    wowCache.loadRegisteredFiles();
+    createNewCache();
 
     final var restoredId = wowCache.fileIdByName("ndVersion.tst");
+    assertTrue(restoredId >= 0);
     assertFalse(
         "With unsupported version, all files should be treated as durable",
+        wowCache.isNonDurable(restoredId));
+  }
+
+  /**
+   * Verifies that deleting the last non-durable file removes both side files, exercising
+   * the empty-set deletion branch of writeNonDurableRegistry.
+   */
+  @Test
+  public void testDeleteLastNonDurableFileRemovesSideFiles() throws Exception {
+    final var bookedId = wowCache.bookFileId("ndLast.tst");
+    final var fileId = wowCache.addFile("ndLast.tst", bookedId, true);
+    assertTrue(Files.exists(storagePath.resolve("non_durable_files.cm")));
+    assertTrue(Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+
+    wowCache.deleteFile(fileId);
+
+    assertFalse(
+        "Primary side file must be deleted when last non-durable file is removed",
+        Files.exists(storagePath.resolve("non_durable_files.cm")));
+    assertFalse(
+        "Shadow side file must be deleted when last non-durable file is removed",
+        Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+  }
+
+  /**
+   * Simulates a crash where the primary side file was never created but the shadow is valid.
+   * Recovery must read the shadow and restore non-durable status.
+   */
+  @Test
+  public void testPrimaryAbsentShadowPresentRestoresFromShadow() throws Exception {
+    final var bookedId = wowCache.bookFileId("ndShadowOnly.tst");
+    wowCache.addFile("ndShadowOnly.tst", bookedId, true);
+
+    wowCache.close();
+
+    // Remove only the primary; leave the shadow intact
+    Files.delete(storagePath.resolve("non_durable_files.cm"));
+    assertTrue(Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+
+    createNewCache();
+
+    final var restoredId = wowCache.fileIdByName("ndShadowOnly.tst");
+    assertTrue(restoredId >= 0);
+    assertTrue(
+        "Non-durable status must be recovered from shadow when primary is absent",
         wowCache.isNonDurable(restoredId));
   }
 

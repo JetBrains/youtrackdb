@@ -1604,9 +1604,14 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.close();
 
-      // Persist the final non-durable state before clearing, so crash recovery can
-      // identify non-durable files on next startup
-      writeNonDurableRegistry();
+      // Best-effort final persist of non-durable state. Every mutation already writes
+      // the registry, so this is redundant in the normal case. If it fails, the side
+      // files still reflect the state from the last successful mutation write.
+      try {
+        writeNonDurableRegistry();
+      } catch (final IOException e) {
+        logger.warn("Failed to write non-durable registry during close", e);
+      }
 
       nameIdMap.clear();
       idNameMap.clear();
@@ -2047,6 +2052,8 @@ public final class WOWCache extends AbstractWriteCache
 
     // Reserve space for xxHash (will be written after content)
     final var hashPosition = buffer.position();
+    assert hashPosition == 4
+        : "hashPosition must be 4 (one version int written); got " + hashPosition;
     buffer.position(hashPosition + 8);
 
     // Write count and file IDs
@@ -2054,6 +2061,10 @@ public final class WOWCache extends AbstractWriteCache
     for (final var intIterator = currentSet.iterator(); intIterator.hasNext();) {
       buffer.putInt(intIterator.nextInt());
     }
+
+    assert buffer.position() == buffer.capacity()
+        : "Buffer not fully written: position=" + buffer.position()
+            + " capacity=" + buffer.capacity();
 
     // Compute xxHash over the content after the hash field (from count onward)
     final var contentStart = hashPosition + 8;
@@ -2134,6 +2145,12 @@ public final class WOWCache extends AbstractWriteCache
       // Minimum valid size: version(4) + hash(8) + count(4) = 16 bytes
       if (size < 16) {
         logger.warn("Non-durable registry file {} is too small ({}), ignoring", path, size);
+        return null;
+      }
+
+      // Sanity check: side file should never be larger than a few KB
+      if (size > MAX_FILE_RECORD_LEN) {
+        logger.warn("Non-durable registry file {} is too large ({}), ignoring", path, size);
         return null;
       }
 
