@@ -184,7 +184,7 @@ jobs:
 
           if [ -d "$DB_DIR/ldbc_benchmark" ]; then
             echo "Database found at expected path"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
           elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
             echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
             # Move contents up one level to fix double-nesting
@@ -192,7 +192,7 @@ jobs:
             mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
             rm -rf "$DB_DIR"
             mv "$tmp_dir" "$DB_DIR"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
           else
             echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
             echo "Top-level contents:"
@@ -236,7 +236,7 @@ jobs:
                ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt && \
                ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-base-${{ github.run_id }}.txt; then
               echo "::error::All warm-up benchmarks failed. Check database setup."
-              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-base-${{ github.run_id }}.txt | head -5
+              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-base-${{ github.run_id }}.txt | head -5 || true
               exit 1
             fi
           fi
@@ -291,14 +291,14 @@ jobs:
 
           if [ -d "$DB_DIR/ldbc_benchmark" ]; then
             echo "Database found at expected path"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
           elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
             echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
             tmp_dir="${DB_DIR}_tmp_$$"
             mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
             rm -rf "$DB_DIR"
             mv "$tmp_dir" "$DB_DIR"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
           else
             echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
             echo "Top-level contents:"
@@ -340,7 +340,7 @@ jobs:
                ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt && \
                ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-head-${{ github.run_id }}.txt; then
               echo "::error::All warm-up benchmarks failed. Check database setup."
-              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-head-${{ github.run_id }}.txt | head -5
+              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-head-${{ github.run_id }}.txt | head -5 || true
               exit 1
             fi
           fi
