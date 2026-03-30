@@ -68,6 +68,34 @@ public interface WriteCache {
   long addFile(String fileName, long fileId) throws IOException;
 
   /**
+   * Registers a new file in the write cache with an explicit non-durability flag.
+   *
+   * <p>Non-durable files participate in the normal page cache lifecycle (load, store, flush to
+   * disk, evict) but opt out of WAL logging, double-write log protection, and fsync. They are
+   * automatically deleted on crash recovery.
+   *
+   * @param fileName Name of file to register inside storage.
+   * @param fileId Id to assign to the file.
+   * @param nonDurable If true, the file is registered as non-durable.
+   * @return Id of registered file
+   */
+  default long addFile(String fileName, long fileId, boolean nonDurable) throws IOException {
+    return addFile(fileName, fileId);
+  }
+
+  /**
+   * Returns whether the given file is registered as non-durable.
+   *
+   * <p>Non-durable files opt out of WAL logging, double-write log protection, and fsync.
+   *
+   * @param fileId External file id to check.
+   * @return true if the file is non-durable, false otherwise.
+   */
+  default boolean isNonDurable(long fileId) {
+    return false;
+  }
+
+  /**
    * Returns id associated with given file or value &lt; 0 if such file does not exist.
    *
    * @param fileName File name id of which has to be returned.

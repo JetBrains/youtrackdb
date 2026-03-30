@@ -443,6 +443,14 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final DoubleWriteLog doubleWriteLog;
 
+  /**
+   * Set of internal file IDs that are registered as non-durable. Non-durable files participate
+   * in the normal page cache lifecycle but opt out of WAL logging, double-write log protection,
+   * and fsync. Updated via clone-mutate-publish under {@link #filesLock} write lock; readers
+   * access the volatile reference without locking for lock-free O(1) contains checks.
+   */
+  private volatile IntOpenHashSet nonDurableFileIds = new IntOpenHashSet();
+
   private boolean closed;
   private final ExecutorService executor;
 
@@ -927,6 +935,33 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public long addFile(final String fileName, long fileId, final boolean nonDurable)
+      throws IOException {
+    final var result = addFile(fileName, fileId);
+    if (nonDurable) {
+      // filesLock write lock is still held by addFile's caller context only if we're
+      // called from within filesLock. However, addFile(String, long) acquires and releases
+      // filesLock internally. We must acquire it again to mutate nonDurableFileIds.
+      filesLock.acquireWriteLock();
+      try {
+        final var intId = extractFileId(result);
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.add(intId);
+        nonDurableFileIds = updated;
+      } finally {
+        filesLock.releaseWriteLock();
+      }
+    }
+    return result;
+  }
+
+  @Override
+  public boolean isNonDurable(final long fileId) {
+    final var intId = internalFileId(fileId);
+    return nonDurableFileIds.contains(intId);
+  }
+
+  @Override
   public boolean checkLowDiskSpace() throws IOException {
     final var freeSpace = fileStore.getUsableSpace();
     return freeSpace < freeSpaceLimit;
@@ -1297,6 +1332,13 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
+        // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
+        if (nonDurableFileIds.contains(intId)) {
+          final var updated = new IntOpenHashSet(nonDurableFileIds);
+          updated.remove(intId);
+          nonDurableFileIds = updated;
+        }
+
         writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
       }
     } finally {
@@ -1419,6 +1461,15 @@ public final class WOWCache extends AbstractWriteCache
       idNameMap.put(intFileId, newFileName);
       nameIdMap.remove(fileName);
       nameIdMap.put(newFileName, intFileId);
+
+      // Remove the replaced file's internal ID from non-durable registry if present.
+      // The newFile replaces the old file under intFileId, so newIntFileId is no longer
+      // valid. The intFileId retains whatever durability status the original had.
+      if (nonDurableFileIds.contains(newIntFileId)) {
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.remove(newIntFileId);
+        nonDurableFileIds = updated;
+      }
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Replace of file was interrupted"),
@@ -1534,6 +1585,7 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.clear();
       idNameMap.clear();
+      nonDurableFileIds = new IntOpenHashSet();
 
       return closedIds.toLongArray();
     } finally {
