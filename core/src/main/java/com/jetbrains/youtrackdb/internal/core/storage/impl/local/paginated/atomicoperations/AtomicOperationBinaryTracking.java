@@ -451,7 +451,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public long addFile(final String fileName) {
+  public long addFile(final String fileName, final boolean nonDurable) {
     checkIfActive();
 
     if (newFileNamesId.containsKey(fileName)) {
@@ -474,6 +474,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     final var fileChanges = new FileChanges();
     fileChanges.isNew = isNew;
     fileChanges.fileName = fileName;
+    fileChanges.nonDurable = nonDurable;
     fileChanges.maxNewPageIndex = -1;
 
     this.fileChanges.put(fileId, fileChanges);
@@ -1038,6 +1039,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     private long maxNewPageIndex = -2;
     private boolean isNew;
     private boolean truncate;
+    // Read in commitChanges() when passing nonDurable flag to readCache.addFile()
+    @SuppressWarnings("UnusedVariable")
+    private boolean nonDurable;
     private String fileName;
   }
 

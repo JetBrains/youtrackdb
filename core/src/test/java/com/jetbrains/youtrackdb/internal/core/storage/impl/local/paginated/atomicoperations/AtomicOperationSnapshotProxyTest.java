@@ -1427,4 +1427,63 @@ public class AtomicOperationSnapshotProxyTest {
     assertThatThrownBy(mockOp::getOptimisticReadScope)
         .isInstanceOf(UnsupportedOperationException.class);
   }
+
+  // --- addFile nonDurable flag ---
+
+  @Test
+  public void testAddFileDurableByDefault() throws IOException {
+    // The default addFile(String) method delegates to addFile(String, false),
+    // creating a durable file entry. Verify the 1-arg default method works
+    // through the AtomicOperation interface.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 42;
+    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    // Use the 1-arg interface default method (should delegate with nonDurable=false)
+    AtomicOperation iface = op;
+    long fid = iface.addFile("durable-file.dat");
+    assertThat(fid).isEqualTo(composedFileId);
+  }
+
+  @Test
+  public void testAddFileNonDurable() throws IOException {
+    // The 2-arg addFile(String, boolean) with nonDurable=true should store
+    // the file entry and return a valid file ID.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 77;
+    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long fid = op.addFile("non-durable-file.dat", true);
+    assertThat(fid).isEqualTo(composedFileId);
+  }
+
+  @Test
+  public void testAddFileDefaultMethodDelegation() throws IOException {
+    // Verify that the default addFile(String) on the AtomicOperation interface
+    // delegates to addFile(String, false) using a mock with CALLS_REAL_METHODS.
+    AtomicOperation mockOp = mock(AtomicOperation.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS);
+    when(mockOp.addFile("test.dat", false)).thenReturn(123L);
+
+    long result = mockOp.addFile("test.dat");
+
+    assertThat(result).isEqualTo(123L);
+    org.mockito.Mockito.verify(mockOp).addFile("test.dat", false);
+  }
 }

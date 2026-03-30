@@ -48,7 +48,22 @@ public interface AtomicOperation {
 
   long filledUpTo(long fileId);
 
-  long addFile(String fileName) throws IOException;
+  /**
+   * Registers a new file with an explicit non-durability flag.
+   *
+   * @param fileName    the file name to register
+   * @param nonDurable  if true, the file is non-durable (no WAL, no DWL, no fsync)
+   * @return the file ID assigned to the new file
+   */
+  long addFile(String fileName, boolean nonDurable) throws IOException;
+
+  /**
+   * Registers a new durable file. Delegates to {@link #addFile(String, boolean)} with
+   * {@code nonDurable = false}.
+   */
+  default long addFile(String fileName) throws IOException {
+    return addFile(fileName, false);
+  }
 
   long loadFile(String fileName) throws IOException;
 
