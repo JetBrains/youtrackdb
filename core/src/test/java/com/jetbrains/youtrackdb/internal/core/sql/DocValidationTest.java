@@ -3213,4 +3213,127 @@ public class DocValidationTest {
               tx.yql("CREATE LINK mylink FROM CLSrc.refId TO CLDst.Id").iterate();
             }));
   }
+
+  // === YQL-Create-Property.md ===
+
+  // Line 29: CREATE PROPERTY User.name STRING
+  @Test
+  public void testCreatePropertyString() {
+    g.command("CREATE CLASS CpUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CpUser.name IF NOT EXISTS STRING");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpUser SET name = 'Alice'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CpUser WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpUser").iterate();
+    });
+  }
+
+  // Line 35: CREATE PROPERTY Profile.tags EMBEDDEDLIST STRING
+  @Test
+  public void testCreatePropertyEmbeddedListString() {
+    g.command("CREATE CLASS CpProfile IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY CpProfile.tags IF NOT EXISTS EMBEDDEDLIST STRING");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpProfile SET tags = ['a', 'b', 'c']").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpProfile").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    List<String> tags = v.value("tags");
+    assertThat(tags).containsExactly("a", "b", "c");
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpProfile").iterate();
+    });
+  }
+
+  // Line 41: CREATE PROPERTY User.name STRING (MANDATORY TRUE, MIN 5, MAX 25)
+  // Validates that the CREATE PROPERTY syntax with inline constraints parses and executes.
+  @Test
+  public void testCreatePropertyWithConstraints() {
+    g.command("CREATE CLASS CpUserConst IF NOT EXISTS EXTENDS V");
+    g.command(
+        "CREATE PROPERTY CpUserConst.name IF NOT EXISTS STRING (MANDATORY TRUE, MIN 5, MAX 25)");
+
+    // Verify data can be inserted for a property with constraints defined
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpUserConst SET name = 'Alice12345'").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpUserConst").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpUserConst").iterate();
+    });
+  }
+
+  // Line 55-59: Supported standard property types
+  @Test
+  public void testCreatePropertyStandardTypes() {
+    g.command("CREATE CLASS CpTypes IF NOT EXISTS EXTENDS V");
+
+    // All standard types from the documentation table
+    String[] types = {
+        "BOOLEAN", "SHORT", "DATE", "DATETIME", "BYTE",
+        "INTEGER", "LONG", "STRING", "LINK", "DECIMAL",
+        "DOUBLE", "FLOAT", "BINARY"
+    };
+
+    for (String type : types) {
+      g.command(
+          "CREATE PROPERTY CpTypes.prop_" + type.toLowerCase() + " IF NOT EXISTS " + type);
+    }
+
+    // Verify a vertex can be created with some of these typed properties
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpTypes SET prop_boolean = true, prop_short = 1,"
+          + " prop_integer = 42, prop_long = 100000, prop_string = 'test',"
+          + " prop_decimal = 3.14, prop_double = 2.71, prop_float = 1.5,"
+          + " prop_byte = 7").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpTypes").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpTypes").iterate();
+    });
+  }
+
+  // Line 63-66: Supported container property types
+  @Test
+  public void testCreatePropertyContainerTypes() {
+    g.command("CREATE CLASS CpContainer IF NOT EXISTS EXTENDS V");
+
+    // All container types from the documentation table
+    g.command("CREATE PROPERTY CpContainer.el IF NOT EXISTS EMBEDDEDLIST STRING");
+    g.command("CREATE PROPERTY CpContainer.es IF NOT EXISTS EMBEDDEDSET STRING");
+    g.command("CREATE PROPERTY CpContainer.em IF NOT EXISTS EMBEDDEDMAP STRING");
+    g.command("CREATE PROPERTY CpContainer.ll IF NOT EXISTS LINKLIST");
+    g.command("CREATE PROPERTY CpContainer.ls IF NOT EXISTS LINKSET");
+    g.command("CREATE PROPERTY CpContainer.lm IF NOT EXISTS LINKMAP");
+
+    // Verify embedded containers work with data
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CpContainer SET el = ['a', 'b'],"
+          + " es = ['x', 'y'], em = {'k1': 'v1'}").iterate();
+    });
+
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CpContainer").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CpContainer").iterate();
+    });
+  }
 }
