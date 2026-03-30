@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
-import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
@@ -21,7 +20,8 @@ import javax.annotation.Nullable;
  * vertices whose collection ID is not in the accepted set — this avoids loading
  * records from storage entirely (only the in-memory RID is inspected).
  */
-public class VertexFromLinkBagIterable implements Iterable<Vertex>, Sizeable {
+public class VertexFromLinkBagIterable
+    implements PreFilterableLinkBagIterable, Iterable<Vertex> {
 
   @Nonnull
   private final LinkBag linkBag;
@@ -62,6 +62,7 @@ public class VertexFromLinkBagIterable implements Iterable<Vertex>, Sizeable {
    *     {@link VertexFromLinkBagIterator#collectionIdsForClass})
    */
   @Nonnull
+  @Override
   public VertexFromLinkBagIterable withClassFilter(@Nonnull IntSet collectionIds) {
     return new VertexFromLinkBagIterable(linkBag, session, collectionIds, acceptedRids);
   }
@@ -73,6 +74,7 @@ public class VertexFromLinkBagIterable implements Iterable<Vertex>, Sizeable {
    * @param ridSet accepted RIDs (typically built from an index query)
    */
   @Nonnull
+  @Override
   public VertexFromLinkBagIterable withRidFilter(@Nonnull Set<RID> ridSet) {
     return new VertexFromLinkBagIterable(linkBag, session, acceptedCollectionIds, ridSet);
   }
