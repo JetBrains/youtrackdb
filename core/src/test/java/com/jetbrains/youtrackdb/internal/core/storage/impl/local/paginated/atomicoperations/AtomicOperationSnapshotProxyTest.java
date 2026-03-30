@@ -6,10 +6,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -1433,8 +1436,7 @@ public class AtomicOperationSnapshotProxyTest {
   @Test
   public void testAddFileDurableByDefault() throws IOException {
     // The default addFile(String) method delegates to addFile(String, false),
-    // creating a durable file entry. Verify the 1-arg default method works
-    // through the AtomicOperation interface.
+    // so the file should be registered as durable (nonDurable=false).
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
@@ -1447,16 +1449,15 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    // Use the 1-arg interface default method (should delegate with nonDurable=false)
     AtomicOperation iface = op;
     long fid = iface.addFile("durable-file.dat");
     assertThat(fid).isEqualTo(composedFileId);
+    assertThat(op.isFileNonDurable(fid)).isFalse();
   }
 
   @Test
   public void testAddFileNonDurable() throws IOException {
-    // The 2-arg addFile(String, boolean) with nonDurable=true should store
-    // the file entry and return a valid file ID.
+    // The 2-arg addFile(String, true) should store the nonDurable flag as true.
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
@@ -1471,19 +1472,68 @@ public class AtomicOperationSnapshotProxyTest {
 
     long fid = op.addFile("non-durable-file.dat", true);
     assertThat(fid).isEqualTo(composedFileId);
+    assertThat(op.isFileNonDurable(fid)).isTrue();
+  }
+
+  @Test
+  public void testAddFileNonDurableAfterDeleteReusesFileId() {
+    // When a file is deleted then re-added with nonDurable=true, the code takes
+    // the deletedFileNameIdMap branch (isNew=false). Verify the nonDurable flag
+    // is stored correctly on this reuse path.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 99;
+    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+    when(writeCache.fileNameById(composedFileId)).thenReturn("reused-file.dat");
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long fid1 = op.addFile("reused-file.dat", false);
+    assertThat(op.isFileNonDurable(fid1)).isFalse();
+
+    op.deleteFile(fid1);
+    long fid2 = op.addFile("reused-file.dat", true);
+
+    assertThat(fid2).isEqualTo(fid1);
+    assertThat(op.isFileNonDurable(fid2)).isTrue();
+  }
+
+  @Test
+  public void testAddFileDuplicateNameWithNonDurableThrows() {
+    // Adding two files with the same name should throw StorageException
+    // regardless of the nonDurable flag values.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    when(writeCache.bookFileId(anyString())).thenReturn((1L << 32) | 10);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    op.addFile("dup.dat", false);
+    assertThatThrownBy(() -> op.addFile("dup.dat", true))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("already exists");
   }
 
   @Test
   public void testAddFileDefaultMethodDelegation() throws IOException {
     // Verify that the default addFile(String) on the AtomicOperation interface
     // delegates to addFile(String, false) using a mock with CALLS_REAL_METHODS.
-    AtomicOperation mockOp = mock(AtomicOperation.class,
-        org.mockito.Mockito.CALLS_REAL_METHODS);
+    AtomicOperation mockOp = mock(AtomicOperation.class, CALLS_REAL_METHODS);
     when(mockOp.addFile("test.dat", false)).thenReturn(123L);
 
     long result = mockOp.addFile("test.dat");
 
     assertThat(result).isEqualTo(123L);
-    org.mockito.Mockito.verify(mockOp).addFile("test.dat", false);
+    verify(mockOp).addFile("test.dat", false);
   }
 }

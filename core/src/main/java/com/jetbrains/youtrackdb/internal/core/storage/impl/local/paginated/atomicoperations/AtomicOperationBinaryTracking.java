@@ -452,6 +452,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public long addFile(final String fileName, final boolean nonDurable) {
+    assert fileName != null : "fileName must not be null";
     checkIfActive();
 
     if (newFileNamesId.containsKey(fileName)) {
@@ -480,6 +481,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.fileChanges.put(fileId, fileChanges);
 
     return fileId;
+  }
+
+  /**
+   * Returns whether the file registered under the given file ID is marked as non-durable
+   * in this atomic operation's local state. Package-private for testing.
+   */
+  boolean isFileNonDurable(long fileId) {
+    fileId = checkFileIdCompatibility(fileId, storageId);
+    var changes = fileChanges.get(fileId);
+    return changes != null && changes.nonDurable;
   }
 
   @Override
@@ -1039,8 +1050,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     private long maxNewPageIndex = -2;
     private boolean isNew;
     private boolean truncate;
-    // Read in commitChanges() when passing nonDurable flag to readCache.addFile()
-    @SuppressWarnings("UnusedVariable")
     private boolean nonDurable;
     private String fileName;
   }
