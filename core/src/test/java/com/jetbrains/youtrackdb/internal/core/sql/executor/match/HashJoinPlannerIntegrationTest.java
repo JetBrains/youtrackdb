@@ -226,4 +226,76 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(0, result.size());
     session.commit();
   }
+
+  // ── Semi-join tests ───────────────────────────────────────────────────
+
+  /**
+   * Diamond pattern correctness: two MATCH clauses share aliases 'a' and 't',
+   * creating a diamond a→b→t, a→c→t. Only a and t are in RETURN, so one
+   * branch's intermediate alias is not referenced downstream.
+   *
+   * Expected distinct (a,t) values: {(n1,t1), (n1,t2)} — both reachable
+   * via at least one b and one c. The semi-join collapses the Cartesian
+   * product over c, but the distinct value set is preserved.
+   */
+  @Test
+  public void diamondPattern_semiJoinEligible_correctDistinctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+            + " RETURN a.name as aName, t.name as tName")
+        .toList();
+
+    assertFalse("diamond query should return results", result.isEmpty());
+    var names = result.stream()
+        .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))
+        .collect(Collectors.toSet());
+    assertEquals(Set.of("n1:t1", "n1:t2"), names);
+    session.commit();
+  }
+
+  /**
+   * Diamond pattern with intermediate alias in RETURN — semi-join should NOT be used
+   * because the intermediate alias (c) is needed for output.
+   */
+  @Test
+  public void diamondPattern_intermediateInReturn_noSemiJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+            + " RETURN a.name, b.name, c.name, t.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // When all aliases are in RETURN, no semi-join optimization is possible
+    assertFalse("plan should NOT use hash semi-join when all aliases are in RETURN, got:\n"
+        + plan, plan.contains("HASH SEMI_JOIN"));
+    session.commit();
+  }
+
+  /**
+   * Diamond pattern EXPLAIN: when only shared aliases are in RETURN,
+   * the planner should use hash semi-join for the secondary branch.
+   */
+  @Test
+  public void explainDiamondPattern_semiJoinEligible_usesHashSemiJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+            + " RETURN a.name, t.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should use hash semi-join, got:\n" + plan,
+        plan.contains("HASH SEMI_JOIN"));
+    session.commit();
+  }
 }

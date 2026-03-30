@@ -1026,32 +1026,37 @@ public class MatchExecutionPlanner {
       return List.of();
     }
 
-    // Walk edges to progressively track visited aliases and detect consistency-check edges
+    // Build a per-edge visited snapshot: for each edge index i, we know which
+    // aliases were visited by edges [0..i-1]. This lets traceBackwardBranch
+    // distinguish "main path" aliases from "branch" aliases.
     var visited = new LinkedHashSet<String>();
-    // Add the first edge's source alias (root of the traversal)
     visited.add(sourceAlias(scheduledEdges.get(0)));
+
+    // visitedBefore[i] = set of aliases visited before edge i is processed
+    @SuppressWarnings("unchecked")
+    var visitedBefore = new Set[scheduledEdges.size()];
+    for (int i = 0; i < scheduledEdges.size(); i++) {
+      visitedBefore[i] = Set.copyOf(visited);
+      visited.add(sourceAlias(scheduledEdges.get(i)));
+      visited.add(targetAlias(scheduledEdges.get(i)));
+    }
 
     var result = new ArrayList<SemiJoinBranch>();
 
     for (int i = 0; i < scheduledEdges.size(); i++) {
-      var edge = scheduledEdges.get(i);
-      var target = targetAlias(edge);
-      var source = sourceAlias(edge);
+      var target = targetAlias(scheduledEdges.get(i));
+      @SuppressWarnings("unchecked")
+      Set<String> beforeThis = visitedBefore[i];
 
-      if (visited.contains(target)) {
-        // This is a consistency-check edge — both endpoints already visited.
-        // Try to trace a branch backward from this edge.
+      if (beforeThis.contains(target)) {
+        // This is a consistency-check edge — target was already visited.
         var branch = traceBackwardBranch(
-            scheduledEdges, i, visited, downstreamAliases,
+            scheduledEdges, i, visitedBefore, downstreamAliases,
             aliasClasses, aliasFilters, aliasRids, context);
         if (branch != null) {
           result.add(branch);
         }
       }
-
-      // Mark both source and target as visited
-      visited.add(source);
-      visited.add(target);
     }
 
     return result;
@@ -1079,10 +1084,11 @@ public class MatchExecutionPlanner {
    *
    * @return a {@link SemiJoinBranch} if eligible, or {@code null} if not
    */
+  @SuppressWarnings("unchecked")
   @Nullable private static SemiJoinBranch traceBackwardBranch(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
-      Set<String> visitedBeforeBranch,
+      Set<String>[] visitedBefore,
       Set<String> downstreamAliases,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
@@ -1092,53 +1098,85 @@ public class MatchExecutionPlanner {
     var checkTarget = targetAlias(checkEdge);
     var checkSource = sourceAlias(checkEdge);
 
-    // The consistency-check edge connects two already-visited aliases.
-    // Trace backward to find branch edges whose intermediate aliases are all
-    // exclusive to the branch (not in downstreamAliases and not previously visited
-    // before the branch started).
-
-    // Walk backward collecting branch edges. The branch must form a contiguous chain
-    // ending at checkSource, with all intermediate aliases exclusive to this branch.
+    // The consistency-check edge connects two already-visited aliases (checkSource
+    // and checkTarget). We identify the "branch" by collecting edges just before
+    // the check edge that introduced NEW aliases not in visitedBeforeCheck.
+    //
+    // Strategy: walk backward from checkIdx, collecting consecutive edges whose
+    // target was not yet in visitedBeforeCheck (i.e., edges that introduced new
+    // intermediate aliases as part of this branch). Stop when we reach an edge
+    // whose source is in visitedBeforeCheck (the branch root).
     var branchEdges = new ArrayList<EdgeTraversal>();
     branchEdges.add(checkEdge);
     var intermediateAliases = new HashSet<String>();
 
-    // Track which alias we need to reach backward (start from the check edge's source)
-    var currentAlias = checkSource;
-
-    // Walk backward from checkIdx-1 to find edges that form the branch
+    // Walk backward looking for edges that introduced a NEW alias (one that was
+    // not yet visited when that edge was processed). Use visitedBefore[j] to
+    // check whether the edge at index j introduced its target as a new alias.
+    var currentAlias = (String) null;
     for (int j = checkIdx - 1; j >= 0; j--) {
       var prevEdge = scheduledEdges.get(j);
       var prevTarget = targetAlias(prevEdge);
       var prevSource = sourceAlias(prevEdge);
+      @SuppressWarnings("unchecked")
+      Set<String> visitedBeforeJ = visitedBefore[j];
 
-      if (prevTarget.equals(currentAlias)) {
-        // This edge feeds into the current branch chain
-        intermediateAliases.add(currentAlias);
-        branchEdges.add(0, prevEdge);
-        currentAlias = prevSource;
-
-        // If the source was visited before the branch started, we've found the branch root
-        if (visitedBeforeBranch.contains(prevSource)) {
-          break;
+      // This edge introduced prevTarget if prevTarget was NOT in visitedBefore[j]
+      if (!visitedBeforeJ.contains(prevTarget)) {
+        // prevTarget was new when this edge was processed → potential branch edge
+        if (currentAlias == null) {
+          // First branch edge: must connect to checkSource or checkTarget
+          if (prevTarget.equals(checkSource) || prevTarget.equals(checkTarget)) {
+            intermediateAliases.add(prevTarget);
+            branchEdges.add(0, prevEdge);
+            currentAlias = prevSource;
+            if (visitedBeforeJ.contains(prevSource)) {
+              break; // Found branch root
+            }
+          }
+        } else if (prevTarget.equals(currentAlias)) {
+          // Continues the branch chain
+          intermediateAliases.add(prevTarget);
+          branchEdges.add(0, prevEdge);
+          currentAlias = prevSource;
+          if (visitedBeforeJ.contains(prevSource)) {
+            break; // Found branch root
+          }
         }
       }
     }
 
-    // The branch root must be in visitedBeforeBranch
-    var branchRoot = currentAlias;
-    if (!visitedBeforeBranch.contains(branchRoot)) {
+    // Must have found at least one intermediate alias
+    if (intermediateAliases.isEmpty()) {
       return null;
     }
 
-    // Need at least 2 edges (1 branch edge + 1 consistency-check edge)
+    // The branch root must have been visited before the branch started.
+    // Use visitedBefore[0] as the earliest snapshot — the root alias is always there.
+    var branchRoot = currentAlias;
+    if (branchRoot == null) {
+      return null;
+    }
+
+    // Need at least 2 edges (1 branch traversal + 1 consistency-check)
     if (branchEdges.size() < 2) {
       return null;
     }
 
-    // Check that all intermediate aliases are NOT in downstreamAliases
+    // Check that all intermediate aliases are NOT in downstreamAliases and
+    // are not auto-generated internal aliases (from .inE()/.outE() etc.)
     for (var alias : intermediateAliases) {
       if (downstreamAliases.contains(alias)) {
+        return null;
+      }
+      if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
+        return null;
+      }
+    }
+
+    // Check that no branch edge involves an optional node
+    for (var edgeT : branchEdges) {
+      if (edgeT.edge.out.isOptionalNode() || edgeT.edge.in.isOptionalNode()) {
         return null;
       }
     }
@@ -1163,8 +1201,18 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Shared aliases = branch root + consistency-check target
-    var sharedAliases = List.of(branchRoot, checkTarget);
+    // Shared aliases: the branch root and the check edge's non-intermediate endpoint
+    var otherShared = intermediateAliases.contains(checkSource) ? checkTarget : checkSource;
+    var sharedAliases = branchRoot.equals(otherShared)
+        ? List.of(branchRoot) : List.of(otherShared, branchRoot);
+
+    // The build plan scans from otherShared (which has the check edge) and
+    // traverses through intermediates to reach branchRoot.
+    // otherShared must have a class or RID so the build plan can scan records.
+    var scanAlias = otherShared;
+    if (aliasClasses.get(scanAlias) == null && aliasRids.get(scanAlias) == null) {
+      return null;
+    }
 
     return new SemiJoinBranch(sharedAliases, branchEdges, intermediateAliases, cardinality);
   }
@@ -1274,6 +1322,88 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Constructs the build-side {@link SelectExecutionPlan} for a semi-join branch.
+   * The plan scans the branch root's class and chains {@link MatchStep}s for each
+   * branch edge except the final consistency-check edge (whose target is the join
+   * point, already visited by the main path).
+   *
+   * @param branch          the branch descriptor
+   * @param context         the command context
+   * @param profilingEnabled whether to enable step profiling
+   * @return a complete build-side execution plan for the branch
+   */
+  private SelectExecutionPlan buildSemiJoinBranchPlan(
+      SemiJoinBranch branch,
+      CommandContext context,
+      boolean profilingEnabled) {
+    // The build plan scans from the first shared alias and traverses through
+    // intermediates to reach the second shared alias. The branch edges are
+    // stored in schedule order ending with the check edge; we need to construct
+    // the forward path from otherShared → intermediates → branchRoot.
+    var scanAlias = branch.sharedAliases().get(0);
+    var scanClass = aliasClasses.get(scanAlias);
+    var scanRid = aliasRids.get(scanAlias);
+    var scanFilter = aliasFilters.get(scanAlias);
+
+    var select = createSelectStatement(scanClass, scanRid, scanFilter);
+    var scanNode = new PatternNode();
+    scanNode.alias = scanAlias;
+
+    var buildPlan = new SelectExecutionPlan(context);
+    buildPlan.chain(new MatchFirstStep(
+        context, scanNode, select.createExecutionPlan(context, profilingEnabled),
+        profilingEnabled));
+
+    // Build a directed path from scanAlias through intermediates to the other
+    // shared alias (branchRoot). For each branch edge, determine the correct
+    // traversal direction so the path connects.
+    var edges = branch.branchEdges();
+    var current = scanAlias;
+    // We need to traverse branch edges in an order that forms a path from
+    // scanAlias. Try each unused edge that has 'current' as one endpoint.
+    var used = new boolean[edges.size()];
+    for (int step = 0; step < edges.size(); step++) {
+      boolean found = false;
+      for (int j = 0; j < edges.size(); j++) {
+        if (used[j]) {
+          continue;
+        }
+        var orig = edges.get(j);
+        var outAlias = orig.edge.out.alias;
+        var inAlias = orig.edge.in.alias;
+        if (outAlias.equals(current)) {
+          // Forward traversal: current → inAlias
+          var traversal = new EdgeTraversal(orig.edge, true);
+          traversal.setLeftClass(aliasClasses.get(current));
+          traversal.setLeftFilter(aliasFilters.get(current));
+          traversal.setLeftRid(aliasRids.get(current));
+          buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
+          current = inAlias;
+          used[j] = true;
+          found = true;
+          break;
+        } else if (inAlias.equals(current)) {
+          // Reverse traversal: current → outAlias
+          var traversal = new EdgeTraversal(orig.edge, false);
+          traversal.setLeftClass(aliasClasses.get(current));
+          traversal.setLeftFilter(aliasFilters.get(current));
+          traversal.setLeftRid(aliasRids.get(current));
+          buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
+          current = outAlias;
+          used[j] = true;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        break; // Can't continue the path
+      }
+    }
+
+    return buildPlan;
+  }
+
+  /**
    * Appends the appropriate return-projection step based on the `RETURN` mode
    * (`$elements`, `$paths`, `$patterns`, or `$pathElements`).
    */
@@ -1343,9 +1473,36 @@ public class MatchExecutionPlanner {
       optimizeScheduleWithIntersections(sortedEdges, context);
       attachCollectionIdFilters(sortedEdges, context);
 
+      // Semi-join optimization: detect secondary branches whose intermediate aliases
+      // are not needed downstream and can be evaluated as a build-side hash semi-join.
+      var downstreamAliases = collectDownstreamAliases(
+          returnItems, returnElements, returnPaths, returnPatterns, returnPathElements,
+          groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
+      var semiJoinBranches = identifySemiJoinBranches(
+          sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
+
+      // Collect edges that belong to semi-join branches — skip them in the main loop
+      var branchEdgeSet = new HashSet<PatternEdge>();
+      for (var branch : semiJoinBranches) {
+        for (var branchEdge : branch.branchEdges()) {
+          branchEdgeSet.add(branchEdge.edge);
+        }
+      }
+
       for (var edge : sortedEdges) {
+        if (branchEdgeSet.contains(edge.edge)) {
+          continue; // Skip edges handled by semi-join
+        }
         addStepsFor(plan, edge, context, first, profilingEnabled);
         first = false;
+      }
+
+      // Append HashJoinMatchSteps for each semi-join branch
+      for (var branch : semiJoinBranches) {
+        var branchPlan = buildSemiJoinBranchPlan(branch, context, profilingEnabled);
+        plan.chain(new HashJoinMatchStep(
+            context, branchPlan, branch.sharedAliases(),
+            JoinMode.SEMI_JOIN, profilingEnabled));
       }
     } else {
       // No edges → single isolated node. Use prefetched data if available, otherwise
