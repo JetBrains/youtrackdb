@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -383,12 +384,10 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // Attempt to add the same name as non-durable with a different booked ID
     final var bookedId = wowCache.bookFileId("another.tst");
-    try {
-      wowCache.addFile("conflict.tst", bookedId, true);
-      fail("Expected StorageException for duplicate file name");
-    } catch (Exception expected) {
-      // expected
-    }
+    assertThrows(
+        "Expected StorageException for duplicate file name",
+        StorageException.class,
+        () -> wowCache.addFile("conflict.tst", bookedId, true));
 
     // Registry must not contain the booked ID's internal ID
     assertFalse(
@@ -730,5 +729,86 @@ public class WOWCacheNonDurableFileTrackingTest {
         Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
 
     wowCache = null;
+  }
+
+  /**
+   * Verifies that multiple non-durable file IDs are correctly serialized and deserialized
+   * across a close/reopen cycle. Uses 3 non-durable files to exercise the multi-entry
+   * iteration in both write and read paths of the side file.
+   */
+  @Test
+  public void testMultipleNonDurableFilesPersistAcrossReopen() throws Exception {
+    final var booked1 = wowCache.bookFileId("ndMulti1.tst");
+    final var id1 = wowCache.addFile("ndMulti1.tst", booked1, true);
+    final var booked2 = wowCache.bookFileId("ndMulti2.tst");
+    final var id2 = wowCache.addFile("ndMulti2.tst", booked2, true);
+    final var booked3 = wowCache.bookFileId("ndMulti3.tst");
+    final var id3 = wowCache.addFile("ndMulti3.tst", booked3, true);
+    final var durableId = wowCache.addFile("durableMulti.tst");
+
+    assertTrue(wowCache.isNonDurable(id1));
+    assertTrue(wowCache.isNonDurable(id2));
+    assertTrue(wowCache.isNonDurable(id3));
+    assertFalse(wowCache.isNonDurable(durableId));
+
+    reopenCache();
+
+    assertTrue(
+        "First non-durable file must survive reopen",
+        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti1.tst")));
+    assertTrue(
+        "Second non-durable file must survive reopen",
+        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti2.tst")));
+    assertTrue(
+        "Third non-durable file must survive reopen",
+        wowCache.isNonDurable(wowCache.fileIdByName("ndMulti3.tst")));
+    assertFalse(
+        "Durable file must remain durable after reopen",
+        wowCache.isNonDurable(wowCache.fileIdByName("durableMulti.tst")));
+  }
+
+  /**
+   * Verifies that file IDs present in the side file but absent from the name-id map
+   * (stale entries from a crash or manual edit) are silently dropped during reload.
+   * Exercises the idNameMap.containsKey filter in readNonDurableRegistryFile.
+   */
+  @Test
+  public void testStaleFileIdInSideFileIsFilteredOnReload() throws Exception {
+    // Register two non-durable files
+    final var booked1 = wowCache.bookFileId("ndStale1.tst");
+    final var nd1 = wowCache.addFile("ndStale1.tst", booked1, true);
+    final var booked2 = wowCache.bookFileId("ndStale2.tst");
+    final var nd2 = wowCache.addFile("ndStale2.tst", booked2, true);
+
+    // Close to persist both IDs in the side file
+    wowCache.close();
+
+    // Save the side files that contain both nd1 and nd2
+    final var primaryPath = storagePath.resolve("non_durable_files.cm");
+    final var shadowPath = storagePath.resolve("non_durable_files_shadow.cm");
+    final var savedPrimary = Files.readAllBytes(primaryPath);
+    final var savedShadow = Files.readAllBytes(shadowPath);
+
+    // Reopen and delete nd1 (this rewrites side files without nd1)
+    createNewCache();
+    wowCache.deleteFile(nd1);
+    wowCache.close();
+
+    // Restore the old side files that still reference both nd1 and nd2
+    Files.write(primaryPath, savedPrimary);
+    Files.write(shadowPath, savedShadow);
+
+    createNewCache();
+
+    // nd1 was deleted from the name-id map, so its stale entry should be filtered out
+    assertFalse(
+        "Stale file ID should be filtered out on reload",
+        wowCache.isNonDurable(nd1));
+    // nd2 still exists, so it should be preserved
+    final var restoredNd2 = wowCache.fileIdByName("ndStale2.tst");
+    assertTrue(restoredNd2 >= 0);
+    assertTrue(
+        "Valid non-durable file should survive reload with stale entries",
+        wowCache.isNonDurable(restoredNd2));
   }
 }

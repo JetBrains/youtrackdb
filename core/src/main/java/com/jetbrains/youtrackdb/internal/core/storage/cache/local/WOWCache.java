@@ -2036,9 +2036,11 @@ public final class WOWCache extends AbstractWriteCache
   private void writeNonDurableRegistry() throws IOException {
     final var currentSet = nonDurableFileIds;
     if (currentSet.isEmpty()) {
-      // No non-durable files — delete both side files if they exist
-      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      // No non-durable files — delete both side files if they exist.
+      // Delete shadow first, then primary: a crash between the two deletions leaves
+      // the primary (which is read first on recovery) as the authoritative source.
       Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
       return;
     }
 
