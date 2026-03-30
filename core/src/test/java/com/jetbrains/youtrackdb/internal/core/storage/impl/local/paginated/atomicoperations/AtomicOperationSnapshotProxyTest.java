@@ -1519,10 +1519,12 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    op.addFile("dup.dat", false);
+    long fid = op.addFile("dup.dat", false);
     assertThatThrownBy(() -> op.addFile("dup.dat", true))
         .isInstanceOf(StorageException.class)
         .hasMessageContaining("already exists");
+    // Original file's nonDurable flag must be unchanged after the failed add
+    assertThat(op.isFileNonDurable(fid)).isFalse();
   }
 
   @Test
@@ -1587,5 +1589,72 @@ public class AtomicOperationSnapshotProxyTest {
     // Verify the 4-arg overload was called and the 3-arg was NOT called
     verify(readCache).addFile("durable-file.dat", composedFileId, writeCache, false);
     verify(readCache, never()).addFile(anyString(), anyLong(), any(WriteCache.class));
+  }
+
+  @Test
+  public void testIsFileNonDurableReturnsFalseForUnknownFileId() {
+    // A file ID never registered via addFile should report nonDurable=false,
+    // not throw or return true — documents the null-guard contract.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    long unknownFileId = (1L << 32) | 999;
+    assertThat(op.isFileNonDurable(unknownFileId)).isFalse();
+  }
+
+  @Test
+  public void testLoadedFileIsNotNonDurableByDefault() throws IOException {
+    // Files accessed via loadFile() (not addFile()) get a FileChanges entry
+    // with default nonDurable=false. Verify this implicit contract — a bug
+    // that initializes nonDurable=true would silently mark loaded files as
+    // non-durable, causing data loss on crash.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long composedFileId = (1L << 32) | 50;
+    when(writeCache.loadFile("existing.dat")).thenReturn(composedFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    op.loadFile("existing.dat");
+    assertThat(op.isFileNonDurable(composedFileId)).isFalse();
+  }
+
+  @Test
+  public void testCommitChangesWithMixedDurableAndNonDurableFiles() throws IOException {
+    // Two files in one atomic op: one durable, one non-durable.
+    // Both must get their own correct nonDurable flag at commit time —
+    // catches bugs where a shared mutable variable leaks one file's flag.
+    var readCache = mock(ReadCache.class);
+    var writeCache = mock(WriteCache.class);
+    when(writeCache.getStorageName()).thenReturn("test-storage");
+    long durableFileId = (1L << 32) | 10;
+    long nonDurableFileId = (1L << 32) | 20;
+    when(writeCache.bookFileId("durable.dat")).thenReturn(durableFileId);
+    when(writeCache.bookFileId("nondurable.dat")).thenReturn(nonDurableFileId);
+
+    var op = new AtomicOperationBinaryTracking(
+        readCache, writeCache, 1,
+        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
+        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
+        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
+
+    op.addFile("durable.dat", false);
+    op.addFile("nondurable.dat", true);
+    op.commitChanges(42L, createMockWal());
+
+    verify(readCache).addFile("durable.dat", durableFileId, writeCache, false);
+    verify(readCache).addFile("nondurable.dat", nonDurableFileId, writeCache, true);
   }
 }
