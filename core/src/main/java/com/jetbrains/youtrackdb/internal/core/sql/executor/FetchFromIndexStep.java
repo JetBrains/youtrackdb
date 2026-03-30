@@ -189,7 +189,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return key;
   }
 
-
   /**
    * Initializes the index lookup streams based on the descriptor's key condition type.
    *
