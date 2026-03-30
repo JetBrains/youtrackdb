@@ -1233,9 +1233,15 @@ public class MatchExecutionPlanner {
     long rows = estimateAliasCardinality(
         branchRoot, aliasClasses, aliasFilters, aliasRids, context);
 
-    for (var edge : branchEdges) {
-      rows = Math.multiplyExact(rows, FANOUT_PER_HOP);
-      var target = targetAlias(edge);
+    // Skip the last edge (consistency-check edge) — it doesn't expand cardinality,
+    // it's a filter verifying the target alias matches an already-visited node (cost 0).
+    int edgeCount = Math.max(0, branchEdges.size() - 1);
+    for (int i = 0; i < edgeCount; i++) {
+      if (rows > Long.MAX_VALUE / FANOUT_PER_HOP) {
+        return Long.MAX_VALUE; // overflow guard
+      }
+      rows *= FANOUT_PER_HOP;
+      var target = targetAlias(branchEdges.get(i));
       // Apply selectivity for WHERE filters on intermediate nodes
       if (aliasFilters.containsKey(target) && aliasFilters.get(target) != null) {
         rows = Math.max(1, rows / 2);
@@ -1400,6 +1406,15 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Verify all edges were used — if the path is incomplete, the build plan
+    // would produce incorrect results (missing alias bindings for the join key).
+    for (boolean u : used) {
+      if (!u) {
+        // Incomplete path — fall back by returning null. The caller must check.
+        return null;
+      }
+    }
+
     return buildPlan;
   }
 
@@ -1481,12 +1496,19 @@ public class MatchExecutionPlanner {
       var semiJoinBranches = identifySemiJoinBranches(
           sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
 
-      // Collect edges that belong to semi-join branches — skip them in the main loop
+      // Collect edges that belong to semi-join branches — skip them in the main loop.
+      // Guard: if ALL edges would be claimed, the main plan would have no source step.
+      // In that case, skip the optimization entirely.
       var branchEdgeSet = new HashSet<PatternEdge>();
       for (var branch : semiJoinBranches) {
         for (var branchEdge : branch.branchEdges()) {
           branchEdgeSet.add(branchEdge.edge);
         }
+      }
+      if (branchEdgeSet.size() >= sortedEdges.size()) {
+        // All edges claimed — fall back to normal execution
+        branchEdgeSet.clear();
+        semiJoinBranches = List.of();
       }
 
       for (var edge : sortedEdges) {
@@ -1500,9 +1522,19 @@ public class MatchExecutionPlanner {
       // Append HashJoinMatchSteps for each semi-join branch
       for (var branch : semiJoinBranches) {
         var branchPlan = buildSemiJoinBranchPlan(branch, context, profilingEnabled);
-        plan.chain(new HashJoinMatchStep(
-            context, branchPlan, branch.sharedAliases(),
-            JoinMode.SEMI_JOIN, profilingEnabled));
+        if (branchPlan == null) {
+          // Build plan construction failed (incomplete path) — re-add the branch's
+          // edges back into the main plan by not skipping them. Since we already
+          // skipped them above, we need to add them now.
+          for (var branchEdge : branch.branchEdges()) {
+            addStepsFor(plan, branchEdge, context, first, profilingEnabled);
+            first = false;
+          }
+        } else {
+          plan.chain(new HashJoinMatchStep(
+              context, branchPlan, branch.sharedAliases(),
+              JoinMode.SEMI_JOIN, profilingEnabled));
+        }
       }
     } else {
       // No edges → single isolated node. Use prefetched data if available, otherwise
