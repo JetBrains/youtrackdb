@@ -10,7 +10,6 @@ Usage:
 
 import argparse
 import json
-import sys
 
 
 def parse_jmh_results(data):
@@ -18,9 +17,10 @@ def parse_jmh_results(data):
     results = {}
     for entry in data:
         benchmark_full = entry["benchmark"]
-        parts = benchmark_full.rsplit(".", 2)
-        class_name = parts[-2]
-        method_name = parts[-1]
+        if "." not in benchmark_full:
+            continue
+        class_name_full, method_name = benchmark_full.rsplit(".", 1)
+        class_name = class_name_full.rsplit(".", 1)[-1]
 
         if "SingleThread" in class_name:
             suite = "SingleThread"
@@ -98,9 +98,9 @@ def delta_icon(base_val, head_val, threshold_pct=5.0):
 
 def build_suite_table(base, head, suite):
     """Build markdown table rows for a single suite (ST or MT)."""
-    queries = sorted(set(
-        k[0] for k in list(base.keys()) + list(head.keys()) if k[1] == suite
-    ))
+    queries = sorted({
+        k[0] for k in (base.keys() | head.keys()) if k[1] == suite
+    })
     if not queries:
         return []
 
@@ -142,7 +142,7 @@ def count_changes(base, head, threshold_pct=5.0):
     """Count regressions and improvements across all suites."""
     regressions = 0
     improvements = 0
-    for key in set(base.keys()) | set(head.keys()):
+    for key in base.keys() | head.keys():
         b = base.get(key)
         h = head.get(key)
         if b and h and b["score"] > 0:
@@ -209,7 +209,7 @@ def main():
         lines.append("")
 
     # Scalability table
-    all_queries = sorted(set(list(base_scal.keys()) + list(head_scal.keys())))
+    all_queries = sorted(base_scal.keys() | head_scal.keys())
     if all_queries:
         lines.append("### Scalability (MT/ST ratio)")
         lines.append("")
