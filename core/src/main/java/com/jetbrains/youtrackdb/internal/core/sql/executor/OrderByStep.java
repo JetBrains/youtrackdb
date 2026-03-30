@@ -8,11 +8,13 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
+import javax.annotation.Nullable;
 
 /**
  * Intermediate <b>blocking</b> step that sorts all upstream records according to an
@@ -55,6 +57,28 @@ public class OrderByStep extends AbstractExecutionStep {
   private Integer maxResults;
 
   /**
+   * When non-null, the input stream is known to be sorted by this ORDER BY
+   * item (typically the first field). In the bounded heap path, the heap
+   * can stop reading when this item's value is strictly "worse" (sorts
+   * later) than the worst element in the heap — because all subsequent
+   * items will also be worse.
+   *
+   * <p>Set by the MATCH planner when IndexOrderedEdgeStep produces results
+   * sorted by the primary ORDER BY field, enabling early termination for
+   * multi-field ORDER BY queries.
+   */
+  @Nullable private final SQLOrderByItem primaryKeySortedInput;
+
+  /**
+   * When true, the upstream may be an {@code IndexOrderedEdgeStep} that
+   * signals at runtime whether its output is already sorted. If the
+   * runtime context variable {@code indexOrderedPreSorted} is {@code true},
+   * this step becomes a pass-through (streaming, no sort, no buffering).
+   * Otherwise it falls back to normal bounded-heap or unbounded sort.
+   */
+  private final boolean indexOrderedUpstream;
+
+  /**
    * @param orderBy          the ORDER BY clause defining sort keys and directions
    * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
    *                         When set, enables the bounded min-heap path.
@@ -68,25 +92,54 @@ public class OrderByStep extends AbstractExecutionStep {
       CommandContext ctx,
       long timeoutMillis,
       boolean profilingEnabled) {
+    this(orderBy, maxResults, null, false, ctx, timeoutMillis, profilingEnabled);
+  }
+
+  /**
+   * @param primaryKeySortedInput when non-null, enables early termination in
+   *        the bounded heap: stop reading when this item's value is strictly
+   *        worse than the worst in the heap.
+   * @param indexOrderedUpstream when true, check runtime context for pre-sorted
+   *        signal from IndexOrderedEdgeStep; if sorted, pass through without sorting
+   */
+  public OrderByStep(
+      SQLOrderBy orderBy,
+      Integer maxResults,
+      @Nullable SQLOrderByItem primaryKeySortedInput,
+      boolean indexOrderedUpstream,
+      CommandContext ctx,
+      long timeoutMillis,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.orderBy = orderBy;
     this.maxResults = maxResults;
     if (this.maxResults != null && this.maxResults < 0) {
       this.maxResults = null;
     }
+    this.primaryKeySortedInput = primaryKeySortedInput;
+    this.indexOrderedUpstream = indexOrderedUpstream;
     this.timeoutMillis = timeoutMillis;
   }
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    List<Result> results;
-
-    if (prev != null) {
-      results = init(prev, ctx);
-    } else {
-      results = Collections.emptyList();
+    if (prev == null) {
+      return ExecutionStream.empty();
     }
 
+    // Pass-through: IndexOrderedEdgeStep signaled that output is fully
+    // pre-sorted (single-field ORDER BY). No buffering, no sorting — just
+    // forward the stream for downstream LimitStep to handle early termination.
+    // Multi-field ORDER BY (primaryKeySortedInput != null) still needs the
+    // bounded heap for the composite sort, so pass-through is not used.
+    if (indexOrderedUpstream
+        && primaryKeySortedInput == null
+        && Boolean.TRUE.equals(
+            ctx.getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))) {
+      return prev.start(ctx);
+    }
+
+    var results = init(prev, ctx);
     return ExecutionStream.resultIterator(results.iterator());
   }
 
@@ -149,6 +202,22 @@ public class OrderByStep extends AbstractExecutionStep {
           sendTimeout();
         }
         var item = upstream.next(ctx);
+
+        // Early termination: when the input is sorted by the primary ORDER BY
+        // field and the heap is full, stop reading as soon as the primary key
+        // of the new item is strictly worse than the heap's worst element.
+        // All subsequent items will also be worse (input is sorted).
+        // Only active when IndexOrderedEdgeStep confirmed pre-sorted output;
+        // when the fallback (unsorted) path was taken, cutoff is unsafe.
+        if (primaryKeySortedInput != null
+            && indexOrderedUpstream
+            && Boolean.TRUE.equals(
+                ctx.getSystemVariable(
+                    CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
+            && heap.size() >= maxResults
+            && primaryKeySortedInput.compare(item, heap.peek(), ctx) > 0) {
+          break;
+        }
 
         if (heap.size() < maxResults) {
           heap.offer(item);
@@ -218,6 +287,17 @@ public class OrderByStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new OrderByStep(orderBy.copy(), maxResults, ctx, timeoutMillis, profilingEnabled);
+    var copiedOrderBy = orderBy.copy();
+    // Derive hint from copied orderBy: find the same item by index position
+    // to avoid stale reference to the original AST node.
+    SQLOrderByItem copiedHint = null;
+    if (primaryKeySortedInput != null) {
+      int idx = orderBy.getItems().indexOf(primaryKeySortedInput);
+      assert idx >= 0 : "primaryKeySortedInput not found in orderBy items";
+      copiedHint = copiedOrderBy.getItems().get(idx);
+    }
+    return new OrderByStep(
+        copiedOrderBy, maxResults, copiedHint,
+        indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
   }
 }
