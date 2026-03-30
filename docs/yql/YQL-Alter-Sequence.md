@@ -13,7 +13,7 @@ ALTER SEQUENCE <sequence> [START <start-point>] [INCREMENT <increment>] [CACHE <
 - **`INCREMENT`** Defines the increment value applied when calling `.next()`.
 - **`CACHE`** Defines the number of values to cache, if the sequence is of the type `CACHED`.
 - **`CYCLE`** Defines whether the sequence restarts from the `START` value after the `LIMIT` value is reached. Default value is `FALSE`.
-- **`LIMIT`** Defines the limit value the sequence can reach. After the limit value is reached, cyclic sequences restart from the `START` value, while non-cyclic sequences throw a message that the limit is reached.
+- **`LIMIT`** Defines the limit value the sequence can reach. After the limit value is reached, cyclic sequences restart from the `START` value, while non-cyclic sequences throw an exception indicating that the limit has been reached.
 - **`ASC | DESC`** Defines the order of the sequence. `ASC` defines that the next sequence value will be `currentValue + incrementValue`, while `DESC` defines that the next sequence value will be `currentValue - incrementValue` (assuming that the limit is not reached). Default value is `ASC`.
 - **`NOLIMIT`** Cancels a previously defined `LIMIT` value.
 
