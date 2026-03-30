@@ -586,14 +586,7 @@ public class MatchExecutionPlanner {
    * depends on values produced during pattern traversal.
    */
   private boolean dependsOnExecutionContext(String key) {
-    var filter = aliasFilters.get(key);
-    if (filter == null) {
-      return false;
-    }
-    if (filter.refersToParent()) {
-      return true;
-    }
-    return filter.toString().toLowerCase(Locale.ROOT).contains("$matched.");
+    return filterDependsOnContext(aliasFilters.get(key));
   }
 
   private boolean isOptional(String key) {
