@@ -3359,4 +3359,82 @@ public class DocValidationTest {
       tx.yql("DELETE VERTEX CpContainer").iterate();
     });
   }
+
+  // === YQL-Create-Sequence.md ===
+
+  // Line 28: CREATE SEQUENCE idseq TYPE ORDERED
+  @Test
+  public void testCreateSequenceOrdered() {
+    g.command("CREATE SEQUENCE csIdseq TYPE ORDERED");
+  }
+
+  // Line 33: CREATE VERTEX Account SET id = sequence('idseq').next()
+  @Test
+  public void testCreateSequenceAndUseInVertex() {
+    g.command("CREATE CLASS CsAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE SEQUENCE csAcctSeq TYPE ORDERED");
+    // Create vertex first, then update with sequence value to avoid Gremlin mapper issue
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CsAccount SET name = 'test'").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE CsAccount SET id = sequence('csAcctSeq').next()").iterate();
+    });
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CsAccount").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // sequence().next() increments before returning, so first value is START + INCREMENT (0 + 1 = 1)
+    assertThat((long) v.value("id")).isEqualTo(1L);
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CsAccount").iterate();
+    });
+  }
+
+  // Verify CACHED type with START and CACHE options
+  @Test
+  public void testCreateSequenceCachedWithOptions() {
+    g.command("CREATE SEQUENCE csCachedSeq TYPE CACHED START 100 INCREMENT 5 CACHE 10");
+    g.command("CREATE CLASS CsCachedTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CsCachedTest SET name = 'test'").iterate();
+    });
+    g.executeInTx(tx -> {
+      tx.yql("UPDATE CsCachedTest SET id = sequence('csCachedSeq').next()").iterate();
+    });
+    var results = g.computeInTx(tx -> tx.yql("SELECT FROM CsCachedTest").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    // sequence().next() increments before returning: START + INCREMENT (100 + 5 = 105)
+    assertThat((long) v.value("id")).isEqualTo(105L);
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CsCachedTest").iterate();
+    });
+  }
+
+  // Verify IF NOT EXISTS does not throw when sequence already exists
+  @Test
+  public void testCreateSequenceIfNotExists() {
+    g.command("CREATE SEQUENCE csExistsSeq TYPE ORDERED");
+    // Should not throw
+    g.command("CREATE SEQUENCE csExistsSeq IF NOT EXISTS TYPE ORDERED");
+  }
+
+  // Verify CYCLE and LIMIT options are accepted
+  @Test
+  public void testCreateSequenceWithCycleAndLimit() {
+    g.command("CREATE SEQUENCE csCyclicSeq TYPE ORDERED START 0 INCREMENT 1 LIMIT 10 CYCLE TRUE");
+  }
+
+  // Verify DESC order is accepted
+  @Test
+  public void testCreateSequenceDesc() {
+    g.command("CREATE SEQUENCE csDescSeq TYPE ORDERED START 100 INCREMENT 1 DESC");
+  }
+
+  // Verify duplicate sequence without IF NOT EXISTS throws
+  @Test
+  public void testCreateSequenceDuplicateThrows() {
+    g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED");
+    assertThatThrownBy(() -> g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED"));
+  }
 }
