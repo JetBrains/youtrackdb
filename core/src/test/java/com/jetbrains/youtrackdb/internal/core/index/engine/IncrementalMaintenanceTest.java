@@ -92,16 +92,12 @@ public class IncrementalMaintenanceTest {
 
   @After
   public void tearDown() {
-    for (var entry : configOverrides.entrySet()) {
-      entry.getKey().setValue(entry.getValue());
-    }
+    configOverrides.forEach(GlobalConfiguration::setValue);
     configOverrides.clear();
   }
 
   private void pinConfig(GlobalConfiguration key, Object value) {
-    if (!configOverrides.containsKey(key)) {
-      configOverrides.put(key, key.getValue());
-    }
+    configOverrides.putIfAbsent(key, key.getValue());
     key.setValue(value);
   }
 
