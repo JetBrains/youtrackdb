@@ -144,7 +144,7 @@
       </build>
     </profile>
 
-    <!-- Run DurableComponent integration tests with a small disk cache (4 MB)
+    <!-- Run StorageComponent integration tests with a small disk cache (4 MB)
          to exercise optimistic read fallback under heavy eviction pressure.
          Command: ./mvnw -pl core clean verify -P small-cache-it -->
     <profile>

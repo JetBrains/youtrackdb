@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.
 import com.jetbrains.youtrackdb.internal.core.exception.StorageComponentException;
 
 /**
- * Exception thrown by the v3 single-value cell B-tree during durable component operations.
+ * Exception thrown by the v3 single-value cell B-tree during storage component operations.
  *
  * @since 8/30/13
  */
