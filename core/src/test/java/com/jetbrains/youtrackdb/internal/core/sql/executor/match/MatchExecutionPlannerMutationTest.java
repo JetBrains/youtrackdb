@@ -949,45 +949,61 @@ public class MatchExecutionPlannerMutationTest {
   // ── inferClassFromEdgeSchema: inV/outV → linked vertex class inference ──
 
   /**
-   * inV() with currentEdgeClass "KNOWS" and KNOWS.in LINK Person → returns "Person".
-   * inV() reads the "in" property on the edge schema.
+   * inV() with currentEdgeClass "KNOWS" where KNOWS.in LINK Person and
+   * KNOWS.out LINK Forum → returns "Person" (the "in" side, not "out").
+   * Both properties are registered with different classes to kill a
+   * mutation that swaps the inV/outV property mapping.
    */
   @Test
   public void inferClassFromEdgeSchema_inV_returnsLinkedVertexClass() {
     var personClass = registerClass("Person", 100);
+    var forumClass = registerClass("Forum", 50);
     var edgeClass = registerClass("KNOWS", 500);
 
     var inProp = mock(SchemaPropertyInternal.class);
     when(inProp.getLinkedClass()).thenReturn(personClass);
     when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
 
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(forumClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
     var method = mock(SQLMethodCall.class);
     stubMethodName(method, "inV");
     var ctx = mockContext();
 
+    // inV must read the "in" property → Person, not Forum
     assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
         .isEqualTo("Person");
   }
 
   /**
-   * outV() with currentEdgeClass "KNOWS" and KNOWS.out LINK Person → returns "Person".
-   * outV() reads the "out" property on the edge schema.
+   * outV() with currentEdgeClass "KNOWS" where KNOWS.out LINK Forum and
+   * KNOWS.in LINK Person → returns "Forum" (the "out" side, not "in").
+   * Both properties are registered with different classes to kill a
+   * mutation that swaps the inV/outV property mapping.
    */
   @Test
   public void inferClassFromEdgeSchema_outV_returnsLinkedVertexClass() {
     var personClass = registerClass("Person", 100);
+    var forumClass = registerClass("Forum", 50);
     var edgeClass = registerClass("KNOWS", 500);
 
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
     var outProp = mock(SchemaPropertyInternal.class);
-    when(outProp.getLinkedClass()).thenReturn(personClass);
+    when(outProp.getLinkedClass()).thenReturn(forumClass);
     when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
 
     var method = mock(SQLMethodCall.class);
     stubMethodName(method, "outV");
     var ctx = mockContext();
 
+    // outV must read the "out" property → Forum, not Person
     assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
-        .isEqualTo("Person");
+        .isEqualTo("Forum");
   }
 
   /**
@@ -1057,6 +1073,64 @@ public class MatchExecutionPlannerMutationTest {
     var ctx = mockContext();
 
     assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
+        .isNull();
+  }
+
+  // ── inferClassFromEdgeSchema: case-insensitivity for new method types ──
+
+  /**
+   * OutE with mixed case resolves the edge class correctly —
+   * verifies toLowerCase(Locale.ROOT) works for the outE/inE branch.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outE_caseInsensitive_returnsEdgeClass() {
+    var method = mockMethodCallWithDirection("OutE", "KNOWS");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
+        .isEqualTo("KNOWS");
+  }
+
+  /**
+   * INV with upper case resolves the linked vertex class correctly —
+   * verifies toLowerCase(Locale.ROOT) works for the inV/outV branch.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_inV_caseInsensitive_returnsLinkedVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var edgeClass = registerClass("KNOWS", 500);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "INV");
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, "KNOWS", ctx))
+        .isEqualTo("Person");
+  }
+
+  // ── inferClassFromEdgeSchema: outE/inE with non-string parameter ──
+
+  /**
+   * outE(123) with a non-string parameter returns null — extractEdgeClassName
+   * cannot resolve a non-string value to an edge class name.
+   */
+  @Test
+  public void inferClassFromEdgeSchema_outE_nonStringParam_returnsNull() {
+    var method = mock(SQLMethodCall.class);
+    stubMethodName(method, "outE");
+    var param = mock(SQLExpression.class);
+    when(param.execute(nullable(Result.class), any(CommandContext.class)))
+        .thenReturn(123);
+    // getMathExpression returns null → toString fallback also returns null
+    when(param.getMathExpression()).thenReturn(null);
+    when(method.getParams()).thenReturn(List.of(param));
+    var ctx = mockContext();
+
+    assertThat(MatchExecutionPlanner.inferClassFromEdgeSchema(method, null, ctx))
         .isNull();
   }
 

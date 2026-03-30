@@ -2283,12 +2283,14 @@ public class MatchExecutionPlanner {
       return extractEdgeClassName(method);
     }
 
-    // inV() / outV(): look up the linked vertex class from the preceding edge
+    // inV() / outV(): look up the linked vertex class from the preceding edge.
+    // inV() reads the "in" property; outV() reads the "out" property.
     if ("inv".equals(dirName) || "outv".equals(dirName)) {
       if (currentEdgeClass == null) {
         return null;
       }
-      return lookupLinkedVertexClass(currentEdgeClass, dirName, context);
+      var prop = "inv".equals(dirName) ? "in" : "out";
+      return lookupLinkedVertexClass(currentEdgeClass, prop, context);
     }
 
     // out('X') / in('X'): infer the target vertex class from the edge LINK schema
@@ -2310,32 +2312,24 @@ public class MatchExecutionPlanner {
    * Looks up the linked vertex class from an edge class's LINK property.
    *
    * @param edgeClassName the edge class to look up
-   * @param propName the property name to read ("in" or "out", or "inv"/"outv"
-   *     which are mapped to "in"/"out" respectively)
+   * @param propName the property name to read — must be {@code "in"} or {@code "out"}
    * @return the linked class name, or {@code null} if not found
    */
   @Nullable private static String lookupLinkedVertexClass(
       String edgeClassName, String propName, CommandContext context) {
-    // Map inV/outV method names to the corresponding edge property
-    var resolvedProp = switch (propName) {
-      case "inv" -> "in";
-      case "outv" -> "out";
-      default -> propName;
-    };
-
     var session = context.getDatabaseSession();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var edgeClass = schema.getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    var prop = edgeClass.getPropertyInternal(resolvedProp);
+    var prop = edgeClass.getPropertyInternal(propName);
     if (prop == null || prop.getLinkedClass() == null) {
       return null;
     }
     assert prop.getLinkedClass().getName() != null
         && !prop.getLinkedClass().getName().isEmpty()
-        : "inferClassFromEdgeSchema: linked class has null/empty name for edge "
+        : "lookupLinkedVertexClass: linked class has null/empty name for edge "
             + edgeClassName;
     return prop.getLinkedClass().getName();
   }
