@@ -869,6 +869,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long addFile(final String fileName, long fileId) throws IOException {
+    return addFile(fileName, fileId, false);
+  }
+
+  @Override
+  public long addFile(final String fileName, long fileId, final boolean nonDurable)
+      throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -925,6 +931,12 @@ public final class WOWCache extends AbstractWriteCache
 
       writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
 
+      if (nonDurable) {
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.add(intId);
+        nonDurableFileIds = updated;
+      }
+
       return fileId;
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
@@ -935,29 +947,8 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public long addFile(final String fileName, long fileId, final boolean nonDurable)
-      throws IOException {
-    final var result = addFile(fileName, fileId);
-    if (nonDurable) {
-      // filesLock write lock is still held by addFile's caller context only if we're
-      // called from within filesLock. However, addFile(String, long) acquires and releases
-      // filesLock internally. We must acquire it again to mutate nonDurableFileIds.
-      filesLock.acquireWriteLock();
-      try {
-        final var intId = extractFileId(result);
-        final var updated = new IntOpenHashSet(nonDurableFileIds);
-        updated.add(intId);
-        nonDurableFileIds = updated;
-      } finally {
-        filesLock.releaseWriteLock();
-      }
-    }
-    return result;
-  }
-
-  @Override
   public boolean isNonDurable(final long fileId) {
-    final var intId = internalFileId(fileId);
+    final var intId = extractFileId(fileId);
     return nonDurableFileIds.contains(intId);
   }
 
@@ -1838,6 +1829,8 @@ public final class WOWCache extends AbstractWriteCache
 
         nameIdMapHolderPath = null;
       }
+
+      nonDurableFileIds = new IntOpenHashSet();
     } finally {
       filesLock.releaseWriteLock();
     }
