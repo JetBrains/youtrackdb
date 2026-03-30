@@ -1231,16 +1231,24 @@ public class MatchExecutionPlannerMutationTest {
   /**
    * outE('KNOWS') followed by inV() → aliasClasses should contain the edge alias
    * mapped to "KNOWS" and the vertex alias mapped to the linked class from KNOWS.in.
-   * This verifies currentEdgeClass is propagated from outE to inV.
+   * Both in/out properties are registered with different classes to catch a
+   * direction-swap mutation in the inV/outV property mapping.
    */
   @Test
   public void addAliases_outE_then_inV_infersVertexClass() {
     var personClass = registerClass("Person", 100);
+    var forumClass = registerClass("Forum", 50);
     var edgeClass = registerClass("KNOWS", 500);
 
     var inProp = mock(SchemaPropertyInternal.class);
     when(inProp.getLinkedClass()).thenReturn(personClass);
     when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    // Register "out" side with a different class so a direction swap
+    // returns "Forum" instead of null, making the failure diagnostic.
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(forumClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
 
     var expr = mockExpression(
         mockPathItem("outE", "KNOWS", "e"),
@@ -1251,6 +1259,7 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
+    // inV reads "in" property → Person, NOT "out" → Forum
     assertThat(aliasClasses)
         .containsOnly(entry("e", "KNOWS"), entry("v", "Person"));
   }
@@ -1258,16 +1267,24 @@ public class MatchExecutionPlannerMutationTest {
   /**
    * inE('WORK_AT') followed by outV() → aliasClasses should contain the edge alias
    * mapped to "WORK_AT" and the vertex alias mapped to the linked class from
-   * WORK_AT.out.
+   * WORK_AT.out. Both in/out properties are registered with different classes to
+   * catch a direction-swap mutation.
    */
   @Test
   public void addAliases_inE_then_outV_infersVertexClass() {
     var personClass = registerClass("Person", 100);
+    var companyClass = registerClass("Company", 50);
     var edgeClass = registerClass("WORK_AT", 300);
 
     var outProp = mock(SchemaPropertyInternal.class);
     when(outProp.getLinkedClass()).thenReturn(personClass);
     when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    // Register "in" side with a different class so a direction swap
+    // returns "Company" instead of null, making the failure diagnostic.
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(companyClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
 
     var expr = mockExpression(
         mockPathItem("inE", "WORK_AT", "e"),
@@ -1278,6 +1295,43 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), false);
 
+    // outV reads "out" property → Person, NOT "in" → Company
+    assertThat(aliasClasses)
+        .containsOnly(entry("e", "WORK_AT"), entry("v", "Person"));
+  }
+
+  /**
+   * inE('WORK_AT') followed by inV() → aliasClasses should contain the edge alias
+   * mapped to "WORK_AT" and the vertex alias mapped to WORK_AT.in. Both in/out
+   * properties are registered with different classes to catch a direction-swap
+   * mutation. This completes the 4th direction combo (outE→inV, outE→outV,
+   * inE→outV, inE→inV), ensuring inV/outV property lookup is independent of
+   * whether the preceding method was outE or inE.
+   */
+  @Test
+  public void addAliases_inE_then_inV_infersTargetVertexClass() {
+    var personClass = registerClass("Person", 100);
+    var companyClass = registerClass("Company", 50);
+    var edgeClass = registerClass("WORK_AT", 300);
+
+    var inProp = mock(SchemaPropertyInternal.class);
+    when(inProp.getLinkedClass()).thenReturn(personClass);
+    when(edgeClass.getPropertyInternal("in")).thenReturn(inProp);
+
+    var outProp = mock(SchemaPropertyInternal.class);
+    when(outProp.getLinkedClass()).thenReturn(companyClass);
+    when(edgeClass.getPropertyInternal("out")).thenReturn(outProp);
+
+    var expr = mockExpression(
+        mockPathItem("inE", "WORK_AT", "e"),
+        mockPathItem("inV", null, "v"));
+    var aliasClasses = new HashMap<String, String>();
+
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), false);
+
+    // inV reads "in" property → Person, NOT "out" → Company
     assertThat(aliasClasses)
         .containsOnly(entry("e", "WORK_AT"), entry("v", "Person"));
   }

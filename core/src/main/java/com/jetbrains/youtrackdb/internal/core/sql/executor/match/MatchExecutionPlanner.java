@@ -1734,7 +1734,7 @@ public class MatchExecutionPlanner {
     // throw NPE, ClassCastException, etc. — not just CommandExecutionException.
     try {
       var value = firstParam.execute((Result) null, new BasicCommandContext());
-      if (value instanceof String s) {
+      if (value instanceof String s && !s.isEmpty()) {
         return s;
       }
     } catch (RuntimeException e) {
@@ -2218,6 +2218,7 @@ public class MatchExecutionPlanner {
    * set it to {@code X}; {@code inV()}/{@code outV()} consume it for vertex class inference
    * then reset it; all other methods reset it to {@code null}.
    */
+  // Visible for testing
   static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
