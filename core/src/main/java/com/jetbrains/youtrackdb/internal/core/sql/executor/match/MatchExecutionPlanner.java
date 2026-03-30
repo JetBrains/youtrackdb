@@ -662,6 +662,91 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Checks whether a NOT expression depends on the current execution context
+   * ({@code $matched} or {@code $parent} references). If any filter in the NOT
+   * expression references these variables, the pattern cannot be independently
+   * materialized and must use the nested-loop {@link FilterNotMatchPatternStep}.
+   *
+   * <p>Inspects the origin filter and all intermediate path-item filters, checking
+   * each WHERE clause for {@code refersToParent()} and string-level
+   * {@code $matched.} references (matching the approach in
+   * {@link #dependsOnExecutionContext}).
+   *
+   * @param exp the NOT match expression to inspect
+   * @return {@code true} if any filter depends on execution context
+   */
+  static boolean notPatternDependsOnMatched(SQLMatchExpression exp) {
+    // Check origin filter (currently always null per parser validation at line ~615,
+    // but check defensively in case that constraint is relaxed)
+    if (filterDependsOnContext(exp.getOrigin().getFilter())) {
+      return true;
+    }
+    // Check each intermediate path item's filter
+    for (var item : exp.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null && filterDependsOnContext(filter.getFilter())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether a single WHERE clause references execution context variables.
+   */
+  private static boolean filterDependsOnContext(@Nullable SQLWhereClause where) {
+    if (where == null) {
+      return false;
+    }
+    if (where.refersToParent()) {
+      return true;
+    }
+    return where.toString().toLowerCase(Locale.ROOT).contains("$matched.");
+  }
+
+  /**
+   * Finds aliases shared between a NOT expression and the positive pattern. These
+   * shared aliases form the join key for hash-based evaluation.
+   *
+   * <p>The origin alias is guaranteed to be shared (enforced by parser validation at
+   * line ~609). Additional shared aliases may exist if intermediate path items
+   * reference aliases that also appear in the positive pattern.
+   *
+   * @param exp     the NOT match expression
+   * @param pattern the positive pattern
+   * @return shared alias names, origin first, then others in pattern order; never empty
+   */
+  static List<String> findSharedAliases(SQLMatchExpression exp, Pattern pattern) {
+    // Collect all alias names from the NOT expression
+    var notAliases = new LinkedHashSet<String>();
+    var originAlias = exp.getOrigin().getAlias();
+    assert originAlias != null : "NOT expression origin must have an alias";
+    notAliases.add(originAlias);
+    for (var item : exp.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null) {
+        var alias = filter.getAlias();
+        if (alias != null) {
+          notAliases.add(alias);
+        }
+      }
+    }
+
+    // Intersect with positive pattern aliases, preserving origin-first order
+    var positiveAliases = pattern.aliasToNode.keySet();
+    var result = new ArrayList<String>();
+    for (var alias : notAliases) {
+      if (positiveAliases.contains(alias)) {
+        result.add(alias);
+      }
+    }
+
+    assert !result.isEmpty()
+        : "NOT expression must share at least the origin alias with the positive pattern";
+    return result;
+  }
+
+  /**
    * Appends the appropriate return-projection step based on the `RETURN` mode
    * (`$elements`, `$paths`, `$patterns`, or `$pathElements`).
    */
