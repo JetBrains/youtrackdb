@@ -973,6 +973,260 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Describes a secondary branch in the pattern graph that is eligible for semi-join
+   * optimization. The branch's intermediate aliases are not referenced downstream, so
+   * only existence checking (semi-join) is needed instead of full materialization.
+   *
+   * @param sharedAliases       aliases shared between the branch and the main path (join keys)
+   * @param branchEdges         the edge traversals forming this branch (in schedule order),
+   *                            including the consistency-check edge
+   * @param intermediateAliases aliases visited exclusively by this branch (not downstream)
+   * @param estimatedCardinality estimated number of rows the branch produces
+   */
+  record SemiJoinBranch(
+      List<String> sharedAliases,
+      List<EdgeTraversal> branchEdges,
+      Set<String> intermediateAliases,
+      long estimatedCardinality) {
+  }
+
+  /**
+   * Identifies secondary branches in the pattern graph that are eligible for semi-join
+   * optimization. A semi-join branch is a contiguous sub-sequence of scheduled edges that:
+   * <ul>
+   *   <li>ends with a **consistency-check edge** — an edge whose target alias was already
+   *       visited before this edge (both endpoints known, cost 0 in the scheduler)</li>
+   *   <li>all intermediate aliases (between the branch root and the consistency-check edge)
+   *       are NOT referenced downstream (not in RETURN, GROUP BY, ORDER BY, UNWIND)</li>
+   *   <li>no filter on any branch node depends on {@code $matched} or {@code $parent}</li>
+   *   <li>estimated cardinality does not exceed {@link #HASH_JOIN_THRESHOLD}</li>
+   * </ul>
+   *
+   * <p>The algorithm walks the scheduled edges in order, progressively tracking visited
+   * aliases. When a consistency-check edge is found, it traces backward to identify the
+   * branch's edges and checks eligibility.
+   *
+   * @param scheduledEdges     the edge schedule from {@code getTopologicalSortedSchedule()}
+   * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
+   * @param aliasClasses       per-alias class names
+   * @param aliasFilters       per-alias WHERE clauses
+   * @param aliasRids          per-alias RID constraints
+   * @param context            the command context
+   * @return list of eligible semi-join branches (may be empty)
+   */
+  static List<SemiJoinBranch> identifySemiJoinBranches(
+      List<EdgeTraversal> scheduledEdges,
+      Set<String> downstreamAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    if (scheduledEdges.size() < 2) {
+      // Need at least 2 edges: one branch edge + one consistency-check edge
+      return List.of();
+    }
+
+    // Walk edges to progressively track visited aliases and detect consistency-check edges
+    var visited = new LinkedHashSet<String>();
+    // Add the first edge's source alias (root of the traversal)
+    visited.add(sourceAlias(scheduledEdges.get(0)));
+
+    var result = new ArrayList<SemiJoinBranch>();
+
+    for (int i = 0; i < scheduledEdges.size(); i++) {
+      var edge = scheduledEdges.get(i);
+      var target = targetAlias(edge);
+      var source = sourceAlias(edge);
+
+      if (visited.contains(target)) {
+        // This is a consistency-check edge — both endpoints already visited.
+        // Try to trace a branch backward from this edge.
+        var branch = traceBackwardBranch(
+            scheduledEdges, i, visited, downstreamAliases,
+            aliasClasses, aliasFilters, aliasRids, context);
+        if (branch != null) {
+          result.add(branch);
+        }
+      }
+
+      // Mark both source and target as visited
+      visited.add(source);
+      visited.add(target);
+    }
+
+    return result;
+  }
+
+  /**
+   * Returns the source alias of an edge traversal (the alias that is already matched).
+   */
+  private static String sourceAlias(EdgeTraversal edge) {
+    return edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+  }
+
+  /**
+   * Returns the target alias of an edge traversal (the alias being traversed to).
+   */
+  private static String targetAlias(EdgeTraversal edge) {
+    return edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+  }
+
+  /**
+   * Traces backward from a consistency-check edge at position {@code checkIdx} to find
+   * the branch's edges. The branch is the contiguous sub-sequence of edges ending at the
+   * consistency-check edge, starting from a "branch root" shared alias, where all
+   * intermediate aliases are not in {@code downstreamAliases}.
+   *
+   * @return a {@link SemiJoinBranch} if eligible, or {@code null} if not
+   */
+  @Nullable private static SemiJoinBranch traceBackwardBranch(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      Set<String> visitedBeforeBranch,
+      Set<String> downstreamAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var checkEdge = scheduledEdges.get(checkIdx);
+    var checkTarget = targetAlias(checkEdge);
+    var checkSource = sourceAlias(checkEdge);
+
+    // The consistency-check edge connects two already-visited aliases.
+    // Trace backward to find branch edges whose intermediate aliases are all
+    // exclusive to the branch (not in downstreamAliases and not previously visited
+    // before the branch started).
+
+    // Walk backward collecting branch edges. The branch must form a contiguous chain
+    // ending at checkSource, with all intermediate aliases exclusive to this branch.
+    var branchEdges = new ArrayList<EdgeTraversal>();
+    branchEdges.add(checkEdge);
+    var intermediateAliases = new HashSet<String>();
+
+    // Track which alias we need to reach backward (start from the check edge's source)
+    var currentAlias = checkSource;
+
+    // Walk backward from checkIdx-1 to find edges that form the branch
+    for (int j = checkIdx - 1; j >= 0; j--) {
+      var prevEdge = scheduledEdges.get(j);
+      var prevTarget = targetAlias(prevEdge);
+      var prevSource = sourceAlias(prevEdge);
+
+      if (prevTarget.equals(currentAlias)) {
+        // This edge feeds into the current branch chain
+        intermediateAliases.add(currentAlias);
+        branchEdges.add(0, prevEdge);
+        currentAlias = prevSource;
+
+        // If the source was visited before the branch started, we've found the branch root
+        if (visitedBeforeBranch.contains(prevSource)) {
+          break;
+        }
+      }
+    }
+
+    // The branch root must be in visitedBeforeBranch
+    var branchRoot = currentAlias;
+    if (!visitedBeforeBranch.contains(branchRoot)) {
+      return null;
+    }
+
+    // Need at least 2 edges (1 branch edge + 1 consistency-check edge)
+    if (branchEdges.size() < 2) {
+      return null;
+    }
+
+    // Check that all intermediate aliases are NOT in downstreamAliases
+    for (var alias : intermediateAliases) {
+      if (downstreamAliases.contains(alias)) {
+        return null;
+      }
+    }
+
+    // Check that no branch node's filter depends on $matched/$parent
+    for (var alias : intermediateAliases) {
+      if (filterDependsOnContext(aliasFilters.get(alias))) {
+        return null;
+      }
+    }
+    // Also check the consistency-check edge's target (which is a shared alias, but
+    // its filter might reference $matched)
+    if (filterDependsOnContext(aliasFilters.get(checkTarget))) {
+      return null;
+    }
+
+    // Estimate cardinality: start from branch root, multiply by FANOUT_PER_HOP per edge,
+    // apply 0.5 selectivity for WHERE filters
+    long cardinality = estimateBranchCardinality(
+        branchRoot, branchEdges, aliasClasses, aliasFilters, aliasRids, context);
+    if (cardinality > HASH_JOIN_THRESHOLD) {
+      return null;
+    }
+
+    // Shared aliases = branch root + consistency-check target
+    var sharedAliases = List.of(branchRoot, checkTarget);
+
+    return new SemiJoinBranch(sharedAliases, branchEdges, intermediateAliases, cardinality);
+  }
+
+  /**
+   * Estimates the cardinality of a semi-join branch. Starts from the branch root's
+   * estimated record count and multiplies by {@link #FANOUT_PER_HOP} per edge,
+   * applying 0.5 selectivity for nodes with WHERE filters.
+   */
+  private static long estimateBranchCardinality(
+      String branchRoot,
+      List<EdgeTraversal> branchEdges,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    // Start with branch root cardinality
+    long rows = estimateAliasCardinality(
+        branchRoot, aliasClasses, aliasFilters, aliasRids, context);
+
+    for (var edge : branchEdges) {
+      rows = Math.multiplyExact(rows, FANOUT_PER_HOP);
+      var target = targetAlias(edge);
+      // Apply selectivity for WHERE filters on intermediate nodes
+      if (aliasFilters.containsKey(target) && aliasFilters.get(target) != null) {
+        rows = Math.max(1, rows / 2);
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Estimates the cardinality of a single alias — the number of records it can produce.
+   * Delegates to {@link #estimateRootEntries} with single-alias maps, matching the
+   * approach used in {@link #estimateNotPatternCardinality}.
+   */
+  private static long estimateAliasCardinality(
+      String alias,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var singleClasses = new HashMap<String, String>();
+    var singleFilters = new HashMap<String, SQLWhereClause>();
+    var singleRids = new HashMap<String, SQLRid>();
+    if (aliasClasses.containsKey(alias)) {
+      singleClasses.put(alias, aliasClasses.get(alias));
+    }
+    if (aliasFilters.containsKey(alias)) {
+      singleFilters.put(alias, aliasFilters.get(alias));
+    }
+    if (aliasRids.containsKey(alias)) {
+      singleRids.put(alias, aliasRids.get(alias));
+    }
+
+    var rootEstimates = estimateRootEntries(singleClasses, singleRids, singleFilters, context);
+    var count = rootEstimates.get(alias);
+    return count != null ? Math.max(1, count) : THRESHOLD;
+  }
+
+  /**
    * Constructs the build-side {@link SelectExecutionPlan} for a NOT pattern's hash
    * anti-join. The plan scans the origin alias's class and chains the NOT pattern's
    * {@link MatchStep}s to traverse the negative edges.
