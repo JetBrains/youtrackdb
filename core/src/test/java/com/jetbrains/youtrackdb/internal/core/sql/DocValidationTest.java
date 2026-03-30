@@ -2835,4 +2835,65 @@ public class DocValidationTest {
         "ALTER SECURITY POLICY aspTestPolicy5"
             + " SET CREATE = (name = 'foo') REMOVE DELETE");
   }
+
+  // === YQL-Alter-Sequence.md ===
+
+  // Line 27: ALTER SEQUENCE idseq START 1000 CYCLE TRUE
+  @Test
+  public void testAlterSequence_startAndCycle() {
+    // Doc example: ALTER SEQUENCE with START and CYCLE options.
+    g.command("CREATE SEQUENCE altSeqTest1 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest1 START 1000 CYCLE TRUE");
+    g.command("DROP SEQUENCE altSeqTest1");
+  }
+
+  @Test
+  public void testAlterSequence_increment() {
+    // Factual claim (line 13): INCREMENT defines the increment value applied when calling .next().
+    g.command("CREATE SEQUENCE altSeqTest2 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest2 INCREMENT 5");
+    g.command("DROP SEQUENCE altSeqTest2");
+  }
+
+  @Test
+  public void testAlterSequence_cache() {
+    // Factual claim (line 14): CACHE defines the number of values to cache for CACHED sequences.
+    g.command("CREATE SEQUENCE altSeqTest3 TYPE CACHED");
+    g.command("ALTER SEQUENCE altSeqTest3 CACHE 50");
+    g.command("DROP SEQUENCE altSeqTest3");
+  }
+
+  @Test
+  public void testAlterSequence_limit() {
+    // Factual claim (line 16): LIMIT defines the limit value the sequence can reach.
+    g.command("CREATE SEQUENCE altSeqTest4 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest4 LIMIT 500");
+    g.command("DROP SEQUENCE altSeqTest4");
+  }
+
+  @Test
+  public void testAlterSequence_ascDesc() {
+    // Factual claim (line 17-18): ASC and DESC define the order of the sequence.
+    g.command("CREATE SEQUENCE altSeqTest5 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest5 DESC");
+    g.command("ALTER SEQUENCE altSeqTest5 ASC");
+    g.command("DROP SEQUENCE altSeqTest5");
+  }
+
+  @Test
+  public void testAlterSequence_nolimit() {
+    // Factual claim (line 19): NOLIMIT cancels a previously defined LIMIT value.
+    g.command("CREATE SEQUENCE altSeqTest6 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest6 LIMIT 100");
+    g.command("ALTER SEQUENCE altSeqTest6 NOLIMIT");
+    g.command("DROP SEQUENCE altSeqTest6");
+  }
+
+  @Test
+  public void testAlterSequence_multipleOptions() {
+    // Verify multiple options can be combined in a single statement.
+    g.command("CREATE SEQUENCE altSeqTest7 TYPE ORDERED");
+    g.command("ALTER SEQUENCE altSeqTest7 START 100 INCREMENT 10 LIMIT 1000 CYCLE TRUE ASC");
+    g.command("DROP SEQUENCE altSeqTest7");
+  }
 }
