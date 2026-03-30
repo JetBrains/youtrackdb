@@ -17,7 +17,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -350,12 +349,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
               new EdgeIterable(session, set, -1, set));
           case EntityLinkListImpl list -> iterables.add(
               new EdgeIterable(session, list, -1, list));
-          case LinkBag bag -> {
-            Iterable<RID> ridIterable =
-                () -> bag.stream().map(RidPair::primaryRid).iterator();
-            iterables.add(
-                new EdgeIterable(session, ridIterable, bag.size(), bag));
-          }
+          case LinkBag bag ->
+              iterables.add(new EdgeFromLinkBagIterable(bag, session));
           default -> {
             throw new IllegalArgumentException(
                 "Unsupported property type: " + getPropertyType(fieldName));
