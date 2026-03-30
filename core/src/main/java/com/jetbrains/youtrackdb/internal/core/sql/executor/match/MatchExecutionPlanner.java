@@ -518,7 +518,8 @@ public class MatchExecutionPlanner {
     IndexOrderedCandidate indexOrderedCandidate = null;
     if (subPatterns.size() == 1 && orderBy != null) {
       var probeEdges = getTopologicalSortedSchedule(
-          estimatedRootEntries, pattern, aliasClasses, context.getDatabaseSession());
+          estimatedRootEntries, pattern, aliasClasses, aliasFilters,
+          context.getDatabaseSession());
       indexOrderedCandidate =
           detectIndexOrderedCandidate(
               probeEdges, context, estimatedRootEntries);

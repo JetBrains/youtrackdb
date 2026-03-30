@@ -89,7 +89,7 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
             }
           }
         };
-    return new MultipleExecutionStream(res).onClose(c -> updateIndexStats());
+    return new MultipleExecutionStream(res);
   }
 
   @Override
