@@ -2490,4 +2490,290 @@ public class DocValidationTest {
       tx.yql("DELETE VERTEX AcCustom").iterate();
     });
   }
+
+  // ===================================================================================
+  // YQL-Alter-Property.md validation tests
+  // ===================================================================================
+
+  // Line 22: ALTER PROPERTY Account.age NAME "born" — rename a property
+  // Validates that the ALTER PROPERTY ... NAME syntax is accepted by the parser.
+  // Note: the doc claims "the old value is copied to the new property name" (line 82),
+  // but existing record data is NOT automatically migrated — this is a doc inaccuracy.
+  @Test
+  public void testAlterPropertyRenameName() {
+    g.command("CREATE CLASS ApAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApAccount.age INTEGER");
+
+    // Rename property from 'age' to 'born' — command should succeed
+    g.command("ALTER PROPERTY ApAccount.age NAME \"born\"");
+
+    // Insert a vertex using the new property name
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApAccount SET born = 25").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApAccount WHERE born = 25").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((int) v.value("born")).isEqualTo(25);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApAccount").iterate();
+    });
+    g.command("DROP CLASS ApAccount IF EXISTS");
+  }
+
+  // Line 29: ALTER PROPERTY Account.age MANDATORY TRUE — make a property mandatory
+  // Validates that the ALTER PROPERTY ... MANDATORY syntax is accepted.
+  @Test
+  public void testAlterPropertyMandatory() {
+    g.command("CREATE CLASS ApMandatory IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApMandatory.age INTEGER");
+
+    // The MANDATORY TRUE command should be accepted without error
+    g.command("ALTER PROPERTY ApMandatory.age MANDATORY TRUE");
+
+    // Inserting with the mandatory field should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApMandatory SET age = 30").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApMandatory").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApMandatory").iterate();
+    });
+    g.command("DROP CLASS ApMandatory IF EXISTS");
+  }
+
+  // Line 35: ALTER PROPERTY Account.gender REGEXP "[M|F]" — regex constraint
+  // Validates that the ALTER PROPERTY ... REGEXP syntax is accepted.
+  @Test
+  public void testAlterPropertyRegexp() {
+    g.command("CREATE CLASS ApRegexp IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApRegexp.gender STRING");
+
+    // The REGEXP command should be accepted without error
+    g.command("ALTER PROPERTY ApRegexp.gender REGEXP \"[M|F]\"");
+
+    // Valid value should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApRegexp SET gender = 'M'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApRegexp").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApRegexp").iterate();
+    });
+    g.command("DROP CLASS ApRegexp IF EXISTS");
+  }
+
+  // Line 41: ALTER PROPERTY Employee.name COLLATE "ci" — case-insensitive collation
+  @Test
+  public void testAlterPropertyCollate() {
+    g.command("CREATE CLASS ApCollate IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApCollate.name STRING");
+    g.command("ALTER PROPERTY ApCollate.name COLLATE \"ci\"");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApCollate SET name = 'John'").iterate();
+    });
+
+    // Case-insensitive query should find the record
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApCollate WHERE name = 'john'").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApCollate").iterate();
+    });
+    g.command("DROP CLASS ApCollate IF EXISTS");
+  }
+
+  // Line 47: ALTER PROPERTY Foo.bar1 custom stereotype="visible" — custom property
+  @Test
+  public void testAlterPropertyCustom() {
+    g.command("CREATE CLASS ApCustom IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApCustom.bar1 STRING");
+    g.command("ALTER PROPERTY ApCustom.bar1 custom stereotype=\"visible\"");
+
+    // Verify the class and property still work after setting custom attribute
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApCustom SET bar1 = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApCustom").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApCustom").iterate();
+    });
+    g.command("DROP CLASS ApCustom IF EXISTS");
+  }
+
+  // Line 53: ALTER PROPERTY Client.created DEFAULT "sysdate()" — default value with sysdate()
+  @Test
+  public void testAlterPropertyDefaultSysdate() {
+    g.command("CREATE CLASS ApDefault IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApDefault.created DATETIME");
+    g.command("ALTER PROPERTY ApDefault.created DEFAULT \"sysdate()\"");
+
+    // Insert without specifying 'created' — it should be auto-populated
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApDefault SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApDefault").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((Object) v.value("created")).isNotNull();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApDefault").iterate();
+    });
+    g.command("DROP CLASS ApDefault IF EXISTS");
+  }
+
+  // Line 58-59: ALTER PROPERTY Client.id DEFAULT "uuid()" READONLY TRUE — immutable UUID default
+  @Test
+  public void testAlterPropertyDefaultUuidReadonly() {
+    g.command("CREATE CLASS ApReadonly IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApReadonly.id STRING");
+    g.command("ALTER PROPERTY ApReadonly.id DEFAULT \"uuid()\"");
+    g.command("ALTER PROPERTY ApReadonly.id READONLY TRUE");
+
+    // Insert without specifying 'id' — it should be auto-populated with a UUID
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApReadonly SET name = 'test'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApReadonly").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    String id = v.value("id");
+    assertThat(id).isNotNull().isNotEmpty();
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApReadonly").iterate();
+    });
+    g.command("DROP CLASS ApReadonly IF EXISTS");
+  }
+
+  // Factual claim line 75/81: TYPE attribute — validates ALTER PROPERTY ... TYPE syntax.
+  // The doc says "this command runs a data update" but does not mention that only castable
+  // type changes are allowed (e.g., INTEGER to LONG works, STRING to INTEGER does not).
+  @Test
+  public void testAlterPropertyType() {
+    g.command("CREATE CLASS ApType IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApType.value INTEGER");
+
+    // Change type from INTEGER to LONG (castable) should succeed
+    g.command("ALTER PROPERTY ApType.value TYPE LONG");
+
+    // Verify the property works with the new type
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApType SET value = 42").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApType").toList());
+    assertThat(results).hasSize(1);
+
+    // Incompatible type change should fail
+    assertThatThrownBy(() -> g.command("ALTER PROPERTY ApType.value TYPE STRING"))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApType").iterate();
+    });
+    g.command("DROP CLASS ApType IF EXISTS");
+  }
+
+  // Table row: NOTNULL — validates that the ALTER PROPERTY ... NOTNULL syntax is accepted
+  @Test
+  public void testAlterPropertyNotNull() {
+    g.command("CREATE CLASS ApNotNull IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApNotNull.name STRING");
+
+    // The NOTNULL command should be accepted without error
+    g.command("ALTER PROPERTY ApNotNull.name NOTNULL TRUE");
+
+    // Inserting with a value should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApNotNull SET name = 'valid'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApNotNull").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApNotNull").iterate();
+    });
+    g.command("DROP CLASS ApNotNull IF EXISTS");
+  }
+
+  // Table row: MIN / MAX — validates that the ALTER PROPERTY ... MIN/MAX syntax is accepted
+  @Test
+  public void testAlterPropertyMinMax() {
+    g.command("CREATE CLASS ApMinMax IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApMinMax.code STRING");
+
+    // MIN and MAX commands should be accepted without error
+    g.command("ALTER PROPERTY ApMinMax.code MIN 2");
+    g.command("ALTER PROPERTY ApMinMax.code MAX 5");
+
+    // Valid length should succeed
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApMinMax SET code = 'ABC'").iterate();
+    });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM ApMinMax").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApMinMax").iterate();
+    });
+    g.command("DROP CLASS ApMinMax IF EXISTS");
+  }
+
+  // Table row: LINKEDCLASS — defines the linked class name
+  @Test
+  public void testAlterPropertyLinkedClass() {
+    g.command("CREATE CLASS ApTarget IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS ApLinked IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY ApLinked.items LINKLIST");
+    g.command("ALTER PROPERTY ApLinked.items LINKEDCLASS ApTarget");
+
+    // Verify the property works by inserting data
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX ApLinked SET name = 'test'").iterate();
+    });
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX ApLinked").iterate();
+    });
+    g.command("DROP CLASS ApLinked IF EXISTS");
+    g.command("DROP CLASS ApTarget IF EXISTS");
+  }
 }
