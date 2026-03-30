@@ -20,6 +20,8 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
+import java.util.Arrays;
+
 public class BytesContainer {
 
   public byte[] bytes;
@@ -40,6 +42,17 @@ public class BytesContainer {
 
   public BytesContainer copy() {
     return new BytesContainer(bytes, offset);
+  }
+
+  /**
+   * Resets the offset to zero, keeping the backing array for reuse. Zeroes the used region
+   * so that code which allocates space without filling every byte sees zeros (not stale data
+   * from a previous use).
+   */
+  public void reset() {
+    assert offset >= 0 : "BytesContainer offset is negative before reset: " + offset;
+    Arrays.fill(bytes, 0, offset, (byte) 0);
+    offset = 0;
   }
 
   public int alloc(final int toAlloc) {

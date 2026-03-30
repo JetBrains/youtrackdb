@@ -193,6 +193,82 @@ public class MurmurHash3 {
     return state.h1;
   }
 
+  /**
+   * MurmurHash3_x86_32: 32-bit hash with seed, operating on a byte array subrange.
+   *
+   * <p>This is the standard MurmurHash3 32-bit variant (reference: SMHasher
+   * MurmurHash3_x86_32). It processes 4-byte blocks, handles 0-3 tail bytes,
+   * and applies fmix32 finalization. The seed parameter allows producing different
+   * hash values for the same input, which is essential for perfect hash table
+   * seed search.
+   *
+   * @param data   the byte array containing the data to hash
+   * @param offset the start offset within the array
+   * @param len    the number of bytes to hash
+   * @param seed   the hash seed
+   * @return a 32-bit hash value
+   */
+  public static int hash32WithSeed(byte[] data, int offset, int len, int seed) {
+    assert data != null : "data must not be null";
+    assert offset >= 0 : "offset must be non-negative: " + offset;
+    assert len >= 0 : "len must be non-negative: " + len;
+    assert offset <= data.length
+        : "offset exceeds array length: " + offset + " > " + data.length;
+    assert len <= data.length - offset
+        : "offset + len exceeds array length: " + offset + " + " + len + " > " + data.length;
+
+    final int c1_32 = 0xcc9e2d51;
+    final int c2_32 = 0x1b873593;
+
+    int h1 = seed;
+
+    // Process 4-byte blocks
+    int nblocks = len / 4;
+    for (int i = 0; i < nblocks; i++) {
+      int blockOffset = offset + i * 4;
+      int k1 = (data[blockOffset] & 0xff)
+          | ((data[blockOffset + 1] & 0xff) << 8)
+          | ((data[blockOffset + 2] & 0xff) << 16)
+          | ((data[blockOffset + 3] & 0xff) << 24);
+
+      k1 *= c1_32;
+      k1 = Integer.rotateLeft(k1, 15);
+      k1 *= c2_32;
+
+      h1 ^= k1;
+      h1 = Integer.rotateLeft(h1, 13);
+      h1 = h1 * 5 + 0xe6546b64;
+    }
+
+    // Tail: remaining 0-3 bytes
+    int tailOffset = offset + nblocks * 4;
+    int k1 = 0;
+    switch (len & 3) {
+      case 3 :
+        k1 ^= (data[tailOffset + 2] & 0xff) << 16;
+      case 2 :
+        k1 ^= (data[tailOffset + 1] & 0xff) << 8;
+      case 1 :
+        k1 ^= (data[tailOffset] & 0xff);
+        k1 *= c1_32;
+        k1 = Integer.rotateLeft(k1, 15);
+        k1 *= c2_32;
+        h1 ^= k1;
+      default :
+        break;
+    }
+
+    // Finalization: fmix32
+    h1 ^= len;
+    h1 ^= h1 >>> 16;
+    h1 *= 0x85ebca6b;
+    h1 ^= h1 >>> 13;
+    h1 *= 0xc2b2ae35;
+    h1 ^= h1 >>> 16;
+
+    return h1;
+  }
+
   public static long murmurHash3_x64_64(final byte[] key, final int seed) {
     var state = new State();
 

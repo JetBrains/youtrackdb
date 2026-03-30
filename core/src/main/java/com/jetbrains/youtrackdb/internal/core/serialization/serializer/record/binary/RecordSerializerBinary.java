@@ -32,14 +32,15 @@ import javax.annotation.Nonnull;
 public class RecordSerializerBinary implements RecordSerializer {
   public static final String NAME = "RecordSerializerBinary";
   public static final RecordSerializerBinary INSTANCE = new RecordSerializerBinary();
-  private static final byte CURRENT_RECORD_VERSION = 0;
+  private static final byte CURRENT_RECORD_VERSION = 1;
 
   private EntitySerializer[] serializerByVersion;
   private final byte currentSerializerVersion;
 
   private void init() {
-    serializerByVersion = new EntitySerializer[1];
+    serializerByVersion = new EntitySerializer[2];
     serializerByVersion[0] = new RecordSerializerBinaryV1();
+    serializerByVersion[1] = new RecordSerializerBinaryV2();
   }
 
   public RecordSerializerBinary(byte serializerVersion) {
