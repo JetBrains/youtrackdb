@@ -56,7 +56,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   private final String lockName;
 
-  protected final boolean durable;
+  private final boolean durable;
 
   public StorageComponent(
       @Nonnull final AbstractStorage storage,
@@ -77,6 +77,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     this.durable = durable;
   }
 
+  /** Returns {@code true} if this component participates in WAL crash recovery. */
   public boolean isDurable() {
     return durable;
   }

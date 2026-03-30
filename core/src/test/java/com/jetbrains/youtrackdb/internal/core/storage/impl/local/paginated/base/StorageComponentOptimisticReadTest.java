@@ -456,6 +456,20 @@ public class StorageComponentOptimisticReadTest {
     releaseFrame(frame3);
   }
 
+  @Test
+  public void testDurableFlagStoredCorrectlyWhenTrue() {
+    // The default TestStorageComponent passes durable=true.
+    assertEquals(true, component.isDurable());
+  }
+
+  @Test
+  public void testDurableFlagStoredCorrectlyWhenFalse() {
+    // A non-durable component must report isDurable()=false.
+    var nonDurableComponent = new TestStorageComponent(
+        component.storage, false);
+    assertEquals(false, nonDurableComponent.isDurable());
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();
@@ -476,7 +490,11 @@ public class StorageComponentOptimisticReadTest {
    */
   private static class TestStorageComponent extends StorageComponent {
     TestStorageComponent(AbstractStorage storage) {
-      super(storage, "test", ".tst", "test.lock", true);
+      this(storage, true);
+    }
+
+    TestStorageComponent(AbstractStorage storage, boolean durable) {
+      super(storage, "test", ".tst", "test.lock", durable);
     }
 
     PageView testLoadPageOptimistic(AtomicOperation op, long fileId, long pageIndex) {
