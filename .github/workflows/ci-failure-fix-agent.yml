@@ -32,7 +32,7 @@ jobs:
       - self-hosted
       - type-cpx42
       - image-x86-system-ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 360
     env:
       FAILED_RUN_URL: ${{ inputs.failed_run_url }}
       FAILED_WORKFLOW_NAME: ${{ inputs.failed_workflow_name }}
@@ -83,6 +83,11 @@ jobs:
             push, and create PRs.
           - There is no user to ask questions — make reasonable decisions
             autonomously.
+          - **Time budget: 6 hours total.** Plan accordingly — a full module
+            test suite (`./mvnw -pl core clean test`) takes ~20-40 min,
+            integration tests take ~60-90 min. Prefer running only the
+            specific failing test first, then the full module suite only if
+            needed.
           - At the end, write your final summary to `/tmp/fix-agent-summary.md`.
           - If you cannot fix the issue, still write a summary documenting your
             investigation findings.
@@ -204,28 +209,67 @@ jobs:
              provider), note it cannot run standalone — verify by inspection.
           4. Run `./mvnw -pl {module} spotless:check` for formatting.
 
-          ## Step 7: Dimensional review (MANDATORY)
+          ## Step 7: Dimensional review (MANDATORY GATE)
 
-          **BLOCKING: Do NOT proceed until this step completes.**
+          **BLOCKING: Do NOT proceed to Step 8 until this step is fully
+          complete. Skipping this step is never acceptable — it exists to
+          catch bugs in the fix itself before creating a PR.**
 
-          If you changed any code or tests, launch review agents in parallel:
+          **If you changed any code or added/fixed/changed any tests**, run
+          a dimensional code review and test quality review. This step is
+          mandatory whenever code or tests were modified.
 
-          **Five code review agents:**
-          - `review-code-quality`
-          - `review-bugs-concurrency`
-          - `review-crash-safety`
-          - `review-security`
-          - `review-performance`
+          1. **Launch ten review agents in parallel** (fresh sub-agents):
 
-          **Five test quality agents:**
-          - `review-test-behavior`
-          - `review-test-completeness`
-          - `review-test-structure`
-          - `review-test-concurrency`
-          - `review-test-crash-safety`
+             **Five dimensional code review agents:**
+             - `review-code-quality` — conventions, readability, DRY, API boundaries
+             - `review-bugs-concurrency` — logic errors, null safety, concurrency, leaks
+             - `review-crash-safety` — WAL correctness, durability, crash recovery
+             - `review-security` — injection, auth, data exposure, dependencies
+             - `review-performance` — complexity, allocations, contention, I/O
 
-          Address all **blocker** and **should-fix** findings. Re-run
-          affected tests after fixes. Maximum 3 review iterations.
+             **Five dimensional test quality agents:**
+             - `review-test-behavior` — behavior-driven quality, assertion precision, exception testing
+             - `review-test-completeness` — corner cases, boundary conditions, test data quality
+             - `review-test-structure` — isolation, independence, readability, documentation
+             - `review-test-concurrency` — concurrent behavior testing quality
+             - `review-test-crash-safety` — crash/recovery test quality, production assert statements
+
+             Each agent receives the same context:
+             ```
+             ## Review Target
+             CI fix: {brief description of the fix}
+             Reviewing: changes on current branch vs develop
+
+             ## Changed Files
+             {git diff develop...HEAD --name-only}
+
+             ## Skip These Files (generated code)
+             - core/.../sql/parser/*, generated-sources/*, Gremlin DSL
+
+             ## Diff
+             {git diff develop...HEAD}
+             ```
+
+          2. **Synthesize findings**: After all ten complete, deduplicate
+             across dimensions. Prioritize: blocker > should-fix > suggestion.
+
+          3. Address all **blocker** and **should-fix** findings:
+             - Fix code quality, bug, safety, security, and performance issues
+             - Add missing behavior assertions flagged by the test quality reviewer
+             - Add corner case tests for gaps identified
+             - Add recommended `assert` statements in production code (zero-overhead)
+             - Fix any test isolation, readability, or precision issues
+
+          4. After applying fixes, run `./mvnw -pl {module} spotless:apply`
+             and re-run the affected tests to confirm they pass.
+
+          5. **Re-run only the agent(s) with open findings** on the updated
+             changes.
+
+          6. **Repeat steps 3-5** until no blocker/should-fix findings remain.
+             Maximum 3 iterations. If after 3 rounds there are still critical
+             issues, document them in the summary and proceed.
 
           ## Step 8: Commit, push, and create PR
 
@@ -337,14 +381,19 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
         run: |
+          OUTPUT_FILE="/tmp/fix-agent-output-$$.txt"
+
+          # Run agent with output tee'd to both the log and a file.
+          # This ensures CI logs show progress in real time AND we have
+          # a file to inspect after completion/timeout.
           claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
             --dangerously-skip-permissions \
             --model claude-sonnet-4-6 \
             --max-turns 200 \
             --output-format text \
-            > /tmp/fix-agent-output-$$.txt 2>&1 || true
+            2>&1 | tee "$OUTPUT_FILE" || true
 
-          echo "Agent finished. Output length: $(wc -c < /tmp/fix-agent-output-$$.txt) bytes"
+          echo "Agent finished. Output length: $(wc -c < "$OUTPUT_FILE") bytes"
 
       - name: Prepare Zulip summary
         id: summary
