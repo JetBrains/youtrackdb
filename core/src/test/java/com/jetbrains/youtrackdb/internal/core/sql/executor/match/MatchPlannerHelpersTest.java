@@ -357,6 +357,68 @@ public class MatchPlannerHelpersTest {
     assertThat(estimate).isEqualTo(201);
   }
 
+  // ── canUseHashJoin ──────────────────────────────────────────────────────
+
+  /**
+   * Eligible NOT expression: no $matched dependency, origin has a class, and
+   * estimated cardinality (101 * 10 = 1010) is below HASH_JOIN_THRESHOLD.
+   */
+  @Test
+  public void canUseHashJoin_eligible_returnsTrue() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var pattern = buildPattern("person", "tag");
+    var ctx = buildMockContext("Person", 100);
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        .isTrue();
+  }
+
+  /**
+   * NOT expression with $matched dependency — cannot use hash join.
+   */
+  @Test
+  public void canUseHashJoin_matchedDependency_returnsFalse() {
+    var where = buildWhereClause("$matched.startPerson = $currentMatch", false);
+    var exp = buildNotExpression("person", null, "tag", where);
+    var pattern = buildPattern("person", "tag");
+    var ctx = buildMockContext("Person", 100);
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        .isFalse();
+  }
+
+  /**
+   * Origin alias has no class in aliasClasses — cannot construct build-side scan.
+   */
+  @Test
+  public void canUseHashJoin_noOriginClass_returnsFalse() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var pattern = buildPattern("person", "tag");
+    var ctx = buildMockContext("Person", 100);
+
+    // Empty aliasClasses — origin has no class
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, pattern, Map.of(), Map.of(), Map.of(), ctx))
+        .isFalse();
+  }
+
+  /**
+   * Estimated cardinality exceeds HASH_JOIN_THRESHOLD — fallback to nested-loop.
+   */
+  @Test
+  public void canUseHashJoin_highCardinality_returnsFalse() {
+    var exp = buildNotExpression("person", null, "tag", null);
+    var pattern = buildPattern("person", "tag");
+    // 1,000,000 records → (1,000,001) * 10 = 10,000,010 > 10,000 threshold
+    var ctx = buildMockContext("Person", 1_000_000);
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(
+        exp, pattern, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        .isFalse();
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**

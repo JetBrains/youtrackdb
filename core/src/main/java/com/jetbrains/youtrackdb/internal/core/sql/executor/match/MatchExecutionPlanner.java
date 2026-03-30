@@ -508,8 +508,10 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Phase 6: Append NOT-pattern filter steps
-    manageNotPatterns(result, pattern, notMatchExpressions, context, enableProfiling);
+    // Phase 6: Append NOT-pattern filter steps (nested-loop or hash anti-join)
+    manageNotPatterns(
+        result, pattern, notMatchExpressions, aliasClasses, aliasFilters, aliasRids,
+        context, enableProfiling);
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -624,6 +626,9 @@ public class MatchExecutionPlanner {
    * @param result               the plan being assembled
    * @param pattern              the positive pattern (used to validate alias references)
    * @param notMatchExpressions  the list of negative match expressions
+   * @param aliasClasses         per-alias class names (needed for hash join build-side)
+   * @param aliasFilters         per-alias WHERE clauses
+   * @param aliasRids            per-alias RID constraints
    * @param context              the command context
    * @param enableProfiling      whether to enable step profiling
    */
@@ -631,6 +636,9 @@ public class MatchExecutionPlanner {
       SelectExecutionPlan result,
       Pattern pattern,
       List<SQLMatchExpression> notMatchExpressions,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
       CommandContext context,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
@@ -644,11 +652,12 @@ public class MatchExecutionPlanner {
         throw new CommandExecutionException(context.getDatabaseSession(),
             "This kind of NOT expression is not supported (yet): "
                 + "WHERE condition on the initial alias");
-        // TODO implement his
+        // TODO implement this
       }
 
+      // Build the NOT pattern's MatchStep chain (shared by both strategies)
       var lastFilter = exp.getOrigin();
-      List<AbstractExecutionStep> steps = new ArrayList<>();
+      List<AbstractExecutionStep> matchSteps = new ArrayList<>();
       for (var item : exp.getItems()) {
         if (item instanceof SQLMultiMatchPathItem) {
           throw new CommandExecutionException(context.getDatabaseSession(),
@@ -662,10 +671,21 @@ public class MatchExecutionPlanner {
         edge.in.alias = item.getFilter().getAlias();
         var traversal = new EdgeTraversal(edge, true);
         var step = new MatchStep(context, traversal, enableProfiling);
-        steps.add(step);
+        matchSteps.add(step);
         lastFilter = item.getFilter();
       }
-      result.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling));
+
+      if (canUseHashJoin(exp, pattern, aliasClasses, aliasFilters, aliasRids, context)) {
+        // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
+        var buildPlan = buildNotPatternPlan(
+            exp, matchSteps, aliasClasses, aliasFilters, aliasRids, context, enableProfiling);
+        var sharedAliases = findSharedAliases(exp, pattern);
+        result.chain(new HashJoinMatchStep(
+            context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, enableProfiling));
+      } else {
+        // Fallback: nested-loop evaluation via FilterNotMatchPatternStep
+        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
+      }
     }
   }
 
@@ -816,6 +836,84 @@ public class MatchExecutionPlanner {
       }
     }
     return estimate;
+  }
+
+  /**
+   * Determines whether a NOT expression is eligible for hash-based anti-join evaluation.
+   * Returns {@code true} iff all three conditions are met:
+   * <ol>
+   *   <li>No filter in the NOT expression references {@code $matched} or
+   *       {@code $parent}.</li>
+   *   <li>The origin alias has a known class in {@code aliasClasses} (needed to
+   *       construct the build-side scan).</li>
+   *   <li>The estimated build-side cardinality does not exceed
+   *       {@link #HASH_JOIN_THRESHOLD}.</li>
+   * </ol>
+   */
+  static boolean canUseHashJoin(
+      SQLMatchExpression exp,
+      Pattern pattern,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    if (notPatternDependsOnMatched(exp)) {
+      return false;
+    }
+    var originAlias = exp.getOrigin().getAlias();
+    if (originAlias == null || !aliasClasses.containsKey(originAlias)) {
+      return false;
+    }
+    var estimatedCardinality =
+        estimateNotPatternCardinality(exp, aliasClasses, aliasFilters, aliasRids, context);
+    return estimatedCardinality <= HASH_JOIN_THRESHOLD;
+  }
+
+  /**
+   * Constructs the build-side {@link SelectExecutionPlan} for a NOT pattern's hash
+   * anti-join. The plan scans the origin alias's class and chains the NOT pattern's
+   * {@link MatchStep}s to traverse the negative edges.
+   *
+   * @param exp              the NOT match expression
+   * @param matchSteps       the pre-built MatchStep chain for the NOT pattern's edges
+   * @param aliasClasses     per-alias class names
+   * @param aliasFilters     per-alias WHERE clauses
+   * @param aliasRids        per-alias RID constraints
+   * @param context          the command context
+   * @param enableProfiling  whether to enable step profiling
+   * @return a complete build-side execution plan
+   */
+  private static SelectExecutionPlan buildNotPatternPlan(
+      SQLMatchExpression exp,
+      List<AbstractExecutionStep> matchSteps,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context,
+      boolean enableProfiling) {
+    var originAlias = exp.getOrigin().getAlias();
+    var originClass = aliasClasses.get(originAlias);
+    var originRid = aliasRids.get(originAlias);
+    var originFilter = aliasFilters.get(originAlias);
+
+    // Build the origin scan: SELECT FROM <class> [WHERE ...]
+    var select = createSelectStatement(originClass, originRid, originFilter);
+
+    // Create PatternNode for the origin alias
+    var originNode = new PatternNode();
+    originNode.alias = originAlias;
+
+    var buildPlan = new SelectExecutionPlan(context);
+    buildPlan.chain(new MatchFirstStep(
+        context, originNode, select.createExecutionPlan(context, enableProfiling),
+        enableProfiling));
+
+    // Chain the NOT pattern's MatchSteps
+    for (var step : matchSteps) {
+      buildPlan.chain(step);
+    }
+
+    return buildPlan;
   }
 
   /**
