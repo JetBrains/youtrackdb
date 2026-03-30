@@ -299,6 +299,64 @@ public class MatchPlannerHelpersTest {
     assertThat(MatchExecutionPlanner.HASH_JOIN_THRESHOLD).isEqualTo(10_000);
   }
 
+  /**
+   * When the cumulative estimate is large enough that multiplying by FANOUT_PER_HOP
+   * would overflow, the method must return Long.MAX_VALUE instead of wrapping.
+   */
+  @Test
+  public void estimateNotPatternCardinality_overflowGuard_returnsMaxValue() {
+    // Build a 3-edge NOT expression with a very large origin class
+    var exp = new SQLMatchExpression(-1);
+    var origin = new SQLMatchFilter(-1);
+    origin.setAlias("big");
+    exp.setOrigin(origin);
+
+    var item1 = new SQLMatchPathItem(-1);
+    var f1 = new SQLMatchFilter(-1);
+    f1.setAlias("a");
+    item1.setFilter(f1);
+
+    var item2 = new SQLMatchPathItem(-1);
+    var f2 = new SQLMatchFilter(-1);
+    f2.setAlias("b");
+    item2.setFilter(f2);
+
+    var item3 = new SQLMatchPathItem(-1);
+    var f3 = new SQLMatchFilter(-1);
+    f3.setAlias("c");
+    item3.setFilter(f3);
+
+    exp.setItems(List.of(item1, item2, item3));
+
+    // Origin has Long.MAX_VALUE / 5 records — after one fan-out multiplication
+    // the estimate exceeds Long.MAX_VALUE / 10, triggering the overflow guard
+    var ctx = buildMockContext("Huge", Long.MAX_VALUE / 5);
+
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of("big", "Huge"), Map.of(), Map.of(), ctx);
+    assertThat(estimate).isEqualTo(Long.MAX_VALUE);
+  }
+
+  /**
+   * A NOT expression with zero edges (origin only, no path items). The estimate
+   * should equal the origin's cardinality with no fan-out multiplication.
+   */
+  @Test
+  public void estimateNotPatternCardinality_zeroEdges_returnsOriginCount() {
+    var exp = new SQLMatchExpression(-1);
+    var origin = new SQLMatchFilter(-1);
+    origin.setAlias("person");
+    exp.setOrigin(origin);
+    exp.setItems(List.of()); // no edges
+
+    var ctx = buildMockContext("Person", 200);
+
+    var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
+    // 200 + 1 (unfiltered bias) = 201, no fan-out
+    assertThat(estimate).isEqualTo(201);
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**
