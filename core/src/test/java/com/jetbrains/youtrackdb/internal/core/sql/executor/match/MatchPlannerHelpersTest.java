@@ -774,6 +774,11 @@ public class MatchPlannerHelpersTest {
     assertThat(branch.joinMode()).isEqualTo(JoinMode.INNER_JOIN);
     assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
     assertThat(branch.intermediateAliases()).containsExactly("c");
+    assertThat(branch.branchEdges()).hasSize(2);
+    assertThat(branch.branchEdges().get(0).edge.out.alias).isEqualTo("a");
+    assertThat(branch.branchEdges().get(0).edge.in.alias).isEqualTo("c");
+    assertThat(branch.branchEdges().get(1).edge.out.alias).isEqualTo("c");
+    assertThat(branch.branchEdges().get(1).edge.in.alias).isEqualTo("d");
   }
 
   /**
@@ -1036,6 +1041,26 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
+   * Branch where the intermediate alias 'c' has no context filter, but the check-target
+   * 'd' (a shared alias) has a $matched filter → not eligible, because the shared alias
+   * filter depends on the matched context. Exercises the guard at the end of
+   * traceBackwardBranch that checks checkTarget's filter separately from intermediates.
+   */
+  @Test
+  public void identifyHashJoinBranches_sharedAliasMatchedFilter_noBranch() {
+    var diamond = buildDiamondSchedule();
+    var ctx = buildMockContext("Person", 50);
+    // Filter on the check-target (shared alias d), not on the intermediate c
+    var dFilter = buildWhereClause("$matched.a.name = name", false);
+
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
+        diamond.schedule, Set.of("a", "d"),
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of("d", dFilter), Map.of(), ctx);
+    assertThat(result).isEmpty();
+  }
+
+  /**
    * Overflow cardinality: branch root with extreme record count should be gracefully
    * rejected (exceeds threshold) instead of throwing ArithmeticException.
    */
@@ -1052,9 +1077,10 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Diamond where neither intermediate alias is downstream → both branches detected,
-   * the second one (c) as SEMI_JOIN. Verifies SEMI_JOIN classification is preserved
-   * when intermediates are not referenced downstream (regression guard).
+   * Diamond where no intermediate alias is downstream (neither b nor c is in RETURN)
+   * → the secondary branch (a→c→d) is detected as SEMI_JOIN. The b-branch is the
+   * main path and does not form an eligible secondary branch. Regression guard:
+   * confirms SEMI_JOIN classification is preserved after the INNER_JOIN generalization.
    */
   @Test
   public void identifyHashJoinBranches_noIntermediateDownstream_semiJoin() {
