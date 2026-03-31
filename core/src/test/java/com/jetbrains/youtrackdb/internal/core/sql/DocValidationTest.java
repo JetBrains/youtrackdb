@@ -3722,4 +3722,1023 @@ public class DocValidationTest {
           tx.yql("DELETE VERTEX ExplainTestV").iterate();
         });
   }
+
+  // === YQL-Functions.md ===
+
+  // Line 31: SELECT SUM(salary) FROM employee — aggregated mode (single parameter)
+  @Test
+  public void testFuncSumAggregated() {
+    g.command("CREATE CLASS FuncEmployee IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncEmployee SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT SUM(salary) FROM FuncEmployee").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncEmployee").iterate();
+        });
+  }
+
+  // Line 39: SELECT SUM(salary, extra, benefits) AS total FROM employee — inline mode
+  @Test
+  public void testFuncSumInline() {
+    g.command("CREATE CLASS FuncEmpInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncEmpInline SET salary = 1000, extra = 200, benefits = 300")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT SUM(salary, extra, benefits) AS total FROM FuncEmpInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncEmpInline").iterate();
+        });
+  }
+
+  // Line 63: SELECT out() FROM V — graph traversal function
+  @Test
+  public void testFuncOut() {
+    g.command("CREATE CLASS FuncPerson IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnows IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPerson SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncPerson SET name = 'Bob'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnows FROM "
+                  + "(SELECT FROM FuncPerson WHERE name = 'Alice') TO "
+                  + "(SELECT FROM FuncPerson WHERE name = 'Bob')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT out() FROM FuncPerson WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnows").iterate();
+          tx.yql("DELETE VERTEX FuncPerson").iterate();
+        });
+  }
+
+  // Line 87: SELECT in() FROM V — incoming vertices
+  @Test
+  public void testFuncIn() {
+    g.command("CREATE CLASS FuncPersonIn IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnowsIn IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonIn SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonIn SET name = 'Bob'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnowsIn FROM "
+                  + "(SELECT FROM FuncPersonIn WHERE name = 'Alice') TO "
+                  + "(SELECT FROM FuncPersonIn WHERE name = 'Bob')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT in() FROM FuncPersonIn WHERE name = 'Bob'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnowsIn").iterate();
+          tx.yql("DELETE VERTEX FuncPersonIn").iterate();
+        });
+  }
+
+  // Line 109: SELECT both() FROM #13:33 — both directions
+  @Test
+  public void testFuncBoth() {
+    g.command("CREATE CLASS FuncPersonBoth IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncKnowsBoth IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBoth SET name = 'A'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBoth SET name = 'B'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncKnowsBoth FROM "
+                  + "(SELECT FROM FuncPersonBoth WHERE name = 'A') TO "
+                  + "(SELECT FROM FuncPersonBoth WHERE name = 'B')")
+              .iterate();
+        });
+
+    // both() should return neighbors from both directions
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT both() FROM FuncPersonBoth WHERE name = 'A'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncKnowsBoth").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBoth").iterate();
+        });
+  }
+
+  // Line 133: SELECT outE() FROM V — outgoing edges
+  @Test
+  public void testFuncOutE() {
+    g.command("CREATE CLASS FuncPersonOutE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeOutE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonOutE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonOutE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeOutE FROM "
+                  + "(SELECT FROM FuncPersonOutE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonOutE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT outE() FROM FuncPersonOutE WHERE name = 'X'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeOutE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonOutE").iterate();
+        });
+  }
+
+  // Line 155: SELECT inE() FROM V — incoming edges
+  @Test
+  public void testFuncInE() {
+    g.command("CREATE CLASS FuncPersonInE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeInE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonInE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonInE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeInE FROM "
+                  + "(SELECT FROM FuncPersonInE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonInE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT inE() FROM FuncPersonInE WHERE name = 'Y'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeInE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonInE").iterate();
+        });
+  }
+
+  // Line 174: SELECT bothE() FROM V — both incoming and outgoing edges
+  @Test
+  public void testFuncBothE() {
+    g.command("CREATE CLASS FuncPersonBothE IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncEdgeBothE IF NOT EXISTS EXTENDS E");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonBothE SET name = 'X'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonBothE SET name = 'Y'").iterate();
+          tx.yql(
+              "CREATE EDGE FuncEdgeBothE FROM "
+                  + "(SELECT FROM FuncPersonBothE WHERE name = 'X') TO "
+                  + "(SELECT FROM FuncPersonBothE WHERE name = 'Y')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT bothE() FROM FuncPersonBothE WHERE name = 'X'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE EDGE FuncEdgeBothE").iterate();
+          tx.yql("DELETE VERTEX FuncPersonBothE").iterate();
+        });
+  }
+
+  // Line 241: SELECT eval('price * 120 / 100 - discount') AS finalPrice FROM Order
+  @Test
+  public void testFuncEval() {
+    g.command("CREATE CLASS FuncOrder IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncOrder SET price = 100, discount = 10").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT eval('price * 120 / 100 - discount') AS finalPrice FROM FuncOrder")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncOrder").iterate();
+        });
+  }
+
+  // Line 257: SELECT coalesce(amount, amount2, amount3) FROM Account
+  @Test
+  public void testFuncCoalesce() {
+    g.command("CREATE CLASS FuncAccountCoalesce IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountCoalesce SET amount = null, amount2 = null, amount3 = 50")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT coalesce(amount, amount2, amount3) FROM FuncAccountCoalesce")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountCoalesce").iterate();
+        });
+  }
+
+  // Line 271: if(<expression>, <result-if-true>, <result-if-false>)
+  @Test
+  public void testFuncIf() {
+    g.command("CREATE CLASS FuncPersonIf IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncPersonIf SET name = 'John'").iterate();
+          tx.yql("CREATE VERTEX FuncPersonIf SET name = 'Jane'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT if(eval(\"name = 'John'\"), 'My name is John', 'My name is not John') FROM FuncPersonIf")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncPersonIf").iterate();
+        });
+  }
+
+  // Line 288: SELECT ifnull(salary, 0) FROM Account
+  @Test
+  public void testFuncIfnull() {
+    g.command("CREATE CLASS FuncAccountIfnull IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountIfnull SET salary = null").iterate();
+          tx.yql("CREATE VERTEX FuncAccountIfnull SET salary = 1000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT ifnull(salary, 0) FROM FuncAccountIfnull").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountIfnull").iterate();
+        });
+  }
+
+  // Line 308: SELECT EXPAND(addresses) FROM Account — expand collection
+  @Test
+  public void testFuncExpand() {
+    g.command("CREATE CLASS FuncAccountExpand IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncAddress IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAddress SET city = 'Kyiv'").iterate();
+          tx.yql("CREATE VERTEX FuncAddress SET city = 'Lviv'").iterate();
+          tx.yql(
+              "CREATE VERTEX FuncAccountExpand SET addresses = "
+                  + "(SELECT FROM FuncAddress)")
+              .iterate();
+        });
+
+    // expand() should unwind the collection
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT EXPAND(addresses) FROM FuncAccountExpand").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountExpand").iterate();
+          tx.yql("DELETE VERTEX FuncAddress").iterate();
+        });
+  }
+
+  // Line 327: select first(addresses) from Account
+  @Test
+  public void testFuncFirst() {
+    g.command("CREATE CLASS FuncAccountFirst IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountFirst SET addresses = ['addr1', 'addr2', 'addr3']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT first(addresses) FROM FuncAccountFirst").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountFirst").iterate();
+        });
+  }
+
+  // Line 340: SELECT last(addresses) FROM Account
+  @Test
+  public void testFuncLast() {
+    g.command("CREATE CLASS FuncAccountLast IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountLast SET addresses = ['addr1', 'addr2', 'addr3']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT last(addresses) FROM FuncAccountLast").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountLast").iterate();
+        });
+  }
+
+  // Line 353: SELECT COUNT(*) FROM Account
+  @Test
+  public void testFuncCount() {
+    g.command("CREATE CLASS FuncAccountCount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountCount SET name = 'a'").iterate();
+          tx.yql("CREATE VERTEX FuncAccountCount SET name = 'b'").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT COUNT(*) FROM FuncAccountCount").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountCount").iterate();
+        });
+  }
+
+  // Line 367-371: min() — aggregated and inline modes
+  @Test
+  public void testFuncMinAggregated() {
+    g.command("CREATE CLASS FuncAccountMin IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMin SET salary = 500").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT min(salary) FROM FuncAccountMin").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMin").iterate();
+        });
+  }
+
+  // Line 370: SELECT min(salary1, salary2, salary3) FROM Account — inline min
+  @Test
+  public void testFuncMinInline() {
+    g.command("CREATE CLASS FuncAccountMinInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountMinInline SET salary1 = 1000, salary2 = 500, salary3 = 2000")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT min(salary1, salary2, salary3) FROM FuncAccountMinInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMinInline").iterate();
+        });
+  }
+
+  // Line 384: SELECT max(salary) FROM Account — with trailing period bug in doc
+  @Test
+  public void testFuncMaxAggregated() {
+    g.command("CREATE CLASS FuncAccountMax IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMax SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMax SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT max(salary) FROM FuncAccountMax").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMax").iterate();
+        });
+  }
+
+  // Line 388: SELECT max(salary1, salary2, salary3) FROM Account — inline max
+  @Test
+  public void testFuncMaxInline() {
+    g.command("CREATE CLASS FuncAccountMaxInline IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountMaxInline SET salary1 = 100, salary2 = 300, salary3 = 200")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT max(salary1, salary2, salary3) FROM FuncAccountMaxInline")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMaxInline").iterate();
+        });
+  }
+
+  // Line 401-404: SELECT abs(score), abs(-2332), abs(999)
+  @Test
+  public void testFuncAbs() {
+    g.command("CREATE CLASS FuncAccountAbs IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountAbs SET score = -42").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT abs(score) FROM FuncAccountAbs").toList());
+    assertThat(results).hasSize(1);
+
+    var results2 =
+        g.computeInTx(tx -> tx.yql("SELECT abs(-2332) FROM FuncAccountAbs").toList());
+    assertThat(results2).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountAbs").iterate();
+        });
+  }
+
+  // Line 417: SELECT avg(salary) FROM Account
+  @Test
+  public void testFuncAvg() {
+    g.command("CREATE CLASS FuncAccountAvg IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountAvg SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountAvg SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT avg(salary) FROM FuncAccountAvg").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountAvg").iterate();
+        });
+  }
+
+  // Line 430: SELECT sum(salary) FROM Account — aggregated sum
+  @Test
+  public void testFuncSumRef() {
+    g.command("CREATE CLASS FuncAccountSum IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountSum SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountSum SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT sum(salary) FROM FuncAccountSum").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountSum").iterate();
+        });
+  }
+
+  // Line 444: SELECT FROM Account WHERE created <= date('2012-07-02', 'yyyy-MM-dd')
+  @Test
+  public void testFuncDate() {
+    g.command("CREATE CLASS FuncAccountDate IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountDate SET created = date('2012-01-01', 'yyyy-MM-dd')")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM FuncAccountDate WHERE created <= date('2012-07-02', 'yyyy-MM-dd')")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountDate").iterate();
+        });
+  }
+
+  // Line 456: SELECT sysdate('dd-MM-yyyy') FROM Account
+  @Test
+  public void testFuncSysdate() {
+    g.command("CREATE CLASS FuncAccountSysdate IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountSysdate SET name = 'x'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT sysdate('dd-MM-yyyy') FROM FuncAccountSysdate").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountSysdate").iterate();
+        });
+  }
+
+  // Line 468: SELECT format("%d - Mr. %s %s (%s)", id, name, surname, address) FROM Account
+  @Test
+  public void testFuncFormat() {
+    g.command("CREATE CLASS FuncAccountFmt IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncAccountFmt SET name = 'John', surname = 'Doe', address = 'Kyiv'")
+              .iterate();
+        });
+
+    // The doc uses 'id' but we'll use a numeric field since @rid is not an integer
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT format('%s - Mr. %s %s (%s)', name, name, surname, address) FROM FuncAccountFmt")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountFmt").iterate();
+        });
+  }
+
+  // Line 482: SELECT decimal('99.999999999999999999') FROM Account
+  @Test
+  public void testFuncDecimal() {
+    g.command("CREATE CLASS FuncAccountDecimal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountDecimal SET name = 'x'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT decimal('99.999999999999999999') FROM FuncAccountDecimal")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountDecimal").iterate();
+        });
+  }
+
+  // Line 597: SELECT distinct(name) FROM City
+  @Test
+  public void testFuncDistinct() {
+    g.command("CREATE CLASS FuncCityDistinct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Kyiv'").iterate();
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Lviv'").iterate();
+          tx.yql("CREATE VERTEX FuncCityDistinct SET name = 'Kyiv'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT distinct(name) FROM FuncCityDistinct").toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncCityDistinct").iterate();
+        });
+  }
+
+  // Line 610: SELECT unionall(friends) FROM profile — aggregate union
+  @Test
+  public void testFuncUnionall() {
+    g.command("CREATE CLASS FuncProfileUnion IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncProfileUnion SET friends = ['Alice', 'Bob']").iterate();
+          tx.yql("CREATE VERTEX FuncProfileUnion SET friends = ['Bob', 'Charlie']").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT unionall(friends) FROM FuncProfileUnion").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfileUnion").iterate();
+        });
+  }
+
+  // Line 626: SELECT intersect(friends) FROM profile WHERE jobTitle = 'programmer'
+  @Test
+  public void testFuncIntersect() {
+    g.command("CREATE CLASS FuncProfileIntersect IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncProfileIntersect SET friends = ['Alice', 'Bob'], jobTitle = 'programmer'")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX FuncProfileIntersect SET friends = ['Bob', 'Charlie'], jobTitle = 'programmer'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT intersect(friends) FROM FuncProfileIntersect WHERE jobTitle = 'programmer'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncProfileIntersect").iterate();
+        });
+  }
+
+  // Line 642: SELECT difference(tags) FROM book — doc claims aggregate mode works,
+  // but difference() does NOT support aggregation mode. This is a doc bug.
+  // Verify the inline (two-param) form works: difference(inEdges, outEdges).
+  @Test
+  public void testFuncDifferenceInline() {
+    g.command("CREATE CLASS FuncBookDiff IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX FuncBookDiff SET setA = ['java', 'sql'], setB = ['java', 'python']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT difference(setA, setB) FROM FuncBookDiff").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookDiff").iterate();
+        });
+  }
+
+  // Verify that difference() in aggregate mode throws an error (doc bug)
+  @Test
+  public void testFuncDifferenceAggregateNotSupported() {
+    g.command("CREATE CLASS FuncBookDiffAgg IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncBookDiffAgg SET tags = ['java', 'sql']").iterate();
+          tx.yql("CREATE VERTEX FuncBookDiffAgg SET tags = ['java', 'python']").iterate();
+        });
+
+    assertThatThrownBy(
+        () -> g.computeInTx(
+            tx -> tx.yql("SELECT difference(tags) FROM FuncBookDiffAgg").toList()));
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookDiffAgg").iterate();
+        });
+  }
+
+  // Line 658: symmetricDifference() — doc incorrectly uses difference() in the example
+  @Test
+  public void testFuncSymmetricDifference() {
+    g.command("CREATE CLASS FuncBookSymDiff IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncBookSymDiff SET tags = ['java', 'sql']").iterate();
+          tx.yql("CREATE VERTEX FuncBookSymDiff SET tags = ['java', 'python']").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT symmetricDifference(tags) FROM FuncBookSymDiff").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncBookSymDiff").iterate();
+        });
+  }
+
+  // Line 678: SELECT name, set(roles.name) AS roles FROM User
+  @Test
+  public void testFuncSet() {
+    g.command("CREATE CLASS FuncUserSet IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS FuncRole IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserSet SET name = 'Alice', roles = ['admin', 'user', 'admin']")
+              .iterate();
+        });
+
+    // set() as aggregation
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name, set(roles) AS roles FROM FuncUserSet").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserSet").iterate();
+          tx.yql("DELETE VERTEX FuncRole").iterate();
+        });
+  }
+
+  // Line 690: SELECT name, list(roles.name) AS roles FROM User
+  @Test
+  public void testFuncList() {
+    g.command("CREATE CLASS FuncUserList IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserList SET name = 'Alice', roles = ['admin', 'user']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name, list(roles) AS roles FROM FuncUserList").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserList").iterate();
+        });
+  }
+
+  // Line 704: SELECT map(name, roles.name) FROM User
+  @Test
+  public void testFuncMap() {
+    g.command("CREATE CLASS FuncUserMap IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncUserMap SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX FuncUserMap SET name = 'Bob'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT map(name, name) FROM FuncUserMap").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncUserMap").iterate();
+        });
+  }
+
+  // Line 717: SELECT mode(salary) FROM Account
+  @Test
+  public void testFuncMode() {
+    g.command("CREATE CLASS FuncAccountMode IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMode SET salary = 2000").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT mode(salary) FROM FuncAccountMode").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMode").iterate();
+        });
+  }
+
+  // Line 729: select median(salary) from Account
+  @Test
+  public void testFuncMedian() {
+    g.command("CREATE CLASS FuncAccountMedian IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountMedian SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT median(salary) FROM FuncAccountMedian").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountMedian").iterate();
+        });
+  }
+
+  // Line 743-744: SELECT percentile(salary, 0.95) FROM Account
+  @Test
+  public void testFuncPercentile() {
+    g.command("CREATE CLASS FuncAccountPct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          for (int i = 1; i <= 20; i++) {
+            tx.yql("CREATE VERTEX FuncAccountPct SET salary = " + (i * 100)).iterate();
+          }
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT percentile(salary, 0.95) FROM FuncAccountPct").toList());
+    assertThat(results).hasSize(1);
+
+    // Also test the two-quantile form: percentile(salary, 0.25, 0.75)
+    var results2 =
+        g.computeInTx(
+            tx -> tx.yql("SELECT percentile(salary, 0.25, 0.75) AS IQR FROM FuncAccountPct")
+                .toList());
+    assertThat(results2).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountPct").iterate();
+        });
+  }
+
+  // Line 757: SELECT variance(salary) FROM Account
+  @Test
+  public void testFuncVariance() {
+    g.command("CREATE CLASS FuncAccountVar IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountVar SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT variance(salary) FROM FuncAccountVar").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountVar").iterate();
+        });
+  }
+
+  // Line 769: SELECT stddev(salary) FROM Account
+  @Test
+  public void testFuncStddev() {
+    g.command("CREATE CLASS FuncAccountStd IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 1000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 2000").iterate();
+          tx.yql("CREATE VERTEX FuncAccountStd SET salary = 3000").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT stddev(salary) FROM FuncAccountStd").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountStd").iterate();
+        });
+  }
+
+  // Line 783: INSERT INTO Account SET id = UUID()
+  @Test
+  public void testFuncUuid() {
+    g.command("CREATE CLASS FuncAccountUuid IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncAccountUuid SET id = UUID()").iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM FuncAccountUuid").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("id")).isNotEmpty();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncAccountUuid").iterate();
+        });
+  }
+
+  // Line 799: SELECT * from State where strcmpci("washington", name) = 0
+  @Test
+  public void testFuncStrcmpci() {
+    g.command("CREATE CLASS FuncState IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX FuncState SET name = 'Washington'").iterate();
+          tx.yql("CREATE VERTEX FuncState SET name = 'Oregon'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT * FROM FuncState WHERE strcmpci('washington', name) = 0")
+                .toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Washington");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncState").iterate();
+        });
+  }
+
+  // Line 584: SELECT FROM POI WHERE distance(x, y, 52.20472, 0.14056) <= 30
+  @Test
+  public void testFuncDistance() {
+    g.command("CREATE CLASS FuncPOI IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          // Kyiv coordinates approximately
+          tx.yql("CREATE VERTEX FuncPOI SET x = 50.4501, y = 30.5234").iterate();
+          // Cambridge coordinates (close to target)
+          tx.yql("CREATE VERTEX FuncPOI SET x = 52.2053, y = 0.1218").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM FuncPOI WHERE distance(x, y, 52.20472, 0.14056) <= 30")
+                .toList());
+    // Cambridge is within 30 km of (52.20472, 0.14056), Kyiv is not
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX FuncPOI").iterate();
+        });
+  }
 }
