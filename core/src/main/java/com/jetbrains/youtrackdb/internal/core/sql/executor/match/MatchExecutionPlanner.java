@@ -973,9 +973,10 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Describes a secondary branch in the pattern graph that is eligible for semi-join
-   * optimization. The branch's intermediate aliases are not referenced downstream, so
-   * only existence checking (semi-join) is needed instead of full materialization.
+   * Describes a secondary branch in the pattern graph that is eligible for hash join
+   * optimization. Depending on whether intermediate aliases are referenced downstream,
+   * the branch is executed as a {@link JoinMode#SEMI_JOIN} (existence check only) or
+   * {@link JoinMode#INNER_JOIN} (intermediate bindings merged into result rows).
    *
    * @param sharedAliases       aliases shared between the branch and the main path (join keys)
    * @param branchEdges         the edge traversals forming this branch (in schedule order),
