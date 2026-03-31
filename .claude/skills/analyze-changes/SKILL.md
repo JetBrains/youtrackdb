@@ -1,4 +1,9 @@
-# Analyze Changes
+---
+name: analyze-changes
+description: "Analyze git changes (branch, commit, or current branch) and produce a detailed markup document with Mermaid diagrams, PR context, and impact assessment."
+argument-hint: "[branch-name | commit-sha]"
+user-invocable: true
+---
 
 Analyze the git changes specified by the argument and produce a detailed markup document.
 

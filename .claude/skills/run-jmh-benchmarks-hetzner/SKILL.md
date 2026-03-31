@@ -4,8 +4,6 @@ description: "Provision a Hetzner CCX33 server, deploy the project, run JMH benc
 user-invocable: true
 ---
 
-# Run JMH Benchmarks on Hetzner
-
 Provision a dedicated Hetzner cloud server, deploy the current working tree, run JMH benchmarks from any module, download results, and tear down the server.
 
 ## Prerequisites

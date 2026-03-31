@@ -1,3 +1,10 @@
+---
+name: execute-tracks
+description: "Execute implementation plan tracks phase by phase (review, implement, code review). Use after /create-plan and /review-plan to implement the planned work."
+argument-hint: "[plan-directory-name]"
+user-invocable: true
+---
+
 Read and follow the workflow for Phase 3 (Execution).
 
 Read these workflow documents in order before starting:

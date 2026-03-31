@@ -1,3 +1,10 @@
+---
+name: create-presentation
+description: "Generate a PPTX presentation explaining code changes on the current branch, with matplotlib diagrams and dark theme slides."
+argument-hint: "[base-branch]"
+user-invocable: true
+---
+
 Generate a PPTX presentation explaining the changes on the current branch.
 
 ## Arguments

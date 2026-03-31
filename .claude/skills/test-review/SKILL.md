@@ -1,3 +1,10 @@
+---
+name: test-review
+description: "Review test quality across multiple dimensions (behavior, completeness, structure, concurrency, crash-safety) using specialized agents with triage-based selection."
+argument-hint: "[branch | commit-range | uncommitted | PR-number]"
+user-invocable: true
+---
+
 Review test quality across multiple dimensions by dispatching to specialized test review agents and synthesizing their findings.
 
 Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or "uncommitted").

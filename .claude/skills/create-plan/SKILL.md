@@ -1,3 +1,10 @@
+---
+name: create-plan
+description: "Research the codebase and create an implementation plan with architecture notes, design document, and track decomposition. Use when starting a new feature or large change."
+argument-hint: "[plan-directory-name]"
+user-invocable: true
+---
+
 Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 **Step 1 — Read workflow documents.**
