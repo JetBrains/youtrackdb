@@ -3431,6 +3431,98 @@ public final class WOWCache extends AbstractWriteCache
     return flushedPages;
   }
 
+  /**
+   * Flushes non-durable pages to their data files without WAL sync, double-write log, or
+   * fsync. Non-durable data is discarded on crash, so these protections are unnecessary.
+   * On I/O error, logs a warning but does NOT set {@code flushError} — a non-durable flush
+   * failure must not block durable flushes.
+   */
+  private int flushNonDurablePages(final ArrayList<ArrayList<WritePageContainer>> chunks) {
+    if (chunks.isEmpty()) {
+      return 0;
+    }
+
+    var flushedPages = 0;
+
+    final var containerPointers = new ArrayList<Pointer>(chunks.size());
+    final var containerBuffers = new ArrayList<ByteBuffer>(chunks.size());
+    final var chunkPageIndexes = new IntArrayList(chunks.size());
+    final var chunkFileIds = new IntArrayList(chunks.size());
+
+    final var buffersByFileId =
+        new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    try {
+      flushedPages =
+          copyPageChunksIntoTheBuffers(
+              chunks,
+              flushedPages,
+              containerPointers,
+              containerBuffers,
+              buffersByFileId,
+              chunkPageIndexes,
+              chunkFileIds);
+      // Skip doubleWriteLog.write() — non-durable pages do not need DWL protection
+      writePageChunksToFiles(buffersByFileId);
+      // Skip fsyncFiles() — non-durable data does not need to be forced to stable storage
+    } catch (final Exception e) {
+      // Non-durable data is discardable — log and continue without setting flushError
+      LogManager.instance()
+          .warn(
+              this,
+              "Error flushing non-durable pages in storage %s. Data will be discarded on crash.",
+              e,
+              storageName);
+    } finally {
+      for (final var containerPointer : containerPointers) {
+        if (containerPointer != null) {
+          DirectMemoryAllocator.instance().deallocate(containerPointer);
+        }
+      }
+    }
+
+    removeWrittenPagesFromCache(chunks);
+
+    return flushedPages;
+  }
+
+  /**
+   * Partitions chunks by durability and flushes each group through the appropriate path:
+   * durable chunks go through {@link #flushPages} (WAL sync + DWL + fsync), non-durable
+   * chunks go through {@link #flushNonDurablePages} (write only, no crash protection).
+   *
+   * @return total number of pages flushed across both paths
+   */
+  private int partitionAndFlushChunks(
+      final ArrayList<ArrayList<WritePageContainer>> chunks,
+      final LogSequenceNumber fullLogLSN)
+      throws java.lang.InterruptedException, IOException {
+    if (chunks.isEmpty()) {
+      return 0;
+    }
+
+    final var durableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
+    final var nonDurableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
+
+    for (final var chunk : chunks) {
+      if (chunk.isEmpty()) {
+        continue;
+      }
+      // All pages in a chunk share the same file — check the first page's file ID
+      final var firstPage = chunk.getFirst();
+      final var fileId = firstPage.originalPagePointer.getFileId();
+      if (nonDurableFileIds.contains(internalFileId(fileId))) {
+        nonDurableChunks.add(chunk);
+      } else {
+        durableChunks.add(chunk);
+      }
+    }
+
+    var flushed = 0;
+    flushed += flushPages(durableChunks, fullLogLSN);
+    flushed += flushNonDurablePages(nonDurableChunks);
+    return flushed;
+  }
+
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final List<WritePageContainer> chunk : chunks) {
       for (var chunkPage : chunk) {
@@ -3712,7 +3804,7 @@ public final class WOWCache extends AbstractWriteCache
               chunk = new ArrayList<>(16);
             }
 
-            flushedPages += flushPages(chunks, maxFullLogLSN);
+            flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
             if (latch != null && exclusiveWriteCacheSize.get() <= exclusiveWriteCacheMaxSize) {
               latch.countDown();
             }
@@ -3796,7 +3888,7 @@ public final class WOWCache extends AbstractWriteCache
                 chunk = new ArrayList<>(16);
               }
 
-              flushedPages += flushPages(chunks, maxFullLogLSN);
+              flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
 
               chunks.clear();
               prevChunksSize = 0;
@@ -3825,7 +3917,7 @@ public final class WOWCache extends AbstractWriteCache
             // we need to check only prevChunksSize because current chunk is empty
             if (prevChunksSize >= this.chunkSize
                 || underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
-              flushedPages += flushPages(chunks, maxFullLogLSN);
+              flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
 
               chunks.clear();
               prevChunksSize = 0;
@@ -3869,7 +3961,7 @@ public final class WOWCache extends AbstractWriteCache
       chunks.add(chunk);
     }
 
-    flushedPages += flushPages(chunks, maxFullLogLSN);
+    flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
     if (copiedPages != flushedPages) {
       throw new IllegalStateException(
           "Copied pages (" + copiedPages + " ) != flushed pages (" + flushedPages + ")");
