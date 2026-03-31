@@ -47,11 +47,16 @@ public final class BTreeSingleValueIndexEngine
   @Nullable private volatile IndexHistogramManager histogramManager;
 
   // Approximate count of visible index entries, used by the query optimizer for
-  // cost estimation. Initialized from sbTree.size() on load (includes tombstones
-  // and markers, so approximate). Kept up to date by put/remove/clear operations.
-  // AtomicLong because concurrent TXs can commit index changes simultaneously.
-  // Will be adjusted when GC for BTree functionality is implemented.
+  // cost estimation. Initialized via visibility-filtered scan on load(). Adjusted
+  // at commit time via delta holder (not directly in put/remove). AtomicLong
+  // because concurrent TXs can commit index changes simultaneously. Recalibrated
+  // by buildInitialHistogram() as self-healing.
   private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
+
+  // Approximate count of null-key entries. Follows the same lifecycle as
+  // approximateIndexEntriesCount: initialized on load(), adjusted at commit
+  // time, recalibrated by buildInitialHistogram().
+  private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeSingleValueIndexEngine(
       int id, String name, AbstractStorage storage, int version) {
@@ -97,6 +102,7 @@ public final class BTreeSingleValueIndexEngine
           sbTypes,
           data.getKeySize() + 1);
       approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error of creation of index " + name),
@@ -144,7 +150,25 @@ public final class BTreeSingleValueIndexEngine
     final var sbTypes = calculateTypes(keyTypes);
 
     sbTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
-    approximateIndexEntriesCount.set(sbTree.size(atomicOperation));
+
+    // Initialize both counters via a visibility-filtered scan so they start
+    // accurate (sbTree.size() includes tombstones and markers).
+    var firstKey = sbTree.firstKey(atomicOperation);
+    if (firstKey == null) {
+      approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
+    } else {
+      try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
+          sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
+          BTreeSingleValueIndexEngine::extractKey)) {
+        var partitioned = allVisible.collect(
+            Collectors.partitioningBy(p -> p.first() != null));
+        long nonNullCount = partitioned.get(true).size();
+        long nullCount = partitioned.get(false).size();
+        approximateIndexEntriesCount.set(nonNullCount + nullCount);
+        approximateNullCount.set(nullCount);
+      }
+    }
   }
 
   @Override
@@ -200,6 +224,7 @@ public final class BTreeSingleValueIndexEngine
       doClearTree(atomicOperation);
       indexesSnapshot.clear();
       approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);
@@ -514,6 +539,7 @@ public final class BTreeSingleValueIndexEngine
     var firstKey = sbTree.firstKey(atomicOperation);
     if (firstKey == null) {
       approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
       mgr.buildHistogram(atomicOperation, Stream.empty(), 0, 0,
           mgr.getKeyFieldCount());
       return;
@@ -531,9 +557,10 @@ public final class BTreeSingleValueIndexEngine
     }
     long totalCount = nonNullEntries.size() + nullCount;
 
-    // Recalibrate approximate counter from the exact scan to prevent
+    // Recalibrate approximate counters from the exact scan to prevent
     // divergence over time (e.g., from rolled-back atomic operations).
     approximateIndexEntriesCount.set(totalCount);
+    approximateNullCount.set(nullCount);
 
     mgr.buildHistogram(
         atomicOperation, nonNullEntries.stream().map(RawPair::first),
@@ -543,19 +570,22 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
-    try (var stream = get(null, atomicOperation)) {
-      return stream.count();
-    }
+    return approximateNullCount.get();
   }
 
   @Override
   public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
-    // Exact count via visibility-filtered scan. Used by histogram migration
-    // path which needs precise counts, unlike size() which is approximate.
-    try (var nonNullStream = stream(null, atomicOperation);
-        var nullStream = get(null, atomicOperation)) {
-      return nonNullStream.count() + nullStream.count();
-    }
+    return approximateIndexEntriesCount.get();
+  }
+
+  @Override
+  public void addToApproximateEntryCount(long delta) {
+    approximateIndexEntriesCount.addAndGet(delta);
+  }
+
+  @Override
+  public void addToApproximateNullCount(long delta) {
+    approximateNullCount.addAndGet(delta);
   }
 
   /**

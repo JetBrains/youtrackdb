@@ -42,18 +42,34 @@ public interface BTreeIndexEngine extends V1IndexEngine {
   void buildInitialHistogram(AtomicOperation atomicOperation) throws IOException;
 
   /**
-   * Returns the number of null entries in the index. Used during migration
-   * to initialize histogram counters.
+   * Returns the approximate number of null entries in the index. O(1) read
+   * from a maintained counter, recalibrated by {@link #buildInitialHistogram}
+   * and {@code load()}.
    *
-   * @param atomicOperation current atomic operation for page I/O
+   * @param atomicOperation current atomic operation (unused, kept for API
+   *     compatibility)
    */
   long getNullCount(AtomicOperation atomicOperation);
 
   /**
-   * Returns the total number of entries (including nulls). Used during
-   * migration to initialize histogram counters.
+   * Returns the approximate total number of entries (including nulls). O(1)
+   * read from a maintained counter, recalibrated by
+   * {@link #buildInitialHistogram} and {@code load()}.
    *
-   * @param atomicOperation current atomic operation for page I/O
+   * @param atomicOperation current atomic operation (unused, kept for API
+   *     compatibility)
    */
   long getTotalCount(AtomicOperation atomicOperation);
+
+  /**
+   * Adjusts the approximate total entry count by the given delta. Called by
+   * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
+   */
+  void addToApproximateEntryCount(long delta);
+
+  /**
+   * Adjusts the approximate null entry count by the given delta. Called by
+   * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
+   */
+  void addToApproximateNullCount(long delta);
 }

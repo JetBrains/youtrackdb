@@ -53,10 +53,16 @@ public final class BTreeMultiValueIndexEngine
   @Nullable private volatile IndexHistogramManager histogramManager;
 
   // Approximate count of visible index entries (svTree + nullTree), used by the
-  // query optimizer for cost estimation. Initialized from tree sizes on load.
-  // AtomicLong because concurrent TXs can commit index changes simultaneously.
-  // Will be adjusted when GC for BTree functionality is implemented.
+  // query optimizer for cost estimation. Initialized via visibility-filtered scan
+  // on load(). Adjusted at commit time via delta holder (not directly in
+  // doPut/doRemove). AtomicLong because concurrent TXs can commit index changes
+  // simultaneously. Recalibrated by buildInitialHistogram() as self-healing.
   private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
+
+  // Approximate count of null-key entries. Follows the same lifecycle as
+  // approximateIndexEntriesCount: initialized on load(), adjusted at commit
+  // time, recalibrated by buildInitialHistogram().
+  private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -113,6 +119,7 @@ public final class BTreeMultiValueIndexEngine
           new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
           2);
       approximateIndexEntriesCount.set(0);
+      approximateNullCount.set(0);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during creation of index " + name), e,
@@ -181,8 +188,32 @@ public final class BTreeMultiValueIndexEngine
         nullTreeName, 2,
         new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
         new IndexMultiValuKeySerializer(), atomicOperation);
-    approximateIndexEntriesCount.set(
-        svTree.size(atomicOperation) + nullTree.size(atomicOperation));
+
+    // Initialize both counters via visibility-filtered scans so they start
+    // accurate (tree.size() includes tombstones and markers).
+    // Non-null entries live in svTree, null entries in nullTree — scan separately.
+    long nonNullCount = 0;
+    var svFirstKey = svTree.firstKey(atomicOperation);
+    if (svFirstKey != null) {
+      try (var svStream = indexesSnapshot.visibilityFilterMapped(atomicOperation,
+          svTree.iterateEntriesMajor(svFirstKey, true, true, atomicOperation),
+          BTreeMultiValueIndexEngine::extractKey)) {
+        nonNullCount = svStream.count();
+      }
+    }
+
+    long nullCount = 0;
+    var nullFirstKey = nullTree.firstKey(atomicOperation);
+    if (nullFirstKey != null) {
+      try (var nullStream = nullIndexesSnapshot.visibilityFilterMapped(atomicOperation,
+          nullTree.iterateEntriesMajor(nullFirstKey, true, true, atomicOperation),
+          k -> null)) {
+        nullCount = nullStream.count();
+      }
+    }
+
+    approximateIndexEntriesCount.set(nonNullCount + nullCount);
+    approximateNullCount.set(nullCount);
   }
 
   @Override
@@ -257,6 +288,7 @@ public final class BTreeMultiValueIndexEngine
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
     approximateIndexEntriesCount.set(0);
+    approximateNullCount.set(0);
     var mgr = histogramManager;
     if (mgr != null) {
       try {
@@ -544,6 +576,7 @@ public final class BTreeMultiValueIndexEngine
     var firstKey = svTree.firstKey(atomicOperation);
     if (firstKey == null) {
       approximateIndexEntriesCount.set(nullCount);
+      approximateNullCount.set(nullCount);
       mgr.buildHistogram(atomicOperation, Stream.empty(), nullCount, nullCount,
           mgr.getKeyFieldCount());
       return;
@@ -558,9 +591,10 @@ public final class BTreeMultiValueIndexEngine
 
     long totalCount = nonNullEntries.size() + nullCount;
 
-    // Recalibrate approximate counter from the exact scan to prevent
+    // Recalibrate approximate counters from the exact scan to prevent
     // divergence over time (e.g., from rolled-back atomic operations).
     approximateIndexEntriesCount.set(totalCount);
+    approximateNullCount.set(nullCount);
 
     mgr.buildHistogram(
         atomicOperation, nonNullEntries.stream().map(RawPair::first),
@@ -570,17 +604,22 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
-    try (var stream = get(null, atomicOperation)) {
-      return stream.count();
-    }
+    return approximateNullCount.get();
   }
 
   @Override
   public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
-    try (var nonNullStream = stream(null, atomicOperation);
-        var nullStream = get(null, atomicOperation)) {
-      return nonNullStream.count() + nullStream.count();
-    }
+    return approximateIndexEntriesCount.get();
+  }
+
+  @Override
+  public void addToApproximateEntryCount(long delta) {
+    approximateIndexEntriesCount.addAndGet(delta);
+  }
+
+  @Override
+  public void addToApproximateNullCount(long delta) {
+    approximateNullCount.addAndGet(delta);
   }
 
   /**
