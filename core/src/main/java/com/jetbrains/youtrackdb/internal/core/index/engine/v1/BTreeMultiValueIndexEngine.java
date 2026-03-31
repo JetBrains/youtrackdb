@@ -23,6 +23,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -48,6 +51,12 @@ public final class BTreeMultiValueIndexEngine
   private final String nullTreeName;
   private final AbstractStorage storage;
   @Nullable private volatile IndexHistogramManager histogramManager;
+
+  // Approximate count of visible index entries (svTree + nullTree), used by the
+  // query optimizer for cost estimation. Initialized from tree sizes on load.
+  // AtomicLong because concurrent TXs can commit index changes simultaneously.
+  // Will be adjusted when GC for BTree functionality is implemented.
+  private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
 
   public BTreeMultiValueIndexEngine(
       int id, @Nonnull String name, AbstractStorage storage, final int version) {
@@ -103,6 +112,7 @@ public final class BTreeMultiValueIndexEngine
           atomicOperation, new IndexMultiValuKeySerializer(),
           new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
           2);
+      approximateIndexEntriesCount.set(0);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error during creation of index " + name), e,
@@ -171,6 +181,8 @@ public final class BTreeMultiValueIndexEngine
         nullTreeName, 2,
         new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
         new IndexMultiValuKeySerializer(), atomicOperation);
+    approximateIndexEntriesCount.set(
+        svTree.size(atomicOperation) + nullTree.size(atomicOperation));
   }
 
   @Override
@@ -211,9 +223,11 @@ public final class BTreeMultiValueIndexEngine
       @Nonnull AtomicOperation atomicOperation,
       CompositeKey compositeKey,
       RID value) throws IOException {
-    var res = tree.iterateEntriesBetween(
-        compositeKey, true, compositeKey, true, true, atomicOperation)
-        .findAny();
+    Optional<RawPair<CompositeKey, RID>> res;
+    try (var stream = tree.iterateEntriesBetween(
+        compositeKey, true, compositeKey, true, true, atomicOperation)) {
+      res = stream.findAny();
+    }
 
     if (res.isEmpty()) {
       return false;
@@ -233,6 +247,7 @@ public final class BTreeMultiValueIndexEngine
     tree.put(atomicOperation, newKey, new TombstoneRID(value));
 
     snapshot.addSnapshotPair(pair.first(), newKey, value);
+    approximateIndexEntriesCount.decrementAndGet();
     return true;
   }
 
@@ -241,6 +256,7 @@ public final class BTreeMultiValueIndexEngine
     clearSVTree(atomicOperation);
     indexesSnapshot.clear();
     nullIndexesSnapshot.clear();
+    approximateIndexEntriesCount.set(0);
     var mgr = histogramManager;
     if (mgr != null) {
       try {
@@ -348,9 +364,11 @@ public final class BTreeMultiValueIndexEngine
       CompositeKey newKey,
       RID value) throws IOException {
     // Find existing entry by (userKey, RID) prefix
-    var res = tree.iterateEntriesBetween(
-        newKey, true, newKey, true, true, atomicOperation)
-        .findAny();
+    Optional<RawPair<CompositeKey, RID>> res;
+    try (var stream = tree.iterateEntriesBetween(
+        newKey, true, newKey, true, true, atomicOperation)) {
+      res = stream.findAny();
+    }
     var version = atomicOperation.getCommitTs();
     if (res.isPresent()) {
       var pair = res.get();
@@ -371,9 +389,13 @@ public final class BTreeMultiValueIndexEngine
       if (removedRID instanceof RecordId) {
         snapshot.addSnapshotPair(oldKey, newKey, value);
       }
+      if (removedRID instanceof TombstoneRID) {
+        approximateIndexEntriesCount.incrementAndGet();
+      }
       return true;
     } else {
       newKey.addKey(version);
+      approximateIndexEntriesCount.incrementAndGet();
       return tree.put(atomicOperation, newKey, value);
     }
   }
@@ -451,9 +473,7 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
       @Nonnull AtomicOperation atomicOperation) {
-    long nonNullCount = stream(null, atomicOperation).count();
-    long nullCount = get(null, atomicOperation).count();
-    return nonNullCount + nullCount;
+    return approximateIndexEntriesCount.get();
   }
 
   @Override
@@ -512,29 +532,55 @@ public final class BTreeMultiValueIndexEngine
       return;
     }
 
-    // Compute nullCount once and derive totalCount to avoid redundant scans.
-    // getNullCount + getTotalCount would scan null entries twice because
-    // getTotalCount -> size() -> stream().count() + get(null).count().
-    long nullCount = get(null, atomicOperation).count();
-    long nonNullCount = stream(null, atomicOperation).count();
-    long totalCount = nonNullCount + nullCount;
-
-    // keyStream() extracts the original key from CompositeKey(key, RID)
-    try (var keys = keyStream(atomicOperation)) {
-      mgr.buildHistogram(
-          atomicOperation, keys, totalCount, nullCount,
-          mgr.getKeyFieldCount());
+    // Null entries live in nullTree, non-null in svTree — two separate scans
+    // are unavoidable. But we combine the non-null count and key collection
+    // into a single svTree pass (previously stream().count() + keyStream()
+    // scanned svTree twice).
+    long nullCount;
+    try (var nullStream = get(null, atomicOperation)) {
+      nullCount = nullStream.count();
     }
+
+    var firstKey = svTree.firstKey(atomicOperation);
+    if (firstKey == null) {
+      approximateIndexEntriesCount.set(nullCount);
+      mgr.buildHistogram(atomicOperation, Stream.empty(), nullCount, nullCount,
+          mgr.getKeyFieldCount());
+      return;
+    }
+
+    List<RawPair<Object, RID>> nonNullEntries;
+    try (var svStream = indexesSnapshot.visibilityFilterMapped(atomicOperation,
+        svTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
+        BTreeMultiValueIndexEngine::extractKey)) {
+      nonNullEntries = svStream.toList();
+    }
+
+    long totalCount = nonNullEntries.size() + nullCount;
+
+    // Recalibrate approximate counter from the exact scan to prevent
+    // divergence over time (e.g., from rolled-back atomic operations).
+    approximateIndexEntriesCount.set(totalCount);
+
+    mgr.buildHistogram(
+        atomicOperation, nonNullEntries.stream().map(RawPair::first),
+        totalCount, nullCount,
+        mgr.getKeyFieldCount());
   }
 
   @Override
   public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
-    return get(null, atomicOperation).count();
+    try (var stream = get(null, atomicOperation)) {
+      return stream.count();
+    }
   }
 
   @Override
   public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
-    return size(storage, null, atomicOperation);
+    try (var nonNullStream = stream(null, atomicOperation);
+        var nullStream = get(null, atomicOperation)) {
+      return nonNullStream.count() + nullStream.count();
+    }
   }
 
   /**

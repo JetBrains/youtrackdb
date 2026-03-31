@@ -24,7 +24,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -41,6 +45,13 @@ public final class BTreeSingleValueIndexEngine
   private final int id;
   private final AbstractStorage storage;
   @Nullable private volatile IndexHistogramManager histogramManager;
+
+  // Approximate count of visible index entries, used by the query optimizer for
+  // cost estimation. Initialized from sbTree.size() on load (includes tombstones
+  // and markers, so approximate). Kept up to date by put/remove/clear operations.
+  // AtomicLong because concurrent TXs can commit index changes simultaneously.
+  // Will be adjusted when GC for BTree functionality is implemented.
+  private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
 
   public BTreeSingleValueIndexEngine(
       int id, String name, AbstractStorage storage, int version) {
@@ -85,6 +96,7 @@ public final class BTreeSingleValueIndexEngine
           new IndexMultiValuKeySerializer(),
           sbTypes,
           data.getKeySize() + 1);
+      approximateIndexEntriesCount.set(0);
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(), "Error of creation of index " + name),
@@ -132,6 +144,7 @@ public final class BTreeSingleValueIndexEngine
     final var sbTypes = calculateTypes(keyTypes);
 
     sbTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
+    approximateIndexEntriesCount.set(sbTree.size(atomicOperation));
   }
 
   @Override
@@ -139,11 +152,11 @@ public final class BTreeSingleValueIndexEngine
     try {
       var compositeKey = convertToCompositeKey(key);
 
-      var res =
-          sbTree
-              .iterateEntriesBetween(compositeKey, true, compositeKey, true, true,
-                  atomicOperation)
-              .findAny();
+      Optional<RawPair<CompositeKey, RID>> res;
+      try (var stream = sbTree.iterateEntriesBetween(
+          compositeKey, true, compositeKey, true, true, atomicOperation)) {
+        res = stream.findAny();
+      }
 
       if (res.isEmpty()) {
         return false;
@@ -165,6 +178,7 @@ public final class BTreeSingleValueIndexEngine
       sbTree.put(atomicOperation, newKey, new TombstoneRID(value));
 
       indexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
+      approximateIndexEntriesCount.decrementAndGet();
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -185,6 +199,7 @@ public final class BTreeSingleValueIndexEngine
     try {
       doClearTree(atomicOperation);
       indexesSnapshot.clear();
+      approximateIndexEntriesCount.set(0);
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.resetOnClear(atomicOperation);
@@ -261,9 +276,11 @@ public final class BTreeSingleValueIndexEngine
       boolean wasInserted;
 
       var newKey = convertToCompositeKey(key);
-      var existing = sbTree.iterateEntriesBetween(
-          newKey, true, newKey, true, true, atomicOperation)
-          .findAny();
+      Optional<RawPair<CompositeKey, RID>> existing;
+      try (var stream = sbTree.iterateEntriesBetween(
+          newKey, true, newKey, true, true, atomicOperation)) {
+        existing = stream.findAny();
+      }
       var version = atomicOperation.getCommitTs();
       if (existing.isPresent()) {
         var pair = existing.get();
@@ -283,10 +300,14 @@ public final class BTreeSingleValueIndexEngine
           if (removedRID instanceof RecordId) {
             indexesSnapshot.addSnapshotPair(oldKey, newKey, value);
           }
+          if (removedRID instanceof TombstoneRID) {
+            approximateIndexEntriesCount.incrementAndGet();
+          }
         }
       } else {
         newKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, newKey, value);
+        approximateIndexEntriesCount.incrementAndGet();
       }
 
       var mgr = histogramManager;
@@ -314,9 +335,11 @@ public final class BTreeSingleValueIndexEngine
       boolean wasInserted;
 
       var compositeKey = convertToCompositeKey(key);
-      var existing = sbTree.iterateEntriesBetween(
-          compositeKey, true, compositeKey, true, true, atomicOperation)
-          .findAny();
+      Optional<RawPair<CompositeKey, RID>> existing;
+      try (var stream = sbTree.iterateEntriesBetween(
+          compositeKey, true, compositeKey, true, true, atomicOperation)) {
+        existing = stream.findAny();
+      }
       RID removedRID = null;
       if (existing.isPresent()) {
         removedRID = existing.get().second();
@@ -331,20 +354,28 @@ public final class BTreeSingleValueIndexEngine
         }
       }
 
-      // SnapshotMarkerRID should not be updated
-      assert !(removedRID instanceof SnapshotMarkerRID);
+      var version = atomicOperation.getCommitTs();
 
       if (removedRID != null) {
-        sbTree.remove(atomicOperation, existing.get().first());
-      }
+        var oldKey = existing.get().first();
+        sbTree.remove(atomicOperation, oldKey);
+        compositeKey.addKey(version);
+        wasInserted =
+            sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
 
-      var version = atomicOperation.getCommitTs();
-      compositeKey.addKey(version);
-
-      if (removedRID instanceof TombstoneRID) {
-        wasInserted = sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
+        if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
+          // Preserve the old value for snapshot readers that started before
+          // this TX. getIdentity() unwraps SnapshotMarkerRID to the inner RID;
+          // for RecordId it returns itself.
+          indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
+        }
+        if (removedRID instanceof TombstoneRID) {
+          approximateIndexEntriesCount.incrementAndGet();
+        }
       } else {
+        compositeKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, compositeKey, value);
+        approximateIndexEntriesCount.incrementAndGet();
       }
 
       var mgr = histogramManager;
@@ -423,9 +454,7 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer,
       @Nonnull AtomicOperation atomicOperation) {
-    long nonNullCount = stream(transformer, atomicOperation).count();
-    long nullCount = get(null, atomicOperation).count();
-    return nonNullCount + nullCount;
+    return approximateIndexEntriesCount.get();
   }
 
   @Override
@@ -480,29 +509,53 @@ public final class BTreeSingleValueIndexEngine
       return;
     }
 
-    // Compute nullCount once and derive totalCount to avoid redundant scans.
-    // getNullCount + getTotalCount would scan null entries twice because
-    // getTotalCount -> size() -> stream().count() + get(null).count().
-    long nullCount = get(null, atomicOperation).count();
-    long nonNullCount = stream(null, atomicOperation).count();
-    long totalCount = nonNullCount + nullCount;
-
-    try (
-        var keys = keyStream(atomicOperation)) {
-      mgr.buildHistogram(
-          atomicOperation, keys, totalCount, nullCount,
+    // Single-pass scan: iterate all visible entries once, partitioning into
+    // null and non-null groups.
+    var firstKey = sbTree.firstKey(atomicOperation);
+    if (firstKey == null) {
+      approximateIndexEntriesCount.set(0);
+      mgr.buildHistogram(atomicOperation, Stream.empty(), 0, 0,
           mgr.getKeyFieldCount());
+      return;
     }
+
+    List<RawPair<Object, RID>> nonNullEntries;
+    long nullCount;
+    try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
+        sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
+        BTreeSingleValueIndexEngine::extractKey)) {
+      var partitioned = allVisible.collect(
+          Collectors.partitioningBy(p -> p.first() != null));
+      nonNullEntries = partitioned.get(true);
+      nullCount = partitioned.get(false).size();
+    }
+    long totalCount = nonNullEntries.size() + nullCount;
+
+    // Recalibrate approximate counter from the exact scan to prevent
+    // divergence over time (e.g., from rolled-back atomic operations).
+    approximateIndexEntriesCount.set(totalCount);
+
+    mgr.buildHistogram(
+        atomicOperation, nonNullEntries.stream().map(RawPair::first),
+        totalCount, nullCount,
+        mgr.getKeyFieldCount());
   }
 
   @Override
   public long getNullCount(@Nonnull AtomicOperation atomicOperation) {
-    return get(null, atomicOperation).count();
+    try (var stream = get(null, atomicOperation)) {
+      return stream.count();
+    }
   }
 
   @Override
   public long getTotalCount(@Nonnull AtomicOperation atomicOperation) {
-    return size(storage, null, atomicOperation);
+    // Exact count via visibility-filtered scan. Used by histogram migration
+    // path which needs precise counts, unlike size() which is approximate.
+    try (var nonNullStream = stream(null, atomicOperation);
+        var nullStream = get(null, atomicOperation)) {
+      return nonNullStream.count() + nullStream.count();
+    }
   }
 
   /**

@@ -887,7 +887,6 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     assertEquals(3, afterDelete.size());
     snapshotGraph.tx().commit();
 
-    System.out.println("----new graph");
     // New graph must see final reality (only 2 remain)
     var newGraph = openGraph();
     newGraph.tx().begin();
@@ -954,7 +953,6 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     assertEquals(3, afterDelete.size());
     snapshotGraph.tx().commit();
 
-    System.out.println("----new graph");
     // Fresh graph must see 0
     var newGraph = openGraph();
     newGraph.tx().begin();
@@ -1650,9 +1648,9 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     // This triggers interpretAsNonUnique to produce standalone PUTs for
     // keys that already have committed live entries.
     graph.tx().begin();
-    graph.V(id1).property("name", (Object) null).iterate();
-    graph.V(id2).property("name", (Object) null).iterate();
-    graph.V(id3).property("name", (Object) null).iterate();
+    graph.V(id1).property("name", null).iterate();
+    graph.V(id2).property("name", null).iterate();
+    graph.V(id3).property("name", null).iterate();
 
     graph.V(id1).property("name", "Name2").iterate();
     graph.V(id2).property("name", "Name1").iterate();

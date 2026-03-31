@@ -1,7 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.ArgumentMatchers.*;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,17 +52,17 @@ public class BTreeEngineHistogramBuildTest {
     // each consuming streams. Use thenAnswer to return fresh streams.
     when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
         .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, 0L), nullRid)));
-    var firstKey = new CompositeKey((Object) null, 0L);
+            new RawPair<>(new CompositeKey(null, 0L), nullRid)));
+    var firstKey = new CompositeKey(null, 0L);
     when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
         .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, 0L), nullRid),
+            new RawPair<>(new CompositeKey(null, 0L), nullRid),
             new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2)),
             new RawPair<>(new CompositeKey("c", 0L), new RecordId(2, 3))));
     when(f.sbTree.keyStream(f.op)).thenAnswer(inv -> Stream.of(
-        new CompositeKey((Object) null, 0L),
+        new CompositeKey(null, 0L),
         new CompositeKey("a", 0L), new CompositeKey("b", 0L), new CompositeKey("c", 0L)));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
 
@@ -143,7 +146,7 @@ public class BTreeEngineHistogramBuildTest {
     var f = new SingleValueFixture();
     when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
         .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, 0L), new RecordId(1, 1))));
+            new RawPair<>(new CompositeKey(null, 0L), new RecordId(1, 1))));
 
     assertEquals(1, f.engine.getNullCount(f.op));
   }
@@ -163,17 +166,17 @@ public class BTreeEngineHistogramBuildTest {
     // stream() filters null keys, so null entry only counted via get(null)
     var f = new SingleValueFixture();
     var nullRid = new RecordId(1, 1);
-    var firstKey = new CompositeKey((Object) null, 0L);
+    var firstKey = new CompositeKey(null, 0L);
     when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
         .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, 0L), nullRid),
+            new RawPair<>(new CompositeKey(null, 0L), nullRid),
             new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2))));
     // Mock get(null) path: iterateEntriesBetween for CompositeKey(null)
     when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
         .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey((Object) null, 0L), nullRid)));
+            new RawPair<>(new CompositeKey(null, 0L), nullRid)));
 
     // totalCount = 2 (non-null from stream) + 1 (null from get(null)) = 3
     assertEquals(3, f.engine.getTotalCount(f.op));
@@ -366,7 +369,7 @@ public class BTreeEngineHistogramBuildTest {
     // statsFileExists delegates to atomicOperation.isFileExists(fullName)
     var atomicOp = mock(AtomicOperation.class);
     when(atomicOp.isFileExists("test-idx.ixs")).thenReturn(true);
-    assertEquals(true, mgr.statsFileExists(atomicOp));
+    assertTrue(mgr.statsFileExists(atomicOp));
   }
 
   // ═══════════════════════════════════════════════════════════════════════

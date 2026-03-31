@@ -345,6 +345,7 @@ public abstract class AbstractStorage
   // exhaustion under sustained heavy concurrent load (e.g., 30-minute soak tests).
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
+
   // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
       new ConcurrentSkipListMap<>();
@@ -357,6 +358,12 @@ public abstract class AbstractStorage
       new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
   private final ConcurrentSkipListMap<CompositeKey, CompositeKey> nullIndexSnapshotVisibilityIndex =
       new ConcurrentSkipListMap<>(INDEX_SNAPSHOT_VERSION_COMPARATOR);
+
+  // Approximate count of entries in sharedIndexesSnapshotData + sharedNullIndexesSnapshotData,
+  // used for O(1) cleanup threshold checks.
+  // Incremented by IndexesSnapshot.addSnapshotPair() (2 per pair), decremented by
+  // evictStaleIndexesSnapshotEntries().
+  protected final AtomicLong indexesSnapshotEntriesCount = new AtomicLong();
 
   // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
@@ -374,12 +381,6 @@ public abstract class AbstractStorage
   // Approximate count of entries in sharedEdgeSnapshotIndex, used for O(1) cleanup threshold
   // checks. Same rationale as snapshotIndexSize — ConcurrentSkipListMap.size() is O(n).
   protected final AtomicLong edgeSnapshotIndexSize = new AtomicLong();
-
-  // Approximate count of entries in sharedIndexesSnapshotData + sharedNullIndexesSnapshotData,
-  // used for O(1) cleanup threshold checks.
-  // Incremented by IndexesSnapshot.addSnapshotPair() (2 per pair), decremented by
-  // evictStaleIndexesSnapshotEntries().
-  protected final AtomicLong indexSnapshotSize = new AtomicLong();
 
   // Stale transaction monitor (YTDB-550): periodically scans tsMins to detect long-running
   // transactions and logs warnings. Initialized at storage open, stopped at shutdown.
@@ -4789,7 +4790,7 @@ public abstract class AbstractStorage
       indexesSnapshotVisibilityIndex.clear();
       sharedNullIndexesSnapshot.clear();
       nullIndexSnapshotVisibilityIndex.clear();
-      indexSnapshotSize.set(0);
+      indexesSnapshotEntriesCount.set(0);
 
       if (writeCache != null) {
         writeCache.removeBackgroundExceptionListener(this);
@@ -4871,6 +4872,7 @@ public abstract class AbstractStorage
         indexesSnapshotVisibilityIndex.clear();
         sharedNullIndexesSnapshot.clear();
         nullIndexSnapshotVisibilityIndex.clear();
+        indexesSnapshotEntriesCount.set(0);
 
         if (writeCache != null) {
           writeCache.removeBackgroundExceptionListener(this);
@@ -5942,7 +5944,7 @@ public abstract class AbstractStorage
     int threshold = configuration.getContextConfiguration()
         .getValueAsInteger(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD);
     long combinedSize =
-        snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexSnapshotSize.get();
+        snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexesSnapshotEntriesCount.get();
     if (combinedSize <= threshold) {
       return;
     }
@@ -5951,7 +5953,7 @@ public abstract class AbstractStorage
     }
     try {
       combinedSize =
-          snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexSnapshotSize.get();
+          snapshotIndexSize.get() + edgeSnapshotIndexSize.get() + indexesSnapshotEntriesCount.get();
       if (combinedSize <= threshold) {
         return;
       }
@@ -5963,9 +5965,9 @@ public abstract class AbstractStorage
           lwm, sharedEdgeSnapshotIndex, edgeVisibilityIndex,
           edgeSnapshotIndexSize);
       evictStaleIndexesSnapshotEntries(lwm, sharedIndexesSnapshot,
-          indexesSnapshotVisibilityIndex, indexSnapshotSize);
+          indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount);
       evictStaleIndexesSnapshotEntries(lwm, sharedNullIndexesSnapshot,
-          nullIndexSnapshotVisibilityIndex, indexSnapshotSize);
+          nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount);
     } finally {
       snapshotCleanupLock.unlock();
     }
@@ -6230,12 +6232,14 @@ public abstract class AbstractStorage
 
   public IndexesSnapshot subIndexSnapshot(long indexId) {
     return new IndexesSnapshot(
-        sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexSnapshotSize, indexId);
+        sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
+        indexId);
   }
 
   public IndexesSnapshot subNullIndexSnapshot(long indexId) {
     return new IndexesSnapshot(
-        sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexSnapshotSize, indexId);
+        sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
+        indexId);
   }
 
   /**
@@ -6279,8 +6283,8 @@ public abstract class AbstractStorage
     return edgeSnapshotIndexSize;
   }
 
-  public AtomicLong getIndexSnapshotSize() {
-    return indexSnapshotSize;
+  public AtomicLong getIndexesSnapshotEntriesCount() {
+    return indexesSnapshotEntriesCount;
   }
 
   /**

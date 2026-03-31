@@ -4,6 +4,17 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import javax.annotation.Nonnull;
 
+/**
+ * Marker RID indicating an index entry that replaced a prior version (either a
+ * {@link TombstoneRID} or another live entry). Stored in the B-tree so that the
+ * visibility filter can detect "this key was re-inserted or updated" and fall
+ * back to the snapshot index for historical state. The wrapped
+ * {@link #identity()} is the RID of the new record occupying this key.
+ *
+ * <p>{@link #getCollectionPosition()} encodes the position as
+ * {@code -(position + 1)} so that on-disk serialization can distinguish
+ * snapshot markers from live entries.
+ */
 public record SnapshotMarkerRID(RID identity) implements RID {
 
   @Override
@@ -34,7 +45,7 @@ public record SnapshotMarkerRID(RID identity) implements RID {
   }
 
   @Override
-  public int compareTo(Identifiable o) {
+  public int compareTo(@Nonnull Identifiable o) {
     return identity.compareTo(o);
   }
 

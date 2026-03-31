@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -1411,14 +1412,14 @@ public class SnapshotIsolationIndexesUniqueTest {
     // collapse the changes into standalone PUTs for keys that already have
     // committed live entries.
     graph.tx().begin();
-    graph.V(id1).property("name", (Object) null).iterate();
-    graph.V(id2).property("name", (Object) null).iterate();
+    graph.V(id1).property("name", null).iterate();
+    graph.V(id2).property("name", null).iterate();
 
     graph.V(id1).property("name", "Name2").iterate();
     graph.V(id2).property("name", "Name1").iterate();
 
-    graph.V(id1).property("name", (Object) null).iterate();
-    graph.V(id2).property("name", (Object) null).iterate();
+    graph.V(id1).property("name", null).iterate();
+    graph.V(id2).property("name", null).iterate();
 
     graph.V(id1).property("name", "Name1").iterate();
     graph.V(id2).property("name", "Name2").iterate();
@@ -1431,6 +1432,88 @@ public class SnapshotIsolationIndexesUniqueTest {
         snapshotGraph.V().hasLabel("Userr").has("name", "Name2").toList().size());
     snapshotGraph.tx().commit();
 
+    snapshotGraph.close();
+    graph.close();
+  }
+
+  /**
+   * Snapshot isolation violation when validatedPut replaces a SnapshotMarkerRID.
+   *
+   * <p>Sequence:
+   *   TX A: create vertex with name="Foo" on a UNIQUE(mergeKeys=true) index
+   *   TX B: delete that vertex → index entry becomes TombstoneRID for "Foo"
+   *   TX C: re-insert name="Foo" → SnapshotMarkerRID wrapping the new RID
+   *   Snapshot TX: begins here — should see 1 Foo (from TX C)
+   *   TX D: insert another vertex with name="Foo" (mergeKeys allows it) →
+   *         validatedPut finds SnapshotMarkerRID, removes it from B-tree,
+   *         inserts a plain entry, but never calls addSnapshotPair().
+   *         The old SnapshotMarkerRID is lost; the snapshot reader can no
+   *         longer find the TX C entry.
+   *
+   * <p>Expected: snapshot TX must still see 1 Foo after TX D commits (snapshot
+   * isolation). The current code violates this because the SnapshotMarkerRID
+   * is removed without preserving it in the snapshot.
+   */
+  @Test
+  public void validatedPut_replacesSnapshotMarkerRID_snapshotIsolationViolation()
+      throws Exception {
+    String fooValue = "Foo";
+
+    // Schema with UNIQUE index and mergeKeys=true metadata.
+    // mergeKeys allows the validator to accept duplicate keys instead of
+    // throwing RecordDuplicatedException.
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex(
+        "IndexPropertyName",
+        INDEX_TYPE.UNIQUE.name(),
+        null,
+        Map.of("mergeKeys", true),
+        new String[] {"name"});
+
+    // TX A: create vertex with name=Foo
+    var graph = openGraph();
+    graph.tx().begin();
+    var v1 = graph.addV("Userr").property("name", fooValue).next();
+    var id1 = v1.id();
+    graph.tx().commit();
+
+    // TX B: delete the vertex → TombstoneRID for "Foo" in index
+    graph.tx().begin();
+    graph.V(id1).drop().iterate();
+    graph.tx().commit();
+
+    // TX C: re-insert a new vertex with name=Foo → SnapshotMarkerRID created
+    // because previous entry was TombstoneRID
+    graph.tx().begin();
+    graph.addV("Userr").property("name", fooValue).next();
+    graph.tx().commit();
+
+    // Snapshot TX: start repeatable-read snapshot — sees 1 Foo (from TX C)
+    var snapshotGraph = openGraph();
+    snapshotGraph.tx().begin();
+    assertEquals(1,
+        snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+
+    // TX D: insert another vertex with name=Foo.
+    // validatedPut finds SnapshotMarkerRID from TX C.
+    // With mergeKeys=true the validator allows it. The engine removes the
+    // SnapshotMarkerRID from the B-tree but does not call addSnapshotPair(),
+    // so the snapshot reader loses visibility of the TX C entry.
+    graph.tx().begin();
+    graph.addV("Userr").property("name", fooValue).next();
+    graph.tx().commit();
+
+    // Snapshot TX: must still see 1 Foo — snapshot isolation requires that
+    // changes from TX D are invisible. But because the SnapshotMarkerRID
+    // was removed without preserving it, the snapshot reader sees 0.
+    assertEquals(
+        "Snapshot isolation violated: snapshot reader should still see 1 Foo "
+            + "after concurrent validatedPut replaced SnapshotMarkerRID",
+        1,
+        snapshotGraph.V().hasLabel("Userr").has("name", fooValue).toList().size());
+
+    snapshotGraph.tx().commit();
     snapshotGraph.close();
     graph.close();
   }

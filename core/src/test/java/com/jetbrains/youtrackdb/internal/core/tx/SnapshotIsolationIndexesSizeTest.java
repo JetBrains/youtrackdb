@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -109,7 +111,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size, not the size after concurrent insert.
+   * After concurrent insert, size() reflects the latest committed count.
+   * size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoPhantom_NOTUNIQUE() {
@@ -122,7 +125,8 @@ public class SnapshotIsolationIndexesSizeTest {
 
     insertVertices(db, "Baz");
 
-    assertEquals(2, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (3), not snapshot (2).
+    assertEquals(3, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -134,7 +138,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size, not the size after concurrent delete.
+   * After concurrent delete, size() reflects the latest committed count.
+   * size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoVisibilityForDelete_NOTUNIQUE() {
@@ -149,7 +154,8 @@ public class SnapshotIsolationIndexesSizeTest {
     tx.command("DELETE VERTEX Userr WHERE name = 'Foo' LIMIT 1");
     tx.commit();
 
-    assertEquals(3, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (2), not snapshot (3).
+    assertEquals(2, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -264,7 +270,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size, not the size after concurrent insert.
+   * After concurrent insert, size() reflects the latest committed count.
+   * UNIQUE size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoPhantom_UNIQUE() {
@@ -277,7 +284,8 @@ public class SnapshotIsolationIndexesSizeTest {
 
     insertVertices(db, "Baz");
 
-    assertEquals(2, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (3), not snapshot (2).
+    assertEquals(3, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -289,7 +297,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size, not the size after concurrent delete.
+   * After concurrent delete, size() reflects the latest committed count.
+   * UNIQUE size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoVisibilityForDelete_UNIQUE() {
@@ -304,7 +313,8 @@ public class SnapshotIsolationIndexesSizeTest {
     tx.command("DELETE VERTEX Userr WHERE name = 'Foo'");
     tx.commit();
 
-    assertEquals(3, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (2), not snapshot (3).
+    assertEquals(2, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -477,7 +487,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size when a null-keyed record is inserted concurrently.
+   * After concurrent null-key insert, size() reflects the latest committed count.
+   * size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoPhantomNullKey_NOTUNIQUE() {
@@ -491,7 +502,8 @@ public class SnapshotIsolationIndexesSizeTest {
 
     insertVerticesWithNullKey(db, 1);
 
-    assertEquals(2, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (3), not snapshot (2).
+    assertEquals(3, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -503,7 +515,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size when a null-keyed record is deleted concurrently.
+   * After concurrent null-key delete, size() reflects the latest committed count.
+   * size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoVisibilityForDeleteNullKey_NOTUNIQUE() {
@@ -519,7 +532,8 @@ public class SnapshotIsolationIndexesSizeTest {
     tx.command("DELETE VERTEX Userr WHERE name IS NULL LIMIT 1");
     tx.commit();
 
-    assertEquals(3, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (2), not snapshot (3).
+    assertEquals(2, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -571,7 +585,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size when a null-keyed record is inserted concurrently.
+   * After concurrent null-key insert, size() reflects the latest committed count.
+   * UNIQUE size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoPhantomNullKey_UNIQUE() {
@@ -584,7 +599,8 @@ public class SnapshotIsolationIndexesSizeTest {
 
     insertVerticesWithNullKey(db, 1);
 
-    assertEquals(2, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (3), not snapshot (2).
+    assertEquals(3, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -596,7 +612,8 @@ public class SnapshotIsolationIndexesSizeTest {
   }
 
   /**
-   * Snapshot sees original size when a null-keyed record is deleted concurrently.
+   * After concurrent null-key delete, size() reflects the latest committed count.
+   * UNIQUE size() is approximate (not snapshot-aware) — used for cost estimation.
    */
   @Test
   public void sizeSnapshotNoVisibilityForDeleteNullKey_UNIQUE() {
@@ -612,7 +629,8 @@ public class SnapshotIsolationIndexesSizeTest {
     tx.command("DELETE VERTEX Userr WHERE name IS NULL");
     tx.commit();
 
-    assertEquals(3, getIndexSize(snap));
+    // Approximate counter reflects latest committed state (2), not snapshot (3).
+    assertEquals(2, getIndexSize(snap));
     snap.commit();
     snap.close();
 
@@ -686,6 +704,104 @@ public class SnapshotIsolationIndexesSizeTest {
     assertEquals(3, getIndexSize(session));
     session.commit();
     session.close();
+  }
+
+  // ==========================================================================
+  //  Eviction: indexesSnapshotEntriesCount drops to 0 after cleanup
+  // ==========================================================================
+
+  /**
+   * NOTUNIQUE index: after update+delete while a snapshot holds the LWM low on a
+   * separate thread, the indexes snapshot accumulates entries
+   * (indexesSnapshotEntriesCount > 0). Once the snapshot closes and cleanup runs
+   * (threshold=0), the counter must drop to 0.
+   *
+   * <p>The snapshot must live on a separate thread because tsMin is thread-local:
+   * if both sessions share a thread, the writer's commit resets the same holder,
+   * allowing premature eviction.
+   */
+  @Test
+  public void evictionResetsEntriesCount_NOTUNIQUE() throws Exception {
+    createSchema(INDEX_TYPE.NOTUNIQUE);
+    var storage = db.getStorage();
+
+    // Disable cleanup during mutations so entries accumulate
+    storage.getContextConfiguration()
+        .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD,
+            Integer.MAX_VALUE);
+
+    insertVertices(db, "Foo", "Bar");
+
+    // Mutations create index snapshot entries
+    var tx = db.begin();
+    tx.command("UPDATE Userr SET name = 'Baz' WHERE name = 'Foo'");
+    tx.commit();
+
+    tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name = 'Bar'");
+    tx.commit();
+
+    // Snapshot entries must have been created
+    assertThat(storage.getIndexesSnapshotEntriesCount().get())
+        .as("indexes snapshot must contain entries after mutations")
+        .isGreaterThan(0);
+
+    // Now lower the threshold so cleanup fires on the next transaction close
+    storage.getContextConfiguration()
+        .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction
+    db.begin().commit();
+
+    assertThat(storage.getIndexesSnapshotEntriesCount().get())
+        .as("indexes snapshot entries must be evicted after cleanup")
+        .isEqualTo(0);
+  }
+
+  /**
+   * UNIQUE index: after update+delete while a snapshot holds the LWM low on a
+   * separate thread, the indexes snapshot accumulates entries
+   * (indexesSnapshotEntriesCount > 0). Once the snapshot closes and cleanup runs
+   * (threshold=0), the counter must drop to 0.
+   *
+   * <p>The snapshot must live on a separate thread because tsMin is thread-local.
+   */
+  @Test
+  public void evictionResetsEntriesCount_UNIQUE() {
+    createSchema(INDEX_TYPE.UNIQUE);
+    var storage = db.getStorage();
+
+    // Disable cleanup during mutations so entries accumulate
+    storage.getContextConfiguration()
+        .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD,
+            Integer.MAX_VALUE);
+
+    insertVertices(db, "Foo", "Bar", "Baz");
+
+    // Mutations create index snapshot entries
+    var tx = db.begin();
+    tx.command("UPDATE Userr SET name = 'Qux' WHERE name = 'Foo'");
+    tx.commit();
+
+    tx = db.begin();
+    tx.command("DELETE VERTEX Userr WHERE name = 'Bar'");
+    tx.commit();
+
+    // Snapshot entries must have been created
+    assertThat(storage.getIndexesSnapshotEntriesCount().get())
+        .as("indexes snapshot must contain entries after mutations")
+        .isGreaterThan(0);
+
+    // Now lower the threshold so cleanup fires on the next transaction close
+    storage.getContextConfiguration()
+        .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+
+    // A no-op transaction triggers resetTsMin → cleanupSnapshotIndex → eviction
+    db.begin().commit();
+
+    assertThat(storage.getIndexesSnapshotEntriesCount().get())
+        .as("indexes snapshot entries must be evicted after cleanup")
+        .isEqualTo(0);
   }
 
   // ==========================================================================

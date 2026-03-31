@@ -274,7 +274,6 @@ public class SnapshotIsolationIndexesNotUniqueBetweenTest {
     graph.tx().commit();
 
     // Snapshot still sees 3
-    System.out.println("--- between");
     var after = snapshotGraph
         .V()
         .hasLabel("Userr")
@@ -284,7 +283,6 @@ public class SnapshotIsolationIndexesNotUniqueBetweenTest {
     snapshotGraph.tx().commit();
 
     // Fresh TX sees 2
-    System.out.println(" --- newGraph");
     var newGraph = openGraph();
     newGraph.tx().begin();
     var all = newGraph

@@ -4,6 +4,15 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import javax.annotation.Nonnull;
 
+/**
+ * Marker RID indicating a logically deleted index entry. Stored in the B-tree
+ * in place of the original {@link RID} when an entry is removed, so that
+ * snapshot readers can distinguish "deleted after my snapshot" from "never
+ * existed". The wrapped {@link #identity()} is the RID of the deleted record.
+ *
+ * <p>{@link #getCollectionId()} encodes the collection ID as {@code -(id + 1)}
+ * so that on-disk serialization can distinguish tombstones from live entries.
+ */
 public record TombstoneRID(RID identity) implements RID {
 
   @Override
@@ -34,7 +43,7 @@ public record TombstoneRID(RID identity) implements RID {
   }
 
   @Override
-  public int compareTo(Identifiable o) {
+  public int compareTo(@Nonnull Identifiable o) {
     return identity.compareTo(o);
   }
 

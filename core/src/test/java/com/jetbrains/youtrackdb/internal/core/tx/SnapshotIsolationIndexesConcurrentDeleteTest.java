@@ -4,7 +4,6 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -269,10 +268,6 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
       fail("Double-delete corrupted the index: snapshot TX sees a "
           + "phantom record that was already deleted");
     }
-  }
-
-  private YTDBGraphTraversalSource openGraph() {
-    return youTrackDB.openTraversal("test", "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @After
