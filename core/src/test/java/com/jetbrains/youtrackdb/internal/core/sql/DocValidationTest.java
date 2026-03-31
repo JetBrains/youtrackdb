@@ -3550,4 +3550,107 @@ public class DocValidationTest {
     // Clean up
     g.command("DROP CLASS DropIdxUsers");
   }
+
+  // ==========================================================================
+  // YQL-Drop-Property.md validation
+  // ==========================================================================
+
+  /**
+   * YQL-Drop-Property.md — basic syntax: DROP PROPERTY <class>.<property> removes the property
+   * from the schema. Verifies the documented example "DROP PROPERTY User.name".
+   */
+  @Test
+  public void testDropPropertyBasicSyntax() {
+    g.command("CREATE CLASS DropPropUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropUser.name STRING");
+
+    // Verify property exists
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropPropUser SET name = 'Alice'").iterate();
+    });
+
+    // Drop the property as shown in the doc
+    g.command("DROP PROPERTY DropPropUser.name");
+
+    // Verify property is removed from schema — creating it again should succeed
+    g.command("CREATE PROPERTY DropPropUser.name STRING");
+
+    // Verify existing data is still accessible (doc says values remain in records)
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM DropPropUser WHERE name = 'Alice'").toList());
+    assertThat(results).hasSize(1);
+
+    // Clean up
+    g.command("DROP CLASS DropPropUser UNSAFE");
+  }
+
+  /**
+   * YQL-Drop-Property.md — FORCE option: when indexes are defined on the property, DROP PROPERTY
+   * without FORCE throws an exception; with FORCE it drops indexes together with the property.
+   */
+  @Test
+  public void testDropPropertyForceWithIndex() {
+    g.command("CREATE CLASS DropPropForceUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropForceUser.email STRING");
+    g.command("CREATE INDEX DropPropForceUser.email NOTUNIQUE");
+
+    // Without FORCE — should throw because an index exists on the property
+    assertThatThrownBy(() -> g.command("DROP PROPERTY DropPropForceUser.email"));
+
+    // With FORCE — should succeed, dropping both the index and the property
+    g.command("DROP PROPERTY DropPropForceUser.email FORCE");
+
+    // Verify property is gone — re-creating should succeed
+    g.command("CREATE PROPERTY DropPropForceUser.email STRING");
+
+    // Verify index is gone — dropping it should throw
+    assertThatThrownBy(() -> g.command("DROP INDEX DropPropForceUser.email"));
+
+    // Clean up
+    g.command("DROP CLASS DropPropForceUser");
+  }
+
+  /**
+   * YQL-Drop-Property.md — undocumented IF EXISTS syntax: the parser supports IF EXISTS but the
+   * doc does not mention it. Validates that it works correctly.
+   */
+  @Test
+  public void testDropPropertyIfExists() {
+    g.command("CREATE CLASS DropPropIfExUser IF NOT EXISTS EXTENDS V");
+
+    // IF EXISTS on a non-existent property should not throw
+    g.command("DROP PROPERTY DropPropIfExUser.nonexistent IF EXISTS");
+
+    // Without IF EXISTS on a non-existent property should throw
+    assertThatThrownBy(
+        () -> g.command("DROP PROPERTY DropPropIfExUser.nonexistent"));
+
+    // Clean up
+    g.command("DROP CLASS DropPropIfExUser");
+  }
+
+  /**
+   * YQL-Drop-Property.md — claim: "Does not remove the property values in the records." Verifies
+   * that after dropping a property from the schema, existing record values are preserved.
+   */
+  @Test
+  public void testDropPropertyPreservesRecordValues() {
+    g.command("CREATE CLASS DropPropValUser IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropPropValUser.age INTEGER");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropPropValUser SET age = 30").iterate();
+    });
+
+    // Drop the property from schema
+    g.command("DROP PROPERTY DropPropValUser.age");
+
+    // Values should still be queryable
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM DropPropValUser WHERE age = 30").toList());
+    assertThat(results).hasSize(1);
+
+    // Clean up
+    g.command("DROP CLASS DropPropValUser UNSAFE");
+  }
 }
