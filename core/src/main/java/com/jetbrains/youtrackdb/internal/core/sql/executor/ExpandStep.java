@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
+import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -189,7 +189,10 @@ public class ExpandStep extends AbstractExecutionStep {
         return ExecutionStream.iterator(iterator, expandAlias);
       }
       case Iterable<?> iterable -> {
-        if (iterable instanceof VertexFromLinkBagIterable linkBagIterable
+        // PreFilterableLinkBagIterable covers both vertex and edge LinkBag
+        // iterables. ChainedIterable (from bothE/both) does not implement the
+        // interface, so it silently degrades to unfiltered iteration.
+        if (iterable instanceof PreFilterableLinkBagIterable linkBagIterable
             && (acceptedCollectionIds != null || indexRidSet != null)) {
           var filtered = linkBagIterable;
           if (acceptedCollectionIds != null) {
@@ -201,7 +204,10 @@ public class ExpandStep extends AbstractExecutionStep {
                   indexRidSet.size(), filtered.size())) {
             filtered = filtered.withRidFilter(indexRidSet);
           }
-          return ExecutionStream.iterator(filtered.iterator(), expandAlias);
+          // Both concrete PreFilterableLinkBagIterable types (vertex and edge)
+          // implement Iterable, so this cast is always safe.
+          return ExecutionStream.iterator(
+              ((Iterable<?>) filtered).iterator(), expandAlias);
         }
         return ExecutionStream.iterator(iterable.iterator(), expandAlias);
       }
