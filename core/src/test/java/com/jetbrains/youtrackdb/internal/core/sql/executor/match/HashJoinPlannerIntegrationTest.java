@@ -257,11 +257,12 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * Diamond pattern with intermediate alias in RETURN — semi-join should NOT be used
-   * because the intermediate alias (c) is needed for output.
+   * Diamond pattern with intermediate alias in RETURN — should use INNER_JOIN (not
+   * SEMI_JOIN) because the intermediate alias (c) is needed for output and its values
+   * must be merged into the result rows.
    */
   @Test
-  public void diamondPattern_intermediateInReturn_noSemiJoin() {
+  public void diamondPattern_intermediateInReturn_usesInnerJoin() {
     session.begin();
     var result = session.query(
         "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -272,9 +273,11 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    // When all aliases are in RETURN, no semi-join optimization is possible
-    assertFalse("plan should NOT use hash semi-join when all aliases are in RETURN, got:\n"
+    // Intermediate alias in RETURN → inner join, not semi-join
+    assertFalse("plan should NOT use SEMI_JOIN when intermediate is in RETURN, got:\n"
         + plan, plan.contains("HASH SEMI_JOIN"));
+    assertTrue("plan should use INNER_JOIN when intermediate is in RETURN, got:\n"
+        + plan, plan.contains("HASH INNER_JOIN"));
     session.commit();
   }
 
