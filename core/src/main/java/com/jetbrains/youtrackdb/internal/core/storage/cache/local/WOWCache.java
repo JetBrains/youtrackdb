@@ -1255,6 +1255,14 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       var file = files.get(fileId);
+      // File may be null if it was concurrently deleted (e.g., during storage
+      // close/drop while the periodic records GC is still running). Return 0
+      // to indicate no pages — callers such as CollectionDirtyPageBitSet treat
+      // this as a no-op, avoiding an NPE that would poison the storage error
+      // state and hang the shutdown.
+      if (file == null) {
+        return 0;
+      }
       return file.getFileSize() / pageSize;
     } finally {
       filesLock.releaseReadLock();
@@ -2845,7 +2853,12 @@ public final class WOWCache extends AbstractWriteCache
         var fileSize = fileIdSizeMap.get(fileId);
 
         if (fileSize == -1) {
-          fileSize = files.get(externalFileId(fileId)).getUnderlyingFileSize();
+          var fileForSize = files.get(externalFileId(fileId));
+          // File may have been deleted concurrently — skip pages for deleted files.
+          if (fileForSize == null) {
+            continue;
+          }
+          fileSize = fileForSize.getUnderlyingFileSize();
 
           if ((fileSize & (pageSize - 1)) != 0) {
             throw new StorageException(storageName,
@@ -2974,7 +2987,12 @@ public final class WOWCache extends AbstractWriteCache
           lastPageIndex = -1;
           lastFileId = -1;
 
-          var fileSize = files.get(externalFileId(pageKey.fileId)).getUnderlyingFileSize();
+          var fileForSize = files.get(externalFileId(pageKey.fileId));
+          // File may have been deleted concurrently — stop the flush cycle.
+          if (fileForSize == null) {
+            break flushCycle;
+          }
+          var fileSize = fileForSize.getUnderlyingFileSize();
           if (pageKey.pageIndex * pageSize >= fileSize) {
             // if we can not write at least one page outside of the size of the file on disk
             // we should stop the process because otherwise hole in the file during restore
