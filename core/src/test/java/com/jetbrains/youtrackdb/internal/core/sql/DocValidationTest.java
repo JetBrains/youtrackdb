@@ -3653,4 +3653,24 @@ public class DocValidationTest {
     // Clean up
     g.command("DROP CLASS DropPropValUser UNSAFE");
   }
+
+  // === YQL-Drop-Sequence.md ===
+
+  // Line 7-9: DROP SEQUENCE <sequence> — basic syntax validation
+  // Line 19: DROP SEQUENCE idseq — example from docs
+  @Test
+  public void testDropSequenceBasicSyntax() {
+    // Create a fresh sequence, then drop it to validate the documented syntax.
+    // The documented example uses "idseq"; we use a unique name to avoid collisions.
+    g.command("CREATE SEQUENCE dropSeqDocTest TYPE ORDERED");
+
+    // DROP SEQUENCE <sequence> — the documented syntax (line 7-9, line 19)
+    g.command("DROP SEQUENCE dropSeqDocTest");
+  }
+
+  // Verify DROP SEQUENCE fails for a non-existent sequence
+  @Test
+  public void testDropSequenceNonExistent() {
+    assertThatThrownBy(() -> g.command("DROP SEQUENCE noSuchSeqDropTest"));
+  }
 }
