@@ -3673,4 +3673,24 @@ public class DocValidationTest {
   public void testDropSequenceNonExistent() {
     assertThatThrownBy(() -> g.command("DROP SEQUENCE noSuchSeqDropTest"));
   }
+
+  // === YQL-Drop-User.md ===
+
+  // Line 8: DROP USER <user> — basic syntax validation
+  // Line 19: DROP USER Foo — example from docs
+  @Test
+  public void testDropUserBasicSyntax() {
+    // Create a user first via yql() (CREATE USER result is not a vertex/edge,
+    // so command() would fail with the Gremlin result mapper).
+    g.computeInTx(tx -> tx.yql("CREATE USER DropUserDocTestFoo IDENTIFIED BY password123"));
+
+    // DROP USER <user> — the documented syntax (line 8, line 19)
+    g.computeInTx(tx -> tx.yql("DROP USER DropUserDocTestFoo"));
+  }
+
+  // Verify DROP USER on a non-existent user does not throw (silent no-op)
+  @Test
+  public void testDropUserNonExistentIsNoOp() {
+    g.computeInTx(tx -> tx.yql("DROP USER noSuchUserDropTest"));
+  }
 }
