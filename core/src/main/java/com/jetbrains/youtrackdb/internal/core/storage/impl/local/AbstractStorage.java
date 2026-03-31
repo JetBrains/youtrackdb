@@ -139,6 +139,7 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -227,6 +228,16 @@ public abstract class AbstractStorage
 
   protected volatile AtomicOperationsManager atomicOperationsManager;
   private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
+
+  /**
+   * Internal file IDs of non-durable files deleted during crash recovery, used by WAL replay
+   * ({@link #restoreAtomicUnit}) to skip records referencing these files. Populated by
+   * {@code writeCache.deleteNonDurableFilesOnRecovery()} before WAL replay, cleared after
+   * replay completes. Plain (non-volatile) field — recovery is single-threaded.
+   */
+  @SuppressWarnings("UnusedVariable") // consumed by restoreAtomicUnit() in Track 6 Step 2
+  private IntOpenHashSet deletedNonDurableFileIds = new IntOpenHashSet();
+
   private final int id;
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
@@ -4307,7 +4318,18 @@ public abstract class AbstractStorage
         }
 
         wereDataRestoredAfterOpen = true;
-        restoreFromWAL();
+
+        // Delete non-durable files before WAL replay — their data is unrecoverable
+        // (no WAL records exist). The returned set is used by restoreAtomicUnit() to
+        // skip WAL records referencing these files.
+        deletedNonDurableFileIds = writeCache.deleteNonDurableFilesOnRecovery(readCache);
+
+        try {
+          restoreFromWAL();
+        } finally {
+          // Clear after replay — no longer needed, and prevents stale references
+          deletedNonDurableFileIds = new IntOpenHashSet();
+        }
 
         if (recoverListener != null) {
           recoverListener.onStorageRecover();

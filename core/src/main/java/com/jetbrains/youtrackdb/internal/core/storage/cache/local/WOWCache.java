@@ -52,6 +52,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -986,6 +987,56 @@ public final class WOWCache extends AbstractWriteCache
   public boolean isNonDurable(final long fileId) {
     final var intId = extractFileId(fileId);
     return nonDurableFileIds.contains(intId);
+  }
+
+  @Override
+  public IntOpenHashSet deleteNonDurableFilesOnRecovery(
+      final ReadCache readCache) throws IOException {
+    // Snapshot the non-durable IDs under the lock, then release before calling
+    // readCache.deleteFile() — which re-acquires filesLock internally via
+    // WOWCache.deleteFile(). The lock is not reentrant.
+    final IntOpenHashSet deletedIds;
+    filesLock.acquireReadLock();
+    try {
+      final var currentSet = nonDurableFileIds;
+      if (currentSet.isEmpty()) {
+        return new IntOpenHashSet();
+      }
+      deletedIds = new IntOpenHashSet(currentSet);
+    } finally {
+      filesLock.releaseReadLock();
+    }
+
+    // Delete each non-durable file from both caches (lock-free iteration over snapshot)
+    for (final var intIterator = deletedIds.iterator(); intIterator.hasNext();) {
+      final var intId = intIterator.nextInt();
+      final var externalId = composeFileId(id, intId);
+
+      try {
+        // readCache.deleteFile() clears read cache pages and delegates to
+        // writeCache.deleteFile() which handles disk deletion + name-id map cleanup
+        // + non-durable registry removal under filesLock
+        readCache.deleteFile(externalId, this);
+      } catch (final Exception e) {
+        // File may already be missing on disk after a crash — log and continue
+        logger.warn(
+            "Failed to delete non-durable file with internal ID {} during crash recovery,"
+                + " continuing",
+            intId,
+            e);
+      }
+    }
+
+    // Delete both side files (shadow first, then primary) under the write lock
+    filesLock.acquireWriteLock();
+    try {
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+
+    return deletedIds;
   }
 
   @Override

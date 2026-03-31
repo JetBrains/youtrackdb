@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -1000,5 +1001,161 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(
         "Valid non-durable file should survive reload with stale entries",
         wowCache.isNonDurable(restoredNd2));
+  }
+
+  // --- Crash recovery deletion tests ---
+
+  /**
+   * Creates a LockFreeReadCache instance for use by crash recovery tests.
+   */
+  private LockFreeReadCache createReadCache() {
+    final long maxMemory = 64L * 1024 * 1024; // 64 MB
+    return new LockFreeReadCache(bufferPool, maxMemory, PAGE_SIZE);
+  }
+
+  /**
+   * Verifies that deleteNonDurableFilesOnRecovery removes non-durable files from both caches,
+   * cleans up name-id maps, and returns the correct set of deleted internal file IDs.
+   * Durable files must remain intact.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecovery() throws Exception {
+    // Register a durable and a non-durable file
+    final var durableId = wowCache.addFile("recoverDurable.tst");
+    final var bookedNdId = wowCache.bookFileId("recoverNd.tst");
+    final var ndFileId = wowCache.addFile("recoverNd.tst", bookedNdId, true);
+
+    assertTrue(wowCache.isNonDurable(ndFileId));
+    assertFalse(wowCache.isNonDurable(durableId));
+    assertTrue(wowCache.exists(ndFileId));
+    assertTrue(wowCache.exists(durableId));
+
+    final var readCache = createReadCache();
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      // Verify the returned set contains the non-durable file's internal ID
+      assertFalse("Deleted set should not be empty", deletedIds.isEmpty());
+      final var ndIntId = wowCache.internalFileId(ndFileId);
+      assertTrue(
+          "Deleted set must contain the non-durable file's internal ID",
+          deletedIds.contains(ndIntId));
+
+      // Non-durable file should be gone from write cache
+      assertFalse(
+          "Non-durable file must not exist in write cache after recovery deletion",
+          wowCache.exists(ndFileId));
+
+      // Non-durable file should no longer be in the non-durable registry
+      assertFalse(
+          "Non-durable file must be removed from registry after recovery deletion",
+          wowCache.isNonDurable(ndFileId));
+
+      // Durable file must remain
+      assertTrue(
+          "Durable file must still exist after recovery deletion",
+          wowCache.exists(durableId));
+      assertFalse(wowCache.isNonDurable(durableId));
+
+      // Side files should be deleted
+      assertFalse(
+          "Primary side file should be deleted after recovery",
+          Files.exists(storagePath.resolve("non_durable_files.cm")));
+      assertFalse(
+          "Shadow side file should be deleted after recovery",
+          Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
+
+  /**
+   * Verifies that deleteNonDurableFilesOnRecovery correctly handles multiple non-durable files,
+   * deleting all of them while preserving durable files.
+   */
+  @Test
+  public void testDeleteMultipleNonDurableFilesOnRecovery() throws Exception {
+    final var durableId = wowCache.addFile("multiRecoverDurable.tst");
+
+    final var booked1 = wowCache.bookFileId("multiRecoverNd1.tst");
+    final var nd1 = wowCache.addFile("multiRecoverNd1.tst", booked1, true);
+    final var booked2 = wowCache.bookFileId("multiRecoverNd2.tst");
+    final var nd2 = wowCache.addFile("multiRecoverNd2.tst", booked2, true);
+
+    final var readCache = createReadCache();
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      assertEquals("Should have deleted 2 non-durable files", 2, deletedIds.size());
+
+      // Both non-durable files should be gone
+      assertFalse(wowCache.exists(nd1));
+      assertFalse(wowCache.exists(nd2));
+
+      // Durable file must remain
+      assertTrue(wowCache.exists(durableId));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
+
+  /**
+   * Verifies that deleteNonDurableFilesOnRecovery is a no-op when no non-durable files exist,
+   * returning an empty set without affecting durable files.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecoveryWithEmptyRegistry() throws Exception {
+    // Only durable files
+    final var durableId = wowCache.addFile("emptyRecoverDurable.tst");
+
+    final var readCache = createReadCache();
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      assertTrue("Deleted set should be empty when no non-durable files exist",
+          deletedIds.isEmpty());
+      assertTrue("Durable file must still exist", wowCache.exists(durableId));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
+
+  /**
+   * Verifies that after close/reopen (simulating a crash where the side file persisted the
+   * non-durable IDs), deleteNonDurableFilesOnRecovery correctly deletes the non-durable files
+   * that were restored from the side file.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecoveryAfterReopen() throws Exception {
+    // Register a non-durable file and a durable file
+    final var bookedNdId = wowCache.bookFileId("reopenRecoverNd.tst");
+    final var ndFileId = wowCache.addFile("reopenRecoverNd.tst", bookedNdId, true);
+    final var durableId = wowCache.addFile("reopenRecoverDurable.tst");
+
+    // Simulate restart by closing and reopening
+    reopenCache();
+
+    // Verify non-durable status was restored from side file
+    final var restoredNdId = wowCache.fileIdByName("reopenRecoverNd.tst");
+    assertTrue(restoredNdId >= 0);
+    assertTrue(wowCache.isNonDurable(restoredNdId));
+
+    // Now perform crash recovery deletion
+    final var readCache = createReadCache();
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      assertFalse("Should have deleted the non-durable file", deletedIds.isEmpty());
+      assertFalse(
+          "Non-durable file should be gone after recovery",
+          wowCache.exists(restoredNdId));
+
+      // Durable file must remain
+      final var restoredDurableId = wowCache.fileIdByName("reopenRecoverDurable.tst");
+      assertTrue(restoredDurableId >= 0);
+      assertTrue(wowCache.exists(restoredDurableId));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
   }
 }

@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
@@ -242,6 +243,23 @@ public interface WriteCache {
   void open() throws IOException;
 
   void replaceFileId(long fileId, long newFileId) throws IOException;
+
+  /**
+   * Deletes all non-durable files from both read and write caches during crash recovery.
+   *
+   * <p>Called before WAL replay in {@code AbstractStorage.recoverIfNeeded()}. The method reads
+   * the persisted non-durable file IDs (already loaded at startup), deletes each file from
+   * both caches, removes their name-id map entries, clears the in-memory registry, and deletes
+   * the side files. Returns the set of deleted internal file IDs so WAL replay can skip records
+   * referencing them.
+   *
+   * @param readCache The read cache from which to delete non-durable files.
+   * @return Set of internal file IDs that were deleted, for use by WAL replay skip logic.
+   *     Empty if no non-durable files existed.
+   */
+  default IntOpenHashSet deleteNonDurableFilesOnRecovery(ReadCache readCache) throws IOException {
+    return new IntOpenHashSet();
+  }
 
   String getStorageName();
 }
