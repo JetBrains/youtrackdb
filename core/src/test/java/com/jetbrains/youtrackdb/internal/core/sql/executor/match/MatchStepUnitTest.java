@@ -2898,6 +2898,8 @@ public class MatchStepUnitTest extends DbTestBase {
         JoinMode.INNER_JOIN, false);
     var output = step.prettyPrint(0, 2);
     assertTrue(output.contains("+ HASH INNER_JOIN on [friend]"));
+    assertTrue(output.contains("("));
+    assertTrue(output.contains(")"));
   }
 
   /** Verifies prettyPrint for INNER_JOIN with multiple aliases. */
@@ -2908,6 +2910,8 @@ public class MatchStepUnitTest extends DbTestBase {
         List.of("friend", "tag"), JoinMode.INNER_JOIN, false);
     var output = step.prettyPrint(0, 2);
     assertTrue(output.contains("+ HASH INNER_JOIN on [friend, tag]"));
+    assertTrue(output.contains("("));
+    assertTrue(output.contains(")"));
   }
 
   /** Verifies copy() preserves INNER_JOIN mode and shared aliases. */
@@ -2923,8 +2927,8 @@ public class MatchStepUnitTest extends DbTestBase {
 
     assertNotSame(step, rawCopy);
     assertTrue(rawCopy instanceof HashJoinMatchStep);
-    assertTrue(((HashJoinMatchStep) rawCopy).prettyPrint(0, 2)
-        .contains("INNER_JOIN"));
+    assertEquals(step.prettyPrint(0, 2),
+        ((HashJoinMatchStep) rawCopy).prettyPrint(0, 2));
   }
 
   /**
