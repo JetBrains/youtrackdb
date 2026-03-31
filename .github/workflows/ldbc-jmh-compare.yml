@@ -203,16 +203,53 @@ jobs:
       - name: 'Base: extract CSV dataset'
         if: inputs.use_prebuilt_db == false
         run: |
-          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
-          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" \
-            -C jmh-ldbc/target/ldbc-dataset/sf1
+          set -euo pipefail
+          CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
+          mkdir -p "$CSV_DIR"
+          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" -C "$CSV_DIR"
+
+          # Verify the expected structure: static/ and dynamic/ must exist.
+          # Handle tars that wrap everything in a single top-level directory.
+          if [ -d "$CSV_DIR/static" ] && [ -d "$CSV_DIR/dynamic" ]; then
+            echo "CSV dataset found at expected paths"
+          else
+            # Look for static/ one level deep (e.g., social_network/static/)
+            NESTED=$(find "$CSV_DIR" -mindepth 2 -maxdepth 2 -type d -name static | head -1)
+            if [ -n "$NESTED" ]; then
+              PARENT=$(dirname "$NESTED")
+              echo "::warning::CSV tar has nested directory — relocating from $(basename "$PARENT")/"
+              tmp_dir="${CSV_DIR}_tmp_$$"
+              mv "$PARENT" "$tmp_dir"
+              rm -rf "$CSV_DIR"
+              mv "$tmp_dir" "$CSV_DIR"
+            else
+              echo "::error::CSV dataset missing 'static/' and 'dynamic/' directories."
+              echo "Contents:"
+              find "$CSV_DIR" -maxdepth 3 -type d
+              exit 1
+            fi
+          fi
+
+          echo "=== CSV dataset contents ==="
+          ls -la "$CSV_DIR/"
+          echo "static/ entries: $(ls "$CSV_DIR/static/" | wc -l)"
+          echo "dynamic/ entries: $(ls "$CSV_DIR/dynamic/" | wc -l)"
 
       - name: 'Base: load database from CSV'
         if: inputs.use_prebuilt_db == false
         run: |
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
+            2>&1 | tee /tmp/jmh-load-base-${{ github.run_id }}.txt
+
+          # JMH exits 0 even when benchmarks fail with -f 0.
+          # Detect failures — the load MUST succeed for subsequent steps to work.
+          if grep -q '<failure>' /tmp/jmh-load-base-${{ github.run_id }}.txt; then
+            echo "::error::Database loading failed. Check dataset extraction."
+            grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-load-base-${{ github.run_id }}.txt | head -10 || true
+            exit 1
+          fi
 
       - name: 'Base: warm OS page cache'
         env:
@@ -309,16 +346,53 @@ jobs:
       - name: 'Head: extract CSV dataset'
         if: inputs.use_prebuilt_db == false
         run: |
-          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
-          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" \
-            -C jmh-ldbc/target/ldbc-dataset/sf1
+          set -euo pipefail
+          CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
+          mkdir -p "$CSV_DIR"
+          tar xf "/tmp/ldbc-csv-${{ github.run_id }}.tar" -C "$CSV_DIR"
+
+          # Verify the expected structure: static/ and dynamic/ must exist.
+          # Handle tars that wrap everything in a single top-level directory.
+          if [ -d "$CSV_DIR/static" ] && [ -d "$CSV_DIR/dynamic" ]; then
+            echo "CSV dataset found at expected paths"
+          else
+            # Look for static/ one level deep (e.g., social_network/static/)
+            NESTED=$(find "$CSV_DIR" -mindepth 2 -maxdepth 2 -type d -name static | head -1)
+            if [ -n "$NESTED" ]; then
+              PARENT=$(dirname "$NESTED")
+              echo "::warning::CSV tar has nested directory — relocating from $(basename "$PARENT")/"
+              tmp_dir="${CSV_DIR}_tmp_$$"
+              mv "$PARENT" "$tmp_dir"
+              rm -rf "$CSV_DIR"
+              mv "$tmp_dir" "$CSV_DIR"
+            else
+              echo "::error::CSV dataset missing 'static/' and 'dynamic/' directories."
+              echo "Contents:"
+              find "$CSV_DIR" -maxdepth 3 -type d
+              exit 1
+            fi
+          fi
+
+          echo "=== CSV dataset contents ==="
+          ls -la "$CSV_DIR/"
+          echo "static/ entries: $(ls "$CSV_DIR/static/" | wc -l)"
+          echo "dynamic/ entries: $(ls "$CSV_DIR/dynamic/" | wc -l)"
 
       - name: 'Head: load database from CSV'
         if: inputs.use_prebuilt_db == false
         run: |
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
+            2>&1 | tee /tmp/jmh-load-head-${{ github.run_id }}.txt
+
+          # JMH exits 0 even when benchmarks fail with -f 0.
+          # Detect failures — the load MUST succeed for subsequent steps to work.
+          if grep -q '<failure>' /tmp/jmh-load-head-${{ github.run_id }}.txt; then
+            echo "::error::Database loading failed. Check dataset extraction."
+            grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-load-head-${{ github.run_id }}.txt | head -10 || true
+            exit 1
+          fi
 
       - name: 'Head: warm OS page cache'
         env:
@@ -394,6 +468,8 @@ jobs:
             /tmp/jmh-head-log-${{ github.run_id }}.txt
             /tmp/jmh-warm-base-${{ github.run_id }}.txt
             /tmp/jmh-warm-head-${{ github.run_id }}.txt
+            /tmp/jmh-load-base-${{ github.run_id }}.txt
+            /tmp/jmh-load-head-${{ github.run_id }}.txt
           retention-days: 90
 
       - name: Post comparison to open PRs
@@ -464,4 +540,6 @@ jobs:
                 /tmp/jmh-base-log-${{ github.run_id }}.txt \
                 /tmp/jmh-head-log-${{ github.run_id }}.txt \
                 /tmp/jmh-warm-base-${{ github.run_id }}.txt \
-                /tmp/jmh-warm-head-${{ github.run_id }}.txt
+                /tmp/jmh-warm-head-${{ github.run_id }}.txt \
+                /tmp/jmh-load-base-${{ github.run_id }}.txt \
+                /tmp/jmh-load-head-${{ github.run_id }}.txt
