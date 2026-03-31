@@ -158,20 +158,18 @@ public final class BTreeSingleValueIndexEngine
       approximateIndexEntriesCount.set(0);
       approximateNullCount.set(0);
     } else {
-      // Count without materializing: single streaming pass with two counters.
-      long[] counts = {0, 0}; // [total, null]
+      // Single streaming pass: partition into null/non-null and count without
+      // materializing entries (unlike buildInitialHistogram which needs the list).
       try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
           sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
           BTreeSingleValueIndexEngine::extractKey)) {
-        allVisible.forEach(p -> {
-          counts[0]++;
-          if (p.first() == null) {
-            counts[1]++;
-          }
-        });
+        var partitioned = allVisible.collect(
+            Collectors.partitioningBy(p -> p.first() != null, Collectors.counting()));
+        long nonNullCount = partitioned.get(true);
+        long nullCount = partitioned.get(false);
+        approximateIndexEntriesCount.set(nonNullCount + nullCount);
+        approximateNullCount.set(nullCount);
       }
-      approximateIndexEntriesCount.set(counts[0]);
-      approximateNullCount.set(counts[1]);
     }
   }
 
