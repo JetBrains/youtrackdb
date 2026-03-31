@@ -7,18 +7,23 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import org.junit.After;
 import org.junit.Before;
@@ -765,6 +770,60 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertFalse(
         "Durable file must remain durable after reopen",
         wowCache.isNonDurable(wowCache.fileIdByName("durableMulti.tst")));
+  }
+
+  // --- Dirty pages table tests ---
+
+  /**
+   * Verifies that calling updateDirtyPagesTable for a non-durable file's page does NOT add
+   * the page to the dirtyPages map. This is the critical invariant: non-durable pages must
+   * never enter the dirty pages table, because they have no WAL records and would block WAL
+   * segment truncation.
+   *
+   * <p>Also verifies that a durable file's page IS added to the dirty pages table under the
+   * same conditions, confirming the skip is targeted at non-durable files only.
+   */
+  @Test
+  public void testUpdateDirtyPagesTableSkipsNonDurableFile() throws Exception {
+    // Add a non-durable file
+    final var bookedNdId = wowCache.bookFileId("ndDirty.tst");
+    final var ndFileId = wowCache.addFile("ndDirty.tst", bookedNdId, true);
+    assertTrue(wowCache.isNonDurable(ndFileId));
+
+    // Add a durable file for comparison
+    final var durableFileId = wowCache.addFile("durableDirty.tst");
+    assertFalse(wowCache.isNonDurable(durableFileId));
+
+    // Create sentinel CachePointers (null pointer/frame is fine — updateDirtyPagesTable
+    // only reads fileId and pageIndex from the pointer)
+    final var ndPointer = new CachePointer((PageFrame) null, null, ndFileId, 0);
+    final var durablePointer = new CachePointer((PageFrame) null, null, durableFileId, 0);
+
+    final var startLsn = new LogSequenceNumber(0, 0);
+
+    // Call updateDirtyPagesTable for both
+    wowCache.updateDirtyPagesTable(ndPointer, startLsn);
+    wowCache.updateDirtyPagesTable(durablePointer, startLsn);
+
+    // Access the private dirtyPages field via reflection
+    final Field dirtyPagesField = WOWCache.class.getDeclaredField("dirtyPages");
+    dirtyPagesField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final var dirtyPages =
+        (ConcurrentHashMap<PageKey, LogSequenceNumber>) dirtyPagesField.get(wowCache);
+
+    // Build the expected page keys using the internal file IDs
+    final var ndInternalId = wowCache.internalFileId(ndFileId);
+    final var durableInternalId = wowCache.internalFileId(durableFileId);
+    final var ndPageKey = new PageKey(ndInternalId, 0);
+    final var durablePageKey = new PageKey(durableInternalId, 0);
+
+    assertFalse(
+        "Non-durable page must NOT appear in dirtyPages table",
+        dirtyPages.containsKey(ndPageKey));
+    assertTrue(
+        "Durable page must appear in dirtyPages table",
+        dirtyPages.containsKey(durablePageKey));
   }
 
   /**

@@ -868,6 +868,13 @@ public final class WOWCache extends AbstractWriteCache
   public void updateDirtyPagesTable(
       final CachePointer pointer, final LogSequenceNumber startLSN) {
     final var fileId = pointer.getFileId();
+
+    // Non-durable pages must never enter the dirtyPages table — they have no WAL records,
+    // so tracking them would block WAL segment truncation for segments with no durable data.
+    if (nonDurableFileIds.contains(internalFileId(fileId))) {
+      return;
+    }
+
     final long pageIndex = pointer.getPageIndex();
 
     final var pageKey = new PageKey(internalFileId(fileId), pageIndex);
@@ -3118,6 +3125,14 @@ public final class WOWCache extends AbstractWriteCache
 
       while (lsnPagesIterator.hasNext() && pageKeysToFlush.size() < pagesFlushLimit - chunksSize) {
         final var pageKey = lsnPagesIterator.next();
+
+        // Non-durable pages must never appear in dirtyPages (and therefore not in
+        // localDirtyPagesBySegment). If this fires, updateDirtyPagesTable's early-return
+        // guard was bypassed.
+        assert !nonDurableFileIds.contains(pageKey.fileId)
+            : "Non-durable page found in dirty pages table: fileId=" + pageKey.fileId
+                + ", pageIndex=" + pageKey.pageIndex;
+
         var fileId = pageKey.fileId;
         var fileSize = fileIdSizeMap.get(fileId);
 
