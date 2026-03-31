@@ -68,7 +68,7 @@ jobs:
 
       - name: Install S3 tools
         run: |
-          pip install --break-system-packages boto3 -q 2>/dev/null || pip install boto3 -q
+          pip3 install --break-system-packages boto3 -q 2>/dev/null || pip3 install boto3 -q
 
       - name: Download LDBC CSV dataset from S3
         if: steps.mode.outputs.load == 'csv'
