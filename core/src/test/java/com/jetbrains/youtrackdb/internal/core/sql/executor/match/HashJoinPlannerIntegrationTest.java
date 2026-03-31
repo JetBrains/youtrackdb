@@ -12,9 +12,10 @@ import org.junit.Test;
 
 /**
  * End-to-end SQL-level integration tests verifying that hash join optimizations
- * (anti-join for NOT patterns, semi-join for secondary branches, and inner-join for
- * branches with downstream intermediates) in MATCH queries produce correct results
- * and are selected by the planner when eligible.
+ * (anti-join for NOT patterns, semi-join for secondary branches) in MATCH queries
+ * produce correct results and are selected by the planner when eligible. Inner-join
+ * tests are deferred pending a fix for the INNER_JOIN execution with variable
+ * schedule orderings.
  *
  * <p>Test graph structure (created in {@link #beforeTest}):
  * <pre>
@@ -303,18 +304,33 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
 
   /**
    * Regression guard: existing semi-join behavior is preserved after the rename
-   * refactoring. Diamond with intermediate alias NOT in RETURN → SEMI_JOIN.
+   * refactoring (SemiJoinBranch → HashJoinBranch). Verifies both plan shape
+   * (HASH SEMI_JOIN present) and result correctness for a diamond pattern with
+   * intermediate alias NOT in RETURN.
    */
   @Test
   public void semiJoin_regressionGuard_preservedAfterRefactor() {
     session.begin();
+    // Verify plan shape: semi-join should still be selected after refactoring
+    var explainResult = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+            + " RETURN a.name as aName, t.name as tName")
+        .toList();
+    assertEquals(1, explainResult.size());
+    String plan = explainResult.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("plan should use hash semi-join after refactor, got:\n" + plan,
+        plan.contains("HASH SEMI_JOIN"));
+
+    // Verify correctness
     var result = session.query(
         "MATCH {class:Person, as:a, where:(name='n1')}"
             + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
             + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
             + " RETURN a.name as aName, t.name as tName")
         .toList();
-
     assertFalse("semi-join query should return results", result.isEmpty());
     var names = result.stream()
         .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))

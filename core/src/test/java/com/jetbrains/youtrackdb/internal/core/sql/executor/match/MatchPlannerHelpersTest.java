@@ -1068,30 +1068,6 @@ public class MatchPlannerHelpersTest {
     assertThat(result).isEmpty();
   }
 
-  /**
-   * Diamond where no intermediate alias is downstream (neither b nor c is in RETURN)
-   * → the secondary branch (a→c→d) is detected as SEMI_JOIN. The b-branch is the
-   * main path and does not form an eligible secondary branch. Regression guard:
-   * confirms SEMI_JOIN classification is preserved after the INNER_JOIN generalization.
-   */
-  @Test
-  public void identifyHashJoinBranches_noIntermediateDownstream_semiJoin() {
-    var diamond = buildDiamondSchedule();
-    // Neither b nor c is downstream → SEMI_JOIN
-    var downstream = Set.of("a", "d");
-    var ctx = buildMockContext("Person", 50);
-
-    var result = MatchExecutionPlanner.identifyHashJoinBranches(
-        diamond.schedule, downstream,
-        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), ctx);
-
-    assertThat(result).hasSize(1);
-    var branch = result.get(0);
-    assertThat(branch.joinMode()).isEqualTo(JoinMode.SEMI_JOIN);
-    assertThat(branch.intermediateAliases()).containsExactly("c");
-  }
-
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**

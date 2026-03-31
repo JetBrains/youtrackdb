@@ -1186,6 +1186,8 @@ public class MatchExecutionPlanner {
         return null;
       }
     }
+    // TODO(YTDB-592): set INNER_JOIN when downstream intermediates are present,
+    // once the build-side plan construction handles variable schedule orderings.
     var joinMode = JoinMode.SEMI_JOIN;
 
     // Check that no branch edge involves an optional node
