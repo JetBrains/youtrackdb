@@ -441,11 +441,26 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     op.commitChanges(42L, wal);
 
-    // No FileDeletedWALRecord for the truncation
-    var deletedRecords = loggedRecords.stream()
-        .filter(r -> r instanceof FileDeletedWALRecord)
+    // Truncate has no dedicated WAL record type for any file (durable or not).
+    // Verify no WAL records reference the non-durable file at all — neither
+    // FileDeletedWALRecord nor UpdatePageRecord (pageChangesMap is cleared by
+    // truncateFile()).
+    var ndRecords = loggedRecords.stream()
+        .filter(r -> r != null)
+        .filter(r -> {
+          if (r instanceof FileDeletedWALRecord fdr) {
+            return fdr.getFileId() == ndFileId;
+          }
+          if (r instanceof UpdatePageRecord upr) {
+            return upr.getFileId() == ndFileId;
+          }
+          if (r instanceof FileCreatedWALRecord fcr) {
+            return fcr.getFileId() == ndFileId;
+          }
+          return false;
+        })
         .toList();
-    assertThat(deletedRecords).isEmpty();
+    assertThat(ndRecords).isEmpty();
 
     // Cache truncation must still be applied
     verify(readCache).truncateFile(ndFileId, writeCache);
@@ -488,21 +503,19 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     atomicUnit.add(updatePage);
     atomicUnit.add(loggedRecords.get(3)); // AtomicUnitEndRecord
 
-    // Set up AbstractStorage mock for restoreAtomicUnit
+    // Set up AbstractStorage mock for restoreAtomicUnit — only stubs
+    // actually invoked during restore of durable-only WAL records
     var restoreWriteCache = mock(WriteCache.class);
     var restoreReadCache = mock(ReadCache.class);
     int internalDurableId = (int) (durableFileId & 0xFFFFFFFFL);
-    int internalNdId = (int) (ndFileId & 0xFFFFFFFFL);
     when(restoreWriteCache.internalFileId(durableFileId))
         .thenReturn(internalDurableId);
-    when(restoreWriteCache.internalFileId(ndFileId))
-        .thenReturn(internalNdId);
+    // exists(fileId) returns true so UpdatePageRecord doesn't try restoreFileById
     when(restoreWriteCache.exists(durableFileId)).thenReturn(true);
+    // exists(fileName) returns false to trigger re-creation in FileCreatedWALRecord
     when(restoreWriteCache.exists("durable-file.dat")).thenReturn(false);
     when(restoreWriteCache.externalFileId(internalDurableId))
         .thenReturn(durableFileId);
-    when(restoreWriteCache.fileNameById(durableFileId))
-        .thenReturn("durable-file.dat");
 
     // restoreAtomicUnit calls loadForWrite for UpdatePageRecord
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
@@ -608,13 +621,16 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   private static Field findField(Class<?> clazz, String fieldName) {
+    NoSuchFieldException lastException = null;
     while (clazz != null) {
       try {
         return clazz.getDeclaredField(fieldName);
       } catch (NoSuchFieldException e) {
+        lastException = e;
         clazz = clazz.getSuperclass();
       }
     }
-    throw new RuntimeException("Field not found: " + fieldName);
+    throw new RuntimeException("Field not found: " + fieldName,
+        lastException);
   }
 }
