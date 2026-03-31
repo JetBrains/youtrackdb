@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -27,6 +28,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -1338,7 +1341,10 @@ public class WOWCacheNonDurableFileTrackingTest {
     try {
       final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
 
-      // (1) deletedIds is a snapshot taken before deletion — must contain BOTH IDs
+      // (1) deletedIds is a snapshot taken before deletion — must contain exactly both IDs
+      assertEquals(
+          "Snapshot should contain exactly 2 non-durable IDs",
+          2, deletedIds.size());
       assertTrue(
           "Snapshot should contain nd1 internal ID",
           deletedIds.contains(nd1IntId));
@@ -1377,6 +1383,9 @@ public class WOWCacheNonDurableFileTrackingTest {
           "Side file should contain the failed file's internal ID",
           restoredIds.contains(nd2IntId));
 
+      // (6) Verify readCache.deleteFile was actually called for the successful file
+      verify(readCache).deleteFile(eq(nd1), any());
+
       // Durable file must remain intact
       assertTrue(wowCache.exists(durableId));
       assertFalse(wowCache.isNonDurable(durableId));
@@ -1403,9 +1412,12 @@ public class WOWCacheNonDurableFileTrackingTest {
   private IntOpenHashSet readNonDurableIdsFromSideFile() throws IOException {
     final var path = storagePath.resolve("non_durable_files.cm");
     final var bytes = Files.readAllBytes(path);
-    final var buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.BIG_ENDIAN);
-    // Skip version (4) + xxHash (8) = 12 bytes
-    buf.position(12);
+    final var buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN);
+    // Version field — detect format drift if writeNonDurableRegistry changes
+    final var version = buf.getInt();
+    assertEquals("Unexpected side file version", 1, version);
+    // Skip xxHash (8 bytes)
+    buf.position(buf.position() + 8);
     final var count = buf.getInt();
     final var ids = new IntOpenHashSet(count);
     for (int i = 0; i < count; i++) {

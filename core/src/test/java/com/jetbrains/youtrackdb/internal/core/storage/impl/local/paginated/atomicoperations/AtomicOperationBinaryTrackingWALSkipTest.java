@@ -408,6 +408,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     var txEndLsn = op.commitChanges(42L, wal);
 
+    // Mixed operation must return a non-null LSN (durable changes exist)
+    assertThat(txEndLsn).isNotNull();
     // Durable cache entry must have setEndLSN called with the WAL end LSN
     verify(durableCacheEntry).setEndLSN(txEndLsn);
     // Non-durable cache entry must NOT have setEndLSN called
@@ -461,7 +463,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         })
         .toList();
     assertThat(ndRecords).isEmpty();
-    // Total: start + FileCreated(durable) + UpdatePage(durable) + End = 4
+    // Total: start + FileCreated(durable) + UpdatePage(durable) + End = 4.
+    // This count is defense-in-depth — the primary safety assertion is ndRecords.isEmpty() above.
+    // If the WAL protocol adds new record types, update this count accordingly.
     assertThat(loggedRecords).hasSize(4);
 
     // Cache truncation must still be applied
@@ -518,6 +522,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     when(restoreWriteCache.exists("durable-file.dat")).thenReturn(false);
     when(restoreWriteCache.externalFileId(internalDurableId))
         .thenReturn(durableFileId);
+    when(restoreWriteCache.fileNameById(durableFileId))
+        .thenReturn("durable-file.dat");
 
     // restoreAtomicUnit calls loadForWrite for UpdatePageRecord
     var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
@@ -550,6 +556,12 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // Durable file was re-created (exists("durable-file.dat") returns false)
     verify(restoreReadCache).addFile(
         "durable-file.dat", durableFileId, restoreWriteCache);
+
+    // Non-durable file must NOT have been restored (no WAL records reference it)
+    verify(restoreReadCache, never()).loadForWrite(
+        eq(ndFileId), anyLong(), eq(restoreWriteCache), anyBoolean(), any());
+    verify(restoreReadCache, never()).addFile(
+        eq("nd-file.dat"), anyLong(), any());
   }
 
   // --- Helper methods ---
