@@ -484,13 +484,17 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
-   * Returns whether the file registered under the given file ID is marked as non-durable
-   * in this atomic operation's local state. Package-private for testing.
+   * Returns whether the file is non-durable. Checks both local state (for files
+   * created in this operation) and the write cache registry (for existing files
+   * loaded via {@link #loadFile}). Package-private for testing.
    */
   boolean isFileNonDurable(long fileId) {
     fileId = checkFileIdCompatibility(fileId, storageId);
     var changes = fileChanges.get(fileId);
-    return changes != null && changes.nonDurable;
+    if (changes != null && changes.nonDurable) {
+      return true;
+    }
+    return writeCache.isNonDurable(fileId);
   }
 
   @Override
@@ -580,22 +584,35 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     try {
       LogSequenceNumber txEndLsn;
 
-      writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
-
-      final var startLSN = writeAheadLog.end();
+      // Defer WAL unit start: only emit when first durable change is encountered.
+      // If the operation contains only non-durable changes, no WAL records are written.
+      boolean walUnitStarted = false;
       this.operationCommitTs = commitTs;
 
       var deletedFilesIterator = deletedFiles.longIterator();
       while (deletedFilesIterator.hasNext()) {
         final var deletedFileId = deletedFilesIterator.nextLong();
+        if (writeCache.isNonDurable(deletedFileId)) {
+          continue;
+        }
+        if (!walUnitStarted) {
+          writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+          walUnitStarted = true;
+        }
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
 
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
+        final boolean nonDurable =
+            fileChanges.nonDurable || writeCache.isNonDurable(fileId);
 
-        if (fileChanges.isNew) {
+        if (fileChanges.isNew && !nonDurable) {
+          if (!walUnitStarted) {
+            writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+            walUnitStarted = true;
+          }
           writeAheadLog.log(
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
         } else if (fileChanges.truncate) {
@@ -605,6 +622,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                   "You performing truncate operation which is considered unsafe because can not be"
                       + " rolled back, as result data can be incorrectly restored after crash, this"
                       + " operation is not recommended to be used");
+        }
+
+        if (nonDurable) {
+          // Remove empty page change entries but skip WAL logging entirely
+          fileChanges.pageChangesMap.long2ObjectEntrySet()
+              .removeIf(e -> !e.getValue().changes.hasChanges());
+          continue;
         }
 
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
@@ -619,6 +643,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
             final var initialLSN = filePageChanges.getInitialLSN();
             Objects.requireNonNull(initialLSN);
+            if (!walUnitStarted) {
+              writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+              walUnitStarted = true;
+            }
             final var updatePageRecord =
                 new UpdatePageRecord(
                     pageIndex, fileId, operationCommitTs, filePageChanges.changes, initialLSN);
@@ -631,8 +659,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         }
       }
 
-      txEndLsn =
-          writeAheadLog.log(new AtomicUnitEndRecord(operationCommitTs, rollback, getMetadata()));
+      if (walUnitStarted) {
+        txEndLsn =
+            writeAheadLog.log(
+                new AtomicUnitEndRecord(operationCommitTs, rollback, getMetadata()));
+      } else {
+        // Pure non-durable operation — no WAL records emitted
+        txEndLsn = null;
+      }
+
+      final var startLSN = walUnitStarted ? writeAheadLog.end() : null;
 
       // Flush snapshot/visibility buffers to shared maps before applying page changes
       // to cache. This ensures entries are visible by the time concurrent readers can
@@ -652,6 +688,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
+        final boolean nonDurable =
+            fileChanges.nonDurable || writeCache.isNonDurable(fileId);
 
         if (fileChanges.isNew) {
           readCache.addFile(
@@ -669,6 +707,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           readCache.truncateFile(fileId, writeCache);
         }
 
+        // Non-durable files use null startLSN — no WAL dependency exists,
+        // and updateDirtyPagesTable (Track 4) skips them regardless.
+        final var fileStartLSN = nonDurable ? null : startLSN;
+
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
             fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
         while (filePageChangesIterator.hasNext()) {
@@ -681,7 +723,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
             var cacheEntry =
                 readCache.loadForWrite(
-                    fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, startLSN);
+                    fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
             if (cacheEntry == null) {
               if (!filePageChanges.isNew) {
                 throw new StorageException(writeCache.getStorageName(),
@@ -692,16 +734,24 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                   readCache.releaseFromWrite(cacheEntry, writeCache, true);
                 }
 
-                cacheEntry = readCache.allocateNewPage(fileId, writeCache, startLSN);
+                cacheEntry = readCache.allocateNewPage(fileId, writeCache, fileStartLSN);
               } while (cacheEntry.getPageIndex() != pageIndex);
             }
 
             try {
               final var durablePage = new DurablePage(cacheEntry);
-              cacheEntry.setEndLSN(txEndLsn);
 
               durablePage.restoreChanges(filePageChanges.changes);
-              durablePage.setLsn(filePageChanges.getChangeLSN());
+
+              if (nonDurable) {
+                // Non-durable pages have no WAL records, so no meaningful
+                // endLSN or changeLSN to set. The dirty-pages-table skip
+                // in updateDirtyPagesTable (Track 4) ensures these pages
+                // don't block WAL truncation.
+              } else {
+                cacheEntry.setEndLSN(txEndLsn);
+                durablePage.setLsn(filePageChanges.getChangeLSN());
+              }
             } finally {
               readCache.releaseFromWrite(cacheEntry, writeCache, true);
             }
