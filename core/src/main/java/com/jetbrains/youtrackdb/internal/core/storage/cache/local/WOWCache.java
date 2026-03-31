@@ -4107,7 +4107,8 @@ public final class WOWCache extends AbstractWriteCache
         final var intFileId = fileIdIterator.nextInt();
 
         // Non-durable files do not need fsync — skip to avoid unnecessary I/O.
-        if (nonDurableFileIds.contains(intFileId)) {
+        // Use the same snapshot as the WAL-guard loop above for consistency.
+        if (localNonDurableFileIds.contains(intFileId)) {
           continue;
         }
 
