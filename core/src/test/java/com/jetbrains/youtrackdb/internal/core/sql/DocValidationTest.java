@@ -3459,4 +3459,64 @@ public class DocValidationTest {
   public void testCreateUserWithRoleSyntax() {
     g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxFoo IDENTIFIED BY bar ROLE admin"));
   }
+
+  // === YQL-Drop-Class.md ===
+
+  // Line 7-9: DROP CLASS <class> — basic syntax on an empty class
+  @Test
+  public void testDropClassBasicSyntax() {
+    g.command("CREATE CLASS DropClassBasic IF NOT EXISTS EXTENDS V");
+
+    // Drop the empty class (documented syntax from line 7-9)
+    g.command("DROP CLASS DropClassBasic");
+
+    // Verify the class no longer exists — SELECT should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropClassBasic").toList()));
+  }
+
+  // Undocumented: DROP CLASS refuses to drop a class containing vertices
+  // unless the UNSAFE keyword is appended
+  @Test
+  public void testDropClassWithDataRequiresUnsafe() {
+    g.command("CREATE CLASS DropClassData IF NOT EXISTS EXTENDS V");
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DropClassData SET name = 'test'").iterate();
+    });
+
+    // Dropping a class with existing vertices should fail without UNSAFE
+    assertThatThrownBy(() -> g.command("DROP CLASS DropClassData"));
+
+    // With UNSAFE it succeeds
+    g.command("DROP CLASS DropClassData UNSAFE");
+
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM DropClassData").toList()));
+  }
+
+  // Line 13: Schema coherence warning — dropping a superclass used by a subclass
+  @Test
+  public void testDropClassSuperclassCoherenceWarning() {
+    // Create a superclass and a subclass
+    g.command("CREATE CLASS DropClassSuper IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DropClassSub IF NOT EXISTS EXTENDS DropClassSuper");
+
+    // Dropping the superclass while a subclass exists should fail
+    assertThatThrownBy(() -> g.command("DROP CLASS DropClassSuper"));
+
+    // Clean up
+    g.command("DROP CLASS DropClassSub");
+    g.command("DROP CLASS DropClassSuper");
+  }
+
+  // Line 19-21: DROP CLASS Account — the specific documented example
+  @Test
+  public void testDropClassAccountExample() {
+    g.command("CREATE CLASS Account IF NOT EXISTS EXTENDS V");
+    g.command("DROP CLASS Account");
+
+    // Verify Account no longer exists — SELECT should fail
+    assertThatThrownBy(
+        () -> g.computeInTx(tx -> tx.yql("SELECT FROM Account").toList()));
+  }
 }
