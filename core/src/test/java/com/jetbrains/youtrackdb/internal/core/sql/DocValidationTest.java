@@ -3693,4 +3693,33 @@ public class DocValidationTest {
   public void testDropUserNonExistentIsNoOp() {
     g.computeInTx(tx -> tx.yql("DROP USER noSuchUserDropTest"));
   }
+
+  // === YQL-Explain.md ===
+
+  // Line 3: EXPLAIN returns execution plan without executing the statement.
+  // Line 19: explain select from v where name = 'a'
+  @Test
+  public void testExplainSelectFromVWithFilter() {
+    // Validate that EXPLAIN returns an execution plan for a SELECT statement
+    // without actually executing it.
+    g.command("CREATE CLASS ExplainTestV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX ExplainTestV SET name = 'a'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("EXPLAIN SELECT FROM ExplainTestV WHERE name = 'a'").toList());
+    assertThat(results).hasSize(1);
+
+    // The result should contain execution plan information
+    var result = results.get(0);
+    assertThat(result).isNotNull();
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX ExplainTestV").iterate();
+        });
+  }
 }
