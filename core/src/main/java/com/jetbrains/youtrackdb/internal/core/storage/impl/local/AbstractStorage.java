@@ -2141,6 +2141,18 @@ public abstract class AbstractStorage
             } else {
               endTxCommit(atomicOperation);
               try {
+                applyIndexCountDeltas(atomicOperation);
+              } catch (final RuntimeException e) {
+                // Counter application is a cache-only operation — its failure
+                // must never mask a successful commit. Counters will be
+                // recalibrated by load() on restart or buildInitialHistogram().
+                LogManager.instance()
+                    .warn(this,
+                        "Index count delta application failed after successful"
+                            + " commit",
+                        e);
+              }
+              try {
                 applyHistogramDeltas(atomicOperation);
               } catch (final RuntimeException e) {
                 // Delta application is a cache-only operation — its failure
@@ -2228,6 +2240,31 @@ public abstract class AbstractStorage
         }
         case CLEAR -> {
           // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
+        }
+      }
+    }
+  }
+
+  /**
+   * Applies index entry count deltas accumulated during the transaction to
+   * the engines' in-memory {@code AtomicLong} counters. Called after
+   * {@code endTxCommit()} succeeds so that counters always reflect committed
+   * state only. On rollback, the delta holder is discarded with the
+   * operation.
+   */
+  private void applyIndexCountDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getIndexCountDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().entrySet()) {
+      var engineId = entry.getKey();
+      var delta = entry.getValue();
+      if (engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          btreeEngine.addToApproximateEntryCount(delta.totalDelta);
+          btreeEngine.addToApproximateNullCount(delta.nullDelta);
         }
       }
     }
