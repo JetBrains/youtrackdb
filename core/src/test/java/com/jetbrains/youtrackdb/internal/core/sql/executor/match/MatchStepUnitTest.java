@@ -2327,14 +2327,104 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * INNER_JOIN mode is not yet implemented and must throw
-   * UnsupportedOperationException from the probe filter during iteration.
+   * INNER_JOIN 1:1: one upstream row matching one build-side row produces
+   * one merged row containing properties from both sides.
    */
   @Test
-  public void testHashJoinInnerJoinThrowsUnsupported() {
+  public void testHashJoinInnerJoinOneToOne() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Merged row has upstream + build-side properties
+    assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), result.getProperty("person"));
+    assertEquals("Berlin", result.getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN 1:N: one upstream row matching two build-side rows produces
+   * two merged rows, each with the upstream properties plus one build-side row.
+   */
+  @Test
+  public void testHashJoinInnerJoinOneToMany() {
+    var ctx = createCommandContext();
+    var build1 = new ResultInternal(session);
+    build1.setProperty("friend", new RecordId(1, 1));
+    build1.setProperty("city", "Berlin");
+    var build2 = new ResultInternal(session);
+    build2.setProperty("friend", new RecordId(1, 1));
+    build2.setProperty("city", "Paris");
+    var buildPlan = createBuildPlan(ctx, build1, build2);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var r1 = stream.next(ctx);
+    assertEquals(new RecordId(2, 1), r1.getProperty("person"));
+    assertEquals("Berlin", r1.getProperty("city"));
+
+    assertTrue(stream.hasNext(ctx));
+    var r2 = stream.next(ctx);
+    assertEquals(new RecordId(2, 1), r2.getProperty("person"));
+    assertEquals("Paris", r2.getProperty("city"));
+
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with no match: upstream key not in build side → row dropped.
+   */
+  @Test
+  public void testHashJoinInnerJoinNoMatch() {
     var ctx = createCommandContext();
     var buildPlan = createBuildPlan(ctx,
         createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 2)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with empty build side: all upstream rows are dropped
+   * (no matches possible).
+   */
+  @Test
+  public void testHashJoinInnerJoinEmptyBuildSide() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx);
     var upstream = createUpstreamStep(ctx,
         createRow("friend", new RecordId(1, 1)));
 
@@ -2343,15 +2433,121 @@ public class MatchStepUnitTest extends DbTestBase {
     step.setPrevious(upstream);
 
     var stream = step.start(ctx);
-    try {
-      stream.hasNext(ctx);
-      stream.next(ctx);
-      org.junit.Assert.fail("Expected UnsupportedOperationException");
-    } catch (UnsupportedOperationException e) {
-      assertTrue(e.getMessage().contains("INNER_JOIN"));
-    } finally {
-      stream.close(ctx);
-    }
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with null key in upstream row → row dropped (cannot extract key).
+   */
+  @Test
+  public void testHashJoinInnerJoinNullKeyDropsRow() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("other", "value"); // "friend" missing → null key
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN merge does not mutate the original upstream row — a fresh
+   * ResultInternal is created for each merged result.
+   */
+  @Test
+  public void testHashJoinInnerJoinDoesNotMutateUpstream() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("person", new RecordId(2, 1));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertNotSame(upstreamRow, result);
+    // Original upstream row must NOT have the build-side property
+    assertNull(upstreamRow.getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN build-side rows are flattened: stored as plain ResultInternal,
+   * not retaining MatchResultRow chains. Verified by checking all properties
+   * are present on the merged result.
+   */
+  @Test
+  public void testHashJoinInnerJoinBuildSideFlattened() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("city", "Berlin");
+    buildRow.setProperty("age", 42);
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Berlin", result.getProperty("city"));
+    assertEquals(Integer.valueOf(42), result.getProperty("age"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN 1:N grouping: two build-side rows with the same key are both
+   * stored and both emitted during the probe phase.
+   */
+  @Test
+  public void testHashJoinInnerJoinGrouping() {
+    var ctx = createCommandContext();
+    var build1 = new ResultInternal(session);
+    build1.setProperty("friend", new RecordId(1, 1));
+    build1.setProperty("tag", "java");
+    var build2 = new ResultInternal(session);
+    build2.setProperty("friend", new RecordId(1, 1));
+    build2.setProperty("tag", "kotlin");
+    var buildPlan = createBuildPlan(ctx, build1, build2);
+
+    var upstream = createUpstreamStep(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals("java", stream.next(ctx).getProperty("tag"));
+    assertTrue(stream.hasNext(ctx));
+    assertEquals("kotlin", stream.next(ctx).getProperty("tag"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
   }
 
   /**

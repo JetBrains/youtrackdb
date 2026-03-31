@@ -9,7 +9,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
  *   <li>{@link #SEMI_JOIN} — keep upstream rows whose key exists in the build side
  *       (used for EXISTS-style filters)</li>
  *   <li>{@link #INNER_JOIN} — enrich upstream rows with matching build-side rows
- *       (used for multi-branch MATCH joins; not yet implemented — deferred to Track 4)</li>
+ *       (used for multi-branch MATCH joins)</li>
  * </ul>
  */
 enum JoinMode {

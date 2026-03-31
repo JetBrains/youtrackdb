@@ -8,10 +8,14 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -33,7 +37,7 @@ import javax.annotation.Nullable;
  *       <ul>
  *         <li>{@link JoinMode#ANTI_JOIN}: keep if key is NOT found (NOT pattern)</li>
  *         <li>{@link JoinMode#SEMI_JOIN}: keep if key IS found (EXISTS filter)</li>
- *         <li>{@link JoinMode#INNER_JOIN}: deferred to Track 4</li>
+ *         <li>{@link JoinMode#INNER_JOIN}: enrich with matching build-side rows</li>
  *       </ul>
  *   </li>
  * </ol>
@@ -56,6 +60,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   private final JoinMode joinMode;
 
   @Nullable private Set<JoinKey> hashSet;
+  @Nullable private Map<JoinKey, List<Result>> hashMap;
 
   HashJoinMatchStep(
       CommandContext ctx,
@@ -79,6 +84,19 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       throw new IllegalStateException("hash join step requires a previous step");
     }
 
+    var upstream = prev.start(ctx);
+
+    if (joinMode == JoinMode.INNER_JOIN) {
+      // Build phase: execute build-side plan, store full flattened rows
+      hashMap = buildHashMap(ctx);
+
+      // Capture locally for null-safety in the flatMap lambda
+      var builtMap = hashMap;
+
+      // Probe phase: for each upstream row, emit merged rows for all matches
+      return upstream.flatMap((row, c) -> mergeMatches(row, builtMap));
+    }
+
     // Build phase: execute build-side plan with isolated context
     hashSet = buildHashSet(ctx);
 
@@ -87,7 +105,6 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     var builtSet = hashSet;
 
     // Probe phase: filter upstream rows against the hash set
-    var upstream = prev.start(ctx);
     return upstream.filter((row, c) -> probeFilter(row, builtSet));
   }
 
@@ -124,6 +141,79 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   }
 
   /**
+   * Executes the build-side plan and collects full (flattened) rows into a hash map
+   * keyed by shared alias values. Used for {@link JoinMode#INNER_JOIN} where the
+   * build-side row data must be merged into upstream rows during the probe phase.
+   *
+   * <p>Each build-side row is flattened into a plain {@link ResultInternal} (copying
+   * all properties) to avoid retaining the layered {@code MatchResultRow} chain in
+   * memory.
+   */
+  private Map<JoinKey, List<Result>> buildHashMap(CommandContext ctx) {
+    var isolatedCtx = new BasicCommandContext();
+    isolatedCtx.setDatabaseSession(ctx.getDatabaseSession());
+
+    var isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
+    var map = new HashMap<JoinKey, List<Result>>();
+
+    var stream = isolatedPlan.start();
+    try {
+      while (stream.hasNext(isolatedCtx)) {
+        var row = stream.next(isolatedCtx);
+        var key = extractKey(row);
+        if (key != null) {
+          // Flatten: copy all properties into a plain ResultInternal to avoid
+          // retaining the layered MatchResultRow chain in memory.
+          var flat = new ResultInternal(ctx.getDatabaseSession());
+          for (var prop : row.getPropertyNames()) {
+            flat.setProperty(prop, row.getProperty(prop));
+          }
+          map.computeIfAbsent(key, k -> new ArrayList<>()).add(flat);
+        }
+      }
+    } finally {
+      stream.close(isolatedCtx);
+      isolatedPlan.close();
+    }
+    return map;
+  }
+
+  /**
+   * Merges matching build-side rows into each upstream row for INNER_JOIN.
+   * For each matching build-side row, a new {@link ResultInternal} is created
+   * containing all upstream properties plus build-side properties (skipping
+   * shared aliases already present from the upstream row). Returns an empty
+   * stream if the upstream key is null or has no match.
+   */
+  private ExecutionStream mergeMatches(
+      Result upstream, Map<JoinKey, List<Result>> map) {
+    var key = extractKey(upstream);
+    if (key == null) {
+      return ExecutionStream.empty();
+    }
+    var matches = map.get(key);
+    if (matches == null) {
+      return ExecutionStream.empty();
+    }
+    var merged = new ArrayList<Result>(matches.size());
+    for (var buildRow : matches) {
+      var result = new ResultInternal(ctx.getDatabaseSession());
+      // Copy all upstream properties first
+      for (var prop : upstream.getPropertyNames()) {
+        result.setProperty(prop, upstream.getProperty(prop));
+      }
+      // Copy build-side properties, skipping shared aliases already present
+      for (var prop : buildRow.getPropertyNames()) {
+        if (!result.hasProperty(prop)) {
+          result.setProperty(prop, buildRow.getProperty(prop));
+        }
+      }
+      merged.add(result);
+    }
+    return ExecutionStream.resultIterator(merged.iterator());
+  }
+
+  /**
    * Probe filter applied to each upstream row. Returns the row if it should
    * be kept, or {@code null} to discard it. The hash set is passed explicitly
    * (captured at lambda creation time) to avoid null dereference if
@@ -139,8 +229,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     return switch (joinMode) {
       case ANTI_JOIN -> found ? null : row;
       case SEMI_JOIN -> found ? row : null;
-      case INNER_JOIN -> throw new UnsupportedOperationException(
-          "INNER_JOIN not yet implemented");
+      case INNER_JOIN -> throw new IllegalStateException(
+          "INNER_JOIN uses flatMap, not filter");
     };
   }
 
@@ -213,6 +303,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   @Override
   public void close() {
     hashSet = null;
+    hashMap = null;
     try {
       buildPlan.close();
     } finally {
