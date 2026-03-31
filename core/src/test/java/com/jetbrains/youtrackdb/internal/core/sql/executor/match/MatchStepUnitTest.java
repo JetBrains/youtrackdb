@@ -2563,10 +2563,13 @@ public class MatchStepUnitTest extends DbTestBase {
       results.add(stream.next(ctx));
     }
     assertEquals(3, results.size());
+    assertEquals(new RecordId(1, 1), results.get(0).getProperty("friend"));
     assertEquals(new RecordId(2, 1), results.get(0).getProperty("person"));
     assertEquals("Berlin", results.get(0).getProperty("city"));
+    assertEquals(new RecordId(1, 1), results.get(1).getProperty("friend"));
     assertEquals(new RecordId(2, 1), results.get(1).getProperty("person"));
     assertEquals("Paris", results.get(1).getProperty("city"));
+    assertEquals(new RecordId(1, 2), results.get(2).getProperty("friend"));
     assertEquals(new RecordId(2, 2), results.get(2).getProperty("person"));
     assertEquals("Rome", results.get(2).getProperty("city"));
     stream.close(ctx);
@@ -2693,6 +2696,60 @@ public class MatchStepUnitTest extends DbTestBase {
     assertTrue(stream.hasNext(ctx));
     var result = stream.next(ctx);
     assertEquals("Berlin", result.getProperty("city"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with empty upstream: build side is populated but no upstream
+   * rows arrive, so the result stream must be empty. Verifies that the eager
+   * buildHashMap call does not cause issues when no upstream rows follow.
+   */
+  @Test
+  public void testHashJoinInnerJoinEmptyUpstream() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+    var upstream = createUpstreamStep(ctx);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with composite key where one alias is a RID and the other is
+   * a String, exercising the Object[] fallback path in extractKey on both
+   * build and probe sides.
+   */
+  @Test
+  public void testHashJoinInnerJoinCompositeKeyMixedTypes() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("person", new RecordId(1, 1));
+    buildRow.setProperty("tag", "sports");
+    buildRow.setProperty("extra", "found");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("person", new RecordId(1, 1));
+    upstreamRow.setProperty("tag", "sports");
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("person", "tag"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("found", result.getProperty("extra"));
+    assertEquals(new RecordId(1, 1), result.getProperty("person"));
+    assertEquals("sports", result.getProperty("tag"));
     assertFalse(stream.hasNext(ctx));
     stream.close(ctx);
   }
