@@ -30,25 +30,31 @@ import javax.annotation.Nullable;
  *   <li><b>Build phase</b>: Execute the build-side {@link SelectExecutionPlan}
  *       independently (using a copied {@link CommandContext} to isolate
  *       {@code $matched}), collect all result rows, and extract shared alias
- *       values into a {@link HashSet} of {@link JoinKey}s.</li>
+ *       values into a {@link HashSet} of {@link JoinKey}s (for ANTI/SEMI) or
+ *       a {@link HashMap} of {@code JoinKey → List<Result>} (for INNER_JOIN,
+ *       storing full flattened rows).</li>
  *   <li><b>Probe phase</b>: For each upstream row, extract the same shared alias
- *       values and probe the hash set. The {@link JoinMode} determines the
- *       filtering logic:
+ *       values and probe the hash structure. The {@link JoinMode} determines
+ *       the behavior:
  *       <ul>
- *         <li>{@link JoinMode#ANTI_JOIN}: keep if key is NOT found (NOT pattern)</li>
- *         <li>{@link JoinMode#SEMI_JOIN}: keep if key IS found (EXISTS filter)</li>
- *         <li>{@link JoinMode#INNER_JOIN}: enrich with matching build-side rows</li>
+ *         <li>{@link JoinMode#ANTI_JOIN}: filter — keep if key is NOT found
+ *             (NOT pattern)</li>
+ *         <li>{@link JoinMode#SEMI_JOIN}: filter — keep if key IS found
+ *             (EXISTS filter)</li>
+ *         <li>{@link JoinMode#INNER_JOIN}: flatMap — for each match, create a
+ *             merged row with upstream + build-side properties</li>
  *       </ul>
  *   </li>
  * </ol>
  *
- * <p>The hash table is built eagerly in {@link #internalStart} before any
+ * <p>The hash structure is built eagerly in {@link #internalStart} before any
  * upstream rows are consumed. It is built per-execution (not cached), so there
  * are no thread-safety concerns.
  *
- * <p>When the build-side plan produces zero rows, the hash set is empty.
+ * <p>When the build-side plan produces zero rows, the hash set/map is empty.
  * In ANTI_JOIN mode this means all upstream rows pass through (no matches to
- * exclude). In SEMI_JOIN mode this means all upstream rows are filtered out.
+ * exclude). In SEMI_JOIN and INNER_JOIN mode this means all upstream rows are
+ * filtered out (no matches possible).
  *
  * @see FilterNotMatchPatternStep
  * @see MatchExecutionPlanner
@@ -164,6 +170,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
         if (key != null) {
           // Flatten: copy all properties into a plain ResultInternal to avoid
           // retaining the layered MatchResultRow chain in memory.
+          // Use parent session — flattened rows outlive the isolated context.
           var flat = new ResultInternal(ctx.getDatabaseSession());
           for (var prop : row.getPropertyNames()) {
             flat.setProperty(prop, row.getProperty(prop));
@@ -182,7 +189,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * Merges matching build-side rows into each upstream row for INNER_JOIN.
    * For each matching build-side row, a new {@link ResultInternal} is created
    * containing all upstream properties plus build-side properties (skipping
-   * shared aliases already present from the upstream row). Returns an empty
+   * any already present from the upstream row). Returns an empty
    * stream if the upstream key is null or has no match.
    */
   private ExecutionStream mergeMatches(
@@ -196,13 +203,14 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
     var merged = new ArrayList<Result>(matches.size());
+    var upstreamProps = upstream.getPropertyNames();
     for (var buildRow : matches) {
       var result = new ResultInternal(mergeCtx.getDatabaseSession());
       // Copy all upstream properties first
-      for (var prop : upstream.getPropertyNames()) {
+      for (var prop : upstreamProps) {
         result.setProperty(prop, upstream.getProperty(prop));
       }
-      // Copy build-side properties, skipping shared aliases already present
+      // Copy build-side properties, skipping any already present from upstream
       for (var prop : buildRow.getPropertyNames()) {
         if (!result.hasProperty(prop)) {
           result.setProperty(prop, buildRow.getProperty(prop));
