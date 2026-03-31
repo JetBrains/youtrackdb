@@ -1158,4 +1158,71 @@ public class WOWCacheNonDurableFileTrackingTest {
       readCache.deleteStorage(wowCache);
     }
   }
+
+  /**
+   * Verifies that deleteNonDurableFilesOnRecovery does not throw when the non-durable file's
+   * on-disk data file is missing (e.g., never flushed to disk or already deleted by a prior
+   * recovery). The method should log a warning and continue.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecoveryWithMissingDiskFile() throws Exception {
+    final var bookedNdId = wowCache.bookFileId("missingOnDisk.tst");
+    final var ndFileId = wowCache.addFile("missingOnDisk.tst", bookedNdId, true);
+    assertTrue(wowCache.isNonDurable(ndFileId));
+
+    // Manually delete the on-disk data file to simulate a crash where data was never flushed
+    final var intId = wowCache.internalFileId(ndFileId);
+    final var nativeFileName = wowCache.nativeFileNameById(ndFileId);
+    assertFalse("nativeFileName should not be null", nativeFileName == null);
+    final var dataFilePath = storagePath.resolve(nativeFileName);
+    assertTrue("Data file should exist before manual deletion", Files.exists(dataFilePath));
+    Files.delete(dataFilePath);
+    assertFalse("Data file should be gone after manual deletion", Files.exists(dataFilePath));
+
+    final var readCache = createReadCache();
+    try {
+      // This should not throw — the missing file should be handled gracefully
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      // The returned set should still contain the file ID (it was in the registry)
+      assertTrue(
+          "Deleted set must contain the non-durable file's internal ID even if disk file missing",
+          deletedIds.contains(intId));
+
+      // Side files should be cleaned up
+      assertFalse(
+          "Primary side file should be deleted after recovery",
+          Files.exists(storagePath.resolve("non_durable_files.cm")));
+      assertFalse(
+          "Shadow side file should be deleted after recovery",
+          Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
+
+  /**
+   * Verifies that calling deleteNonDurableFilesOnRecovery twice is idempotent: the second call
+   * returns an empty set and does not throw, since the first call already deleted everything.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecoveryIsIdempotent() throws Exception {
+    final var bookedNdId = wowCache.bookFileId("idempotent.tst");
+    wowCache.addFile("idempotent.tst", bookedNdId, true);
+
+    final var readCache = createReadCache();
+    try {
+      // First call — should delete the file
+      final var firstResult = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+      assertFalse("First call should return non-empty set", firstResult.isEmpty());
+
+      // Second call — should be a no-op
+      final var secondResult = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+      assertTrue(
+          "Second call should return empty set (everything already deleted)",
+          secondResult.isEmpty());
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
 }
