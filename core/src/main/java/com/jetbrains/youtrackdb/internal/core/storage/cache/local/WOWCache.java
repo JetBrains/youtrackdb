@@ -3465,13 +3465,16 @@ public final class WOWCache extends AbstractWriteCache
       writePageChunksToFiles(buffersByFileId);
       // Skip fsyncFiles() — non-durable data does not need to be forced to stable storage
     } catch (final Exception e) {
-      // Non-durable data is discardable — log and continue without setting flushError
+      // Non-durable data is discardable — log and continue without setting flushError.
+      // Do NOT call removeWrittenPagesFromCache here — pages may not have been written
+      // successfully, so removing them from the cache would cause silent data loss.
       LogManager.instance()
           .warn(
               this,
               "Error flushing non-durable pages in storage %s. Data will be discarded on crash.",
               e,
               storageName);
+      return 0;
     } finally {
       for (final var containerPointer : containerPointers) {
         if (containerPointer != null) {
@@ -3507,7 +3510,9 @@ public final class WOWCache extends AbstractWriteCache
       if (chunk.isEmpty()) {
         continue;
       }
-      // All pages in a chunk share the same file — check the first page's file ID
+      // All pages in a chunk share the same file (chunks are split on file boundaries
+      // in flushExclusiveWriteCache and executeFileFlush), so checking the first page
+      // is sufficient to classify the entire chunk.
       final var firstPage = chunk.getFirst();
       final var fileId = firstPage.originalPagePointer.getFileId();
       if (nonDurableFileIds.contains(internalFileId(fileId))) {
