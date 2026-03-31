@@ -4039,18 +4039,25 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         if (chunks.size() >= 4 * chunkSize) {
-          flushPages(chunks, maxLSN);
+          partitionAndFlushChunks(chunks, maxLSN);
           chunks.clear();
         }
       }
     }
 
-    flushPages(chunks, maxLSN);
+    partitionAndFlushChunks(chunks, maxLSN);
 
     if (callFsync) {
       var fileIdIterator = fileIdSet.intIterator();
       while (fileIdIterator.hasNext()) {
-        final var finalId = composeFileId(id, fileIdIterator.nextInt());
+        final var intFileId = fileIdIterator.nextInt();
+
+        // Non-durable files do not need fsync — skip to avoid unnecessary I/O.
+        if (nonDurableFileIds.contains(intFileId)) {
+          continue;
+        }
+
+        final var finalId = composeFileId(id, intFileId);
         final var entry = files.acquire(finalId);
         if (entry != null) {
           try {
