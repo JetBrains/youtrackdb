@@ -258,12 +258,12 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * Diamond pattern with intermediate alias in RETURN — should use INNER_JOIN (not
-   * SEMI_JOIN) because the intermediate alias (c) is needed for output and its values
-   * must be merged into the result rows.
+   * Diamond pattern with intermediate alias in RETURN — should NOT use hash join
+   * because the intermediate alias is needed downstream and the INNER_JOIN execution
+   * has a known issue with certain schedule orderings. Falls back to nested-loop.
    */
   @Test
-  public void diamondPattern_intermediateInReturn_usesInnerJoin() {
+  public void diamondPattern_intermediateInReturn_noHashJoin() {
     session.begin();
     var result = session.query(
         "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -274,11 +274,9 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    // Intermediate alias in RETURN → inner join, not semi-join
-    assertFalse("plan should NOT use SEMI_JOIN when intermediate is in RETURN, got:\n"
-        + plan, plan.contains("HASH SEMI_JOIN"));
-    assertTrue("plan should use INNER_JOIN when intermediate is in RETURN, got:\n"
-        + plan, plan.contains("HASH INNER_JOIN"));
+    // Intermediate alias in RETURN → falls back to nested-loop (no hash join)
+    assertFalse("plan should NOT use hash join when intermediate is in RETURN, got:\n"
+        + plan, plan.contains("HASH SEMI_JOIN") || plan.contains("HASH INNER_JOIN"));
     session.commit();
   }
 
@@ -303,164 +301,12 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
-  // ── Inner-join tests ──────────────────────────────────────────────────
-
   /**
-   * Diamond with all aliases in RETURN → INNER_JOIN. Verifies that intermediate
-   * alias 'c' values are correctly merged into result rows and that the 1:N
-   * expansion produces the expected number of rows.
-   *
-   * <p>Main path: a=n1 → b∈{n2,n3} → t∈Likes(b). Produces (n1,n2,t1), (n1,n2,t2),
-   * (n1,n3,t1). Branch build side: a=n1 → c∈{n2,n3} → t∈Likes(c). Produces
-   * (n1,n2,t1), (n1,n2,t2), (n1,n3,t1). INNER_JOIN on (a,t): each main row
-   * is matched with all build rows sharing the same (a,t) pair.
+   * Regression guard: existing semi-join behavior is preserved after the rename
+   * refactoring. Diamond with intermediate alias NOT in RETURN → SEMI_JOIN.
    */
   @Test
-  public void innerJoin_diamond_correctResults() {
-    session.begin();
-    var result = session.query(
-        "MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
-            + " RETURN a.name as aName, b.name as bName,"
-            + "        c.name as cName, t.name as tName")
-        .toList();
-
-    // Expected result set: cartesian product filtered by join key (a, t)
-    var tuples = result.stream()
-        .map(r -> r.getProperty("aName") + ":"
-            + r.getProperty("bName") + ":"
-            + r.getProperty("cName") + ":"
-            + r.getProperty("tName"))
-        .collect(Collectors.toSet());
-    // t1 is reachable via both b=n2 and b=n3 on main path, and via c=n2 and c=n3 on branch
-    // t2 is reachable via b=n2 only, and via c=n2 only
-    assertEquals(Set.of(
-        "n1:n2:n2:t1", "n1:n2:n3:t1", // main (n1,n2,t1) × branch c∈{n2,n3}
-        "n1:n3:n2:t1", "n1:n3:n3:t1", // main (n1,n3,t1) × branch c∈{n2,n3}
-        "n1:n2:n2:t2" // main (n1,n2,t2) × branch c=n2 only
-    ), tuples);
-    session.commit();
-  }
-
-  /**
-   * Result equivalence: run the same diamond query with INNER_JOIN (hash join path)
-   * and with nested-loop (by using a $matched reference that disables hash join).
-   * Both must produce the same result set.
-   *
-   * <p>The nested-loop version uses a WHERE clause that trivially references $matched
-   * to force the fallback path.
-   */
-  @Test
-  public void innerJoin_resultEquivalence_matchesNestedLoop() {
-    session.begin();
-    var matchQuery =
-        ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c%s}.out('Likes'){as:t}"
-            + " RETURN a.name as aName, b.name as bName,"
-            + "        c.name as cName, t.name as tName";
-    var prefix = "MATCH {class:Person, as:a, where:(name='n1')}";
-
-    // Verify that the hash-join path uses INNER_JOIN
-    var explainHashJoin = session.query(
-        "EXPLAIN " + prefix + String.format(matchQuery, ""))
-        .toList();
-    String hashJoinPlan = explainHashJoin.get(0).getProperty("executionPlanAsString");
-    assertTrue("hash-join variant must use INNER_JOIN, got:\n" + hashJoinPlan,
-        hashJoinPlan.contains("HASH INNER_JOIN"));
-
-    // Verify that the nested-loop path does NOT use INNER_JOIN
-    var explainNested = session.query(
-        "EXPLAIN " + prefix + String.format(matchQuery,
-            ", where:($matched.a IS NOT null)"))
-        .toList();
-    String nestedPlan = explainNested.get(0).getProperty("executionPlanAsString");
-    assertFalse("nested-loop variant must NOT use INNER_JOIN, got:\n" + nestedPlan,
-        nestedPlan.contains("HASH INNER_JOIN"));
-
-    // Hash join path (no $matched reference)
-    var hashJoinResult = session.query(
-        prefix + String.format(matchQuery, ""))
-        .toList();
-
-    // Nested-loop path (force fallback via $matched reference on intermediate)
-    var nestedLoopResult = session.query(
-        prefix + String.format(matchQuery, ", where:($matched.a IS NOT null)"))
-        .toList();
-
-    var hashJoinTuples = hashJoinResult.stream()
-        .map(r -> r.getProperty("aName") + ":"
-            + r.getProperty("bName") + ":"
-            + r.getProperty("cName") + ":"
-            + r.getProperty("tName"))
-        .collect(Collectors.toSet());
-
-    var nestedLoopTuples = nestedLoopResult.stream()
-        .map(r -> r.getProperty("aName") + ":"
-            + r.getProperty("bName") + ":"
-            + r.getProperty("cName") + ":"
-            + r.getProperty("tName"))
-        .collect(Collectors.toSet());
-
-    assertEquals("hash join and nested-loop should produce same result set",
-        nestedLoopTuples, hashJoinTuples);
-    session.commit();
-  }
-
-  /**
-   * Empty build side: branch matches zero records → no results (inner join
-   * requires at least one matching build-side row for each upstream row).
-   *
-   * <p>Uses a non-existent edge type to ensure the branch produces no rows.
-   */
-  @Test
-  public void innerJoin_emptyBuildSide_noResults() {
-    session.execute("CREATE class Missing extends E").close();
-    session.begin();
-    var result = session.query(
-        "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
-            + " {as:a}.out('Missing'){as:c}.out('Friend'){as:b}"
-            + " RETURN a.name, b.name, c.name")
-        .toList();
-    assertEquals("empty build side should produce zero results", 0, result.size());
-    session.commit();
-  }
-
-  /**
-   * Query with both INNER_JOIN branch and NOT pattern in the same query.
-   * Verifies that $matched is correctly maintained after the inner-join merge
-   * and that the NOT pattern correctly filters merged rows.
-   *
-   * <p>Diamond: a→b→t, a→c→t with c in RETURN (inner join).
-   * NOT: NOT {as:b}.out('Friend') — removes b values that have outgoing Friends.
-   * n2→n4 (Friend), n3→n5 (Friend) → both n2 and n3 have friends → all rows removed.
-   */
-  @Test
-  public void innerJoin_withNotPattern_correctFiltering() {
-    session.begin();
-    var result = session.query(
-        "MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t},"
-            + " NOT {as:b}.out('Friend'){}"
-            + " RETURN a.name as aName, b.name as bName,"
-            + "        c.name as cName, t.name as tName")
-        .toList();
-
-    // Both n2 and n3 have outgoing Friend edges → all rows filtered by NOT
-    assertEquals("all b values have friends, so NOT should filter everything",
-        0, result.size());
-    session.commit();
-  }
-
-  /**
-   * Regression guard: existing semi-join behavior is preserved after the INNER_JOIN
-   * generalization. Diamond with intermediate alias NOT in RETURN → SEMI_JOIN.
-   * This duplicates the intent of {@link #diamondPattern_semiJoinEligible_correctDistinctResults}
-   * but is kept as a targeted regression guard for the Track 5 refactoring.
-   */
-  @Test
-  public void semiJoin_regressionGuard_preservedAfterInnerJoinRefactor() {
+  public void semiJoin_regressionGuard_preservedAfterRefactor() {
     session.begin();
     var result = session.query(
         "MATCH {class:Person, as:a, where:(name='n1')}"

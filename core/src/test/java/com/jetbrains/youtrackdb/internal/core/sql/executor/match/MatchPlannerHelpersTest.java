@@ -725,11 +725,12 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Same diamond but "c" is referenced downstream (in RETURN) → detected as INNER_JOIN
-   * because the intermediate alias is needed in the result.
+   * Same diamond but "c" is referenced downstream (in RETURN) → rejected because
+   * the INNER_JOIN execution has a known issue with certain schedule orderings.
+   * Falls back to nested-loop evaluation.
    */
   @Test
-  public void identifyHashJoinBranches_intermediateInReturn_innerJoin() {
+  public void identifyHashJoinBranches_intermediateInReturn_rejected() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -760,7 +761,7 @@ public class MatchPlannerHelpersTest {
         new EdgeTraversal(edgeAC, true),
         new EdgeTraversal(edgeCD, true));
 
-    // c is downstream → intermediate alias is needed → INNER_JOIN
+    // c is downstream → branch rejected (falls back to nested-loop)
     var downstream = Set.of("a", "c", "d");
     var ctx = buildMockContext("Person", 50);
 
@@ -769,16 +770,7 @@ public class MatchPlannerHelpersTest {
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
 
-    assertThat(result).hasSize(1);
-    var branch = result.get(0);
-    assertThat(branch.joinMode()).isEqualTo(JoinMode.INNER_JOIN);
-    assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
-    assertThat(branch.intermediateAliases()).containsExactly("c");
-    assertThat(branch.branchEdges()).hasSize(2);
-    assertThat(branch.branchEdges().get(0).edge.out.alias).isEqualTo("a");
-    assertThat(branch.branchEdges().get(0).edge.in.alias).isEqualTo("c");
-    assertThat(branch.branchEdges().get(1).edge.out.alias).isEqualTo("c");
-    assertThat(branch.branchEdges().get(1).edge.in.alias).isEqualTo("d");
+    assertThat(result).isEmpty();
   }
 
   /**

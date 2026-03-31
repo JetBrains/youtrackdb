@@ -1006,10 +1006,11 @@ public class MatchExecutionPlanner {
    *   <li>no intermediate alias uses an auto-generated name ({@link #DEFAULT_ALIAS_PREFIX})</li>
    * </ul>
    *
-   * <p>The join mode is determined by downstream alias analysis: if any intermediate alias
-   * is referenced downstream (RETURN, GROUP BY, ORDER BY, UNWIND), the branch requires
-   * {@link JoinMode#INNER_JOIN} to preserve those bindings; otherwise, {@link JoinMode#SEMI_JOIN}
-   * suffices (only existence is checked).
+   * <p>Currently, only {@link JoinMode#SEMI_JOIN} is selected. Branches with downstream
+   * intermediates are rejected (fall back to nested-loop) because the INNER_JOIN execution
+   * path has a known issue with certain schedule orderings. The {@code JoinMode} field in
+   * {@link HashJoinBranch} and the planner wiring via {@code branch.joinMode()} are in place
+   * for future INNER_JOIN enablement.
    *
    * @param scheduledEdges     the edge schedule from {@code getTopologicalSortedSchedule()}
    * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
@@ -1084,9 +1085,9 @@ public class MatchExecutionPlanner {
   /**
    * Traces backward from a consistency-check edge at position {@code checkIdx} to find
    * the branch's edges. The branch is the contiguous sub-sequence of edges ending at the
-   * consistency-check edge, starting from a "branch root" shared alias. The join mode is
-   * classified based on whether any intermediate alias is in {@code downstreamAliases}:
-   * {@link JoinMode#INNER_JOIN} if yes, {@link JoinMode#SEMI_JOIN} if no.
+   * consistency-check edge, starting from a "branch root" shared alias. Branches with
+   * downstream intermediates are rejected (fall back to nested-loop) because the
+   * INNER_JOIN execution path has a known issue with certain schedule orderings.
    *
    * @return a {@link HashJoinBranch} if eligible, or {@code null} if not
    */
@@ -1169,20 +1170,23 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Check that no intermediate alias is an auto-generated internal alias
-    // (from .inE()/.outE() etc.) — these are internal and cannot be join keys.
-    // Classify join mode: if any intermediate is referenced downstream, use
-    // INNER_JOIN (build-side rows must be merged); otherwise SEMI_JOIN suffices.
-    boolean anyDownstream = false;
+    // Check that all intermediate aliases are NOT in downstreamAliases and
+    // are not auto-generated internal aliases (from .inE()/.outE() etc.).
+    // Branches with downstream intermediates require INNER_JOIN (build-side row
+    // merge), but this path has a known issue with certain schedule orderings
+    // (e.g., triangle patterns where the scheduler picks a non-root alias as the
+    // starting node). Until the INNER_JOIN execution is verified for all schedule
+    // orderings, reject branches with downstream intermediates — the existing
+    // nested-loop path handles them correctly.
     for (var alias : intermediateAliases) {
+      if (downstreamAliases.contains(alias)) {
+        return null;
+      }
       if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
         return null;
       }
-      if (downstreamAliases.contains(alias)) {
-        anyDownstream = true;
-      }
     }
-    var joinMode = anyDownstream ? JoinMode.INNER_JOIN : JoinMode.SEMI_JOIN;
+    var joinMode = JoinMode.SEMI_JOIN;
 
     // Check that no branch edge involves an optional node
     for (var edgeT : branchEdges) {
