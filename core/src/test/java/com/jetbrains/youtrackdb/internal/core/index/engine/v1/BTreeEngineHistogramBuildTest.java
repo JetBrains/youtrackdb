@@ -71,6 +71,9 @@ public class BTreeEngineHistogramBuildTest {
     // totalCount = 4 (3 non-null + 1 null), nullCount = 1
     verify(f.manager).buildHistogram(
         eq(f.op), any(), eq(4L), eq(1L), eq(1));
+    // Counters must be recalibrated from the exact scan
+    assertEquals(4, f.engine.getTotalCount(f.op));
+    assertEquals(1, f.engine.getNullCount(f.op));
   }
 
   @Test
@@ -137,62 +140,51 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Single-value: getNullCount() / getTotalCount()
+  // Single-value: getNullCount() / getTotalCount() — O(1) counter reads
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void singleValue_getNullCount_nullEntryExists_returns1() {
-    // getNullCount uses get(null) → iterateEntriesBetween(CompositeKey(null))
+  public void singleValue_getNullCount_reflectsCounterValue() {
+    // getNullCount() is O(1): reads approximateNullCount counter directly.
     var f = new SingleValueFixture();
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), new RecordId(1, 1))));
-
+    f.engine.addToApproximateNullCount(1);
     assertEquals(1, f.engine.getNullCount(f.op));
   }
 
   @Test
-  public void singleValue_getNullCount_noNullEntry_returns0() {
+  public void singleValue_getNullCount_initial_returnsZero() {
     var f = new SingleValueFixture();
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenReturn(Stream.empty());
-
     assertEquals(0, f.engine.getNullCount(f.op));
   }
 
   @Test
-  public void singleValue_getTotalCount_includesNullEntry() {
-    // getTotalCount → size → stream().count() + get(null).count()
-    // stream() filters null keys, so null entry only counted via get(null)
+  public void singleValue_getTotalCount_reflectsCounterValue() {
+    // getTotalCount() is O(1): reads approximateIndexEntriesCount directly.
     var f = new SingleValueFixture();
-    var nullRid = new RecordId(1, 1);
-    var firstKey = new CompositeKey(null, 0L);
-    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
-    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), nullRid),
-            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
-            new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2))));
-    // Mock get(null) path: iterateEntriesBetween for CompositeKey(null)
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), nullRid)));
-
-    // totalCount = 2 (non-null from stream) + 1 (null from get(null)) = 3
+    f.engine.addToApproximateEntryCount(3);
     assertEquals(3, f.engine.getTotalCount(f.op));
   }
 
   @Test
-  public void singleValue_getTotalCount_noNullEntry() {
+  public void singleValue_getTotalCount_initial_returnsZero() {
     var f = new SingleValueFixture();
-    var firstKey = new CompositeKey("a", 0L);
-    when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
-    when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
-            new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2))));
+    assertEquals(0, f.engine.getTotalCount(f.op));
+  }
 
-    assertEquals(2, f.engine.getTotalCount(f.op));
+  @Test
+  public void singleValue_addToApproximateEntryCount_negativeDelta() {
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntryCount(10);
+    f.engine.addToApproximateEntryCount(-3);
+    assertEquals(7, f.engine.getTotalCount(f.op));
+  }
+
+  @Test
+  public void singleValue_addToApproximateNullCount_accumulatesDeltas() {
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateNullCount(2);
+    f.engine.addToApproximateNullCount(1);
+    assertEquals(3, f.engine.getNullCount(f.op));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -229,6 +221,9 @@ public class BTreeEngineHistogramBuildTest {
     // totalCount = 3 (2 sv + 1 null), nullCount = 1
     verify(f.manager).buildHistogram(
         eq(f.op), any(), eq(3L), eq(1L), eq(1));
+    // Counters must be recalibrated from the exact scan
+    assertEquals(3, f.engine.getTotalCount(f.op));
+    assertEquals(1, f.engine.getNullCount(f.op));
   }
 
   @Test
@@ -270,46 +265,35 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Multi-value: getNullCount() / getTotalCount()
+  // Multi-value: getNullCount() / getTotalCount() — O(1) counter reads
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void multiValue_getNullCount_returnsNullTreeSize() {
-    // getNullCount → get(null) → nullTree.firstKey + nullTree.iterateEntriesMajor
+  public void multiValue_getNullCount_reflectsCounterValue() {
+    // getNullCount() is O(1): reads approximateNullCount counter directly.
     var f = new MultiValueFixture();
-    var nullFirstKey = new CompositeKey(new RecordId(1, 1), 0L);
-    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
-    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey(new RecordId(1, 1), 0L),
-                new RecordId(1, 1)),
-            new RawPair<>(new CompositeKey(new RecordId(1, 2), 0L),
-                new RecordId(1, 2))));
-
+    f.engine.addToApproximateNullCount(2);
     assertEquals(2, f.engine.getNullCount(f.op));
   }
 
   @Test
-  public void multiValue_getTotalCount_sumsBothTrees() {
-    // getTotalCount → size → stream().count() + get(null).count()
+  public void multiValue_getTotalCount_reflectsCounterValue() {
+    // getTotalCount() is O(1): reads approximateIndexEntriesCount directly.
     var f = new MultiValueFixture();
-    // svTree: 2 entries
-    var firstKey = new CompositeKey("a", new RecordId(2, 1), 0L);
-    when(f.svTree.firstKey(f.op)).thenReturn(firstKey);
-    when(f.svTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey("a", new RecordId(2, 1), 0L), new RecordId(2, 1)),
-            new RawPair<>(new CompositeKey("b", new RecordId(2, 2), 0L), new RecordId(2, 2))));
-    // nullTree: 1 entry
-    var nullFirstKey = new CompositeKey(new RecordId(1, 1), 0L);
-    when(f.nullTree.firstKey(f.op)).thenReturn(nullFirstKey);
-    when(f.nullTree.iterateEntriesMajor(eq(nullFirstKey), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(
-            new RawPair<>(new CompositeKey(new RecordId(1, 1), 0L),
-                new RecordId(1, 1))));
-
-    // totalCount = 2 (sv) + 1 (null) = 3
+    f.engine.addToApproximateEntryCount(3);
     assertEquals(3, f.engine.getTotalCount(f.op));
+  }
+
+  @Test
+  public void multiValue_countersAreIndependent() {
+    // Total and null counters are independent — setting one does not affect
+    // the other. This mirrors the commit path where applyIndexCountDeltas
+    // calls both addTo methods separately.
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntryCount(5);
+    f.engine.addToApproximateNullCount(2);
+    assertEquals(5, f.engine.getTotalCount(f.op));
+    assertEquals(2, f.engine.getNullCount(f.op));
   }
 
   // ═══════════════════════════════════════════════════════════════════════

@@ -158,16 +158,20 @@ public final class BTreeSingleValueIndexEngine
       approximateIndexEntriesCount.set(0);
       approximateNullCount.set(0);
     } else {
+      // Count without materializing: single streaming pass with two counters.
+      long[] counts = {0, 0}; // [total, null]
       try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
           sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
           BTreeSingleValueIndexEngine::extractKey)) {
-        var partitioned = allVisible.collect(
-            Collectors.partitioningBy(p -> p.first() != null));
-        long nonNullCount = partitioned.get(true).size();
-        long nullCount = partitioned.get(false).size();
-        approximateIndexEntriesCount.set(nonNullCount + nullCount);
-        approximateNullCount.set(nullCount);
+        allVisible.forEach(p -> {
+          counts[0]++;
+          if (p.first() == null) {
+            counts[1]++;
+          }
+        });
       }
+      approximateIndexEntriesCount.set(counts[0]);
+      approximateNullCount.set(counts[1]);
     }
   }
 

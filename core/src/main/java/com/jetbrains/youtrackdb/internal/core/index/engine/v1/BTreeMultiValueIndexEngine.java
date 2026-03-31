@@ -205,6 +205,7 @@ public final class BTreeMultiValueIndexEngine
     long nullCount = 0;
     var nullFirstKey = nullTree.firstKey(atomicOperation);
     if (nullFirstKey != null) {
+      // Key mapper returns null for all nullTree entries — only count() is used.
       try (var nullStream = nullIndexesSnapshot.visibilityFilterMapped(atomicOperation,
           nullTree.iterateEntriesMajor(nullFirstKey, true, true, atomicOperation),
           k -> null)) {
