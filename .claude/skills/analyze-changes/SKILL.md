@@ -5,8 +5,6 @@ argument-hint: "[branch-name | commit-sha]"
 user-invocable: true
 ---
 
-# Analyze Changes
-
 Analyze the git changes specified by the argument and produce a detailed markup document.
 
 ## Input
