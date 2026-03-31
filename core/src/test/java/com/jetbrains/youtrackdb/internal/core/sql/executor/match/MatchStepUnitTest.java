@@ -2890,6 +2890,55 @@ public class MatchStepUnitTest extends DbTestBase {
         ((HashJoinMatchStep) rawCopy).prettyPrint(0, 2));
   }
 
+  /** Verifies prettyPrint output format for INNER_JOIN mode. */
+  @Test
+  public void testHashJoinPrettyPrintInnerJoin() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx), List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH INNER_JOIN on [friend]"));
+  }
+
+  /** Verifies prettyPrint for INNER_JOIN with multiple aliases. */
+  @Test
+  public void testHashJoinPrettyPrintInnerJoinMultiAlias() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx),
+        List.of("friend", "tag"), JoinMode.INNER_JOIN, false);
+    var output = step.prettyPrint(0, 2);
+    assertTrue(output.contains("+ HASH INNER_JOIN on [friend, tag]"));
+  }
+
+  /** Verifies copy() preserves INNER_JOIN mode and shared aliases. */
+  @Test
+  public void testHashJoinCopyInnerJoin() {
+    var ctx = createCommandContext();
+    var buildPlan = createBuildPlan(ctx,
+        createRow("friend", new RecordId(1, 1)));
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    var rawCopy = step.copy(ctx);
+
+    assertNotSame(step, rawCopy);
+    assertTrue(rawCopy instanceof HashJoinMatchStep);
+    assertTrue(((HashJoinMatchStep) rawCopy).prettyPrint(0, 2)
+        .contains("INNER_JOIN"));
+  }
+
+  /**
+   * Verifies canBeCached() delegates correctly for INNER_JOIN mode
+   * (same behavior as ANTI_JOIN — mode-agnostic).
+   */
+  @Test
+  public void testHashJoinCanBeCachedInnerJoin() {
+    var ctx = createCommandContext();
+    var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx), List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    assertTrue(step.canBeCached());
+  }
+
   // -- JoinKey tests --
 
   /** Verifies JoinKey.ofRid equality: same collection+position → equal. */
