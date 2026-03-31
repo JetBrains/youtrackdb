@@ -161,11 +161,11 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     for (var r : edgeResult) {
       pairs.add(r.getProperty("p.name") + "->" + r.getProperty("c.name"));
     }
+    Set<String> expectedPairs = new HashSet<>();
     for (int i = 0; i < 5; i++) {
-      assertTrue(
-          "Should contain person" + i + "->company" + (i % 5),
-          pairs.contains("person" + i + "->company" + (i % 5)));
+      expectedPairs.add("person" + i + "->company" + (i % 5));
     }
+    assertEquals(expectedPairs, pairs);
 
     session.commit();
   }
@@ -195,11 +195,11 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     for (var r : result) {
       pairs.add(r.getProperty("p.name") + "->" + r.getProperty("f.title"));
     }
+    Set<String> expectedPairs = new HashSet<>();
     for (int i = 5; i < 10; i++) {
-      assertTrue(
-          "Should contain person" + i + "->forum" + (i % 3),
-          pairs.contains("person" + i + "->forum" + (i % 3)));
+      expectedPairs.add("person" + i + "->forum" + (i % 3));
     }
+    assertEquals(expectedPairs, pairs);
 
     session.commit();
   }
@@ -341,20 +341,20 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     for (var r : result) {
       personNames.add(r.getProperty("p.name"));
     }
+    Set<String> expectedNames = new HashSet<>();
     for (int i = 5; i < 10; i++) {
-      assertTrue(
-          "Should contain person" + i,
-          personNames.contains("person" + i));
+      expectedNames.add("person" + i);
     }
+    assertEquals(expectedNames, personNames);
 
     // Verify EXPLAIN does NOT show index intersection for the non-indexed edge
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertFalse(
-        "Plan should NOT contain index intersection for non-indexed PFLikes,"
-            + " but plan was:\n" + plan,
-        plan.contains("(intersection: index"));
+        "Plan should NOT contain any intersection descriptor for non-indexed"
+            + " PFLikes, but plan was:\n" + plan,
+        plan.contains("(intersection:"));
 
     session.commit();
   }
@@ -372,6 +372,30 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     var query =
         "MATCH {class: PFPerson, as: p}"
             + ".outE('PFWorkAt'){where: (workFrom > 2999)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
+    var result = session.query(query).toList();
+
+    assertEquals(0, result.size());
+
+    session.commit();
+  }
+
+  /**
+   * Verify that a vertex with no outgoing edges of the traversed type
+   * produces zero results without errors, even when the pre-filter is active.
+   * Exercises the empty link bag path in applyPreFilter (size=0).
+   */
+  @Test
+  public void testOutEInVWithIsolatedVertexProducesEmptyResult() {
+    session.begin();
+
+    // Create an isolated person with no PFWorkAt edges
+    session.execute("CREATE VERTEX PFPerson set name = 'loner'").close();
+
+    var query =
+        "MATCH {class: PFPerson, as: p, where: (name = 'loner')}"
+            + ".outE('PFWorkAt'){where: (workFrom < 2015)}"
             + ".inV(){as: c}"
             + " RETURN p.name, c.name";
     var result = session.query(query).toList();
@@ -424,6 +448,7 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
     assertEquals(1, result.size());
     assertEquals("person5", result.getFirst().getProperty("p.name"));
+    assertEquals("company0", result.getFirst().getProperty("target.name"));
 
     session.commit();
   }
@@ -486,11 +511,46 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     for (var r : result) {
       pairs.add(r.getProperty("p.name") + "->" + r.getProperty("c.name"));
     }
+    Set<String> expectedPairs = new HashSet<>();
     for (int i = 0; i < 10; i++) {
-      assertTrue(
-          "Should contain person" + i + "->company" + (i % 5),
-          pairs.contains("person" + i + "->company" + (i % 5)));
+      expectedPairs.add("person" + i + "->company" + (i % 5));
     }
+    assertEquals(expectedPairs, pairs);
+
+    session.commit();
+  }
+
+  /**
+   * Verify that bothE() with an indexed edge property still produces correct
+   * results via unfiltered traversal. bothE() is intentionally out of scope
+   * for pre-filtering (returns ChainedIterable, not PreFilterableLinkBagIterable)
+   * and silently degrades to no-op. This test documents the intentional
+   * degradation and guards against regressions.
+   */
+  @Test
+  public void testBothEDegradesToNoPreFilterButReturnsCorrectResults() {
+    session.begin();
+
+    // bothE('PFWorkAt') from company0 should find persons working there.
+    // company0 has persons 0 and 5 (workFrom 2010, 2015).
+    // Filter workFrom < 2015 -> only person0 matches.
+    var query =
+        "MATCH {class: PFCompany, as: c, where: (name = 'company0')}"
+            + ".bothE('PFWorkAt'){where: (workFrom < 2015)}"
+            + ".outV(){as: p}"
+            + " RETURN p.name";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("person0", result.getFirst().getProperty("p.name"));
+
+    // EXPLAIN should NOT show intersection descriptor for bothE
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertFalse(
+        "bothE should NOT trigger pre-filter intersection, but plan was:\n"
+            + plan,
+        plan.contains("(intersection:"));
 
     session.commit();
   }

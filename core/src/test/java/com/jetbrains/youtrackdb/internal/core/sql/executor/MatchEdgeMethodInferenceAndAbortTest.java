@@ -358,58 +358,58 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
    * <p>This tests the min-linkbag-size guard: link bags smaller than the
    * threshold skip pre-filtering entirely because loading a few records
    * is cheaper than building a RidSet.
+   *
+   * <p>Uses the outE direction so the planner produces an intersection
+   * descriptor (subject to the minLinkBagSize guard at runtime), rather
+   * than the inE direction which uses FETCH FROM INDEX (a plan-level step
+   * not affected by the guard).
    */
   @Test
   public void testAdaptiveAbortSkipsPreFilterWithLargeMinLinkBagSize() {
-    // Schema with indexed edge property
+    // Schema with indexed edge property — outE direction
     session.execute("CREATE class MLPerson extends V").close();
     session.execute("CREATE property MLPerson.name STRING").close();
 
-    session.execute("CREATE class MLForum extends V").close();
-    session.execute("CREATE property MLForum.title STRING").close();
+    session.execute("CREATE class MLCompany extends V").close();
+    session.execute("CREATE property MLCompany.name STRING").close();
 
-    session.execute("CREATE class MLHasMember extends E").close();
-    session.execute("CREATE property MLHasMember.out LINK MLPerson").close();
-    session.execute("CREATE property MLHasMember.in LINK MLForum").close();
-    session.execute("CREATE property MLHasMember.joinDate LONG").close();
+    session.execute("CREATE class MLWorkAt extends E").close();
+    session.execute("CREATE property MLWorkAt.out LINK MLPerson").close();
+    session.execute("CREATE property MLWorkAt.in LINK MLCompany").close();
+    session.execute("CREATE property MLWorkAt.workFrom INTEGER").close();
     session.execute(
-        "CREATE index MLHasMember_joinDate on MLHasMember (joinDate) NOTUNIQUE")
+        "CREATE index MLWorkAt_workFrom on MLWorkAt (workFrom) NOTUNIQUE")
         .close();
 
     session.begin();
-    // 3 forums, each with several members
-    for (int i = 0; i < 3; i++) {
-      session.execute("CREATE VERTEX MLForum set title = 'forum" + i + "'")
-          .close();
-    }
+    session.execute("CREATE VERTEX MLCompany set name = 'corp'").close();
     for (int i = 0; i < 6; i++) {
       session.execute("CREATE VERTEX MLPerson set name = 'user" + i + "'")
           .close();
       session.execute(
-          "CREATE EDGE MLHasMember FROM"
+          "CREATE EDGE MLWorkAt FROM"
               + " (SELECT FROM MLPerson WHERE name = 'user" + i + "')"
-              + " TO (SELECT FROM MLForum WHERE title = 'forum" + (i % 3) + "')"
-              + " SET joinDate = " + (1000 + i * 100))
+              + " TO (SELECT FROM MLCompany WHERE name = 'corp')"
+              + " SET workFrom = " + (2010 + i))
           .close();
     }
     session.commit();
 
     var query =
-        "MATCH {class: MLForum, as: f}"
-            + ".inE('MLHasMember'){where: (joinDate >= 1400)}"
-            + ".outV(){as: p}"
-            + " RETURN p.name, f.title";
+        "MATCH {class: MLPerson, as: p}"
+            + ".outE('MLWorkAt'){where: (workFrom >= 2014)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
 
-    // Baseline: verify the planner uses the MLHasMember_joinDate index
-    // (the plan uses SET/PREFETCH for the edge alias, not intersection,
-    // because the inE direction prefetches edges directly from the index)
+    // Baseline: verify the planner DID attach an intersection descriptor
+    // (the minLinkBagSize guard applies at runtime to intersection descriptors)
     session.begin();
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertTrue(
-        "Baseline plan should use MLHasMember_joinDate index, but was:\n"
+        "Baseline plan should show intersection descriptor, but was:\n"
             + plan,
-        plan.contains("FETCH FROM INDEX MLHasMember_joinDate"));
+        plan.contains("(intersection:"));
     session.commit();
 
     // Override minLinkBagSize to 999999 — all link bags are too small
@@ -418,7 +418,7 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     session.begin();
     var result = session.query(query).toList();
 
-    // user4 (1400) and user5 (1500) match
+    // user4 (2014) and user5 (2015) match
     assertEquals(2, result.size());
 
     Set<String> names = new HashSet<>();
