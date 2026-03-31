@@ -241,7 +241,13 @@ public class AtomicOperationsManager {
           atomicOperationsTable.rollbackOperation(commitTs);
         } else {
           atomicOperationsTable.commitOperation(commitTs);
-          writeAheadLog.addEventAt(lsn, () -> atomicOperationsTable.persistOperation(commitTs));
+          if (lsn != null) {
+            writeAheadLog.addEventAt(
+                lsn, () -> atomicOperationsTable.persistOperation(commitTs));
+          } else {
+            // Pure non-durable operation — no WAL record to wait for.
+            atomicOperationsTable.persistOperation(commitTs);
+          }
         }
 
       } finally {

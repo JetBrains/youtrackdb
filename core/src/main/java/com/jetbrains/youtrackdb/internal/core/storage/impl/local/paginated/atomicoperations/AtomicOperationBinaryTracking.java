@@ -587,6 +587,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // Defer WAL unit start: only emit when first durable change is encountered.
       // If the operation contains only non-durable changes, no WAL records are written.
       boolean walUnitStarted = false;
+      // startLSN is captured immediately after the WAL unit start record, so it
+      // points into the same segment as the start record. This is critical for
+      // dirty-page tracking: pages pin this LSN to prevent WAL truncation of the
+      // segment containing their WAL records.
+      LogSequenceNumber startLSN = null;
       this.operationCommitTs = commitTs;
 
       var deletedFilesIterator = deletedFiles.longIterator();
@@ -598,6 +603,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         if (!walUnitStarted) {
           writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
           walUnitStarted = true;
+          startLSN = writeAheadLog.end();
         }
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
@@ -612,6 +618,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           if (!walUnitStarted) {
             writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
             walUnitStarted = true;
+            startLSN = writeAheadLog.end();
           }
           writeAheadLog.log(
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
@@ -625,9 +632,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         }
 
         if (nonDurable) {
-          // Remove empty page change entries but skip WAL logging entirely
-          fileChanges.pageChangesMap.long2ObjectEntrySet()
-              .removeIf(e -> !e.getValue().changes.hasChanges());
+          // Skip WAL logging for non-durable files. Page changes are applied
+          // to cache below and empty entries are cleaned up in the cache loop.
           continue;
         }
 
@@ -646,6 +652,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             if (!walUnitStarted) {
               writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
               walUnitStarted = true;
+              startLSN = writeAheadLog.end();
             }
             final var updatePageRecord =
                 new UpdatePageRecord(
@@ -667,8 +674,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         // Pure non-durable operation — no WAL records emitted
         txEndLsn = null;
       }
-
-      final var startLSN = walUnitStarted ? writeAheadLog.end() : null;
 
       // Flush snapshot/visibility buffers to shared maps before applying page changes
       // to cache. This ensures entries are visible by the time concurrent readers can
@@ -696,7 +701,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               fileChanges.fileName,
               newFileNamesId.getLong(fileChanges.fileName),
               writeCache,
-              fileChanges.nonDurable);
+              nonDurable);
         } else if (fileChanges.truncate) {
           LogManager.instance()
               .warn(
@@ -743,12 +748,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
               durablePage.restoreChanges(filePageChanges.changes);
 
-              if (nonDurable) {
-                // Non-durable pages have no WAL records, so no meaningful
-                // endLSN or changeLSN to set. The dirty-pages-table skip
-                // in updateDirtyPagesTable (Track 4) ensures these pages
-                // don't block WAL truncation.
-              } else {
+              // Non-durable pages have no WAL records, so endLSN and changeLSN
+              // are not meaningful. The dirty-pages-table skip in
+              // updateDirtyPagesTable (Track 4) ensures these pages
+              // don't block WAL truncation.
+              if (!nonDurable) {
                 cacheEntry.setEndLSN(txEndLsn);
                 durablePage.setLsn(filePageChanges.getChangeLSN());
               }

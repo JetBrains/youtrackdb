@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
@@ -192,10 +194,15 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     op.commitChanges(42L, wal);
 
+    // No FileDeletedWALRecord for the non-durable file
     var deletedRecords = loggedRecords.stream()
         .filter(r -> r instanceof FileDeletedWALRecord)
         .toList();
     assertThat(deletedRecords).isEmpty();
+    // Total: start + FileCreated(durable) + UpdatePage(durable) + End
+    assertThat(loggedRecords).hasSize(4);
+    // Cache deletion still applied for the non-durable file
+    verify(readCache).deleteFile(existingFileId, writeCache);
   }
 
   /**
@@ -218,6 +225,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         .filter(r -> r instanceof FileDeletedWALRecord)
         .toList();
     assertThat(deletedRecords).hasSize(1);
+    assertThat(((FileDeletedWALRecord) deletedRecords.get(0)).getFileId())
+        .isEqualTo(existingFileId);
   }
 
   /**
@@ -332,12 +341,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
   /**
    * Mocks readCache.allocateNewPage() to return a CacheEntry with a real
-   * direct ByteBuffer at the expected page index.
+   * direct ByteBuffer at the expected page index. Uses eq(fileId) to avoid
+   * overwriting stubs when called for multiple files.
    */
   private void mockAllocateNewPage(long fileId, int pageIndex)
       throws IOException {
     var cacheEntry = createCacheEntryWithBuffer(fileId, pageIndex);
-    when(readCache.allocateNewPage(anyLong(), any(), any()))
+    when(readCache.allocateNewPage(eq(fileId), any(), any()))
         .thenReturn(cacheEntry);
   }
 
