@@ -204,10 +204,7 @@ public class ExpandStep extends AbstractExecutionStep {
                   indexRidSet.size(), filtered.size())) {
             filtered = filtered.withRidFilter(indexRidSet);
           }
-          // Both concrete PreFilterableLinkBagIterable types (vertex and edge)
-          // implement Iterable, so this cast is always safe.
-          return ExecutionStream.iterator(
-              ((Iterable<?>) filtered).iterator(), expandAlias);
+          return ExecutionStream.iterator(filtered.iterator(), expandAlias);
         }
         return ExecutionStream.iterator(iterable.iterator(), expandAlias);
       }

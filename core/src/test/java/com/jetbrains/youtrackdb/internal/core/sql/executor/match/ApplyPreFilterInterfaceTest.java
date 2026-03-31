@@ -8,6 +8,8 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import org.junit.Test;
@@ -143,6 +145,12 @@ public class ApplyPreFilterInterfaceTest {
       this.reportedSize = size;
       this.appliedClassFilter = classFilter;
       this.appliedRidFilter = ridFilter;
+    }
+
+    @Nonnull
+    @Override
+    public Iterator<?> iterator() {
+      return Collections.emptyIterator();
     }
 
     @Override

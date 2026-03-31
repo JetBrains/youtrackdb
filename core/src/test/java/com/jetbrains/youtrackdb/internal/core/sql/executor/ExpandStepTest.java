@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 
@@ -418,8 +419,8 @@ public class ExpandStepTest extends DbTestBase {
   /**
    * ExpandStep with acceptedCollectionIds applies a class filter to any
    * PreFilterableLinkBagIterable — not just VertexFromLinkBagIterable.
-   * This test uses a stub that implements both PreFilterableLinkBagIterable
-   * and Iterable to verify the class filter is applied and iteration works.
+   * Uses a shared AtomicBoolean to verify the filter was actually requested,
+   * since ExpandStep consumes the filtered copy internally.
    */
   @Test
   public void expandPreFilterableIterableAppliesClassFilter() {
@@ -436,30 +437,68 @@ public class ExpandStepTest extends DbTestBase {
 
     var results = drain(step.start(ctx), ctx);
 
-    // The stub records that withClassFilter was called; it still yields
-    // all elements (the stub doesn't actually filter — that's tested in
-    // the concrete iterable tests). The key assertion is that ExpandStep
-    // recognised the interface and attempted filtering.
-    assertThat(stubIterable.classFilterApplied).isFalse();
+    // Shared flag confirms withClassFilter was called on a copy
+    assertThat(stubIterable.classFilterRequested.get())
+        .as("ExpandStep should call withClassFilter on PreFilterableLinkBagIterable")
+        .isTrue();
     assertThat(results).hasSize(2);
+    assertThat(results.get(0).<String>getProperty("alias"))
+        .isEqualTo("val1");
+    assertThat(results.get(1).<String>getProperty("alias"))
+        .isEqualTo("val2");
+  }
+
+  /**
+   * When acceptedCollectionIds is null, ExpandStep does not call
+   * withClassFilter even if the iterable is a PreFilterableLinkBagIterable.
+   */
+  @Test
+  public void expandPreFilterableIterableSkipsFilterWhenNoCollectionIds() {
+    var ctx = newContext();
+    // No acceptedCollectionIds (null)
+    var step = new ExpandStep(ctx, false, "alias", null, null);
+
+    var stubIterable = new StubPreFilterableIterable(
+        List.of("val1"));
+    var upstream = new ResultInternal(ctx.getDatabaseSession());
+    upstream.content.put("field", stubIterable);
+    step.setPrevious(sourceStep(ctx, List.of(upstream)));
+
+    var results = drain(step.start(ctx), ctx);
+
+    assertThat(stubIterable.classFilterRequested.get())
+        .as("withClassFilter should not be called when acceptedCollectionIds is null")
+        .isFalse();
+    assertThat(results).hasSize(1);
     assertThat(results.get(0).<String>getProperty("alias"))
         .isEqualTo("val1");
   }
 
   /**
    * Lightweight stub implementing both PreFilterableLinkBagIterable and
-   * Iterable<String>. Used to verify that ExpandStep's instanceof check
-   * dispatches on the interface, not the concrete VertexFromLinkBagIterable.
+   * Iterable<String>. Uses shared AtomicBoolean flags so the test can
+   * observe filter calls even though ExpandStep consumes the copy internally.
    */
   private static class StubPreFilterableIterable
       implements PreFilterableLinkBagIterable, Iterable<String> {
 
     private final List<String> elements;
-    boolean classFilterApplied;
-    boolean ridFilterApplied;
+    final AtomicBoolean classFilterRequested;
+    final AtomicBoolean ridFilterRequested;
 
     StubPreFilterableIterable(List<String> elements) {
       this.elements = elements;
+      this.classFilterRequested = new AtomicBoolean(false);
+      this.ridFilterRequested = new AtomicBoolean(false);
+    }
+
+    private StubPreFilterableIterable(
+        List<String> elements,
+        AtomicBoolean classFilterRequested,
+        AtomicBoolean ridFilterRequested) {
+      this.elements = elements;
+      this.classFilterRequested = classFilterRequested;
+      this.ridFilterRequested = ridFilterRequested;
     }
 
     @Nonnull
@@ -482,18 +521,18 @@ public class ExpandStepTest extends DbTestBase {
     @Override
     public PreFilterableLinkBagIterable withClassFilter(
         @Nonnull IntSet collectionIds) {
-      var copy = new StubPreFilterableIterable(elements);
-      copy.classFilterApplied = true;
-      return copy;
+      classFilterRequested.set(true);
+      return new StubPreFilterableIterable(
+          elements, classFilterRequested, ridFilterRequested);
     }
 
     @Nonnull
     @Override
     public PreFilterableLinkBagIterable withRidFilter(
         @Nonnull Set<RID> ridSet) {
-      var copy = new StubPreFilterableIterable(elements);
-      copy.ridFilterApplied = true;
-      return copy;
+      ridFilterRequested.set(true);
+      return new StubPreFilterableIterable(
+          elements, classFilterRequested, ridFilterRequested);
     }
   }
 

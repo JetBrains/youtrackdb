@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.Iterator;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -38,4 +39,13 @@ public interface PreFilterableLinkBagIterable extends Sizeable {
    */
   @Nonnull
   PreFilterableLinkBagIterable withRidFilter(@Nonnull Set<RID> ridSet);
+
+  /**
+   * Returns an iterator over the records in this iterable (after any applied
+   * filters). Concrete implementations return a typed iterator (e.g.
+   * {@code Iterator<Vertex>} or {@code Iterator<EdgeInternal>}); this method
+   * provides a common accessor so callers don't need to cast to {@code Iterable}.
+   */
+  @Nonnull
+  Iterator<?> iterator();
 }
