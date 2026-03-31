@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -695,6 +696,8 @@ public class BTreeEngineHistogramWiringTest {
       op = mock(AtomicOperation.class);
       // Mock getCommitTs — validatedPut/remove append version to CompositeKey
       when(op.getCommitTs()).thenReturn(1L);
+      // Mock getOrCreateIndexCountDeltas — put/remove accumulate count deltas
+      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
       // Create engine with a mocked sbTree injected via Mockito field access
@@ -726,6 +729,8 @@ public class BTreeEngineHistogramWiringTest {
       op = mock(AtomicOperation.class);
       // Mock getCommitTs — remove appends version to CompositeKey
       when(op.getCommitTs()).thenReturn(1L);
+      // Mock getOrCreateIndexCountDeltas — put/remove accumulate count deltas
+      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
       engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
