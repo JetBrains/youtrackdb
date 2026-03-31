@@ -658,7 +658,7 @@ public class MatchPlannerHelpersTest {
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
   }
 
-  // ── identifySemiJoinBranches ────────────────────────────────────────────
+  // ── identifyHashJoinBranches ────────────────────────────────────────────
 
   /**
    * A simple 2-branch diamond: a→b→d and a→c→d. When only "a" and "d" are
@@ -667,7 +667,7 @@ public class MatchPlannerHelpersTest {
    * edge because d was already visited via a→b→d.
    */
   @Test
-  public void identifySemiJoinBranches_diamondPattern_detectsBranch() {
+  public void identifyHashJoinBranches_diamondPattern_detectsBranch() {
     // Build nodes
     var nodeA = new PatternNode();
     nodeA.alias = "a";
@@ -706,13 +706,14 @@ public class MatchPlannerHelpersTest {
     var downstream = Set.of("a", "d");
     var ctx = buildMockContext("Person", 50);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
 
     assertThat(result).hasSize(1);
     var branch = result.get(0);
+    assertThat(branch.joinMode()).isEqualTo(JoinMode.SEMI_JOIN);
     assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
     assertThat(branch.intermediateAliases()).containsExactly("c");
     assertThat(branch.branchEdges()).hasSize(2);
@@ -724,11 +725,11 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Same diamond but "c" is referenced downstream (in RETURN) → no semi-join
-   * because the intermediate alias is needed.
+   * Same diamond but "c" is referenced downstream (in RETURN) → detected as INNER_JOIN
+   * because the intermediate alias is needed in the result.
    */
   @Test
-  public void identifySemiJoinBranches_intermediateInReturn_noBranch() {
+  public void identifyHashJoinBranches_intermediateInReturn_innerJoin() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -759,23 +760,27 @@ public class MatchPlannerHelpersTest {
         new EdgeTraversal(edgeAC, true),
         new EdgeTraversal(edgeCD, true));
 
-    // c is downstream → intermediate alias is needed
+    // c is downstream → intermediate alias is needed → INNER_JOIN
     var downstream = Set.of("a", "c", "d");
     var ctx = buildMockContext("Person", 50);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
 
-    assertThat(result).isEmpty();
+    assertThat(result).hasSize(1);
+    var branch = result.get(0);
+    assertThat(branch.joinMode()).isEqualTo(JoinMode.INNER_JOIN);
+    assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
+    assertThat(branch.intermediateAliases()).containsExactly("c");
   }
 
   /**
    * Branch with a $matched reference in the intermediate node's filter → not eligible.
    */
   @Test
-  public void identifySemiJoinBranches_matchedDependency_noBranch() {
+  public void identifyHashJoinBranches_matchedDependency_noBranch() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -811,7 +816,7 @@ public class MatchPlannerHelpersTest {
     // c's filter references $matched
     var cFilter = buildWhereClause("$matched.a.name = name", false);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of("c", cFilter), Map.of(), ctx);
@@ -823,7 +828,7 @@ public class MatchPlannerHelpersTest {
    * Single edge schedule → no consistency-check edge possible → empty result.
    */
   @Test
-  public void identifySemiJoinBranches_singleEdge_empty() {
+  public void identifyHashJoinBranches_singleEdge_empty() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -834,7 +839,7 @@ public class MatchPlannerHelpersTest {
     var schedule = List.of(new EdgeTraversal(edgeAB, true));
     var ctx = buildMockContext("Person", 50);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, Set.of("a", "b"),
         Map.of("a", "Person", "b", "Person"),
         Map.of(), Map.of(), ctx);
@@ -846,7 +851,7 @@ public class MatchPlannerHelpersTest {
    * Branch with cardinality exceeding threshold (1M records × FANOUT_PER_HOP) → rejected.
    */
   @Test
-  public void identifySemiJoinBranches_highCardinality_noBranch() {
+  public void identifyHashJoinBranches_highCardinality_noBranch() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -881,7 +886,7 @@ public class MatchPlannerHelpersTest {
     // 1M records → branch cardinality = 1M * 10 * 10 = 100M > 10K threshold
     var ctx = buildMockContext("Person", 1_000_000);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
@@ -893,7 +898,7 @@ public class MatchPlannerHelpersTest {
    * Linear chain a→b→c with no consistency-check edge → empty result.
    */
   @Test
-  public void identifySemiJoinBranches_linearChain_noBranch() {
+  public void identifyHashJoinBranches_linearChain_noBranch() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -912,7 +917,7 @@ public class MatchPlannerHelpersTest {
 
     var ctx = buildMockContext("Person", 50);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, Set.of("a", "c"),
         Map.of("a", "Person", "b", "Person", "c", "Person"),
         Map.of(), Map.of(), ctx);
@@ -924,9 +929,9 @@ public class MatchPlannerHelpersTest {
    * Empty edge schedule (0 edges) → early return, no IndexOutOfBoundsException.
    */
   @Test
-  public void identifySemiJoinBranches_emptySchedule_empty() {
+  public void identifyHashJoinBranches_emptySchedule_empty() {
     var ctx = buildMockContext("Person", 50);
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         List.of(), Set.of("a"),
         Map.of("a", "Person"), Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
@@ -937,13 +942,13 @@ public class MatchPlannerHelpersTest {
    * Optional nodes have different matching semantics (can produce null bindings).
    */
   @Test
-  public void identifySemiJoinBranches_optionalNode_noBranch() {
+  public void identifyHashJoinBranches_optionalNode_noBranch() {
     var diamond = buildDiamondSchedule();
     // Mark node C as optional
     diamond.nodeC.optional = true;
 
     var ctx = buildMockContext("Person", 50);
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
@@ -955,7 +960,7 @@ public class MatchPlannerHelpersTest {
    * → not eligible. Auto-generated aliases come from unnamed pattern nodes.
    */
   @Test
-  public void identifySemiJoinBranches_autoGeneratedAlias_noBranch() {
+  public void identifyHashJoinBranches_autoGeneratedAlias_noBranch() {
     // Build diamond with auto-generated alias for C
     var nodeA = new PatternNode();
     nodeA.alias = "a";
@@ -988,7 +993,7 @@ public class MatchPlannerHelpersTest {
         new EdgeTraversal(edgeCD, true));
 
     var ctx = buildMockContext("Person", 50);
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person",
             "$YOUTRACKDB_DEFAULT_ALIAS_0", "Person", "d", "Person"),
@@ -1001,12 +1006,12 @@ public class MatchPlannerHelpersTest {
    * because the build-side plan cannot scan records.
    */
   @Test
-  public void identifySemiJoinBranches_scanAliasNoClass_noBranch() {
+  public void identifyHashJoinBranches_scanAliasNoClass_noBranch() {
     var diamond = buildDiamondSchedule();
     var ctx = buildMockContext("Person", 50);
 
     // Omit "d" from aliasClasses — it has no class and no RID
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person"),
         Map.of(), Map.of(), ctx);
@@ -1018,12 +1023,12 @@ public class MatchPlannerHelpersTest {
    * Complements the existing $matched test.
    */
   @Test
-  public void identifySemiJoinBranches_parentDependency_noBranch() {
+  public void identifyHashJoinBranches_parentDependency_noBranch() {
     var diamond = buildDiamondSchedule();
     var ctx = buildMockContext("Person", 50);
     var cFilter = buildWhereClause("$parent.a.name = name", true);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of("c", cFilter), Map.of(), ctx);
@@ -1035,22 +1040,45 @@ public class MatchPlannerHelpersTest {
    * rejected (exceeds threshold) instead of throwing ArithmeticException.
    */
   @Test
-  public void identifySemiJoinBranches_overflowCardinality_noBranch() {
+  public void identifyHashJoinBranches_overflowCardinality_noBranch() {
     var diamond = buildDiamondSchedule();
     var ctx = buildMockContext("Person", Long.MAX_VALUE / 5);
 
-    var result = MatchExecutionPlanner.identifySemiJoinBranches(
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
+  /**
+   * Diamond where neither intermediate alias is downstream → both branches detected,
+   * the second one (c) as SEMI_JOIN. Verifies SEMI_JOIN classification is preserved
+   * when intermediates are not referenced downstream (regression guard).
+   */
+  @Test
+  public void identifyHashJoinBranches_noIntermediateDownstream_semiJoin() {
+    var diamond = buildDiamondSchedule();
+    // Neither b nor c is downstream → SEMI_JOIN
+    var downstream = Set.of("a", "d");
+    var ctx = buildMockContext("Person", 50);
+
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
+        diamond.schedule, downstream,
+        Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
+        Map.of(), Map.of(), ctx);
+
+    assertThat(result).hasSize(1);
+    var branch = result.get(0);
+    assertThat(branch.joinMode()).isEqualTo(JoinMode.SEMI_JOIN);
+    assertThat(branch.intermediateAliases()).containsExactly("c");
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
 
   /**
    * Builds a standard diamond pattern a→b→d, a→c→d with schedule
-   * [a→b, b→d, a→c, c→d(check)]. Used by multiple identifySemiJoinBranches tests.
+   * [a→b, b→d, a→c, c→d(check)]. Used by multiple identifyHashJoinBranches tests.
    */
   private static DiamondSchedule buildDiamondSchedule() {
     var nodeA = new PatternNode();

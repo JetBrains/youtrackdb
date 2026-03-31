@@ -980,31 +980,35 @@ public class MatchExecutionPlanner {
    * @param sharedAliases       aliases shared between the branch and the main path (join keys)
    * @param branchEdges         the edge traversals forming this branch (in schedule order),
    *                            including the consistency-check edge
-   * @param intermediateAliases aliases visited exclusively by this branch (not downstream)
+   * @param intermediateAliases aliases visited exclusively by this branch
    * @param estimatedCardinality estimated number of rows the branch produces
+   * @param joinMode            the join mode: SEMI_JOIN if no intermediates are downstream,
+   *                            INNER_JOIN if any intermediate is referenced downstream
    */
-  record SemiJoinBranch(
+  record HashJoinBranch(
       List<String> sharedAliases,
       List<EdgeTraversal> branchEdges,
       Set<String> intermediateAliases,
-      long estimatedCardinality) {
+      long estimatedCardinality,
+      JoinMode joinMode) {
   }
 
   /**
-   * Identifies secondary branches in the pattern graph that are eligible for semi-join
-   * optimization. A semi-join branch is a contiguous sub-sequence of scheduled edges that:
+   * Identifies secondary branches in the pattern graph that are eligible for hash join
+   * optimization (semi-join or inner join). A hash join branch is a contiguous sub-sequence
+   * of scheduled edges that:
    * <ul>
-   *   <li>ends with a **consistency-check edge** — an edge whose target alias was already
+   *   <li>ends with a <b>consistency-check edge</b> — an edge whose target alias was already
    *       visited before this edge (both endpoints known, cost 0 in the scheduler)</li>
-   *   <li>all intermediate aliases (between the branch root and the consistency-check edge)
-   *       are NOT referenced downstream (not in RETURN, GROUP BY, ORDER BY, UNWIND)</li>
    *   <li>no filter on any branch node depends on {@code $matched} or {@code $parent}</li>
    *   <li>estimated cardinality does not exceed {@link #HASH_JOIN_THRESHOLD}</li>
+   *   <li>no intermediate alias uses an auto-generated name ({@link #DEFAULT_ALIAS_PREFIX})</li>
    * </ul>
    *
-   * <p>The algorithm walks the scheduled edges in order, progressively tracking visited
-   * aliases. When a consistency-check edge is found, it traces backward to identify the
-   * branch's edges and checks eligibility.
+   * <p>The join mode is determined by downstream alias analysis: if any intermediate alias
+   * is referenced downstream (RETURN, GROUP BY, ORDER BY, UNWIND), the branch requires
+   * {@link JoinMode#INNER_JOIN} to preserve those bindings; otherwise, {@link JoinMode#SEMI_JOIN}
+   * suffices (only existence is checked).
    *
    * @param scheduledEdges     the edge schedule from {@code getTopologicalSortedSchedule()}
    * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
@@ -1012,9 +1016,9 @@ public class MatchExecutionPlanner {
    * @param aliasFilters       per-alias WHERE clauses
    * @param aliasRids          per-alias RID constraints
    * @param context            the command context
-   * @return list of eligible semi-join branches (may be empty)
+   * @return list of eligible hash join branches (may be empty)
    */
-  static List<SemiJoinBranch> identifySemiJoinBranches(
+  static List<HashJoinBranch> identifyHashJoinBranches(
       List<EdgeTraversal> scheduledEdges,
       Set<String> downstreamAliases,
       Map<String, String> aliasClasses,
@@ -1041,7 +1045,7 @@ public class MatchExecutionPlanner {
       visited.add(targetAlias(scheduledEdges.get(i)));
     }
 
-    var result = new ArrayList<SemiJoinBranch>();
+    var result = new ArrayList<HashJoinBranch>();
 
     for (int i = 0; i < scheduledEdges.size(); i++) {
       var target = targetAlias(scheduledEdges.get(i));
@@ -1079,13 +1083,14 @@ public class MatchExecutionPlanner {
   /**
    * Traces backward from a consistency-check edge at position {@code checkIdx} to find
    * the branch's edges. The branch is the contiguous sub-sequence of edges ending at the
-   * consistency-check edge, starting from a "branch root" shared alias, where all
-   * intermediate aliases are not in {@code downstreamAliases}.
+   * consistency-check edge, starting from a "branch root" shared alias. The join mode is
+   * classified based on whether any intermediate alias is in {@code downstreamAliases}:
+   * {@link JoinMode#INNER_JOIN} if yes, {@link JoinMode#SEMI_JOIN} if no.
    *
-   * @return a {@link SemiJoinBranch} if eligible, or {@code null} if not
+   * @return a {@link HashJoinBranch} if eligible, or {@code null} if not
    */
   @SuppressWarnings("unchecked")
-  @Nullable private static SemiJoinBranch traceBackwardBranch(
+  @Nullable private static HashJoinBranch traceBackwardBranch(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
       Set<String>[] visitedBefore,
@@ -1163,16 +1168,20 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Check that all intermediate aliases are NOT in downstreamAliases and
-    // are not auto-generated internal aliases (from .inE()/.outE() etc.)
+    // Check that no intermediate alias is an auto-generated internal alias
+    // (from .inE()/.outE() etc.) — these are internal and cannot be join keys.
+    // Classify join mode: if any intermediate is referenced downstream, use
+    // INNER_JOIN (build-side rows must be merged); otherwise SEMI_JOIN suffices.
+    boolean anyDownstream = false;
     for (var alias : intermediateAliases) {
-      if (downstreamAliases.contains(alias)) {
-        return null;
-      }
       if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
         return null;
       }
+      if (downstreamAliases.contains(alias)) {
+        anyDownstream = true;
+      }
     }
+    var joinMode = anyDownstream ? JoinMode.INNER_JOIN : JoinMode.SEMI_JOIN;
 
     // Check that no branch edge involves an optional node
     for (var edgeT : branchEdges) {
@@ -1214,11 +1223,12 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    return new SemiJoinBranch(sharedAliases, branchEdges, intermediateAliases, cardinality);
+    return new HashJoinBranch(
+        sharedAliases, branchEdges, intermediateAliases, cardinality, joinMode);
   }
 
   /**
-   * Estimates the cardinality of a semi-join branch. Starts from the branch root's
+   * Estimates the cardinality of a hash join branch. Starts from the branch root's
    * estimated record count and multiplies by {@link #FANOUT_PER_HOP} per edge,
    * applying 0.5 selectivity for nodes with WHERE filters.
    */
@@ -1328,7 +1338,7 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Constructs the build-side {@link SelectExecutionPlan} for a semi-join branch.
+   * Constructs the build-side {@link SelectExecutionPlan} for a hash join branch.
    * The plan scans the branch root's class and chains {@link MatchStep}s for each
    * branch edge except the final consistency-check edge (whose target is the join
    * point, already visited by the main path).
@@ -1336,10 +1346,10 @@ public class MatchExecutionPlanner {
    * @param branch          the branch descriptor
    * @param context         the command context
    * @param profilingEnabled whether to enable step profiling
-   * @return a complete build-side execution plan for the branch
+   * @return a complete build-side execution plan for the branch, or null if path is incomplete
    */
-  private SelectExecutionPlan buildSemiJoinBranchPlan(
-      SemiJoinBranch branch,
+  private SelectExecutionPlan buildHashJoinBranchPlan(
+      HashJoinBranch branch,
       CommandContext context,
       boolean profilingEnabled) {
     // The build plan scans from the first shared alias and traverses through
@@ -1488,19 +1498,20 @@ public class MatchExecutionPlanner {
       optimizeScheduleWithIntersections(sortedEdges, context);
       attachCollectionIdFilters(sortedEdges, context);
 
-      // Semi-join optimization: detect secondary branches whose intermediate aliases
-      // are not needed downstream and can be evaluated as a build-side hash semi-join.
+      // Hash join optimization: detect secondary branches that can be evaluated as
+      // build-side hash joins (semi-join if intermediates not downstream, inner join
+      // if intermediates are referenced downstream).
       var downstreamAliases = collectDownstreamAliases(
           returnItems, returnElements, returnPaths, returnPatterns, returnPathElements,
           groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
-      var semiJoinBranches = identifySemiJoinBranches(
+      var hashJoinBranches = identifyHashJoinBranches(
           sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
 
-      // Collect edges that belong to semi-join branches — skip them in the main loop.
+      // Collect edges that belong to hash join branches — skip them in the main loop.
       // Guard: if ALL edges would be claimed, the main plan would have no source step.
       // In that case, skip the optimization entirely.
       var branchEdgeSet = new HashSet<PatternEdge>();
-      for (var branch : semiJoinBranches) {
+      for (var branch : hashJoinBranches) {
         for (var branchEdge : branch.branchEdges()) {
           branchEdgeSet.add(branchEdge.edge);
         }
@@ -1508,20 +1519,20 @@ public class MatchExecutionPlanner {
       if (branchEdgeSet.size() >= sortedEdges.size()) {
         // All edges claimed — fall back to normal execution
         branchEdgeSet.clear();
-        semiJoinBranches = List.of();
+        hashJoinBranches = List.of();
       }
 
       for (var edge : sortedEdges) {
         if (branchEdgeSet.contains(edge.edge)) {
-          continue; // Skip edges handled by semi-join
+          continue; // Skip edges handled by hash join
         }
         addStepsFor(plan, edge, context, first, profilingEnabled);
         first = false;
       }
 
-      // Append HashJoinMatchSteps for each semi-join branch
-      for (var branch : semiJoinBranches) {
-        var branchPlan = buildSemiJoinBranchPlan(branch, context, profilingEnabled);
+      // Append HashJoinMatchSteps for each hash join branch
+      for (var branch : hashJoinBranches) {
+        var branchPlan = buildHashJoinBranchPlan(branch, context, profilingEnabled);
         if (branchPlan == null) {
           // Build plan construction failed (incomplete path) — re-add the branch's
           // edges back into the main plan by not skipping them. Since we already
@@ -1533,7 +1544,7 @@ public class MatchExecutionPlanner {
         } else {
           plan.chain(new HashJoinMatchStep(
               context, branchPlan, branch.sharedAliases(),
-              JoinMode.SEMI_JOIN, profilingEnabled));
+              branch.joinMode(), profilingEnabled));
         }
       }
     } else {
