@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
@@ -562,6 +563,114 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         eq(ndFileId), anyLong(), eq(restoreWriteCache), anyBoolean(), any());
     verify(restoreReadCache, never()).addFile(
         eq("nd-file.dat"), anyLong(), any());
+  }
+
+  /**
+   * SF9 — Verifies the deletedNonDurableFileIds skip path in restoreAtomicUnit():
+   * when WAL records reference a non-durable file ID that was deleted during crash
+   * recovery, restoreAtomicUnit() must skip those records without calling
+   * readCache.addFile, readCache.deleteFile, or readCache.loadForWrite for that file.
+   * This tests the last line of defense in crash recovery — even if stale WAL records
+   * exist for non-durable files, they must not be replayed.
+   */
+  @Test
+  public void restoreAtomicUnitSkipsDeletedNonDurableFileRecords()
+      throws Exception {
+    // Compose file IDs for a durable and a non-durable file
+    long durableFileId = composeFileId(1, STORAGE_ID);
+    long ndFileId = composeFileId(2, STORAGE_ID);
+    int ndInternalId = (int) (ndFileId & 0xFFFFFFFFL);
+    int durableInternalId = (int) (durableFileId & 0xFFFFFFFFL);
+
+    // Build an atomic unit containing records for both files — simulates
+    // stale WAL records that reference a non-durable file before it was
+    // deleted during recovery
+    var lsn1 = new LogSequenceNumber(0, 10);
+    var lsn2 = new LogSequenceNumber(0, 20);
+    var lsn3 = new LogSequenceNumber(0, 30);
+    var lsn4 = new LogSequenceNumber(0, 40);
+    var lsn5 = new LogSequenceNumber(0, 50);
+
+    var startRecord = new AtomicUnitStartRecord(false, 42);
+    startRecord.setLsn(lsn1);
+
+    // FileCreatedWALRecord for non-durable file (should be skipped)
+    var ndCreated = new FileCreatedWALRecord(42, "nd-file.dat", ndFileId);
+    ndCreated.setLsn(lsn2);
+
+    // FileCreatedWALRecord for durable file (should be replayed)
+    var durCreated =
+        new FileCreatedWALRecord(42, "durable-file.dat", durableFileId);
+    durCreated.setLsn(lsn3);
+
+    // UpdatePageRecord for non-durable file (should be skipped)
+    var ndUpdate = new UpdatePageRecord(
+        0, ndFileId, 42, mock(WALChanges.class),
+        new LogSequenceNumber(-1, -1));
+    ndUpdate.setLsn(lsn4);
+
+    // EndRecord
+    var endRecord = new AtomicUnitEndRecord(42, false, null);
+    endRecord.setLsn(lsn5);
+
+    var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(startRecord);
+    atomicUnit.add(ndCreated);
+    atomicUnit.add(durCreated);
+    atomicUnit.add(ndUpdate);
+    atomicUnit.add(endRecord);
+
+    // Set up mocks for restore
+    var restoreWriteCache = mock(WriteCache.class);
+    var restoreReadCache = mock(ReadCache.class);
+
+    // Map internal IDs
+    when(restoreWriteCache.internalFileId(ndFileId)).thenReturn(ndInternalId);
+    when(restoreWriteCache.internalFileId(durableFileId))
+        .thenReturn(durableInternalId);
+    when(restoreWriteCache.externalFileId(durableInternalId))
+        .thenReturn(durableFileId);
+
+    // Durable file: does not exist yet (needs creation)
+    when(restoreWriteCache.exists("durable-file.dat")).thenReturn(false);
+    when(restoreWriteCache.exists(durableFileId)).thenReturn(true);
+    when(restoreWriteCache.fileNameById(durableFileId))
+        .thenReturn("durable-file.dat");
+
+    // Create AbstractStorage with CALLS_REAL_METHODS and inject fields
+    var storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
+
+    // deletedNonDurableFileIds contains the non-durable file's internal ID —
+    // simulating that crash recovery already deleted this file
+    var deletedIds = new IntOpenHashSet();
+    deletedIds.add(ndInternalId);
+
+    setField(storage, "writeCache", restoreWriteCache);
+    setField(storage, "readCache", restoreReadCache);
+    setField(storage, "name", "testStorage");
+    setField(storage, "deletedNonDurableFileIds", deletedIds);
+
+    var atLeastOnePageUpdate = new ModifiableBoolean();
+    var restoreMethod = AbstractStorage.class.getDeclaredMethod(
+        "restoreAtomicUnit", List.class, ModifiableBoolean.class);
+    restoreMethod.setAccessible(true);
+    restoreMethod.invoke(storage, atomicUnit, atLeastOnePageUpdate);
+
+    // Durable file must have been re-created
+    verify(restoreReadCache).addFile(
+        "durable-file.dat", durableFileId, restoreWriteCache);
+
+    // Non-durable file must have been skipped entirely — no addFile, no
+    // loadForWrite, no deleteFile for the non-durable file ID
+    verify(restoreReadCache, never()).addFile(
+        eq("nd-file.dat"), anyLong(), any());
+    verify(restoreReadCache, never()).loadForWrite(
+        eq(ndFileId), anyLong(), any(), anyBoolean(), any());
+    verify(restoreReadCache, never()).deleteFile(eq(ndFileId), any());
+
+    // No page updates should have occurred (the only UpdatePageRecord
+    // was for the non-durable file, which was skipped)
+    assertThat(atLeastOnePageUpdate.getValue()).isFalse();
   }
 
   // --- Helper methods ---
