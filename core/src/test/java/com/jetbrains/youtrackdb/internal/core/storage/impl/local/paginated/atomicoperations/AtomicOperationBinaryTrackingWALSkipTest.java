@@ -383,9 +383,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
   /**
    * TB6 — Mixed operation must call setEndLSN(txEndLsn) on the durable cache
-   * entry and setLsn(changeLSN) on the durable page, but must NOT call either
-   * on the non-durable entry/page. Verifies the guard at lines 772-775 of
-   * commitChanges().
+   * entry but NOT on the non-durable entry. DurablePage.setLsn(changeLSN) is
+   * also guarded by the same condition but writes directly to a ByteBuffer, so
+   * it is not verifiable via Mockito — only setEndLSN is checked here.
    */
   @Test
   public void mixedOperationSetsEndLSNOnlyOnDurableCacheEntry()
@@ -461,6 +461,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         })
         .toList();
     assertThat(ndRecords).isEmpty();
+    // Total: start + FileCreated(durable) + UpdatePage(durable) + End = 4
+    assertThat(loggedRecords).hasSize(4);
 
     // Cache truncation must still be applied
     verify(readCache).truncateFile(ndFileId, writeCache);

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -101,8 +102,8 @@ public class AtomicOperationsManagerNullLSNTest {
 
     // commitOperation must be called
     verify(atomicOperationsTable).commitOperation(42L);
-    // Persistence deferred to WAL flush via addEventAt
-    verify(wal).addEventAt(any(), any());
+    // Persistence deferred to WAL flush via addEventAt with the exact LSN
+    verify(wal).addEventAt(eq(lsn), any());
     // persistOperation must NOT be called immediately
     verify(atomicOperationsTable, never()).persistOperation(42L);
   }
