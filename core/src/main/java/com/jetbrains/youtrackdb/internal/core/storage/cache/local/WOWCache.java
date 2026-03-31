@@ -3321,7 +3321,12 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    final var flushedPages = flushPages(chunks, maxFullLogLSN);
+    // Use partitionAndFlushChunks for defense-in-depth: if a non-durable page ever
+    // leaked into dirtyPages (bypassing the updateDirtyPagesTable guard), it would be
+    // routed to flushNonDurablePages instead of going through the DWL/fsync path.
+    // The assert at the top of the dirty-page iteration loop is the primary guard,
+    // but it is disabled in production (-ea not set).
+    final var flushedPages = partitionAndFlushChunks(chunks, maxFullLogLSN);
     if (copiedPages != flushedPages) {
       throw new IllegalStateException(
           "Copied pages (" + copiedPages + " ) != flushed pages (" + flushedPages + ")");
@@ -3442,6 +3447,15 @@ public final class WOWCache extends AbstractWriteCache
       return 0;
     }
 
+    // Count total pages upfront so we can return the correct count even on error.
+    // The caller (flushExclusiveWriteCache) already incremented copiedPages for these
+    // pages, so returning a matching count prevents the copiedPages != flushedPages
+    // invariant check from crashing the flush thread on a non-durable I/O error.
+    var totalPages = 0;
+    for (final var chunk : chunks) {
+      totalPages += chunk.size();
+    }
+
     var flushedPages = 0;
 
     final var containerPointers = new ArrayList<Pointer>(chunks.size());
@@ -3467,14 +3481,23 @@ public final class WOWCache extends AbstractWriteCache
     } catch (final Exception e) {
       // Non-durable data is discardable — log and continue without setting flushError.
       // Do NOT call removeWrittenPagesFromCache here — pages may not have been written
-      // successfully, so removing them from the cache would cause silent data loss.
+      // successfully, so they must remain in the write cache for retry on the next flush.
       LogManager.instance()
           .warn(
               this,
               "Error flushing non-durable pages in storage %s. Data will be discarded on crash.",
               e,
               storageName);
-      return 0;
+      // Release per-page copy buffers to prevent direct memory leak. Each
+      // WritePageContainer holds a pageCopyDirectMemoryPointer allocated by the caller
+      // (bufferPool.acquireDirect); normally released by removeWrittenPagesFromCache,
+      // which we skip on error.
+      for (final var chunk : chunks) {
+        for (final var chunkPage : chunk) {
+          bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
+        }
+      }
+      return totalPages;
     } finally {
       for (final var containerPointer : containerPointers) {
         if (containerPointer != null) {
@@ -3503,6 +3526,17 @@ public final class WOWCache extends AbstractWriteCache
       return 0;
     }
 
+    // Capture a consistent snapshot of the non-durable file ID set. The volatile read
+    // happens once here instead of per-chunk, ensuring all chunks in a single call are
+    // classified against the same snapshot.
+    final var localNonDurableFileIds = nonDurableFileIds;
+
+    // Fast path: when no non-durable files exist (common case for existing databases),
+    // skip partitioning entirely — all chunks are durable.
+    if (localNonDurableFileIds.isEmpty()) {
+      return flushPages(chunks, fullLogLSN);
+    }
+
     final var durableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
     final var nonDurableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
 
@@ -3515,7 +3549,7 @@ public final class WOWCache extends AbstractWriteCache
       // is sufficient to classify the entire chunk.
       final var firstPage = chunk.getFirst();
       final var fileId = firstPage.originalPagePointer.getFileId();
-      if (nonDurableFileIds.contains(internalFileId(fileId))) {
+      if (localNonDurableFileIds.contains(internalFileId(fileId))) {
         nonDurableChunks.add(chunk);
       } else {
         durableChunks.add(chunk);

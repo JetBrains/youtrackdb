@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -797,14 +798,21 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // Create sentinel CachePointers (null pointer/frame is fine — updateDirtyPagesTable
     // only reads fileId and pageIndex from the pointer)
-    final var ndPointer = new CachePointer((PageFrame) null, null, ndFileId, 0);
+    final var ndPointer0 = new CachePointer((PageFrame) null, null, ndFileId, 0);
+    final var ndPointer42 = new CachePointer((PageFrame) null, null, ndFileId, 42);
     final var durablePointer = new CachePointer((PageFrame) null, null, durableFileId, 0);
 
     final var startLsn = new LogSequenceNumber(0, 0);
 
-    // Call updateDirtyPagesTable for both
-    wowCache.updateDirtyPagesTable(ndPointer, startLsn);
+    // Call updateDirtyPagesTable for both files at multiple page indexes
+    wowCache.updateDirtyPagesTable(ndPointer0, startLsn);
+    wowCache.updateDirtyPagesTable(ndPointer42, startLsn);
     wowCache.updateDirtyPagesTable(durablePointer, startLsn);
+
+    // Also test the null-LSN path (falls back to writeAheadLog.end()) to confirm the
+    // early return fires before any LSN resolution logic
+    final var ndPointerNullLsn = new CachePointer((PageFrame) null, null, ndFileId, 99);
+    wowCache.updateDirtyPagesTable(ndPointerNullLsn, null);
 
     // Access the private dirtyPages field via reflection
     final Field dirtyPagesField = WOWCache.class.getDeclaredField("dirtyPages");
@@ -816,15 +824,27 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Build the expected page keys using the internal file IDs
     final var ndInternalId = wowCache.internalFileId(ndFileId);
     final var durableInternalId = wowCache.internalFileId(durableFileId);
-    final var ndPageKey = new PageKey(ndInternalId, 0);
+    final var ndPageKey0 = new PageKey(ndInternalId, 0);
+    final var ndPageKey42 = new PageKey(ndInternalId, 42);
+    final var ndPageKey99 = new PageKey(ndInternalId, 99);
     final var durablePageKey = new PageKey(durableInternalId, 0);
 
     assertFalse(
-        "Non-durable page must NOT appear in dirtyPages table",
-        dirtyPages.containsKey(ndPageKey));
+        "Non-durable page 0 must NOT appear in dirtyPages table",
+        dirtyPages.containsKey(ndPageKey0));
+    assertFalse(
+        "Non-durable page 42 must NOT appear in dirtyPages table",
+        dirtyPages.containsKey(ndPageKey42));
+    assertFalse(
+        "Non-durable page 99 (null LSN path) must NOT appear in dirtyPages table",
+        dirtyPages.containsKey(ndPageKey99));
     assertTrue(
         "Durable page must appear in dirtyPages table",
         dirtyPages.containsKey(durablePageKey));
+    assertEquals(
+        "Durable page's dirty LSN must match the provided startLSN",
+        startLsn,
+        dirtyPages.get(durablePageKey));
 
     // Falsification: temporarily clear the nonDurableFileIds set so all files appear durable,
     // re-call updateDirtyPagesTable for the non-durable file, and verify the page IS now added.
@@ -832,16 +852,18 @@ public class WOWCacheNonDurableFileTrackingTest {
     final Field ndSetField = WOWCache.class.getDeclaredField("nonDurableFileIds");
     ndSetField.setAccessible(true);
     final var originalSet = ndSetField.get(wowCache);
-    ndSetField.set(wowCache, new IntOpenHashSet());
+    try {
+      ndSetField.set(wowCache, new IntOpenHashSet());
 
-    wowCache.updateDirtyPagesTable(ndPointer, startLsn);
+      wowCache.updateDirtyPagesTable(ndPointer0, startLsn);
 
-    assertTrue(
-        "Falsification: without the non-durable guard, the page must appear in dirtyPages",
-        dirtyPages.containsKey(ndPageKey));
-
-    // Restore original set to avoid side effects on tearDown
-    ndSetField.set(wowCache, originalSet);
+      assertTrue(
+          "Falsification: without the non-durable guard, the page must appear in dirtyPages",
+          dirtyPages.containsKey(ndPageKey0));
+    } finally {
+      // Restore original set to avoid side effects on tearDown
+      ndSetField.set(wowCache, originalSet);
+    }
   }
 
   /**
@@ -911,15 +933,26 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var ndFileId = wowCache.addFile("ndSync.tst", bookedNdId, true);
     assertTrue(wowCache.isNonDurable(ndFileId));
 
-    // Get the native (OS) file name for the non-durable file and delete the data file
-    // from disk. If syncDataFiles attempts to fsync this file, it will fail because the
-    // underlying data file no longer exists.
-    final var ndNativeFileName = wowCache.nativeFileNameById(ndFileId);
-    final var ndDataPath = storagePath.resolve(ndNativeFileName);
-    assertTrue("Non-durable data file must exist before deletion", Files.exists(ndDataPath));
-    Files.delete(ndDataPath);
+    // Verify callFsync is true via reflection — ensures we are testing the fsync path,
+    // not the trivial no-fsync path. Without this, the test could pass even if the
+    // WOWCache was accidentally constructed with callFsync=false.
+    final Field callFsyncField = WOWCache.class.getDeclaredField("callFsync");
+    callFsyncField.setAccessible(true);
+    assertTrue("WOWCache must have callFsync=true for this test",
+        callFsyncField.getBoolean(wowCache));
 
-    // syncDataFiles should succeed — the non-durable file is skipped before fsync
+    // Close the non-durable file's channel via the ClosableLinkedContainer. When
+    // syncDataFiles attempts to fsync a closed channel, it throws. If the non-durable
+    // skip works correctly, the closed channel is never reached.
+    final var ndExternalId = wowCache.externalFileId(
+        wowCache.internalFileId(ndFileId));
+    final var ndEntry = files.acquire(ndExternalId);
+    assertFalse("Non-durable file entry must exist", ndEntry == null);
+    ndEntry.get().close();
+    files.release(ndEntry);
+
+    // syncDataFiles should succeed — the non-durable file is skipped before fsync.
+    // The durable file's channel is still open, so its fsync proceeds normally.
     final var walSegment = writeAheadLog.begin().getSegment();
     wowCache.syncDataFiles(walSegment);
   }
