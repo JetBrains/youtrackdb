@@ -2262,7 +2262,11 @@ public abstract class AbstractStorage
       var delta = entry.getValue();
       // Engine may have been dropped concurrently — the commit is already
       // durable, so the delta for a removed engine is stale and safe to skip.
-      if (engineId < indexEngines.size()) {
+      // Safety: indexEngines is a plain ArrayList; concurrent structural
+      // modification is prevented by the stateLock read lock held on the
+      // commit path and the atomic operation serialization for index
+      // creation/deletion.
+      if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
           btreeEngine.addToApproximateEntryCount(delta.totalDelta);

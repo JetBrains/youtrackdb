@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -393,7 +394,85 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.put(f.op, "k", new RecordId(3, 1));
 
     var deltas = f.op.getOrCreateIndexCountDeltas().getDeltas();
-    assertTrue(!deltas.containsKey(0) || deltas.get(0).totalDelta == 0);
+    assertFalse("No delta should be created when replacing a live entry",
+        deltas.containsKey(0));
+  }
+
+  @Test
+  public void singleValue_remove_nullKey_decrementsBothDeltas()
+      throws IOException {
+    // Removing a null-key entry must decrement both totalDelta and nullDelta.
+    var f = new SingleValueFixture();
+    var existingKey = new CompositeKey(null, 0L);
+    var rid = new RecordId(1, 1);
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(existingKey, rid)));
+    when(f.sbTree.put(any(), any(), any())).thenReturn(true);
+
+    f.engine.remove(f.op, null);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    assertNotNull(delta);
+    assertEquals(-1, delta.totalDelta);
+    assertEquals(-1, delta.nullDelta);
+  }
+
+  @Test
+  public void singleValue_validatedPut_newEntry_accumulatesTotalDelta()
+      throws IOException {
+    // validatedPut for a brand-new key must produce totalDelta=+1.
+    var f = new SingleValueFixture();
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.empty());
+    when(f.sbTree.put(any(), any(), any())).thenReturn(true);
+
+    f.engine.validatedPut(f.op, "key", new RecordId(1, 1), null);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    assertNotNull(delta);
+    assertEquals(1, delta.totalDelta);
+    assertEquals(0, delta.nullDelta);
+  }
+
+  @Test
+  public void singleValue_validatedPut_overTombstone_accumulatesDelta()
+      throws IOException {
+    // validatedPut over a tombstoned entry must produce totalDelta=+1.
+    var f = new SingleValueFixture();
+    var tombstoneKey = new CompositeKey("k", 0L);
+    var tombstone = new TombstoneRID(new RecordId(1, 1));
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(
+            new RawPair<>(tombstoneKey, tombstone)));
+    when(f.sbTree.put(any(), any(), any())).thenReturn(true);
+
+    f.engine.validatedPut(f.op, "k", new RecordId(2, 1), null);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    assertNotNull(delta);
+    assertEquals(1, delta.totalDelta);
+  }
+
+  @Test
+  public void singleValue_validatedPut_overLiveEntry_noDelta()
+      throws IOException {
+    // Replacing a live entry via validatedPut must not change the count.
+    var f = new SingleValueFixture();
+    var liveKey = new CompositeKey("k", 0L);
+    var liveRid = new RecordId(2, 1);
+    when(f.sbTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(liveKey, liveRid)));
+    when(f.sbTree.put(any(), any(), any())).thenReturn(true);
+
+    f.engine.validatedPut(f.op, "k", new RecordId(3, 1), null);
+
+    var deltas = f.op.getOrCreateIndexCountDeltas().getDeltas();
+    assertFalse("No delta should be created when replacing a live entry",
+        deltas.containsKey(0));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -457,6 +536,58 @@ public class BTreeEngineHistogramBuildTest {
     assertNotNull(delta);
     assertEquals(-1, delta.totalDelta);
     assertEquals(-1, delta.nullDelta);
+  }
+
+  @Test
+  public void multiValue_remove_nonNullKey_decrementsTotalOnly()
+      throws IOException {
+    // Removing a non-null key entry must decrement totalDelta only.
+    var f = new MultiValueFixture();
+    when(f.op.getCommitTs()).thenReturn(2L);
+    var rid = new RecordId(2, 1);
+    var existingKey = new CompositeKey("key", rid, 0L);
+    when(f.svTree.iterateEntriesBetween(
+        any(), eq(true), any(), eq(true), eq(true), any()))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(existingKey, rid)));
+    when(f.svTree.put(any(), any(), any())).thenReturn(true);
+
+    f.engine.remove(f.op, "key", rid);
+
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(0);
+    assertNotNull(delta);
+    assertEquals(-1, delta.totalDelta);
+    assertEquals(0, delta.nullDelta);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // clear() resets both counters
+  // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void singleValue_clear_resetsBothCountersToZero() throws IOException {
+    // clear() must reset both approximateIndexEntriesCount and
+    // approximateNullCount to 0.
+    var f = new SingleValueFixture();
+    f.engine.addToApproximateEntryCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+
+    assertEquals(0, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
+  }
+
+  @Test
+  public void multiValue_clear_resetsBothCountersToZero() throws IOException {
+    // clear() must reset both counters to 0 for multi-value engine.
+    var f = new MultiValueFixture();
+    f.engine.addToApproximateEntryCount(10);
+    f.engine.addToApproximateNullCount(3);
+
+    f.engine.clear(f.storage, f.op);
+
+    assertEquals(0, f.engine.getTotalCount(f.op));
+    assertEquals(0, f.engine.getNullCount(f.op));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
