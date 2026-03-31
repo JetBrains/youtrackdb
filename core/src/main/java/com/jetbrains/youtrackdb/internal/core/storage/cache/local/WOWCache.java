@@ -2988,9 +2988,9 @@ public final class WOWCache extends AbstractWriteCache
           lastFileId = -1;
 
           var fileForSize = files.get(externalFileId(pageKey.fileId));
-          // File may have been deleted concurrently — stop the flush cycle.
+          // File may have been deleted concurrently — skip pages for deleted files.
           if (fileForSize == null) {
-            break flushCycle;
+            continue;
           }
           var fileSize = fileForSize.getUnderlyingFileSize();
           if (pageKey.pageIndex * pageSize >= fileSize) {
