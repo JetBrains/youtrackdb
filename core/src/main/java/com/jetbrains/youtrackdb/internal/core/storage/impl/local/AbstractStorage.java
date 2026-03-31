@@ -235,7 +235,6 @@ public abstract class AbstractStorage
    * {@code writeCache.deleteNonDurableFilesOnRecovery()} before WAL replay, cleared after
    * replay completes. Plain (non-volatile) field — recovery is single-threaded.
    */
-  @SuppressWarnings("UnusedVariable") // consumed by restoreAtomicUnit() in Track 6 Step 2
   private IntOpenHashSet deletedNonDurableFileIds = new IntOpenHashSet();
 
   private final int id;
@@ -5167,11 +5166,21 @@ public abstract class AbstractStorage
     for (final var walRecord : atomicUnit) {
       switch (walRecord) {
         case FileDeletedWALRecord fileDeletedWALRecord -> {
+          // Skip WAL records for files deleted during crash recovery (non-durable files)
+          if (deletedNonDurableFileIds.contains(
+              writeCache.internalFileId(fileDeletedWALRecord.getFileId()))) {
+            continue;
+          }
           if (writeCache.exists(fileDeletedWALRecord.getFileId())) {
             readCache.deleteFile(fileDeletedWALRecord.getFileId(), writeCache);
           }
         }
         case FileCreatedWALRecord fileCreatedCreatedWALRecord -> {
+          // Skip re-creating non-durable files that were deleted during crash recovery
+          if (deletedNonDurableFileIds.contains(
+              writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()))) {
+            continue;
+          }
           if (!writeCache.exists(fileCreatedCreatedWALRecord.getFileName())) {
             readCache.addFile(
                 fileCreatedCreatedWALRecord.getFileName(),
@@ -5181,6 +5190,12 @@ public abstract class AbstractStorage
         }
         case UpdatePageRecord updatePageRecord -> {
           var fileId = updatePageRecord.getFileId();
+
+          // Skip page updates for non-durable files deleted during crash recovery
+          if (deletedNonDurableFileIds.contains(writeCache.internalFileId(fileId))) {
+            continue;
+          }
+
           if (!writeCache.exists(fileId)) {
             final var fileName = writeCache.restoreFileById(fileId);
 
