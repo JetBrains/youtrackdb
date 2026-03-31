@@ -3519,4 +3519,35 @@ public class DocValidationTest {
     assertThatThrownBy(
         () -> g.computeInTx(tx -> tx.yql("SELECT FROM Account").toList()));
   }
+
+  // === YQL-Drop-Index.md ===
+
+  // Line 5: DROP INDEX throws an error if the index does not exist (without IF EXISTS)
+  @Test
+  public void testDropIndexNonExistentThrowsError() {
+    assertThatThrownBy(() -> g.command("DROP INDEX NonExistentIndex12345"));
+  }
+
+  // Line 5: DROP INDEX with IF EXISTS silently succeeds for non-existent index
+  @Test
+  public void testDropIndexIfExistsNonExistent() {
+    g.command("DROP INDEX NonExistentIndex12345 IF EXISTS");
+  }
+
+  // Line 18-20: DROP INDEX Users.Id — the specific documented example
+  @Test
+  public void testDropIndexDocumentedExample() {
+    g.command("CREATE CLASS DropIdxUsers IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY DropIdxUsers.Id STRING");
+    g.command("CREATE INDEX DropIdxUsers.Id NOTUNIQUE");
+
+    // Drop the index as shown in the doc
+    g.command("DROP INDEX DropIdxUsers.Id");
+
+    // Verify the index no longer exists — dropping again should throw
+    assertThatThrownBy(() -> g.command("DROP INDEX DropIdxUsers.Id"));
+
+    // Clean up
+    g.command("DROP CLASS DropIdxUsers");
+  }
 }
