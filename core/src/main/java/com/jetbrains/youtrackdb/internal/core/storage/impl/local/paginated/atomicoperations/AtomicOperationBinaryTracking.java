@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -116,6 +117,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Histogram delta accumulator — lazily allocated to avoid overhead for
   // transactions that do not modify indexed data.
   @Nullable private HistogramDeltaHolder histogramDeltas;
+
+  // Index entry count delta accumulator — lazily allocated to avoid overhead
+  // for transactions that do not modify indexed data.
+  @Nullable private IndexCountDeltaHolder indexCountDeltas;
 
   // Edge snapshot: references to storage-wide shared indexes (never null).
   private final ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex;
@@ -816,6 +821,20 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       histogramDeltas = new HistogramDeltaHolder();
     }
     return histogramDeltas;
+  }
+
+  @Override
+  @Nullable public IndexCountDeltaHolder getIndexCountDeltas() {
+    return indexCountDeltas;
+  }
+
+  @Override
+  @Nonnull
+  public IndexCountDeltaHolder getOrCreateIndexCountDeltas() {
+    if (indexCountDeltas == null) {
+      indexCountDeltas = new IndexCountDeltaHolder();
+    }
+    return indexCountDeltas;
   }
 
   @Override

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -145,6 +146,20 @@ public interface AtomicOperation {
    */
   @Nonnull
   HistogramDeltaHolder getOrCreateHistogramDeltas();
+
+  /**
+   * Returns the index count delta holder for this transaction, or
+   * {@code null} if no index count operations have occurred yet.
+   */
+  @javax.annotation.Nullable IndexCountDeltaHolder getIndexCountDeltas();
+
+  /**
+   * Returns the index count delta holder for this transaction, creating it
+   * lazily if absent. Used by index engine put/remove methods to accumulate
+   * per-engine count deltas within the transaction scope.
+   */
+  @Nonnull
+  IndexCountDeltaHolder getOrCreateIndexCountDeltas();
 
   // --- Edge snapshot methods (parallel to collection snapshot methods above) ---
 
