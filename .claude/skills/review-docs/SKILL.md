@@ -1,3 +1,9 @@
+---
+name: review-docs
+description: "Review documentation files for grammar, factual accuracy, and query correctness. Use when the user asks to review docs, validate documentation, or check YQL examples. Accepts a path to a file or directory as argument."
+user-invocable: true
+---
+
 Review documentation files for grammar, factual accuracy, and query correctness.
 
 The user will provide a path to a single document or a folder containing documents.
@@ -24,9 +30,9 @@ This command reviews Markdown documentation files (`.md`) covering:
 
 For each document, check for:
 - **Punctuation**: missing commas after introductory phrases ("For this reason,"), before conjunctions in compound sentences, around parenthetical clauses.
-- **Spelling**: typos, common misspellings (e.g., "straight forward" → "straightforward").
+- **Spelling**: typos, common misspellings (e.g., "straight forward" -> "straightforward").
 - **Hyphenation**: compound adjectives before nouns need hyphens (e.g., "case-insensitive", "not-indexed").
-- **Word choice**: awkward phrasing (e.g., "suggest to use" → "suggest using", "look to" → "refer to").
+- **Word choice**: awkward phrasing (e.g., "suggest to use" -> "suggest using", "look to" -> "refer to").
 - **Consistency**: same terms spelled/capitalized the same way throughout. Check `YouTrackDB`, `YQL`, class names, etc.
 - **Formatting**: extra spaces before colons/punctuation, double spaces, inconsistent heading levels.
 - **Code block language tags**: ensure ` ```sql `, ` ```java `, etc. are present and correct.
@@ -164,10 +170,10 @@ Group tests by document section. Each test method should have a comment referenc
    ./mvnw -pl core spotless:apply
    ```
 3. If tests fail, analyze each failure:
-   - **Parse error on a query the doc says should work** → the document has a query bug. Flag it.
-   - **Query succeeds but the doc says it should fail** → the document claim is wrong. Flag it.
-   - **Wrong result count or values** → the document example may be misleading. Flag it.
-   - **Compilation error** → fix the test code and re-run.
+   - **Parse error on a query the doc says should work** -> the document has a query bug. Flag it.
+   - **Query succeeds but the doc says it should fail** -> the document claim is wrong. Flag it.
+   - **Wrong result count or values** -> the document example may be misleading. Flag it.
+   - **Compilation error** -> fix the test code and re-run.
 
 ### Step 8: Produce review report
 
