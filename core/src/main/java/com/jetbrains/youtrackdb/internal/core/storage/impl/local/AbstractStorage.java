@@ -2260,6 +2260,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
+      // Engine may have been dropped concurrently — the commit is already
+      // durable, so the delta for a removed engine is stale and safe to skip.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
