@@ -868,16 +868,17 @@ public final class WOWCache extends AbstractWriteCache
   public void updateDirtyPagesTable(
       final CachePointer pointer, final LogSequenceNumber startLSN) {
     final var fileId = pointer.getFileId();
+    final var intFileId = internalFileId(fileId);
 
     // Non-durable pages must never enter the dirtyPages table — they have no WAL records,
     // so tracking them would block WAL segment truncation for segments with no durable data.
-    if (nonDurableFileIds.contains(internalFileId(fileId))) {
+    if (nonDurableFileIds.contains(intFileId)) {
       return;
     }
 
     final long pageIndex = pointer.getPageIndex();
 
-    final var pageKey = new PageKey(internalFileId(fileId), pageIndex);
+    final var pageKey = new PageKey(intFileId, pageIndex);
 
     LogSequenceNumber dirtyLSN;
     if (startLSN != null) {

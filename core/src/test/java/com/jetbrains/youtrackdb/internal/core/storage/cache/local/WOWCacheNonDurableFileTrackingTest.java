@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -824,6 +825,23 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(
         "Durable page must appear in dirtyPages table",
         dirtyPages.containsKey(durablePageKey));
+
+    // Falsification: temporarily clear the nonDurableFileIds set so all files appear durable,
+    // re-call updateDirtyPagesTable for the non-durable file, and verify the page IS now added.
+    // This proves the early-return guard (not some other reason) prevented the insertion above.
+    final Field ndSetField = WOWCache.class.getDeclaredField("nonDurableFileIds");
+    ndSetField.setAccessible(true);
+    final var originalSet = ndSetField.get(wowCache);
+    ndSetField.set(wowCache, new IntOpenHashSet());
+
+    wowCache.updateDirtyPagesTable(ndPointer, startLsn);
+
+    assertTrue(
+        "Falsification: without the non-durable guard, the page must appear in dirtyPages",
+        dirtyPages.containsKey(ndPageKey));
+
+    // Restore original set to avoid side effects on tearDown
+    ndSetField.set(wowCache, originalSet);
   }
 
   /**
