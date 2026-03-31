@@ -5,6 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -1299,5 +1303,114 @@ public class WOWCacheNonDurableFileTrackingTest {
       readCache.deleteStorage(wowCache);
       wowCache = null;
     }
+  }
+
+  /**
+   * TC1/TY1 — Verifies partial failure behavior of deleteNonDurableFilesOnRecovery: when
+   * readCache.deleteFile() throws for one non-durable file while succeeding for another, the
+   * method must:
+   * (1) return deletedIds containing BOTH IDs (snapshot taken before any deletion),
+   * (2) keep the failed file in the live registry,
+   * (3) remove the successful file from the live registry,
+   * (4) persist remaining (failed) IDs to the side file for next recovery retry.
+   */
+  @Test
+  public void testDeleteNonDurableFilesOnRecoveryPartialFailure() throws Exception {
+    // Register two non-durable files and one durable file
+    final var durableId = wowCache.addFile("partialRecoverDurable.tst");
+
+    final var booked1 = wowCache.bookFileId("partialRecoverNd1.tst");
+    final var nd1 = wowCache.addFile("partialRecoverNd1.tst", booked1, true);
+    final var booked2 = wowCache.bookFileId("partialRecoverNd2.tst");
+    final var nd2 = wowCache.addFile("partialRecoverNd2.tst", booked2, true);
+
+    final var nd1IntId = wowCache.internalFileId(nd1);
+    final var nd2IntId = wowCache.internalFileId(nd2);
+
+    assertTrue(wowCache.isNonDurable(nd1));
+    assertTrue(wowCache.isNonDurable(nd2));
+
+    // Create a spy ReadCache that throws for nd2 but delegates normally for nd1
+    final var readCache = spy(createReadCache());
+    doThrow(new IOException("Simulated disk failure for nd2"))
+        .when(readCache).deleteFile(eq(nd2), any());
+
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      // (1) deletedIds is a snapshot taken before deletion — must contain BOTH IDs
+      assertTrue(
+          "Snapshot should contain nd1 internal ID",
+          deletedIds.contains(nd1IntId));
+      assertTrue(
+          "Snapshot should contain nd2 internal ID",
+          deletedIds.contains(nd2IntId));
+
+      // (2) Failed file (nd2) must remain in the live non-durable registry
+      assertTrue(
+          "Failed file should still be in non-durable registry",
+          wowCache.isNonDurable(nd2));
+
+      // (3) Successful file (nd1) must be removed from the live registry
+      assertFalse(
+          "Successfully deleted file should be removed from registry",
+          wowCache.isNonDurable(nd1));
+      assertFalse(
+          "Successfully deleted file should no longer exist in cache",
+          wowCache.exists(nd1));
+
+      // (4) Side files should still exist — writeNonDurableRegistry() persisted
+      //     the remaining failed ID
+      assertTrue(
+          "Primary side file should exist after partial failure",
+          Files.exists(storagePath.resolve("non_durable_files.cm")));
+      assertTrue(
+          "Shadow side file should exist after partial failure",
+          Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+
+      // (5) Re-read side files to verify only the failed ID is persisted
+      final var restoredIds = readNonDurableIdsFromSideFile();
+      assertEquals(
+          "Side file should contain exactly one ID (the failed file)",
+          1, restoredIds.size());
+      assertTrue(
+          "Side file should contain the failed file's internal ID",
+          restoredIds.contains(nd2IntId));
+
+      // Durable file must remain intact
+      assertTrue(wowCache.exists(durableId));
+      assertFalse(wowCache.isNonDurable(durableId));
+    } finally {
+      // nd2 still exists — delete via wowCache directly (not readCache spy)
+      if (wowCache != null) {
+        try {
+          // Use a fresh readCache for cleanup to avoid the spy's exception
+          var cleanupReadCache = createReadCache();
+          cleanupReadCache.deleteStorage(wowCache);
+        } catch (Exception ignored) {
+          // best-effort cleanup
+        }
+        wowCache = null;
+      }
+    }
+  }
+
+  /**
+   * Reads the non-durable IDs from the primary side file (non_durable_files.cm).
+   * Format: [4 bytes version] [8 bytes xxHash64] [4 bytes count] [count * 4 bytes IDs]
+   * (big-endian, matching writeNonDurableRegistry)
+   */
+  private IntOpenHashSet readNonDurableIdsFromSideFile() throws IOException {
+    final var path = storagePath.resolve("non_durable_files.cm");
+    final var bytes = Files.readAllBytes(path);
+    final var buf = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.BIG_ENDIAN);
+    // Skip version (4) + xxHash (8) = 12 bytes
+    buf.position(12);
+    final var count = buf.getInt();
+    final var ids = new IntOpenHashSet(count);
+    for (int i = 0; i < count; i++) {
+      ids.add(buf.getInt());
+    }
+    return ids;
   }
 }
