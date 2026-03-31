@@ -3905,8 +3905,13 @@ public final class WOWCache extends AbstractWriteCache
               pointer.releaseSharedLock(sharedStamp);
             }
 
+            // Non-durable pages have null endLSN (setEndLSN is skipped in
+            // commitChanges), so they are naturally excluded from maxFullLogLSN
+            // by the null check. Only durable pages contribute to WAL pinning.
             if (fullLSN != null
                 && (maxFullLogLSN == null || maxFullLogLSN.compareTo(fullLSN) < 0)) {
+              assert !nonDurableFileIds.contains(internalFileId(pointer.getFileId()))
+                  : "Non-durable page should not have a non-null endLSN";
               maxFullLogLSN = fullLSN;
             }
 
@@ -4020,7 +4025,20 @@ public final class WOWCache extends AbstractWriteCache
       return null;
     }
 
-    writeAheadLog.flush();
+    // Only flush WAL if at least one file in the set is durable. Non-durable
+    // files never produce WAL records, so flushing is unnecessary overhead.
+    final var localNonDurableFileIds = nonDurableFileIds;
+    boolean hasDurableFile = false;
+    var idIterator = fileIdSet.intIterator();
+    while (idIterator.hasNext()) {
+      if (!localNonDurableFileIds.contains(idIterator.nextInt())) {
+        hasDurableFile = true;
+        break;
+      }
+    }
+    if (hasDurableFile) {
+      writeAheadLog.flush();
+    }
 
     final var pagesToFlush = new TreeSet<PageKey>();
     for (final var entry : writeCachePages.entrySet()) {
@@ -4055,6 +4073,8 @@ public final class WOWCache extends AbstractWriteCache
 
             final var endLSN = pagePointer.getEndLSN();
 
+            // Non-durable pages have null endLSN (setEndLSN is skipped in
+            // commitChanges), so they are naturally excluded from maxLSN.
             if (endLSN != null && (maxLSN == null || endLSN.compareTo(maxLSN) > 0)) {
               maxLSN = endLSN;
             }
