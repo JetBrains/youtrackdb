@@ -1,3 +1,10 @@
+---
+name: review-plan
+description: "Review an implementation plan for consistency and structural quality before execution. Use after /create-plan and before /execute-tracks."
+argument-hint: "[plan-directory-name]"
+user-invocable: true
+---
+
 Read and follow the workflow for Phase 2 (Implementation Review).
 
 Read these workflow documents in order before starting:

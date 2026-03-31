@@ -1,3 +1,10 @@
+---
+name: code-review
+description: "Review code changes across multiple dimensions (quality, bugs, concurrency, crash-safety, security, performance) using specialized agents with triage-based selection."
+argument-hint: "[branch | commit-range | uncommitted | PR-number]"
+user-invocable: true
+---
+
 Review code changes across multiple dimensions by dispatching to specialized review agents and synthesizing their findings.
 
 Use `$ARGUMENTS` as the review target if provided (branch name, commit range, or "uncommitted").

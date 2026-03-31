@@ -1,3 +1,10 @@
+---
+name: fix-ci-failure
+description: "Diagnose and fix a CI test failure from a GitHub PR or workflow run. Includes root cause analysis, dimensional code review, and PR creation."
+argument-hint: "[github-url]"
+user-invocable: true
+---
+
 Fix a CI test failure from a GitHub PR or workflow run.
 
 The user will provide a URL to a failing check run, PR checks page, or workflow run.
