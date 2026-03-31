@@ -1,14 +1,28 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -17,10 +31,16 @@ import org.mockito.Mockito;
  * {@code flushError} is set (by a failed background flush), all subsequent flush and dirty-segment
  * operations must log the error and return immediately rather than proceeding with I/O.
  *
+ * <p>Also tests that null-file guards in {@code getFilledUpTo()} and
+ * {@code flushWriteCacheFromMinLSN()} correctly handle concurrent file deletion without NPE or
+ * infinite loops.
+ *
  * <p>Uses Mockito's {@code CALLS_REAL_METHODS} to invoke the real guard-clause logic on a mock
- * instance with the {@code flushError} field set via reflection.
+ * instance with fields set via reflection.
  */
 public class WOWCacheFlushErrorTest {
+
+  private static final int PAGE_SIZE = 8192;
 
   /**
    * Sets the private {@code flushError} field on a WOWCache (or mock) to the given throwable.
@@ -98,7 +118,7 @@ public class WOWCacheFlushErrorTest {
    * and notifies them when a page is broken. Covers the for-loop body at line 627 and
    * the listener invocation path.
    */
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked") // unchecked: generic WeakReference list mock
   @Test
   public void testCallPageIsBrokenListenersNotifiesRegisteredListeners() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
@@ -120,5 +140,258 @@ public class WOWCacheFlushErrorTest {
     method.invoke(cache, "test-file.dat", 42L);
 
     verify(mockListener).pageIsBroken("test-file.dat", 42L);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Null-file guard tests: getFilledUpTo and flushWriteCacheFromMinLSN
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that {@code getFilledUpTo()} returns 0 when the file has been concurrently deleted
+   * (i.e., {@code files.get()} returns null). This guards against NPE during storage close/drop
+   * while the periodic records GC is still running.
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test
+  public void testGetFilledUpToReturnsZeroWhenFileIsNull() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    // files container returns null for any lookup (simulating deleted file)
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", filesContainer);
+
+    // A real lock is needed because getFilledUpTo acquires/releases it
+    setField(cache, "filesLock", new ReadersWriterSpinLock());
+
+    // id=0 so composeFileId produces a predictable key
+    setField(cache, "id", 0);
+    setField(cache, "pageSize", PAGE_SIZE);
+
+    // closed=false so checkForClose() does not throw
+    setField(cache, "closed", false);
+    setField(cache, "storageName", "test");
+
+    assertEquals(0, cache.getFilledUpTo(42L));
+
+    // Verify the read lock was released — a second call must not deadlock
+    assertEquals(0, cache.getFilledUpTo(42L));
+  }
+
+  /**
+   * Verifies that {@code getFilledUpTo()} returns the correct page count when the file exists.
+   * Guards against the null-guard accidentally suppressing the real return value.
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test
+  public void testGetFilledUpToReturnsPageCountWhenFileExists() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    var mockFile = mock(File.class);
+    Mockito.when(mockFile.getFileSize()).thenReturn(3L * PAGE_SIZE);
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    Mockito.when(filesContainer.get(anyLong())).thenReturn(mockFile);
+    setField(cache, "files", filesContainer);
+    setField(cache, "filesLock", new ReadersWriterSpinLock());
+    setField(cache, "id", 0);
+    setField(cache, "pageSize", PAGE_SIZE);
+    setField(cache, "closed", false);
+    setField(cache, "storageName", "test");
+
+    assertEquals(3L, cache.getFilledUpTo(42L));
+  }
+
+  /**
+   * Verifies that {@code flushWriteCacheFromMinLSN()} gracefully skips pages whose backing file
+   * has been concurrently deleted (first null-check path: file size lookup when the file id has
+   * not been cached in {@code fileIdSizeMap} yet). After the call, the page must remain in
+   * {@code localDirtyPagesBySegment} (it was skipped, not processed or removed).
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test
+  public void testFlushWriteCacheFromMinLSNSkipsDeletedFileOnSizeLookup() throws Exception {
+    var cache = buildCacheForFlushTest();
+
+    // Populate localDirtyPagesBySegment with a single segment containing one page
+    // for a file that no longer exists (files mock returns null for all lookups)
+    var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
+    var pages = new TreeSet<PageKey>();
+    pages.add(new PageKey(7, 0));
+    localDirtyPagesBySegment.put(1L, pages);
+    setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
+
+    // writeCachePages must be present (the page won't reach that lookup because it's
+    // skipped at the file-null check in the inner while-loop)
+    setField(cache, "writeCachePages", new ConcurrentHashMap<PageKey, CachePointer>());
+
+    invokeFlushWriteCacheFromMinLSN(cache, 1L, 2L, 10);
+
+    // The page for the deleted file must remain in the dirty-pages index,
+    // confirming it was skipped via continue rather than processed
+    var segmentPages = localDirtyPagesBySegment.get(1L);
+    assertNotNull(
+        "Segment 1 entry must still be present after skipping deleted-file page",
+        segmentPages);
+    assertTrue(
+        "Page key for deleted file must remain in the dirty segment",
+        segmentPages.contains(new PageKey(7, 0)));
+  }
+
+  /**
+   * Verifies that {@code flushWriteCacheFromMinLSN()} gracefully skips pages whose backing file
+   * has been concurrently deleted in the second null-check path: when a page's shared lock cannot
+   * be acquired ({@code tryAcquireSharedLock()} returns 0) and the file is subsequently found to
+   * be null during the page-beyond-file-size check.
+   *
+   * <p>To reach this path, the files mock must return a valid file during the inner while-loop
+   * (so the page is collected into {@code pageKeysToFlush}), then return null during the
+   * for-loop (simulating a file deleted between collection and flush phases).
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test
+  public void testFlushWriteCacheFromMinLSNSkipsDeletedFileOnFailedLock() throws Exception {
+    var cache = buildCacheForFlushTest();
+
+    // Configure files mock: return a valid file on the first call (inner while-loop
+    // size lookup), then return null on the second call (for-loop lock-fail path)
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    var mockFile = mock(File.class);
+    Mockito.when(mockFile.getUnderlyingFileSize()).thenReturn((long) PAGE_SIZE);
+    Mockito.when(filesContainer.get(anyLong())).thenReturn(mockFile).thenReturn(null);
+    setField(cache, "files", filesContainer);
+
+    var pageKey = new PageKey(7, 0);
+    var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
+    var pages = new TreeSet<PageKey>();
+    pages.add(pageKey);
+    localDirtyPagesBySegment.put(1L, pages);
+    setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
+
+    // Put a CachePointer mock in writeCachePages that returns 0 from tryAcquireSharedLock,
+    // so we enter the else branch (lock failed) which hits the second null-file check
+    var writeCachePages = new ConcurrentHashMap<PageKey, CachePointer>();
+    var cachePointer = mock(CachePointer.class);
+    Mockito.when(cachePointer.tryAcquireSharedLock()).thenReturn(0L);
+    writeCachePages.put(pageKey, cachePointer);
+    setField(cache, "writeCachePages", writeCachePages);
+
+    invokeFlushWriteCacheFromMinLSN(cache, 1L, 2L, 10);
+
+    // Verify tryAcquireSharedLock was called — confirms we reached the lock branch
+    // and then hit the null-file check, rather than being skipped earlier
+    Mockito.verify(cachePointer).tryAcquireSharedLock();
+
+    // The page must remain in the dirty segment (not removed by removeFromDirtyPages),
+    // confirming it was skipped via continue
+    var segmentPages = localDirtyPagesBySegment.get(1L);
+    assertNotNull("Segment 1 entry must still be present", segmentPages);
+    assertTrue(
+        "Page key must remain after skipping deleted-file page on failed lock",
+        segmentPages.contains(pageKey));
+  }
+
+  /**
+   * Verifies the segment-advancement fix: when segment 1 contains only pages for deleted files,
+   * the flush method must advance to segment 2 rather than retrying segment 1 indefinitely.
+   * Without the fix, this test would hang forever (infinite loop).
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test(timeout = 10_000)
+  public void testFlushWriteCacheFromMinLSNAdvancesSegmentWhenAllPagesAreDeleted()
+      throws Exception {
+    var cache = buildCacheForFlushTest();
+
+    // Segment 1: one page for deleted file (files mock returns null).
+    // Segment 2: empty (will be null in localDirtyPagesBySegment).
+    var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
+    var seg1Pages = new TreeSet<PageKey>();
+    seg1Pages.add(new PageKey(7, 0));
+    localDirtyPagesBySegment.put(1L, seg1Pages);
+    setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
+
+    setField(cache, "writeCachePages", new ConcurrentHashMap<PageKey, CachePointer>());
+
+    // segStart=1, segEnd=3 — must advance past segment 1 and terminate.
+    // The @Test(timeout) guards against infinite-loop regression.
+    invokeFlushWriteCacheFromMinLSN(cache, 1L, 3L, 10);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helper methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Creates a WOWCache mock with common fields initialized for
+   * {@code flushWriteCacheFromMinLSN()} tests. The {@code files} field is set to a mock that
+   * returns null for all lookups (simulating all files deleted). Tests that need a more complex
+   * files configuration should override this field after calling this method.
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  private static WOWCache buildCacheForFlushTest() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    // files container returns null for any lookup by default (simulating deleted file)
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", filesContainer);
+
+    setField(cache, "id", 0);
+    setField(cache, "pageSize", PAGE_SIZE);
+    setField(cache, "storageName", "test");
+
+    // filesLock for defensive completeness — not currently used by
+    // flushWriteCacheFromMinLSN, but protects against future refactors
+    setField(cache, "filesLock", new ReadersWriterSpinLock());
+
+    // dirtyPages and localDirtyPages are accessed by convertSharedDirtyPagesToLocal()
+    // which is called at the start of flushWriteCacheFromMinLSN
+    setField(
+        cache, "dirtyPages", new ConcurrentHashMap<PageKey, LogSequenceNumber>());
+    setField(
+        cache, "localDirtyPages", new HashMap<PageKey, LogSequenceNumber>());
+
+    return cache;
+  }
+
+  /**
+   * Invokes the private {@code flushWriteCacheFromMinLSN()} method via reflection, unwrapping
+   * any {@link InvocationTargetException} to surface the real cause as an {@link AssertionError}.
+   */
+  private static void invokeFlushWriteCacheFromMinLSN(
+      WOWCache cache, long segStart, long segEnd, int pagesFlushLimit) throws Exception {
+    Method method =
+        WOWCache.class.getDeclaredMethod(
+            "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(cache, segStart, segEnd, pagesFlushLimit);
+    } catch (InvocationTargetException e) {
+      throw new AssertionError(
+          "flushWriteCacheFromMinLSN threw unexpectedly", e.getCause());
+    }
+  }
+
+  /**
+   * Sets a field (including private/final fields in {@code WOWCache} or its superclasses)
+   * to the given value via reflection.
+   */
+  private static void setField(Object target, String fieldName, Object value) throws Exception {
+    // Starts from the Mockito-generated subclass; walks up to WOWCache and its parents
+    Field field = findField(target.getClass(), fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
+  /**
+   * Walks the class hierarchy to find a declared field by name.
+   */
+  private static Field findField(Class<?> clazz, String fieldName) throws NoSuchFieldException {
+    while (clazz != null) {
+      try {
+        return clazz.getDeclaredField(fieldName);
+      } catch (NoSuchFieldException ignored) {
+        // Field not declared at this level, walk up
+        clazz = clazz.getSuperclass();
+      }
+    }
+    throw new NoSuchFieldException(fieldName);
   }
 }

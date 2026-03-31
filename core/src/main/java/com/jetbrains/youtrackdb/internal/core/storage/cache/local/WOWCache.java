@@ -3003,10 +3003,30 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
+      var chunksSizeBeforeFlush = chunksSize;
+
       if (!chunk.isEmpty()) {
         chunks.add(chunk);
         chunksSize += chunk.size();
         chunk = new ArrayList<>(16);
+      }
+
+      // Advance to the next segment when either:
+      //  (a) the inner iterator is exhausted (all pages in the segment have been
+      //      consumed — either collected into pageKeysToFlush or skipped because
+      //      their file was concurrently deleted), or
+      //  (b) no progress was made on this pass (chunksSize did not increase),
+      //      which happens when all pages in pageKeysToFlush were skipped in the
+      //      for-loop (e.g., files deleted between the collection and flush phases,
+      //      or all page locks failed on pages whose files are now deleted).
+      // Without this, the outer flushCycle loop would retry the same segment
+      // indefinitely when all its pages reference concurrently deleted files.
+      if (!lsnPagesIterator.hasNext() || chunksSize == chunksSizeBeforeFlush) {
+        currentSegment++;
+
+        if (currentSegment >= segEnd) {
+          break;
+        }
       }
     }
 
