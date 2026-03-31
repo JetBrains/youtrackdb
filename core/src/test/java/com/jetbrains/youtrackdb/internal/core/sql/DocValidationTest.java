@@ -4741,4 +4741,55 @@ public class DocValidationTest {
           tx.yql("DELETE VERTEX FuncPOI").iterate();
         });
   }
+
+  // === YQL-Grant.md ===
+
+  /** YQL-Grant.md — Line 22: GRANT POLICY policy1 ON database.class.Person TO backoffice */
+  @Test
+  public void testGrantPolicyOnClassToRole() {
+    // Create the target class
+    g.command("CREATE CLASS GrantPerson IF NOT EXISTS EXTENDS V");
+
+    // Create a security policy with proper syntax (SET READ = (predicate))
+    g.command("CREATE SECURITY POLICY grantPolicy1 SET READ = (name = 'foo')");
+    g.command("GRANT POLICY grantPolicy1 ON database.class.GrantPerson TO reader");
+
+    // If we got here without exception, the GRANT POLICY syntax is accepted
+  }
+
+  /** YQL-Grant.md — Line 8: GRANT permission ON resource TO role — all permission types */
+  @Test
+  public void testGrantPermissionOnResourceToRole() {
+    // Grant CREATE permission on a database class to the built-in 'writer' role
+    g.command("CREATE CLASS GrantTarget IF NOT EXISTS EXTENDS V");
+    g.command("GRANT CREATE ON database.class.GrantTarget TO writer");
+
+    // Grant READ permission
+    g.command("GRANT READ ON database.class.GrantTarget TO writer");
+
+    // Grant UPDATE permission
+    g.command("GRANT UPDATE ON database.class.GrantTarget TO writer");
+
+    // Grant DELETE permission
+    g.command("GRANT DELETE ON database.class.GrantTarget TO writer");
+
+    // Grant ALL permission
+    g.command("GRANT ALL ON database.class.GrantTarget TO writer");
+
+    // Grant NONE permission (revokes all)
+    g.command("GRANT NONE ON database.class.GrantTarget TO writer");
+  }
+
+  /** YQL-Grant.md — Line 50: database resource */
+  @Test
+  public void testGrantOnDatabaseResource() {
+    g.command("GRANT READ ON database TO reader");
+  }
+
+  /** YQL-Grant.md — Line 51: database.class.* wildcard for all classes */
+  @Test
+  public void testGrantOnWildcardClassResource() {
+    g.command("GRANT READ ON database.class.* TO reader");
+  }
+
 }
