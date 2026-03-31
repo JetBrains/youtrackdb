@@ -1018,7 +1018,10 @@ public final class WOWCache extends AbstractWriteCache
         // + non-durable registry removal under filesLock
         readCache.deleteFile(externalId, this);
       } catch (final Exception e) {
-        // File may already be missing on disk after a crash — log and continue
+        // File may already be missing on disk after a crash — log and continue.
+        // Remove from deletedIds so WAL replay does not skip records for files
+        // that could not be deleted (they may still exist with stale data).
+        intIterator.remove();
         logger.warn(
             "Failed to delete non-durable file with internal ID {} during crash recovery,"
                 + " continuing",
@@ -1027,11 +1030,13 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    // Delete both side files (shadow first, then primary) under the write lock
+    // Clean up side files under the write lock. If all deletions succeeded,
+    // nonDurableFileIds is already empty (each deleteFile call removed the ID).
+    // If some failed, writeNonDurableRegistry() persists only the remaining IDs
+    // so the next recovery can retry them.
     filesLock.acquireWriteLock();
     try {
-      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
-      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      writeNonDurableRegistry();
     } finally {
       filesLock.releaseWriteLock();
     }
