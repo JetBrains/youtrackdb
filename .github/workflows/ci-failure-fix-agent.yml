@@ -423,14 +423,15 @@ jobs:
         run: |
           OUTPUT_FILE="/tmp/fix-agent-output-$$.txt"
 
-          # Run agent with output tee'd to both the log and a file.
-          # This ensures CI logs show progress in real time AND we have
-          # a file to inspect after completion/timeout.
+          # Run agent with verbose streaming output tee'd to both the
+          # CI build log and a file. stream-json emits every event
+          # (tool calls, results, thinking) so the full session is
+          # visible in the GitHub Actions log in real time.
           claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
             --dangerously-skip-permissions \
-            --model claude-sonnet-4-6 \
-            --max-turns 200 \
-            --output-format text \
+            --model opus \
+            --output-format stream-json \
+            --verbose \
             2>&1 | tee "$OUTPUT_FILE" || true
 
           echo "Agent finished. Output length: $(wc -c < "$OUTPUT_FILE") bytes"
