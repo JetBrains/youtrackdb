@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -18,7 +19,7 @@ import org.junit.Test;
  *   <li>Edge-method MATCH queries produce correct results identical to
  *       equivalent non-edge-method queries</li>
  *   <li>The planner applies pre-filter optimization when an indexed edge
- *       property is used in a WHERE clause</li>
+ *       property is used in a WHERE clause (via EXPLAIN plan inspection)</li>
  *   <li>Both {@code outE→inV} and {@code inE→outV} directions work</li>
  *   <li>No pre-filter is applied when the edge property is not indexed</li>
  * </ul>
@@ -33,6 +34,7 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
    * <pre>
    *   Person --WORK_AT(workFrom: INTEGER, indexed)--> Company
    *   Person --HAS_MEMBER(joinDate: LONG, indexed)--> Forum
+   *   Person --LIKES(score: INTEGER, NOT indexed)--> Forum
    * </pre>
    *
    * <p>Data: 10 persons, 5 companies, 3 forums.
@@ -127,10 +129,10 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify that an outE→inV MATCH query with an indexed edge property filter
-   * produces the same results as the equivalent out() pattern.
+   * produces correct results, checking both person names and person→company pairs.
    *
    * Pattern: Person -outE('PFWorkAt'){where: workFrom < 2015}-> inV() as company
-   * Expected: persons 0-4 (workFrom 2010-2014)
+   * Expected: persons 0-4 (workFrom 2010-2014), each at their assigned company
    */
   @Test
   public void testOutEInVCorrectness() {
@@ -154,15 +156,15 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
         directResult.size(), edgeResult.size());
     assertEquals(5, edgeResult.size());
 
-    // Verify all person names are persons 0-4
-    Set<String> personNames = new HashSet<>();
+    // Verify person→company pairs (not just person names)
+    Set<String> pairs = new HashSet<>();
     for (var r : edgeResult) {
-      personNames.add(r.getProperty("p.name"));
+      pairs.add(r.getProperty("p.name") + "->" + r.getProperty("c.name"));
     }
     for (int i = 0; i < 5; i++) {
       assertTrue(
-          "Should contain person" + i,
-          personNames.contains("person" + i));
+          "Should contain person" + i + "->company" + (i % 5),
+          pairs.contains("person" + i + "->company" + (i % 5)));
     }
 
     session.commit();
@@ -170,11 +172,10 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify that an inE→outV MATCH query with an indexed edge property filter
-   * produces correct results.
+   * produces correct results, checking person→forum pairs.
    *
    * Pattern: Forum -inE('PFHasMember'){where: joinDate >= 1500}-> outV() as person
-   * Expected: persons with joinDate >= 1500, i.e., persons 5-9
-   * (joinDate = 1000 + i*100, so >= 1500 means i >= 5)
+   * Expected: persons 5-9 (joinDate = 1000 + i*100, so >= 1500 means i >= 5)
    */
   @Test
   public void testInEOutVCorrectness() {
@@ -189,14 +190,15 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
     assertEquals(5, result.size());
 
-    Set<String> personNames = new HashSet<>();
+    // Verify person→forum pairs
+    Set<String> pairs = new HashSet<>();
     for (var r : result) {
-      personNames.add(r.getProperty("p.name"));
+      pairs.add(r.getProperty("p.name") + "->" + r.getProperty("f.title"));
     }
     for (int i = 5; i < 10; i++) {
       assertTrue(
-          "Should contain person" + i,
-          personNames.contains("person" + i));
+          "Should contain person" + i + "->forum" + (i % 3),
+          pairs.contains("person" + i + "->forum" + (i % 3)));
     }
 
     session.commit();
@@ -206,10 +208,7 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify that both outE→inV and inE→outV directions produce correct results
-   * for the same logical relationship.
-   *
-   * outE from Person should yield the same companies as inE from Company yields
-   * persons — just viewed from different starting points.
+   * for the same logical relationship: person5 works at company0 with workFrom=2015.
    */
   @Test
   public void testBothDirectionsConsistent() {
@@ -244,11 +243,12 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify via EXPLAIN that the planner recognizes the edge class for
-   * outE('PFWorkAt') and includes it in the execution plan. The edge alias
-   * should appear in the plan, indicating class inference worked.
+   * outE('PFWorkAt') and uses the PFWorkAt_workFrom index to fetch matching
+   * edges. The plan should contain a FETCH FROM INDEX step for the edge's
+   * workFrom index, proving class inference resolved PFWorkAt.
    */
   @Test
-  public void testExplainShowsEdgeClassInference() {
+  public void testExplainShowsEdgeIndexUsage() {
     session.begin();
 
     var query =
@@ -267,25 +267,31 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
         "Edge alias {w} should appear in execution plan, but plan was:\n" + plan,
         plan.contains("{w}"));
 
+    // The plan should use the PFWorkAt_workFrom index to fetch edges,
+    // proving class inference resolved PFWorkAt and selected the index
+    assertTrue(
+        "Plan should use PFWorkAt_workFrom index, but plan was:\n" + plan,
+        plan.contains("FETCH FROM INDEX PFWorkAt_workFrom"));
+
     session.commit();
   }
 
   /**
    * Verify via EXPLAIN that the planner infers the vertex class for the inV()
    * target from the edge schema's LINK property, even without an explicit
-   * class: constraint on the vertex alias.
-   *
-   * The vertex alias after inV() should get PFCompany inferred from
-   * PFWorkAt.in LINK PFCompany, affecting scheduling optimality.
+   * class: constraint. The plan should show a PREFETCH for the vertex alias
+   * fetching from the inferred class (PFCompany), and the edge index should
+   * be used for the edge alias.
    */
   @Test
   public void testExplainInfersVertexClassFromEdgeSchema() {
     session.begin();
 
     // No explicit class: on the company alias — planner should infer it
+    // from PFWorkAt.in LINK PFCompany
     var query =
         "MATCH {class: PFPerson, as: p}"
-            + ".outE('PFWorkAt'){as: w, where: (workFrom < 2015)}"
+            + ".outE('PFWorkAt'){where: (workFrom < 2015)}"
             + ".inV(){as: c}"
             + " RETURN p.name, c.name";
 
@@ -293,13 +299,18 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     var result = session.query(query).toList();
     assertEquals(5, result.size());
 
-    // Verify EXPLAIN plan contains both aliases
+    // Verify EXPLAIN plan shows the inferred vertex class PFCompany
+    // in a PREFETCH step — this proves the planner resolved the vertex
+    // class from the edge schema's LINK property
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertTrue(
         "Vertex alias {c} should appear in plan, but plan was:\n" + plan,
         plan.contains("{c}"));
+    assertTrue(
+        "Plan should fetch from inferred class PFCompany, but plan was:\n" + plan,
+        plan.contains("FETCH FROM CLASS PFCompany"));
 
     session.commit();
   }
@@ -308,11 +319,8 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify that an edge class without an indexed property on the WHERE clause
-   * still produces correct results but does NOT benefit from pre-filtering.
-   *
-   * Uses PFLikes which has a score property but no index on it.
-   * The query should still work (correctness) but the execution plan should
-   * not show pre-filter optimization for the edge traversal.
+   * still produces correct results but does NOT trigger pre-filtering. The
+   * EXPLAIN plan must not contain an index intersection descriptor for PFLikes.
    */
   @Test
   public void testNoPreFilterWithoutIndex() {
@@ -337,6 +345,151 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
       assertTrue(
           "Should contain person" + i,
           personNames.contains("person" + i));
+    }
+
+    // Verify EXPLAIN does NOT show index intersection for the non-indexed edge
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse(
+        "Plan should NOT contain index intersection for non-indexed PFLikes,"
+            + " but plan was:\n" + plan,
+        plan.contains("(intersection: index"));
+
+    session.commit();
+  }
+
+  // ---- Boundary and edge cases ----
+
+  /**
+   * Verify that an outE→inV query returns zero results when the WHERE clause
+   * matches no edges (workFrom > 2999 matches nobody in the dataset).
+   */
+  @Test
+  public void testOutEInVReturnsEmptyWhenNoEdgesMatch() {
+    session.begin();
+
+    var query =
+        "MATCH {class: PFPerson, as: p}"
+            + ".outE('PFWorkAt'){where: (workFrom > 2999)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
+    var result = session.query(query).toList();
+
+    assertEquals(0, result.size());
+
+    session.commit();
+  }
+
+  /**
+   * Verify correctness when exactly one edge matches a range predicate,
+   * exercising a single-entry RID set in the pre-filter.
+   * workFrom = 2019 for person9, so >= 2019 matches exactly one edge.
+   */
+  @Test
+  public void testOutEInVSingleMatchRangePredicate() {
+    session.begin();
+
+    var query =
+        "MATCH {class: PFPerson, as: p}"
+            + ".outE('PFWorkAt'){where: (workFrom >= 2019)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("person9", result.getFirst().getProperty("p.name"));
+    assertEquals("company4", result.getFirst().getProperty("c.name"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that outE() without an edge class argument still returns correct
+   * results (traverses all edge types). Class inference cannot apply, so
+   * this exercises the null-currentEdgeClass path in addAliases.
+   */
+  @Test
+  public void testOutEWithoutClassArgument() {
+    session.begin();
+
+    // outE() without class name: traverses all edge types from PFPerson.
+    // Only PFWorkAt edges have the workFrom property; person5 has workFrom=2015.
+    var query =
+        "MATCH {class: PFPerson, as: p}"
+            + ".outE(){where: (workFrom = 2015)}"
+            + ".inV(){as: target}"
+            + " RETURN p.name, target.name";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("person5", result.getFirst().getProperty("p.name"));
+
+    session.commit();
+  }
+
+  /**
+   * Verify that multiple edges of the same class between the same vertex pair
+   * are all returned when they match the WHERE clause. Exercises that the
+   * pre-filter operates on edge RIDs, not vertex RIDs.
+   */
+  @Test
+  public void testMultipleEdgesBetweenSameVertexPair() {
+    session.begin();
+
+    // person0 already works at company0 with workFrom=2010.
+    // Add a second PFWorkAt edge from person0 to company0 with workFrom=2011.
+    session.execute(
+        "CREATE EDGE PFWorkAt FROM"
+            + " (SELECT FROM PFPerson WHERE name = 'person0')"
+            + " TO (SELECT FROM PFCompany WHERE name = 'company0')"
+            + " SET workFrom = 2011")
+        .close();
+
+    var query =
+        "MATCH {class: PFPerson, as: p, where: (name = 'person0')}"
+            + ".outE('PFWorkAt'){where: (workFrom <= 2011)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
+    var result = session.query(query).toList();
+
+    // Should return 2 results: both edges match workFrom <= 2011
+    assertEquals(2, result.size());
+    for (var r : result) {
+      assertEquals("person0", r.getProperty("p.name"));
+      assertEquals("company0", r.getProperty("c.name"));
+    }
+
+    session.commit();
+  }
+
+  /**
+   * Verify correctness when the WHERE clause matches all edges (workFrom >= 2010
+   * matches all 10 edges). Pre-filter should either be skipped (ratio too high)
+   * or produce correct results regardless.
+   */
+  @Test
+  public void testOutEInVWhereMatchesAllEdges() {
+    session.begin();
+
+    var query =
+        "MATCH {class: PFPerson, as: p}"
+            + ".outE('PFWorkAt'){where: (workFrom >= 2010)}"
+            + ".inV(){as: c}"
+            + " RETURN p.name, c.name";
+    var result = session.query(query).toList();
+
+    assertEquals(10, result.size());
+
+    // Verify all 10 person→company pairs
+    Set<String> pairs = new HashSet<>();
+    for (var r : result) {
+      pairs.add(r.getProperty("p.name") + "->" + r.getProperty("c.name"));
+    }
+    for (int i = 0; i < 10; i++) {
+      assertTrue(
+          "Should contain person" + i + "->company" + (i % 5),
+          pairs.contains("person" + i + "->company" + (i % 5)));
     }
 
     session.commit();
