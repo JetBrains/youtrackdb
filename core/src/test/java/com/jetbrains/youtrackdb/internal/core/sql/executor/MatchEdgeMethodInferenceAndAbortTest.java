@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -30,11 +31,28 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
+  private Object savedMaxRidSetSize;
+  private Object savedMaxSelectivityRatio;
+  private Object savedMinLinkBagSize;
+
+  @Before
+  public void saveConfigDefaults() {
+    savedMaxRidSetSize =
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
+    savedMaxSelectivityRatio =
+        GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.getValue();
+    savedMinLinkBagSize =
+        GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.getValue();
+  }
+
   @After
-  public void restoreDefaults() {
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(100_000);
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.8);
-    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(50);
+  public void restoreConfigDefaults() {
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE
+        .setValue(savedMaxRidSetSize);
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO
+        .setValue(savedMaxSelectivityRatio);
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE
+        .setValue(savedMinLinkBagSize);
   }
 
   // ---- Class inference: scheduling order ----
@@ -132,12 +150,19 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
 
     // Also verify the query produces correct results
     var result = session.query(query).toList();
-    // person5 has workFrom=2015, and has 20 tags -> 20 result rows
+    // person5 has workFrom=2015, and has 20 tags (tag100-tag119) -> 20 rows
     assertEquals(20, result.size());
+    Set<String> tags = new HashSet<>();
     for (var r : result) {
       assertEquals("person5", r.getProperty("person.name"));
       assertEquals("corpB", r.getProperty("company.name"));
+      tags.add(r.getProperty("tag.name"));
     }
+    Set<String> expectedTags = new HashSet<>();
+    for (int i = 100; i < 120; i++) {
+      expectedTags.add("tag" + i);
+    }
+    assertEquals(expectedTags, tags);
 
     session.commit();
   }
@@ -207,9 +232,21 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
             + "  where: (name = 'targetTag')}"
             + " RETURN post.title, broadTag.name, selectiveTag.name";
 
-    // Verify correct results
+    // Verify correct results: 10 posts x 5 broad tags = 50 rows
     var result = session.query(query).toList();
     assertEquals(50, result.size());
+
+    // Verify selectiveTag is always 'targetTag' and all 10 posts appear
+    Set<String> posts = new HashSet<>();
+    for (var r : result) {
+      assertEquals("targetTag", r.getProperty("selectiveTag.name"));
+      posts.add(r.getProperty("post.title"));
+    }
+    Set<String> expectedPosts = new HashSet<>();
+    for (int i = 0; i < 10; i++) {
+      expectedPosts.add("post" + i);
+    }
+    assertEquals(expectedPosts, posts);
 
     // Verify EXPLAIN shows index intersection on the selective tag alias,
     // proving the planner inferred VITag class and selected the index
@@ -279,29 +316,36 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     }
     session.commit();
 
-    // Override maxRidSetSize to 1 — any index lookup with > 1 result aborts
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(1);
-
-    session.begin();
     var query =
         "MATCH {class: AAPerson, as: p}"
             + ".outE('AAWorkAt'){where: (workFrom < 2015)}"
             + ".inV(){as: c}"
             + " RETURN p.name, c.name";
-    var result = session.query(query).toList();
 
-    // The query should still return correct results even without pre-filter
+    // Baseline: verify the planner DID attach an intersection descriptor
+    // (the adaptive abort happens at runtime, not plan time)
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Baseline plan should show intersection descriptor, but was:\n" + plan,
+        plan.contains("(intersection:"));
+    session.commit();
+
+    // Override maxRidSetSize to 1 — any index lookup with > 1 result aborts
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(1);
+
+    // The query should still return correct results via unfiltered fallback
+    session.begin();
+    var result = session.query(query).toList();
     assertEquals(5, result.size());
 
     Set<String> names = new HashSet<>();
     for (var r : result) {
       names.add(r.getProperty("p.name"));
     }
-    for (int i = 0; i < 5; i++) {
-      assertTrue(
-          "Should contain emp" + i,
-          names.contains("emp" + i));
-    }
+    assertEquals(
+        Set.of("emp0", "emp1", "emp2", "emp3", "emp4"), names);
 
     session.commit();
   }
@@ -350,15 +394,28 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     }
     session.commit();
 
-    // Override minLinkBagSize to 999999 — all link bags are too small
-    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(999999);
-
-    session.begin();
     var query =
         "MATCH {class: MLForum, as: f}"
             + ".inE('MLHasMember'){where: (joinDate >= 1400)}"
             + ".outV(){as: p}"
             + " RETURN p.name, f.title";
+
+    // Baseline: verify the planner uses the MLHasMember_joinDate index
+    // (the plan uses SET/PREFETCH for the edge alias, not intersection,
+    // because the inE direction prefetches edges directly from the index)
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Baseline plan should use MLHasMember_joinDate index, but was:\n"
+            + plan,
+        plan.contains("FETCH FROM INDEX MLHasMember_joinDate"));
+    session.commit();
+
+    // Override minLinkBagSize to 999999 — all link bags are too small
+    GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE.setValue(999999);
+
+    session.begin();
     var result = session.query(query).toList();
 
     // user4 (1400) and user5 (1500) match
@@ -410,15 +467,25 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     }
     session.commit();
 
-    // Override selectivity ratio to 0.01 — almost no filter is selective enough
-    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.01);
-
-    session.begin();
     var query =
         "MATCH {class: SRPerson, as: p}"
             + ".outE('SRWorkAt'){where: (workFrom < 2013)}"
             + ".inV(){as: c}"
             + " RETURN p.name, c.name";
+
+    // Baseline: verify the planner DID attach an intersection descriptor
+    session.begin();
+    var explainResult = session.query("EXPLAIN " + query).toList();
+    String plan = explainResult.getFirst().getProperty("executionPlanAsString");
+    assertTrue(
+        "Baseline plan should show intersection descriptor, but was:\n" + plan,
+        plan.contains("(intersection:"));
+    session.commit();
+
+    // Override selectivity ratio to 0.01 — almost no filter is selective enough
+    GlobalConfiguration.QUERY_PREFILTER_MAX_SELECTIVITY_RATIO.setValue(0.01);
+
+    session.begin();
     var result = session.query(query).toList();
 
     // dev0 (2010), dev1 (2011), dev2 (2012) match
