@@ -206,7 +206,12 @@ public final class BTreeSingleValueIndexEngine
       sbTree.put(atomicOperation, newKey, new TombstoneRID(value));
 
       indexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
-      approximateIndexEntriesCount.decrementAndGet();
+      var countDelta =
+          atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+      countDelta.totalDelta--;
+      if (key == null) {
+        countDelta.nullDelta--;
+      }
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -330,13 +335,23 @@ public final class BTreeSingleValueIndexEngine
             indexesSnapshot.addSnapshotPair(oldKey, newKey, value);
           }
           if (removedRID instanceof TombstoneRID) {
-            approximateIndexEntriesCount.incrementAndGet();
+            var countDelta =
+                atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+            countDelta.totalDelta++;
+            if (key == null) {
+              countDelta.nullDelta++;
+            }
           }
         }
       } else {
         newKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, newKey, value);
-        approximateIndexEntriesCount.incrementAndGet();
+        var countDelta =
+            atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+        countDelta.totalDelta++;
+        if (key == null) {
+          countDelta.nullDelta++;
+        }
       }
 
       var mgr = histogramManager;
@@ -399,12 +414,22 @@ public final class BTreeSingleValueIndexEngine
           indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
         }
         if (removedRID instanceof TombstoneRID) {
-          approximateIndexEntriesCount.incrementAndGet();
+          var countDelta =
+              atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+          countDelta.totalDelta++;
+          if (key == null) {
+            countDelta.nullDelta++;
+          }
         }
       } else {
         compositeKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, compositeKey, value);
-        approximateIndexEntriesCount.incrementAndGet();
+        var countDelta =
+            atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+        countDelta.totalDelta++;
+        if (key == null) {
+          countDelta.nullDelta++;
+        }
       }
 
       var mgr = histogramManager;

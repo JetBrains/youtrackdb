@@ -223,10 +223,10 @@ public final class BTreeMultiValueIndexEngine
       boolean removed;
       if (key != null) {
         removed = doRemove(svTree, indexesSnapshot, atomicOperation,
-            createCompositeKey(key, value), value);
+            createCompositeKey(key, value), value, false);
       } else {
         removed = doRemove(nullTree, nullIndexesSnapshot, atomicOperation,
-            new CompositeKey(value), value);
+            new CompositeKey(value), value, true);
       }
 
       if (removed) {
@@ -254,7 +254,8 @@ public final class BTreeMultiValueIndexEngine
       IndexesSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation,
       CompositeKey compositeKey,
-      RID value) throws IOException {
+      RID value,
+      boolean isNullKey) throws IOException {
     Optional<RawPair<CompositeKey, RID>> res;
     try (var stream = tree.iterateEntriesBetween(
         compositeKey, true, compositeKey, true, true, atomicOperation)) {
@@ -279,7 +280,12 @@ public final class BTreeMultiValueIndexEngine
     tree.put(atomicOperation, newKey, new TombstoneRID(value));
 
     snapshot.addSnapshotPair(pair.first(), newKey, value);
-    approximateIndexEntriesCount.decrementAndGet();
+    var countDelta =
+        atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+    countDelta.totalDelta--;
+    if (isNullKey) {
+      countDelta.nullDelta--;
+    }
     return true;
   }
 
@@ -371,10 +377,10 @@ public final class BTreeMultiValueIndexEngine
       boolean wasInserted;
       if (key != null) {
         wasInserted = doPut(svTree, indexesSnapshot, atomicOperation,
-            createCompositeKey(key, value), value);
+            createCompositeKey(key, value), value, false);
       } else {
         wasInserted = doPut(nullTree, nullIndexesSnapshot, atomicOperation,
-            new CompositeKey(value), value);
+            new CompositeKey(value), value, true);
       }
 
       var mgr = histogramManager;
@@ -395,7 +401,8 @@ public final class BTreeMultiValueIndexEngine
       IndexesSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation,
       CompositeKey newKey,
-      RID value) throws IOException {
+      RID value,
+      boolean isNullKey) throws IOException {
     // Find existing entry by (userKey, RID) prefix
     Optional<RawPair<CompositeKey, RID>> res;
     try (var stream = tree.iterateEntriesBetween(
@@ -423,12 +430,22 @@ public final class BTreeMultiValueIndexEngine
         snapshot.addSnapshotPair(oldKey, newKey, value);
       }
       if (removedRID instanceof TombstoneRID) {
-        approximateIndexEntriesCount.incrementAndGet();
+        var countDelta =
+            atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+        countDelta.totalDelta++;
+        if (isNullKey) {
+          countDelta.nullDelta++;
+        }
       }
       return true;
     } else {
       newKey.addKey(version);
-      approximateIndexEntriesCount.incrementAndGet();
+      var countDelta =
+          atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
+      countDelta.totalDelta++;
+      if (isNullKey) {
+        countDelta.nullDelta++;
+      }
       return tree.put(atomicOperation, newKey, value);
     }
   }

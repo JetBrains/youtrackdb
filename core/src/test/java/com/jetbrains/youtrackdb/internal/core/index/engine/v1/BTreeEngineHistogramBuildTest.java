@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -392,6 +393,8 @@ public class BTreeEngineHistogramBuildTest {
       op = mock(AtomicOperation.class);
       // Mock getCommitTs — validatedPut appends version to CompositeKey
       when(op.getCommitTs()).thenReturn(1L);
+      // Mock index count delta holder — put/remove accumulate deltas here
+      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
       engine = new BTreeSingleValueIndexEngine(0, "test-sv", storage, 4);
@@ -415,6 +418,8 @@ public class BTreeEngineHistogramBuildTest {
     MultiValueFixture() {
       storage = createMockStorage();
       op = mock(AtomicOperation.class);
+      // Mock index count delta holder — doPut/doRemove accumulate deltas here
+      when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
       engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
