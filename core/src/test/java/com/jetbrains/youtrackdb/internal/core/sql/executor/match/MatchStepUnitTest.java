@@ -2385,11 +2385,13 @@ public class MatchStepUnitTest extends DbTestBase {
     var stream = step.start(ctx);
     assertTrue(stream.hasNext(ctx));
     var r1 = stream.next(ctx);
+    assertEquals(new RecordId(1, 1), r1.getProperty("friend"));
     assertEquals(new RecordId(2, 1), r1.getProperty("person"));
     assertEquals("Berlin", r1.getProperty("city"));
 
     assertTrue(stream.hasNext(ctx));
     var r2 = stream.next(ctx);
+    assertEquals(new RecordId(1, 1), r2.getProperty("friend"));
     assertEquals(new RecordId(2, 1), r2.getProperty("person"));
     assertEquals("Paris", r2.getProperty("city"));
 
@@ -2485,6 +2487,9 @@ public class MatchStepUnitTest extends DbTestBase {
     assertNotSame(upstreamRow, result);
     // Original upstream row must NOT have the build-side property
     assertNull(upstreamRow.getProperty("city"));
+    // Original upstream properties must be untouched
+    assertEquals(new RecordId(1, 1), upstreamRow.getProperty("friend"));
+    assertEquals(new RecordId(2, 1), upstreamRow.getProperty("person"));
     assertFalse(stream.hasNext(ctx));
     stream.close(ctx);
   }
@@ -2520,19 +2525,162 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
-   * INNER_JOIN 1:N grouping: two build-side rows with the same key are both
-   * stored and both emitted during the probe phase.
+   * INNER_JOIN N:M: two upstream rows each matching different build-side rows
+   * produce the correct number of merged rows (Cartesian product per key).
    */
   @Test
-  public void testHashJoinInnerJoinGrouping() {
+  public void testHashJoinInnerJoinManyToMany() {
     var ctx = createCommandContext();
-    var build1 = new ResultInternal(session);
-    build1.setProperty("friend", new RecordId(1, 1));
-    build1.setProperty("tag", "java");
-    var build2 = new ResultInternal(session);
-    build2.setProperty("friend", new RecordId(1, 1));
-    build2.setProperty("tag", "kotlin");
-    var buildPlan = createBuildPlan(ctx, build1, build2);
+    // Build side: two rows for key #1:1, one row for key #1:2
+    var b1 = new ResultInternal(session);
+    b1.setProperty("friend", new RecordId(1, 1));
+    b1.setProperty("city", "Berlin");
+    var b2 = new ResultInternal(session);
+    b2.setProperty("friend", new RecordId(1, 1));
+    b2.setProperty("city", "Paris");
+    var b3 = new ResultInternal(session);
+    b3.setProperty("friend", new RecordId(1, 2));
+    b3.setProperty("city", "Rome");
+    var buildPlan = createBuildPlan(ctx, b1, b2, b3);
+
+    // Upstream: two rows with different keys
+    var u1 = new ResultInternal(session);
+    u1.setProperty("friend", new RecordId(1, 1));
+    u1.setProperty("person", new RecordId(2, 1));
+    var u2 = new ResultInternal(session);
+    u2.setProperty("friend", new RecordId(1, 2));
+    u2.setProperty("person", new RecordId(2, 2));
+    var upstream = createUpstreamStep(ctx, u1, u2);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    // u1 matches b1,b2 → 2 rows; u2 matches b3 → 1 row; total = 3
+    var results = new ArrayList<Result>();
+    while (stream.hasNext(ctx)) {
+      results.add(stream.next(ctx));
+    }
+    assertEquals(3, results.size());
+    assertEquals(new RecordId(2, 1), results.get(0).getProperty("person"));
+    assertEquals("Berlin", results.get(0).getProperty("city"));
+    assertEquals(new RecordId(2, 1), results.get(1).getProperty("person"));
+    assertEquals("Paris", results.get(1).getProperty("city"));
+    assertEquals(new RecordId(2, 2), results.get(2).getProperty("person"));
+    assertEquals("Rome", results.get(2).getProperty("city"));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN property collision: when both upstream and build side have
+   * the same non-shared property name, the upstream value takes precedence.
+   */
+  @Test
+  public void testHashJoinInnerJoinUpstreamPropertyTakesPrecedence() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("friend", new RecordId(1, 1));
+    buildRow.setProperty("score", 100);
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("friend", new RecordId(1, 1));
+    upstreamRow.setProperty("score", 999);
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    // Upstream value must win for non-shared properties
+    assertEquals(Integer.valueOf(999), result.getProperty("score"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with composite key: two shared aliases must both match
+   * for the join to produce a merged row.
+   */
+  @Test
+  public void testHashJoinInnerJoinCompositeKey() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", new RecordId(2, 1));
+    buildRow.setProperty("extra", "found");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Matches on both aliases
+    var match = new ResultInternal(session);
+    match.setProperty("a", new RecordId(1, 1));
+    match.setProperty("b", new RecordId(2, 1));
+    // Matches on only one alias — should not join
+    var partial = new ResultInternal(session);
+    partial.setProperty("a", new RecordId(1, 1));
+    partial.setProperty("b", new RecordId(2, 99));
+    var upstream = createUpstreamStep(ctx, match, partial);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("found", result.getProperty("extra"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN with non-RID key (String alias value) exercises the
+   * Object[] key fallback path in buildHashMap and mergeMatches.
+   */
+  @Test
+  public void testHashJoinInnerJoinNonRidKey() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("name", "Alice");
+    buildRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("name", "Alice");
+    upstreamRow.setProperty("age", 30);
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("name"),
+        JoinMode.INNER_JOIN, false);
+    step.setPrevious(upstream);
+
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    var result = stream.next(ctx);
+    assertEquals("Alice", result.getProperty("name"));
+    assertEquals("Berlin", result.getProperty("city"));
+    assertEquals(Integer.valueOf(30), result.getProperty("age"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * INNER_JOIN build-side null key: a build-side row missing the shared
+   * alias is silently dropped; only non-null-key rows participate in join.
+   */
+  @Test
+  public void testHashJoinInnerJoinBuildSideNullKeyDropped() {
+    var ctx = createCommandContext();
+    var nullRow = new ResultInternal(session);
+    nullRow.setProperty("other", "irrelevant"); // "friend" missing → null key
+    var goodRow = new ResultInternal(session);
+    goodRow.setProperty("friend", new RecordId(1, 1));
+    goodRow.setProperty("city", "Berlin");
+    var buildPlan = createBuildPlan(ctx, nullRow, goodRow);
 
     var upstream = createUpstreamStep(ctx,
         createRow("friend", new RecordId(1, 1)));
@@ -2543,9 +2691,8 @@ public class MatchStepUnitTest extends DbTestBase {
 
     var stream = step.start(ctx);
     assertTrue(stream.hasNext(ctx));
-    assertEquals("java", stream.next(ctx).getProperty("tag"));
-    assertTrue(stream.hasNext(ctx));
-    assertEquals("kotlin", stream.next(ctx).getProperty("tag"));
+    var result = stream.next(ctx);
+    assertEquals("Berlin", result.getProperty("city"));
     assertFalse(stream.hasNext(ctx));
     stream.close(ctx);
   }

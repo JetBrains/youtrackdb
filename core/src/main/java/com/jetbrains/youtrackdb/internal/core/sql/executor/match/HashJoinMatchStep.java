@@ -84,8 +84,6 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       throw new IllegalStateException("hash join step requires a previous step");
     }
 
-    var upstream = prev.start(ctx);
-
     if (joinMode == JoinMode.INNER_JOIN) {
       // Build phase: execute build-side plan, store full flattened rows
       hashMap = buildHashMap(ctx);
@@ -94,7 +92,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       var builtMap = hashMap;
 
       // Probe phase: for each upstream row, emit merged rows for all matches
-      return upstream.flatMap((row, c) -> mergeMatches(row, builtMap));
+      var upstream = prev.start(ctx);
+      return upstream.flatMap((row, c) -> mergeMatches(row, builtMap, c));
     }
 
     // Build phase: execute build-side plan with isolated context
@@ -105,6 +104,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     var builtSet = hashSet;
 
     // Probe phase: filter upstream rows against the hash set
+    var upstream = prev.start(ctx);
     return upstream.filter((row, c) -> probeFilter(row, builtSet));
   }
 
@@ -186,7 +186,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * stream if the upstream key is null or has no match.
    */
   private ExecutionStream mergeMatches(
-      Result upstream, Map<JoinKey, List<Result>> map) {
+      Result upstream, Map<JoinKey, List<Result>> map, CommandContext mergeCtx) {
     var key = extractKey(upstream);
     if (key == null) {
       return ExecutionStream.empty();
@@ -197,7 +197,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     }
     var merged = new ArrayList<Result>(matches.size());
     for (var buildRow : matches) {
-      var result = new ResultInternal(ctx.getDatabaseSession());
+      var result = new ResultInternal(mergeCtx.getDatabaseSession());
       // Copy all upstream properties first
       for (var prop : upstream.getPropertyNames()) {
         result.setProperty(prop, upstream.getProperty(prop));
