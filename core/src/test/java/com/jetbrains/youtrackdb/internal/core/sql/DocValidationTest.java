@@ -3437,4 +3437,26 @@ public class DocValidationTest {
     g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED");
     assertThatThrownBy(() -> g.command("CREATE SEQUENCE csDupSeq TYPE ORDERED"));
   }
+
+  // === YQL-Create-User.md ===
+  // Note: CREATE USER internally does INSERT INTO OUser, which is not a V/E class.
+  // The Gremlin API result mapper only supports vertices and edges, so CREATE USER
+  // cannot be executed through the public Gremlin API (command() or yql()).
+  // Syntax validation is covered by CreateUserStatementTest; execution is covered
+  // by CreateUserStatementExecutionTest. Here we validate the documented syntax
+  // is parseable by constructing a yql() traversal (which triggers parsing).
+
+  // Line 25-27: CREATE USER Bar IDENTIFIED BY Foo (no role, defaults to writer)
+  @Test
+  public void testCreateUserWithoutRoleSyntax() {
+    // Verify the documented query parses without error.
+    // yql() eagerly parses the statement; if syntax were invalid, it would throw.
+    g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxBar IDENTIFIED BY Foo"));
+  }
+
+  // Line 19-21: CREATE USER Foo IDENTIFIED BY bar ROLE admin
+  @Test
+  public void testCreateUserWithRoleSyntax() {
+    g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxFoo IDENTIFIED BY bar ROLE admin"));
+  }
 }
