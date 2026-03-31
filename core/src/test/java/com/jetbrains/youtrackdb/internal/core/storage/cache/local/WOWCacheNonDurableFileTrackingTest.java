@@ -1225,4 +1225,70 @@ public class WOWCacheNonDurableFileTrackingTest {
       readCache.deleteStorage(wowCache);
     }
   }
+
+  /**
+   * Verifies that clean shutdown preserves both non-durable side files on disk, confirming
+   * they are available for crash recovery identification on the next startup. Also verifies
+   * that after a clean reopen, non-durable files remain intact (not deleted) and recovery
+   * deletion correctly removes them.
+   */
+  @Test
+  public void testCleanShutdownPreservesSideFilesForCrashRecovery() throws Exception {
+    final var bookedNdId = wowCache.bookFileId("ndShutdown.tst");
+    wowCache.addFile("ndShutdown.tst", bookedNdId, true);
+    final var durableId = wowCache.addFile("durableShutdown.tst");
+
+    // Side files should exist while cache is open
+    assertTrue(
+        "Primary side file should exist before close",
+        Files.exists(storagePath.resolve("non_durable_files.cm")));
+    assertTrue(
+        "Shadow side file should exist before close",
+        Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+
+    // Close cleanly
+    wowCache.close();
+
+    // Side files must survive clean shutdown
+    assertTrue(
+        "Primary side file must survive clean shutdown",
+        Files.exists(storagePath.resolve("non_durable_files.cm")));
+    assertTrue(
+        "Shadow side file must survive clean shutdown",
+        Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
+
+    // Reopen and verify non-durable file is still present (not deleted on clean open)
+    createNewCache();
+    final var restoredNdId = wowCache.fileIdByName("ndShutdown.tst");
+    assertTrue(restoredNdId >= 0);
+    assertTrue(
+        "Non-durable file should be present after clean reopen (not crash recovery)",
+        wowCache.isNonDurable(restoredNdId));
+    assertTrue(
+        "Non-durable file should exist in write cache after clean reopen",
+        wowCache.exists(restoredNdId));
+
+    // Now simulate crash recovery by calling deleteNonDurableFilesOnRecovery
+    final var readCache = createReadCache();
+    try {
+      final var deletedIds = wowCache.deleteNonDurableFilesOnRecovery(readCache);
+
+      assertFalse("Recovery should have deleted the non-durable file", deletedIds.isEmpty());
+      assertFalse(
+          "Non-durable file should be gone after crash recovery",
+          wowCache.exists(restoredNdId));
+
+      // Durable file must still exist
+      final var restoredDurableId = wowCache.fileIdByName("durableShutdown.tst");
+      assertTrue(restoredDurableId >= 0);
+      assertTrue(wowCache.exists(restoredDurableId));
+
+      // Side files should be cleaned up after recovery
+      assertFalse(
+          "Primary side file should be deleted after recovery",
+          Files.exists(storagePath.resolve("non_durable_files.cm")));
+    } finally {
+      readCache.deleteStorage(wowCache);
+    }
+  }
 }

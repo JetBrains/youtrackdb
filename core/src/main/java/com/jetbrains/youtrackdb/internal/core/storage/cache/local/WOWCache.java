@@ -1669,6 +1669,12 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.close();
 
+      // Non-durable side files are intentionally preserved on clean shutdown so that
+      // crash recovery can identify and delete non-durable files if the next startup
+      // follows a crash. On clean open, initNameIdMapping() reads the side files to
+      // restore the nonDurableFileIds set; on crash recovery, recoverIfNeeded() calls
+      // deleteNonDurableFilesOnRecovery() which reads the same set and deletes the files.
+      //
       // Best-effort final persist of non-durable state. Every mutation already writes
       // the registry, so this is redundant in the normal case. If it fails, the side
       // files still reflect the state from the last successful mutation write.
