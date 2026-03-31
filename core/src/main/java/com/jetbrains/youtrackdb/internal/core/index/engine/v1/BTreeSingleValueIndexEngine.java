@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -204,12 +205,7 @@ public final class BTreeSingleValueIndexEngine
       sbTree.put(atomicOperation, newKey, new TombstoneRID(value));
 
       indexesSnapshot.addSnapshotPair(pair.first(), newKey, value);
-      var countDelta =
-          atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
-      countDelta.totalDelta--;
-      if (key == null) {
-        countDelta.nullDelta--;
-      }
+      IndexCountDelta.accumulate(atomicOperation, id, -1, key == null);
 
       var mgr = histogramManager;
       if (mgr != null) {
@@ -333,23 +329,13 @@ public final class BTreeSingleValueIndexEngine
             indexesSnapshot.addSnapshotPair(oldKey, newKey, value);
           }
           if (removedRID instanceof TombstoneRID) {
-            var countDelta =
-                atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
-            countDelta.totalDelta++;
-            if (key == null) {
-              countDelta.nullDelta++;
-            }
+            IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
           }
         }
       } else {
         newKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, newKey, value);
-        var countDelta =
-            atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
-        countDelta.totalDelta++;
-        if (key == null) {
-          countDelta.nullDelta++;
-        }
+        IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
       }
 
       var mgr = histogramManager;
@@ -412,22 +398,12 @@ public final class BTreeSingleValueIndexEngine
           indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
         }
         if (removedRID instanceof TombstoneRID) {
-          var countDelta =
-              atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
-          countDelta.totalDelta++;
-          if (key == null) {
-            countDelta.nullDelta++;
-          }
+          IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
         }
       } else {
         compositeKey.addKey(version);
         wasInserted = sbTree.put(atomicOperation, compositeKey, value);
-        var countDelta =
-            atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(id);
-        countDelta.totalDelta++;
-        if (key == null) {
-          countDelta.nullDelta++;
-        }
+        IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
       }
 
       var mgr = histogramManager;

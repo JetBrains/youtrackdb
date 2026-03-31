@@ -20,6 +20,8 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+
 /**
  * Transaction-local accumulator for index entry count changes. Carried by the
  * AtomicOperation and applied to the engine's {@code AtomicLong} counters only
@@ -36,4 +38,23 @@ public final class IndexCountDelta {
 
   /** Net change to the null-key entry count. */
   public long nullDelta;
+
+  /**
+   * Accumulates a count delta for the given engine on the transaction's delta
+   * holder. Called from engine put/remove methods instead of mutating counters
+   * directly.
+   *
+   * @param atomicOperation current transaction
+   * @param engineId stable engine identifier (key in the delta map)
+   * @param sign +1 for insert, -1 for remove
+   * @param isNullKey true if the affected key is null
+   */
+  public static void accumulate(
+      AtomicOperation atomicOperation, int engineId, int sign, boolean isNullKey) {
+    var delta = atomicOperation.getOrCreateIndexCountDeltas().getOrCreate(engineId);
+    delta.totalDelta += sign;
+    if (isNullKey) {
+      delta.nullDelta += sign;
+    }
+  }
 }
