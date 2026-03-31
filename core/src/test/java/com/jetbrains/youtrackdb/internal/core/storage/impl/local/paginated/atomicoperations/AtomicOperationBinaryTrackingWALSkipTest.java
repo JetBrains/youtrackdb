@@ -6,26 +6,33 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -374,6 +381,162 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     verify(ndCacheEntry, never()).setEndLSN(any());
   }
 
+  /**
+   * TB6 — Mixed operation must call setEndLSN(txEndLsn) on the durable cache
+   * entry and setLsn(changeLSN) on the durable page, but must NOT call either
+   * on the non-durable entry/page. Verifies the guard at lines 772-775 of
+   * commitChanges().
+   */
+  @Test
+  public void mixedOperationSetsEndLSNOnlyOnDurableCacheEntry()
+      throws IOException {
+    var op = createOperation();
+
+    long durableFileId =
+        setupNewFileWithPage(op, "durable-file.dat", false);
+    long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
+
+    // Durable cache entry — needs a real buffer for DurablePage.restoreChanges
+    var durableCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
+    when(readCache.allocateNewPage(eq(durableFileId), any(), any()))
+        .thenReturn(durableCacheEntry);
+
+    // Non-durable cache entry — also needs a real buffer
+    var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
+    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+        .thenReturn(ndCacheEntry);
+
+    var txEndLsn = op.commitChanges(42L, wal);
+
+    // Durable cache entry must have setEndLSN called with the WAL end LSN
+    verify(durableCacheEntry).setEndLSN(txEndLsn);
+    // Non-durable cache entry must NOT have setEndLSN called
+    verify(ndCacheEntry, never()).setEndLSN(any());
+  }
+
+  /**
+   * TC6 — Truncating a non-durable file must not produce any WAL records
+   * (truncate doesn't use FileDeletedWALRecord — it has no WAL record type at
+   * all). The cache truncation (readCache.truncateFile) must still be applied.
+   */
+  @Test
+  public void truncateNonDurableFileSkipsWALButAppliesCache()
+      throws IOException {
+    var op = createOperation();
+
+    // Register a non-durable file as an existing file (not new in this op)
+    long ndFileId = composeFileId(10, STORAGE_ID);
+    when(writeCache.isNonDurable(ndFileId)).thenReturn(true);
+    when(writeCache.loadFile("nd-existing.dat")).thenReturn(ndFileId);
+    when(writeCache.getFilledUpTo(ndFileId)).thenReturn(10L);
+    op.loadFile("nd-existing.dat");
+
+    // Truncate the non-durable file
+    op.truncateFile(ndFileId);
+
+    // Also add a durable change so the operation has something to commit
+    long durableFileId =
+        setupNewFileWithPage(op, "durable-file.dat", false);
+    mockAllocateNewPage(durableFileId, 0);
+
+    op.commitChanges(42L, wal);
+
+    // No FileDeletedWALRecord for the truncation
+    var deletedRecords = loggedRecords.stream()
+        .filter(r -> r instanceof FileDeletedWALRecord)
+        .toList();
+    assertThat(deletedRecords).isEmpty();
+
+    // Cache truncation must still be applied
+    verify(readCache).truncateFile(ndFileId, writeCache);
+  }
+
+  /**
+   * TY4 — WAL write-then-replay round-trip: create a mixed operation with both
+   * durable and non-durable files, capture the WAL records from commitChanges(),
+   * verify only durable-file records are emitted, then feed those records into
+   * restoreAtomicUnit() and verify the durable file's page is restored.
+   */
+  @Test
+  public void mixedOperationWALRecordsRoundTripThroughRestore()
+      throws Exception {
+    // --- Phase 1: Create mixed operation and capture WAL records ---
+    var op = createOperation();
+
+    long durableFileId =
+        setupNewFileWithPage(op, "durable-file.dat", false);
+    long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
+
+    mockAllocateNewPage(durableFileId, 0);
+    mockAllocateNewPage(ndFileId, 0);
+
+    op.commitChanges(42L, wal);
+
+    // Verify emitted records contain only durable file data
+    // start(placeholder=null), FileCreated(durable), UpdatePage(durable), End
+    assertThat(loggedRecords).hasSize(4);
+    var fileCreated = (FileCreatedWALRecord) loggedRecords.get(1);
+    assertThat(fileCreated.getFileId()).isEqualTo(durableFileId);
+    var updatePage = (UpdatePageRecord) loggedRecords.get(2);
+    assertThat(updatePage.getFileId()).isEqualTo(durableFileId);
+
+    // --- Phase 2: Feed captured records into restoreAtomicUnit ---
+    // Build the atomic unit from the real captured records
+    var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(new AtomicUnitStartRecord(false, 42));
+    atomicUnit.add(fileCreated);
+    atomicUnit.add(updatePage);
+    atomicUnit.add(loggedRecords.get(3)); // AtomicUnitEndRecord
+
+    // Set up AbstractStorage mock for restoreAtomicUnit
+    var restoreWriteCache = mock(WriteCache.class);
+    var restoreReadCache = mock(ReadCache.class);
+    int internalDurableId = (int) (durableFileId & 0xFFFFFFFFL);
+    int internalNdId = (int) (ndFileId & 0xFFFFFFFFL);
+    when(restoreWriteCache.internalFileId(durableFileId))
+        .thenReturn(internalDurableId);
+    when(restoreWriteCache.internalFileId(ndFileId))
+        .thenReturn(internalNdId);
+    when(restoreWriteCache.exists(durableFileId)).thenReturn(true);
+    when(restoreWriteCache.exists("durable-file.dat")).thenReturn(false);
+    when(restoreWriteCache.externalFileId(internalDurableId))
+        .thenReturn(durableFileId);
+    when(restoreWriteCache.fileNameById(durableFileId))
+        .thenReturn("durable-file.dat");
+
+    // restoreAtomicUnit calls loadForWrite for UpdatePageRecord
+    var restoreCacheEntry = createCacheEntryWithBuffer(durableFileId, 0);
+    when(restoreReadCache.loadForWrite(
+        eq(durableFileId), eq(0L), eq(restoreWriteCache), anyBoolean(), any()))
+        .thenReturn(restoreCacheEntry);
+
+    // Create AbstractStorage with CALLS_REAL_METHODS
+    var storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
+
+    // Inject fields via reflection
+    setField(storage, "writeCache", restoreWriteCache);
+    setField(storage, "readCache", restoreReadCache);
+    setField(storage, "name", "testStorage");
+    setField(storage, "deletedNonDurableFileIds",
+        new IntOpenHashSet());
+
+    var atLeastOnePageUpdate = new ModifiableBoolean();
+    // restoreAtomicUnit is protected — invoke via reflection
+    var restoreMethod = AbstractStorage.class.getDeclaredMethod(
+        "restoreAtomicUnit", List.class, ModifiableBoolean.class);
+    restoreMethod.setAccessible(true);
+    restoreMethod.invoke(storage, atomicUnit, atLeastOnePageUpdate);
+
+    // Durable file's page must have been loaded for write (= restored)
+    verify(restoreReadCache).loadForWrite(
+        eq(durableFileId), eq(0L), eq(restoreWriteCache), eq(true), any());
+    assertThat(atLeastOnePageUpdate.getValue()).isTrue();
+
+    // Durable file was re-created (exists("durable-file.dat") returns false)
+    verify(restoreReadCache).addFile(
+        "durable-file.dat", durableFileId, restoreWriteCache);
+  }
+
   // --- Helper methods ---
 
   /**
@@ -435,5 +598,23 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
   private static long composeFileId(long fileId, int storageId) {
     return (((long) storageId) << 32) | fileId;
+  }
+
+  private static void setField(Object target, String fieldName, Object value)
+      throws Exception {
+    Field field = findField(target.getClass(), fieldName);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
+  private static Field findField(Class<?> clazz, String fieldName) {
+    while (clazz != null) {
+      try {
+        return clazz.getDeclaredField(fieldName);
+      } catch (NoSuchFieldException e) {
+        clazz = clazz.getSuperclass();
+      }
+    }
+    throw new RuntimeException("Field not found: " + fieldName);
   }
 }
