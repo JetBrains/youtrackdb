@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.HashSet;
@@ -83,11 +82,11 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
       pairs.add(r.getProperty("person.name") + "->"
           + r.getProperty("company.name"));
     }
+    Set<String> expected = new HashSet<>();
     for (int i = 0; i < 4; i++) {
-      assertTrue(
-          "Should contain alice" + i + "->corp" + (i % 4),
-          pairs.contains("alice" + i + "->corp" + (i % 4)));
+      expected.add("alice" + i + "->corp" + (i % 4));
     }
+    assertEquals(expected, pairs);
 
     session.commit();
   }
@@ -157,7 +156,7 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
    * {@code inE('HAS_MEMBER'){where: (joinDate >= ?)}.outV()}.
    *
    * <p>Graph: 6 persons, 3 forums. Each person is a member of one forum with
-   * a different joinDate. Query filters joinDate >= 1400 (3 matches).
+   * a different joinDate. Query filters joinDate >= 1400 (2 matches).
    */
   @Test
   public void testIC5HasMemberPattern() {
@@ -212,8 +211,7 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
       pairs.add(r.getProperty("person.name") + "->"
           + r.getProperty("forum.title"));
     }
-    assertTrue(pairs.contains("bob4->board1"));
-    assertTrue(pairs.contains("bob5->board2"));
+    assertEquals(Set.of("bob4->board1", "bob5->board2"), pairs);
 
     session.commit();
   }
@@ -227,10 +225,11 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
    *
    * <p>Graph structure:
    * <pre>
-   *   startPerson --KNOWS--> friend1, friend2, friend3
+   *   startPerson --KNOWS--> friend1, friend2, friend3, friend4
    *   friend1 --HAS_MEMBER(joinDate=1000)--> forumA
    *   friend2 --HAS_MEMBER(joinDate=2000)--> forumB
    *   friend3 --HAS_MEMBER(joinDate=3000)--> forumC
+   *   friend4 has NO HAS_MEMBER edge (dangling path — must be silently excluded)
    * </pre>
    *
    * <p>Query: starting from startPerson, traverse KNOWS to friends, then use
@@ -264,6 +263,8 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
     session.execute("CREATE VERTEX MCPerson set name = 'friend1'").close();
     session.execute("CREATE VERTEX MCPerson set name = 'friend2'").close();
     session.execute("CREATE VERTEX MCPerson set name = 'friend3'").close();
+    // friend4 has a KNOWS edge but NO HAS_MEMBER edge — dangling path
+    session.execute("CREATE VERTEX MCPerson set name = 'friend4'").close();
 
     // Create forums
     session.execute("CREATE VERTEX MCForum set title = 'forumA'").close();
@@ -286,8 +287,13 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
             + " (SELECT FROM MCPerson WHERE name = 'start')"
             + " TO (SELECT FROM MCPerson WHERE name = 'friend3')")
         .close();
+    session.execute(
+        "CREATE EDGE MCKnows FROM"
+            + " (SELECT FROM MCPerson WHERE name = 'start')"
+            + " TO (SELECT FROM MCPerson WHERE name = 'friend4')")
+        .close();
 
-    // HAS_MEMBER edges: each friend is in one forum with different joinDates
+    // HAS_MEMBER edges: friend1-3 each in one forum; friend4 has NO membership
     session.execute(
         "CREATE EDGE MCHasMember FROM"
             + " (SELECT FROM MCPerson WHERE name = 'friend1')"
@@ -326,12 +332,7 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
       pairs.add(r.getProperty("friend.name") + "->"
           + r.getProperty("forum.title"));
     }
-    assertTrue(
-        "Should contain friend2->forumB",
-        pairs.contains("friend2->forumB"));
-    assertTrue(
-        "Should contain friend3->forumC",
-        pairs.contains("friend3->forumC"));
+    assertEquals(Set.of("friend2->forumB", "friend3->forumC"), pairs);
 
     session.commit();
   }
@@ -434,8 +435,7 @@ public class MatchEdgeMethodLdbcPatternTest extends DbTestBase {
       assertEquals("techForum", r.getProperty("forum.title"));
       contents.add(r.getProperty("post.content"));
     }
-    assertTrue(contents.contains("post1"));
-    assertTrue(contents.contains("post2"));
+    assertEquals(Set.of("post1", "post2"), contents);
 
     session.commit();
   }
