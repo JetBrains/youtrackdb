@@ -845,6 +845,86 @@ public class WOWCacheNonDurableFileTrackingTest {
   }
 
   /**
+   * Verifies that syncDataFiles skips non-durable files during the fsync loop. Uses a
+   * WOWCache instance with callFsync=true and deletes the non-durable file's underlying
+   * data file from disk before calling syncDataFiles. If the skip works correctly, no
+   * IOException is thrown (the deleted file is never opened for fsync). If the skip were
+   * absent, the method would fail trying to synch a file whose handle was invalidated.
+   */
+  @Test
+  public void testSyncDataFilesSkipsNonDurableFiles() throws Exception {
+    // Close the default cache (callFsync=false) and create one with callFsync=true
+    wowCache.delete();
+    writeAheadLog.close();
+
+    writeAheadLog =
+        new CASDiskWriteAheadLog(
+            storageName,
+            storagePath,
+            storagePath,
+            ContextConfiguration.WAL_DEFAULT_NAME,
+            12_000,
+            128,
+            null,
+            null,
+            Integer.MAX_VALUE,
+            Integer.MAX_VALUE,
+            25,
+            true,
+            Locale.US,
+            -1,
+            1000,
+            false,
+            false,
+            true,
+            10);
+
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache =
+        new WOWCache(
+            PAGE_SIZE,
+            false,
+            bufferPool,
+            writeAheadLog,
+            new DoubleWriteLogNoOP(),
+            PAGES_FLUSH_INTERVAL,
+            SHUTDOWN_TIMEOUT,
+            EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
+            storagePath,
+            storageName,
+            files,
+            1,
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            ChecksumMode.StoreAndVerify,
+            null,
+            null,
+            true, // callFsync=true
+            Executors.newCachedThreadPool());
+    wowCache.loadRegisteredFiles();
+
+    // Create a durable file
+    final var durableFileId = wowCache.addFile("durableSync.tst");
+    assertFalse(wowCache.isNonDurable(durableFileId));
+
+    // Create a non-durable file
+    final var bookedNdId = wowCache.bookFileId("ndSync.tst");
+    final var ndFileId = wowCache.addFile("ndSync.tst", bookedNdId, true);
+    assertTrue(wowCache.isNonDurable(ndFileId));
+
+    // Get the native (OS) file name for the non-durable file and delete the data file
+    // from disk. If syncDataFiles attempts to fsync this file, it will fail because the
+    // underlying data file no longer exists.
+    final var ndNativeFileName = wowCache.nativeFileNameById(ndFileId);
+    final var ndDataPath = storagePath.resolve(ndNativeFileName);
+    assertTrue("Non-durable data file must exist before deletion", Files.exists(ndDataPath));
+    Files.delete(ndDataPath);
+
+    // syncDataFiles should succeed — the non-durable file is skipped before fsync
+    final var walSegment = writeAheadLog.begin().getSegment();
+    wowCache.syncDataFiles(walSegment);
+  }
+
+  /**
    * Verifies that file IDs present in the side file but absent from the name-id map
    * (stale entries from a crash or manual edit) are silently dropped during reload.
    * Exercises the idNameMap.containsKey filter in readNonDurableRegistryFile.

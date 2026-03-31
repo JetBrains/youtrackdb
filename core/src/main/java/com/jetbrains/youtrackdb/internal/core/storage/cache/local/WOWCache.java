@@ -1007,6 +1007,12 @@ public final class WOWCache extends AbstractWriteCache
             continue;
           }
 
+          // Non-durable files do not need fsync — their data is discarded on crash,
+          // so forcing it to stable storage would be unnecessary write amplification.
+          if (nonDurableFileIds.contains(intId)) {
+            continue;
+          }
+
           if (callFsync) {
             final var fileId = composeFileId(id, intId);
             final var entry = files.acquire(fileId);
