@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -34,6 +35,8 @@ import org.mockito.Mockito;
  * for non-durable file IDs, while durable file records are still processed normally.
  */
 public class RestoreAtomicUnitNonDurableSkipTest {
+
+  private static final int PAGE_SIZE = 8192;
 
   // Internal file IDs (lower 32 bits of external ID)
   private static final int ND_INTERNAL_ID = 42;
@@ -145,10 +148,15 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
   /**
    * Verifies that FileDeletedWALRecord for a non-durable file is skipped — the file was
-   * already deleted during crash recovery.
+   * already deleted during crash recovery. The file is configured as existing in the write
+   * cache so that without the skip logic, the delete WOULD be processed.
    */
   @Test
   public void testFileDeletedRecordSkippedForNonDurableFile() throws Exception {
+    // Configure the non-durable file as existing so the skip logic is the only
+    // reason deleteFile is not called (prevents false positive)
+    when(writeCache.exists(ND_EXTERNAL_ID)).thenReturn(true);
+
     final var atomicUnit = new ArrayList<WALRecord>();
     atomicUnit.add(new AtomicUnitStartRecord(false, 1));
     atomicUnit.add(new FileDeletedWALRecord(1, ND_EXTERNAL_ID));
@@ -183,6 +191,96 @@ public class RestoreAtomicUnitNonDurableSkipTest {
 
     // Durable file processed
     verify(readCache).deleteFile(DURABLE_EXTERNAL_ID, writeCache);
+  }
+
+  /**
+   * Verifies that a mixed atomic unit with both a non-durable and a durable UpdatePageRecord
+   * correctly skips the non-durable record while processing the durable one. This is the most
+   * common real-world scenario — a transaction touching both durable and non-durable files.
+   */
+  @Test
+  public void testUpdatePageRecordMixedDurableAndNonDurable() throws Exception {
+    // Non-durable UpdatePageRecord — should be skipped
+    final var ndRecord = mock(UpdatePageRecord.class);
+    when(ndRecord.getFileId()).thenReturn(ND_EXTERNAL_ID);
+    when(ndRecord.getLsn()).thenReturn(new LogSequenceNumber(1, 50));
+
+    // Durable UpdatePageRecord — should be processed
+    final var durableRecord = mock(UpdatePageRecord.class);
+    when(durableRecord.getFileId()).thenReturn(DURABLE_EXTERNAL_ID);
+    when(durableRecord.getPageIndex()).thenReturn(0L);
+    when(durableRecord.getLsn()).thenReturn(new LogSequenceNumber(1, 100));
+    when(durableRecord.getInitialLsn()).thenReturn(new LogSequenceNumber(0, 0));
+    // WALChanges mock for applyChanges — called when page LSN < WAL record LSN
+    final var walChanges = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges.class);
+    when(durableRecord.getChanges()).thenReturn(walChanges);
+
+    // Configure writeCache for durable file processing
+    when(writeCache.externalFileId(DURABLE_INTERNAL_ID)).thenReturn(DURABLE_EXTERNAL_ID);
+
+    // Configure readCache.loadForWrite to return a mock CacheEntry for the durable file.
+    // The CacheEntry → CachePointer → ByteBuffer chain must be set up so DurablePage can
+    // read the page LSN (needed by restoreAtomicUnit's comparison logic).
+    final var cacheEntry =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    final var cachePointer =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+    final var buffer =
+        java.nio.ByteBuffer.allocateDirect(PAGE_SIZE).order(java.nio.ByteOrder.nativeOrder());
+    when(cacheEntry.getCachePointer()).thenReturn(cachePointer);
+    when(cachePointer.getBuffer()).thenReturn(buffer);
+    when(readCache.loadForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), anyBoolean(), any()))
+        .thenReturn(cacheEntry);
+
+    final var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(new AtomicUnitStartRecord(false, 1));
+    atomicUnit.add(ndRecord);
+    atomicUnit.add(durableRecord);
+    atomicUnit.add(new AtomicUnitEndRecord(1, false, null));
+
+    final var atLeastOnePageUpdate = new ModifiableBoolean();
+    storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+
+    // Non-durable file must not trigger any cache operations
+    verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
+    verify(readCache, never()).loadForWrite(
+        eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
+
+    // Durable file must be processed
+    verify(readCache).loadForWrite(
+        eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any());
+
+    assertTrue("Durable page update should set atLeastOnePageUpdate",
+        atLeastOnePageUpdate.getValue());
+  }
+
+  /**
+   * Verifies that a mixed atomic unit with both a non-durable and a durable FileCreatedWALRecord
+   * correctly skips the non-durable record while processing the durable one.
+   */
+  @Test
+  public void testFileCreatedRecordMixedDurableAndNonDurable() throws Exception {
+    // Durable file does not yet exist (needs to be created by WAL replay)
+    when(writeCache.exists("durable.dat")).thenReturn(false);
+
+    final var atomicUnit = new ArrayList<WALRecord>();
+    atomicUnit.add(new AtomicUnitStartRecord(false, 1));
+    // Non-durable file create — skipped
+    atomicUnit.add(new FileCreatedWALRecord(1, "nd.dat", ND_EXTERNAL_ID));
+    // Durable file create — processed
+    atomicUnit.add(new FileCreatedWALRecord(1, "durable.dat", DURABLE_EXTERNAL_ID));
+    atomicUnit.add(new AtomicUnitEndRecord(1, false, null));
+
+    final var atLeastOnePageUpdate = new ModifiableBoolean();
+    storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+
+    // Non-durable file should NOT be re-created
+    verify(readCache, never()).addFile(eq("nd.dat"), anyLong(), any());
+
+    // Durable file should be created
+    verify(readCache).addFile("durable.dat", DURABLE_EXTERNAL_ID, writeCache);
   }
 
   /**

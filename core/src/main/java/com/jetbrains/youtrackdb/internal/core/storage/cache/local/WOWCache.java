@@ -989,6 +989,7 @@ public final class WOWCache extends AbstractWriteCache
     return nonDurableFileIds.contains(intId);
   }
 
+  @SuppressWarnings("CheckedExceptionNotThrown") // Interface contract declares IOException
   @Override
   public IntOpenHashSet deleteNonDurableFilesOnRecovery(
       final ReadCache readCache) throws IOException {
@@ -1018,25 +1019,32 @@ public final class WOWCache extends AbstractWriteCache
         // + non-durable registry removal under filesLock
         readCache.deleteFile(externalId, this);
       } catch (final Exception e) {
-        // File may already be missing on disk after a crash — log and continue.
-        // Remove from deletedIds so WAL replay does not skip records for files
-        // that could not be deleted (they may still exist with stale data).
-        intIterator.remove();
-        logger.warn(
+        // Keep the ID in deletedIds so WAL replay skips records for this file.
+        // Non-durable pages were never WAL-logged, so replaying records on top of
+        // stale non-durable data would produce silent corruption. The side file
+        // still contains this ID — the next recovery retries the physical deletion.
+        logger.error(
             "Failed to delete non-durable file with internal ID {} during crash recovery,"
-                + " continuing",
+                + " continuing. WAL replay will skip records for this file.",
             intId,
             e);
       }
     }
 
-    // Clean up side files under the write lock. If all deletions succeeded,
-    // nonDurableFileIds is already empty (each deleteFile call removed the ID).
-    // If some failed, writeNonDurableRegistry() persists only the remaining IDs
-    // so the next recovery can retry them.
+    // Persist the updated registry under the write lock. If all deletions succeeded,
+    // nonDurableFileIds is already empty (each deleteFile call removed the ID) and
+    // writeNonDurableRegistry() deletes the side files. If some failed, it persists
+    // only the remaining IDs so the next recovery can retry them.
+    // Wrapped in try-catch: the critical work (file deletion) is already done and
+    // deletedIds must be returned so WAL replay can skip the correct records.
     filesLock.acquireWriteLock();
     try {
       writeNonDurableRegistry();
+    } catch (final IOException e) {
+      logger.error(
+          "Failed to persist non-durable registry after crash recovery deletion,"
+              + " stale side files may remain",
+          e);
     } finally {
       filesLock.releaseWriteLock();
     }

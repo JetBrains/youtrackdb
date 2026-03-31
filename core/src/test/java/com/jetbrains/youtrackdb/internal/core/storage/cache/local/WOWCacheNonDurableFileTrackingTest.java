@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -1066,6 +1067,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
@@ -1096,6 +1098,7 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertTrue(wowCache.exists(durableId));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
@@ -1117,6 +1120,7 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertTrue("Durable file must still exist", wowCache.exists(durableId));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
@@ -1156,16 +1160,18 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertTrue(wowCache.exists(restoredDurableId));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
   /**
-   * Verifies that deleteNonDurableFilesOnRecovery does not throw when the non-durable file's
-   * on-disk data file is missing (e.g., never flushed to disk or already deleted by a prior
-   * recovery). The method should log a warning and continue.
+   * Verifies that deleteNonDurableFilesOnRecovery succeeds when the non-durable file's
+   * on-disk data file is already missing (e.g., never flushed to disk or already deleted by
+   * a prior recovery). The underlying deleteFile handles missing OS files gracefully without
+   * throwing — this tests the success path, not the exception-handling path.
    */
   @Test
-  public void testDeleteNonDurableFilesOnRecoveryWithMissingDiskFile() throws Exception {
+  public void testDeleteNonDurableFilesOnRecoverySucceedsWhenDiskFileMissing() throws Exception {
     final var bookedNdId = wowCache.bookFileId("missingOnDisk.tst");
     final var ndFileId = wowCache.addFile("missingOnDisk.tst", bookedNdId, true);
     assertTrue(wowCache.isNonDurable(ndFileId));
@@ -1173,7 +1179,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     // Manually delete the on-disk data file to simulate a crash where data was never flushed
     final var intId = wowCache.internalFileId(ndFileId);
     final var nativeFileName = wowCache.nativeFileNameById(ndFileId);
-    assertFalse("nativeFileName should not be null", nativeFileName == null);
+    assertNotNull("nativeFileName should not be null", nativeFileName);
     final var dataFilePath = storagePath.resolve(nativeFileName);
     assertTrue("Data file should exist before manual deletion", Files.exists(dataFilePath));
     Files.delete(dataFilePath);
@@ -1198,6 +1204,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           Files.exists(storagePath.resolve("non_durable_files_shadow.cm")));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
@@ -1223,6 +1230,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           secondResult.isEmpty());
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 
@@ -1289,6 +1297,7 @@ public class WOWCacheNonDurableFileTrackingTest {
           Files.exists(storagePath.resolve("non_durable_files.cm")));
     } finally {
       readCache.deleteStorage(wowCache);
+      wowCache = null;
     }
   }
 }
