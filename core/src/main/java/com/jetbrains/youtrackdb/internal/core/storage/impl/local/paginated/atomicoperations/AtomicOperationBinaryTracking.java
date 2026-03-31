@@ -49,6 +49,7 @@ import it.unimi.dsi.fastutil.ints.IntIntImmutablePair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import it.unimi.dsi.fastutil.ints.IntSets;
+import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -584,6 +585,17 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     try {
       LogSequenceNumber txEndLsn;
 
+      // Precompute non-durable classification once per file to guarantee
+      // consistent classification between the WAL phase and cache application
+      // phase. Reading the volatile nonDurableFileIds twice could see different
+      // snapshots if a concurrent addFile/deleteFile publishes between phases.
+      final var nonDurableFlags = new Long2BooleanOpenHashMap(fileChanges.size());
+      for (final var entry : fileChanges.long2ObjectEntrySet()) {
+        final var fileId = entry.getLongKey();
+        nonDurableFlags.put(
+            fileId, entry.getValue().nonDurable || writeCache.isNonDurable(fileId));
+      }
+
       // Defer WAL unit start: only emit when first durable change is encountered.
       // If the operation contains only non-durable changes, no WAL records are written.
       boolean walUnitStarted = false;
@@ -601,9 +613,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           continue;
         }
         if (!walUnitStarted) {
-          writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+          startLSN = emitWalUnitStart(writeAheadLog, commitTs);
           walUnitStarted = true;
-          startLSN = writeAheadLog.end();
         }
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
@@ -611,14 +622,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
-        final boolean nonDurable =
-            fileChanges.nonDurable || writeCache.isNonDurable(fileId);
+        final boolean nonDurable = nonDurableFlags.get(fileId);
 
         if (fileChanges.isNew && !nonDurable) {
           if (!walUnitStarted) {
-            writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+            startLSN = emitWalUnitStart(writeAheadLog, commitTs);
             walUnitStarted = true;
-            startLSN = writeAheadLog.end();
           }
           writeAheadLog.log(
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
@@ -650,9 +659,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             final var initialLSN = filePageChanges.getInitialLSN();
             Objects.requireNonNull(initialLSN);
             if (!walUnitStarted) {
-              writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+              startLSN = emitWalUnitStart(writeAheadLog, commitTs);
               walUnitStarted = true;
-              startLSN = writeAheadLog.end();
             }
             final var updatePageRecord =
                 new UpdatePageRecord(
@@ -665,6 +673,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
         }
       }
+
+      // Safety invariant: if WAL unit was not started and there were file deletions
+      // or file page changes, all affected files must be non-durable. Violation would
+      // mean a durable file's changes silently lost WAL protection. Note: operations
+      // with loaded-but-unmodified durable files legitimately have walUnitStarted=false
+      // because no WAL records are needed when no changes exist.
+      assert walUnitStarted || deletedFiles.isEmpty()
+          || !deletedFiles.longStream().anyMatch(
+              fId -> !writeCache.isNonDurable(fId))
+          : "WAL unit not started but operation deletes durable files";
 
       if (walUnitStarted) {
         txEndLsn =
@@ -693,8 +711,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
-        final boolean nonDurable =
-            fileChanges.nonDurable || writeCache.isNonDurable(fileId);
+        final boolean nonDurable = nonDurableFlags.get(fileId);
 
         if (fileChanges.isNew) {
           readCache.addFile(
@@ -769,6 +786,17 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     } finally {
       active = false;
     }
+  }
+
+  /**
+   * Emits the WAL atomic operation start record and returns the startLSN
+   * (captured immediately after the start record, pointing into the same
+   * segment).
+   */
+  private static LogSequenceNumber emitWalUnitStart(
+      WriteAheadLog writeAheadLog, long commitTs) throws IOException {
+    writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
+    return writeAheadLog.end();
   }
 
   @Override

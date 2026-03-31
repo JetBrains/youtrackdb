@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -80,7 +82,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
           return new LogSequenceNumber(0, lsnCounter.getAndIncrement());
         });
 
-    when(wal.end()).thenReturn(new LogSequenceNumber(0, lsnCounter.get()));
+    when(wal.end()).thenAnswer(inv -> new LogSequenceNumber(0, lsnCounter.get()));
   }
 
   private AtomicOperationBinaryTracking createOperation() {
@@ -108,12 +110,22 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     var op = createOperation();
     long fileId = setupNewFileWithPage(op, "nd-file.dat", true);
 
-    mockAllocateNewPage(fileId, 0);
+    var ndCacheEntry = createCacheEntryWithBuffer(fileId, 0);
+    when(readCache.allocateNewPage(eq(fileId), any(), any()))
+        .thenReturn(ndCacheEntry);
 
     var result = op.commitChanges(42L, wal);
 
+    // No WAL records at all — not even a start record
     assertThat(loggedRecords).isEmpty();
     assertThat(result).isNull();
+    verify(wal, never()).logAtomicOperationStartRecord(anyBoolean(), anyLong());
+    verify(wal, never()).log(any());
+
+    // Cache application still happens for non-durable pages
+    verify(readCache).allocateNewPage(eq(fileId), any(), isNull());
+    // endLSN must NOT be set on non-durable cache entries
+    verify(ndCacheEntry, never()).setEndLSN(any());
   }
 
   /**
@@ -135,7 +147,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(loggedRecords.get(1)).isInstanceOf(FileCreatedWALRecord.class);
     assertThat(loggedRecords.get(2)).isInstanceOf(UpdatePageRecord.class);
     assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
-    assertThat(result).isNotNull();
+    // commitChanges() must return the LSN of the AtomicUnitEndRecord
+    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
   }
 
   /**
@@ -167,7 +180,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(((UpdatePageRecord) loggedRecords.get(2)).getFileId())
         .isEqualTo(durableFileId);
     assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
-    assertThat(result).isNotNull();
+    // commitChanges() must return the LSN of the AtomicUnitEndRecord
+    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
   }
 
   /**
@@ -192,7 +206,7 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     mockAllocateNewPage(durableFileId, 0);
 
-    op.commitChanges(42L, wal);
+    var result = op.commitChanges(42L, wal);
 
     // No FileDeletedWALRecord for the non-durable file
     var deletedRecords = loggedRecords.stream()
@@ -201,6 +215,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(deletedRecords).isEmpty();
     // Total: start + FileCreated(durable) + UpdatePage(durable) + End
     assertThat(loggedRecords).hasSize(4);
+    // Durable part still produces a valid end LSN
+    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
     // Cache deletion still applied for the non-durable file
     verify(readCache).deleteFile(existingFileId, writeCache);
   }
@@ -307,6 +323,55 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     assertThat(loggedRecords).isEmpty();
     assertThat(result).isNull();
+    // Cache application still happens for both non-durable files
+    verify(readCache).allocateNewPage(eq(fileId1), any(), isNull());
+    verify(readCache).allocateNewPage(eq(fileId2), any(), isNull());
+  }
+
+  /**
+   * Deleting only a non-durable file (no other changes) must produce no WAL
+   * records at all: no start, no FileDeletedWALRecord, no end. The cache
+   * deletion is still applied.
+   */
+  @Test
+  public void pureNonDurableDeleteProducesNoWALRecords() throws IOException {
+    var op = createOperation();
+
+    long ndFileId = composeFileId(10, STORAGE_ID);
+    when(writeCache.isNonDurable(ndFileId)).thenReturn(true);
+    when(writeCache.fileNameById(ndFileId)).thenReturn("nd-file.dat");
+
+    op.deleteFile(ndFileId);
+
+    var result = op.commitChanges(42L, wal);
+
+    assertThat(loggedRecords).isEmpty();
+    assertThat(result).isNull();
+    // Cache deletion still applied
+    verify(readCache).deleteFile(ndFileId, writeCache);
+  }
+
+  /**
+   * Non-durable pages must receive null startLSN in cache application and must
+   * NOT have endLSN or changeLSN set. This is the defense-in-depth invariant
+   * that prevents non-durable pages from entering the dirty pages table or
+   * blocking WAL truncation.
+   */
+  @Test
+  public void nonDurablePageDoesNotGetEndLSNOrChangeLSN() throws IOException {
+    var op = createOperation();
+    long ndFileId = setupNewFileWithPage(op, "nd-file.dat", true);
+
+    var ndCacheEntry = createCacheEntryWithBuffer(ndFileId, 0);
+    when(readCache.allocateNewPage(eq(ndFileId), any(), any()))
+        .thenReturn(ndCacheEntry);
+
+    op.commitChanges(42L, wal);
+
+    // allocateNewPage for non-durable file must receive null startLSN
+    verify(readCache).allocateNewPage(eq(ndFileId), any(), isNull());
+    // setEndLSN must NOT be called on non-durable cache entries
+    verify(ndCacheEntry, never()).setEndLSN(any());
   }
 
   // --- Helper methods ---

@@ -3747,6 +3747,9 @@ public final class WOWCache extends AbstractWriteCache
     // amount of dirty pages that exist only in write cache
     final var ewcSize = exclusiveWriteCacheSize.get();
 
+    // Snapshot for assertions — same pattern as executeFileFlush.
+    final var localNonDurableFileIds = nonDurableFileIds;
+
     // we flush at least chunkSize pages but no more than amount of exclusive pages.
     pagesToFlushLimit = Math.min(Math.max(pagesToFlushLimit, chunkSize), ewcSize);
 
@@ -3910,7 +3913,7 @@ public final class WOWCache extends AbstractWriteCache
             // by the null check. Only durable pages contribute to WAL pinning.
             if (fullLSN != null
                 && (maxFullLogLSN == null || maxFullLogLSN.compareTo(fullLSN) < 0)) {
-              assert !nonDurableFileIds.contains(internalFileId(pointer.getFileId()))
+              assert !localNonDurableFileIds.contains(internalFileId(pointer.getFileId()))
                   : "Non-durable page should not have a non-null endLSN";
               maxFullLogLSN = fullLSN;
             }
@@ -4028,16 +4031,21 @@ public final class WOWCache extends AbstractWriteCache
     // Only flush WAL if at least one file in the set is durable. Non-durable
     // files never produce WAL records, so flushing is unnecessary overhead.
     final var localNonDurableFileIds = nonDurableFileIds;
-    boolean hasDurableFile = false;
-    var idIterator = fileIdSet.intIterator();
-    while (idIterator.hasNext()) {
-      if (!localNonDurableFileIds.contains(idIterator.nextInt())) {
-        hasDurableFile = true;
-        break;
-      }
-    }
-    if (hasDurableFile) {
+    if (localNonDurableFileIds.isEmpty()) {
+      // Common case: no non-durable files exist — all files are durable.
       writeAheadLog.flush();
+    } else {
+      boolean hasDurableFile = false;
+      var idIterator = fileIdSet.intIterator();
+      while (idIterator.hasNext()) {
+        if (!localNonDurableFileIds.contains(idIterator.nextInt())) {
+          hasDurableFile = true;
+          break;
+        }
+      }
+      if (hasDurableFile) {
+        writeAheadLog.flush();
+      }
     }
 
     final var pagesToFlush = new TreeSet<PageKey>();
