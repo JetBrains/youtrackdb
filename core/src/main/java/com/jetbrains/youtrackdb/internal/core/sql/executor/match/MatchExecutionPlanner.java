@@ -2119,16 +2119,16 @@ public class MatchExecutionPlanner {
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
-    // Collect aliases from patterns that contain a while condition.
-    // Class inference on these (and patterns sharing aliases with them)
+    // Collect aliases that are directly part of a while-condition's recursive
+    // zone (origin + while-item).  Class inference on these specific aliases
     // must be skipped — inferred classes change cost estimates which can
     // reorder the schedule, causing while/where recursive steps to be
-    // traversed in the wrong direction.
+    // traversed in the wrong direction.  Non-recursive aliases in the same
+    // expression (downstream of the while) are safe to infer.
     var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
     for (var expr : this.matchExpressions) {
-      boolean skipInference = sharesAliases(expr, whileAliases);
       addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
-          ctx, skipInference);
+          ctx, whileAliases);
     }
 
     this.aliasFilters = aliasFilters;
@@ -2163,51 +2163,23 @@ public class MatchExecutionPlanner {
       List<SQLMatchExpression> expressions) {
     var result = new HashSet<String>();
     for (var expr : expressions) {
-      boolean hasWhile = false;
       for (var item : expr.getItems()) {
         if (item.getFilter() != null
             && item.getFilter().getWhileCondition() != null) {
-          hasWhile = true;
-          break;
-        }
-      }
-      if (hasWhile) {
-        // Collect origin alias
-        if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
-          result.add(expr.getOrigin().getAlias());
-        }
-        // Collect all item aliases
-        for (var item : expr.getItems()) {
-          if (item.getFilter() != null && item.getFilter().getAlias() != null) {
+          // Only the origin alias and the while-item's own alias are in the
+          // recursive zone.  Downstream items (after the while in the pattern
+          // chain) are not recursive and can safely have class inference —
+          // their inferred classes do not affect while-traversal direction.
+          if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
+            result.add(expr.getOrigin().getAlias());
+          }
+          if (item.getFilter().getAlias() != null) {
             result.add(item.getFilter().getAlias());
           }
         }
       }
     }
     return result;
-  }
-
-  /**
-   * Returns true if the expression shares any alias with the given set.
-   * Used to detect patterns connected to while-containing patterns via
-   * shared aliases (e.g. {@code {as: post}} appearing in both patterns).
-   */
-  private static boolean sharesAliases(
-      SQLMatchExpression expr, Set<String> aliases) {
-    if (aliases.isEmpty()) {
-      return false;
-    }
-    if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null
-        && aliases.contains(expr.getOrigin().getAlias())) {
-      return true;
-    }
-    for (var item : expr.getItems()) {
-      if (item.getFilter() != null && item.getFilter().getAlias() != null
-          && aliases.contains(item.getFilter().getAlias())) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -2226,7 +2198,7 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context,
-      boolean skipClassInference) {
+      Set<String> whileAliases) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
 
     // Track the edge class set by the most recent outE/inE item, so that a
@@ -2238,7 +2210,13 @@ public class MatchExecutionPlanner {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
-        if (!skipClassInference) {
+
+        // Skip class inference only for aliases in the recursive zone
+        // (origin + while-item).  Downstream aliases are safe to infer.
+        var alias = item.getFilter().getAlias();
+        boolean skipThisItem = alias != null && whileAliases.contains(alias);
+
+        if (!skipThisItem) {
           // Determine the method name for edge-class state tracking.
           var method = item.getMethod();
           var methodName = method != null ? method.getMethodNameString() : null;
@@ -2258,7 +2236,6 @@ public class MatchExecutionPlanner {
           // Infer target class from edge LINK schema when no explicit class
           // is set. Handles both vertex-to-vertex traversals (out/in) and
           // edge-method traversals (outE/inE/inV/outV).
-          var alias = item.getFilter().getAlias();
           if (alias != null && !aliasClasses.containsKey(alias)) {
             var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
             if (inferred != null) {
@@ -2274,6 +2251,9 @@ public class MatchExecutionPlanner {
           if (isInVOrOutV) {
             currentEdgeClass = null;
           }
+        } else {
+          // While-alias: reset edge class state since we skip inference.
+          currentEdgeClass = null;
         }
       }
     }

@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLModifier;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -1205,7 +1206,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses).containsOnly(entry(edgeAlias, "KNOWS"));
   }
@@ -1223,7 +1224,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses).containsOnly(entry(edgeAlias, "HAS_MEMBER"));
   }
@@ -1257,7 +1258,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     // inV reads "in" property → Person, NOT "out" → Forum
     assertThat(aliasClasses)
@@ -1293,7 +1294,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     // outV reads "out" property → Person, NOT "in" → Company
     assertThat(aliasClasses)
@@ -1329,7 +1330,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     // inV reads "in" property → Person, NOT "out" → Company
     assertThat(aliasClasses)
@@ -1364,7 +1365,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     // outV reads "out" property → Person, NOT "in" → Message
     assertThat(aliasClasses)
@@ -1383,7 +1384,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses).isEmpty();
   }
@@ -1410,7 +1411,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses)
         .containsOnly(entry("e", "KNOWS"), entry("v1", "Person"));
@@ -1446,7 +1447,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses)
         .containsOnly(
@@ -1470,7 +1471,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses).containsOnly(entry("e1", "KNOWS"));
   }
@@ -1490,26 +1491,51 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses).containsOnly(entry("e", "PreExisting"));
   }
 
   /**
-   * skipClassInference=true → no class inference at all, even for edge methods.
+   * Aliases in whileAliases set → no class inference for those aliases,
+   * even for edge methods.
    */
   @Test
-  public void addAliases_skipClassInference_noInference() {
+  public void addAliases_whileAliases_noInferenceForRecursiveZone() {
     var expr = mockExpression(
         mockPathItem("outE", "KNOWS", "e"),
         mockPathItem("inV", null, "v"));
     var aliasClasses = new HashMap<String, String>();
 
+    // Both aliases are in the while set → no inference for either
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), true);
+        mockContext(), Set.of("e", "v"));
 
     assertThat(aliasClasses).isEmpty();
+  }
+
+  /**
+   * Only aliases in the whileAliases set are skipped; downstream aliases
+   * in the same expression still get inference.  Simulates IC5 pattern
+   * where 'person' is in the while zone but 'membership' is not.
+   */
+  @Test
+  public void addAliases_whileAliases_downstreamAliasesStillInferred() {
+    var expr = mockExpression(
+        mockPathItem("out", "KNOWS", "person"),
+        mockPathItem("inE", "HAS_MEMBER", "membership"));
+    var aliasClasses = new HashMap<String, String>();
+
+    // Only "person" is in the while set → "membership" should still be inferred
+    MatchExecutionPlanner.addAliases(
+        expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
+        mockContext(), Set.of("person"));
+
+    // "person" should NOT be inferred (in while set)
+    assertThat(aliasClasses).doesNotContainKey("person");
+    // "membership" SHOULD be inferred to "HAS_MEMBER" (not in while set)
+    assertThat(aliasClasses).containsEntry("membership", "HAS_MEMBER");
   }
 
   /**
@@ -1535,7 +1561,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), false);
+        mockContext(), Set.of());
 
     assertThat(aliasClasses)
         .containsOnly(entry("e", "X"), entry("mid", "Person"));
