@@ -5342,6 +5342,552 @@ public class DocValidationTest {
     g.command("REVOKE CREATE ON database.command.create FROM reader");
   }
 
+  // === YQL-Where.md ===
+
+  // Line 40: = operator — name = 'Luke'
+  @Test
+  public void testWhereEqualsOperator() {
+    g.command("CREATE CLASS WherePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WherePerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WherePerson SET name = 'Han'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WherePerson WHERE name = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Luke");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WherePerson").iterate());
+  }
+
+  // Line 41: LIKE operator — name like 'Luk%'
+  @Test
+  public void testWhereLikeOperator() {
+    g.command("CREATE CLASS WhereLikePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereLikePerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WhereLikePerson SET name = 'Leia'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereLikePerson WHERE name like 'Luk%'").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Luke");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereLikePerson").iterate());
+  }
+
+  // Line 42-45: Comparison operators (<, <=, >, >=)
+  @Test
+  public void testWhereComparisonOperators() {
+    g.command("CREATE CLASS WhereAgePerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Young', age = 25").iterate();
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Middle', age = 40").iterate();
+          tx.yql("CREATE VERTEX WhereAgePerson SET name = 'Old', age = 55").iterate();
+        });
+
+    // < operator
+    var lessThan =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age < 40").toList());
+    assertThat(lessThan).hasSize(1);
+
+    // <= operator
+    var lessOrEqual =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age <= 40").toList());
+    assertThat(lessOrEqual).hasSize(2);
+
+    // > operator
+    var greaterThan =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age > 40").toList());
+    assertThat(greaterThan).hasSize(1);
+
+    // >= operator
+    var greaterOrEqual =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAgePerson WHERE age >= 40").toList());
+    assertThat(greaterOrEqual).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAgePerson").iterate());
+  }
+
+  // Line 46: <> operator (not equals)
+  @Test
+  public void testWhereNotEqualsOperator() {
+    g.command("CREATE CLASS WhereNeqPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNeqPerson SET name = 'A', age = 40").iterate();
+          tx.yql("CREATE VERTEX WhereNeqPerson SET name = 'B', age = 30").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereNeqPerson WHERE age <> 40").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("B");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNeqPerson").iterate());
+  }
+
+  // Line 47: BETWEEN operator
+  @Test
+  public void testWhereBetweenOperator() {
+    g.command("CREATE CLASS WhereProduct IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Cheap', price = 5").iterate();
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Mid', price = 20").iterate();
+          tx.yql("CREATE VERTEX WhereProduct SET name = 'Expensive', price = 50")
+              .iterate();
+        });
+
+    // BETWEEN is inclusive on both ends (equivalent to >= AND <=)
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereProduct WHERE price BETWEEN 10 and 30")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Mid");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereProduct").iterate());
+  }
+
+  // Line 48: IS NULL operator
+  @Test
+  public void testWhereIsNullOperator() {
+    g.command("CREATE CLASS WhereNullTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNullTest SET name = 'WithChildren', children = 'yes'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereNullTest SET name = 'NoChildren'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereNullTest WHERE children is null").toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("NoChildren");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNullTest").iterate());
+  }
+
+  // Line 49: INSTANCEOF operator
+  @Test
+  public void testWhereInstanceofOperator() {
+    g.command("CREATE CLASS WhereCustomer IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS WhereProvider IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereCustomer SET name = 'Alice'").iterate();
+          tx.yql("CREATE VERTEX WhereProvider SET name = 'Bob'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM V WHERE @this instanceof 'WhereCustomer'")
+                .toList());
+    // Should contain at least Alice (and possibly other V vertices from other tests)
+    assertThat(results.stream()
+        .filter(r -> "Alice".equals(((Vertex) r).value("name")))
+        .count()).isEqualTo(1);
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("DELETE VERTEX WhereCustomer").iterate();
+          tx.yql("DELETE VERTEX WhereProvider").iterate();
+        });
+  }
+
+  // Line 50: IN operator
+  @Test
+  public void testWhereInOperator() {
+    g.command("CREATE CLASS WhereContinent IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'European'").iterate();
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'Asiatic'").iterate();
+          tx.yql("CREATE VERTEX WhereContinent SET name = 'African'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereContinent WHERE name in ['European','Asiatic']")
+                .toList());
+    assertThat(results).hasSize(2);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereContinent").iterate());
+  }
+
+  // Line 51: CONTAINS operator on embedded collection
+  @Test
+  public void testWhereContainsOperator() {
+    g.command("CREATE CLASS WhereFamily IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereFamily SET name = 'Skywalker',"
+                  + " children = ['Luke', 'Leia']")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereFamily SET name = 'Solo',"
+                  + " children = ['Ben']")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereFamily WHERE children CONTAINS 'Luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Skywalker");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereFamily").iterate());
+  }
+
+  // Line 54: CONTAINSKEY operator on map
+  @Test
+  public void testWhereContainsKeyOperator() {
+    g.command("CREATE CLASS WhereConnections IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereConnections SET name = 'A',"
+                  + " connections = {'Luke': 'friend', 'Han': 'ally'}")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereConnections SET name = 'B',"
+                  + " connections = {'Leia': 'leader'}")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereConnections WHERE connections containsKey 'Luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("A");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereConnections").iterate());
+  }
+
+  // Line 55: CONTAINSVALUE operator on map
+  @Test
+  public void testWhereContainsValueOperator() {
+    g.command("CREATE CLASS WhereConnVal IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereConnVal SET name = 'A',"
+                  + " connections = {'Luke': 'friend', 'Han': 'ally'}")
+              .iterate();
+          tx.yql(
+              "CREATE VERTEX WhereConnVal SET name = 'B',"
+                  + " connections = {'Leia': 'leader'}")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereConnVal WHERE connections containsValue 'friend'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("A");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereConnVal").iterate());
+  }
+
+  // Line 56: CONTAINSTEXT operator
+  @Test
+  public void testWhereContainsTextOperator() {
+    g.command("CREATE CLASS WhereTextDoc IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereTextDoc SET text = 'Hello vika world'").iterate();
+          tx.yql("CREATE VERTEX WhereTextDoc SET text = 'Hello world'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereTextDoc WHERE text containsText 'vika'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereTextDoc").iterate());
+  }
+
+  // Line 57: MATCHES operator (regex)
+  @Test
+  public void testWhereMatchesOperator() {
+    g.command("CREATE CLASS WhereEmail IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereEmail SET text = 'contact: USER@EXAMPLE.COM'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereEmail SET text = 'no email here'").iterate();
+        });
+
+    // The doc example uses \b and \. which hit YQL lexer escaping issues.
+    // Use [.] instead of \. to validate MATCHES works with regex.
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereEmail WHERE text matches"
+                    + " '.*[A-Z0-9.%+-]+@[A-Z0-9.-]+[.][A-Z]{2,4}.*'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereEmail").iterate());
+  }
+
+  // Line 64: AND logical operator
+  @Test
+  public void testWhereAndOperator() {
+    g.command("CREATE CLASS WhereLogicPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Luke', surname = 'Skywalker'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Luke', surname = 'Smith'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereLogicPerson SET name = 'Han', surname = 'Solo'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereLogicPerson WHERE name = 'Luke'"
+                    + " and surname like 'Sky%'")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("surname")).isEqualTo("Skywalker");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereLogicPerson").iterate());
+  }
+
+  // Line 65: OR logical operator
+  @Test
+  public void testWhereOrOperator() {
+    g.command("CREATE CLASS WhereOrPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Luke', surname = 'Skywalker'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Han', surname = 'Solo'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereOrPerson SET name = 'Leia', surname = 'Organa'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereOrPerson WHERE name = 'Luke'"
+                    + " or surname like 'Sky%'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereOrPerson").iterate());
+  }
+
+  // Line 66: NOT logical operator
+  @Test
+  public void testWhereNotOperator() {
+    g.command("CREATE CLASS WhereNotPerson IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereNotPerson SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX WhereNotPerson SET name = 'Han'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM WhereNotPerson WHERE not (name = 'Luke')")
+                .toList());
+    assertThat(results).hasSize(1);
+    assertThat((String) ((Vertex) results.get(0)).value("name")).isEqualTo("Han");
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereNotPerson").iterate());
+  }
+
+  // Line 74-78: Math operators (+, -, *, /, %)
+  @Test
+  public void testWhereMathOperators() {
+    g.command("CREATE CLASS WhereMathTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereMathTest SET age = 6, factor = 2, total = 15")
+              .iterate();
+        });
+
+    // Plus
+    var plus =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE age + 34 = 40").toList());
+    assertThat(plus).hasSize(1);
+
+    // Minus
+    var minus =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE age - 4 = 2").toList());
+    assertThat(minus).hasSize(1);
+
+    // Multiply
+    var multiply =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE factor * 1.5 = 3.0").toList());
+    assertThat(multiply).hasSize(1);
+
+    // Divide
+    var divide =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE total / 3 = 5").toList());
+    assertThat(divide).hasSize(1);
+
+    // Mod
+    var mod =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereMathTest WHERE total % 4 = 3").toList());
+    assertThat(mod).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereMathTest").iterate());
+  }
+
+  // Line 82-83: eval() function
+  @Test
+  public void testWhereEvalFunction() {
+    g.command("CREATE CLASS WhereOrder IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX WhereOrder SET amount = 100, discount = 10")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT eval(\"amount * 120 / 100 - discount\") as finalPrice"
+                    + " FROM WhereOrder")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereOrder").iterate());
+  }
+
+  // Line 29: @this record attribute
+  @Test
+  public void testWhereAtThisAttribute() {
+    g.command("CREATE CLASS WhereAccount IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAccount SET name = 'test'").iterate();
+        });
+
+    // @this should be accessible — select @this.toJSON() from Account
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.toJSON() FROM WhereAccount").toList());
+    assertThat(results).isNotEmpty();
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAccount").iterate());
+  }
+
+  // Line 31: @class record attribute
+  @Test
+  public void testWhereAtClassAttribute() {
+    g.command("CREATE CLASS WhereProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereProfile SET name = 'test'").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereProfile WHERE @class = 'WhereProfile'")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereProfile").iterate());
+  }
+
+  // Line 32: @version record attribute
+  @Test
+  public void testWhereAtVersionAttribute() {
+    g.command("CREATE CLASS WhereVersionTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereVersionTest SET name = 'test'").iterate();
+        });
+
+    // Freshly created records should have @version >= 0
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereVersionTest WHERE @version >= 0")
+                .toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereVersionTest").iterate());
+  }
+
+  // Line 18: any() — matches if ANY property matches
+  @Test
+  public void testWhereAnyFunction() {
+    g.command("CREATE CLASS WhereAnyTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAnyTest SET name = 'London', code = 'LON'")
+              .iterate();
+          tx.yql("CREATE VERTEX WhereAnyTest SET name = 'Paris', code = 'PAR'")
+              .iterate();
+        });
+
+    // any() returns true if ANY property of the record matches the condition.
+    // Record 1 has name='London' (matches 'L%') and code='LON' (matches 'L%') → true
+    // Record 2 has name='Paris' and code='PAR' → false
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAnyTest WHERE any() like 'L%'").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAnyTest").iterate());
+  }
+
+  // Line 19: all() — matches if ALL properties match
+  @Test
+  public void testWhereAllFunction() {
+    g.command("CREATE CLASS WhereAllTest IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX WhereAllTest SET a = null, b = null").iterate();
+          tx.yql("CREATE VERTEX WhereAllTest SET a = 'x', b = null").iterate();
+        });
+
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM WhereAllTest WHERE all() is null").toList());
+    assertThat(results).hasSize(1);
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX WhereAllTest").iterate());
+  }
+
   @Test
   public void testRebuildIndexAll() {
     // YQL-Rebuild-Index.md line 11: Use * to rebuild all automatic indexes
