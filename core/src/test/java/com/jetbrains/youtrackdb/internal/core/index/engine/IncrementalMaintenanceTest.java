@@ -31,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -53,6 +54,7 @@ import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Incremental maintenance tests (Section 10.6 of the ADR).
@@ -62,7 +64,12 @@ import org.junit.Test;
  * rebalance triggers, concurrent operations, version-mismatch delta discard,
  * at-most-one rebalance guard, failure cooldown, resetOnClear, drift-biased
  * threshold halving, storage-level rebalance throttling, and checkpoint flush.
+ *
+ * <p>Runs sequentially because it mutates {@link GlobalConfiguration},
+ * a JVM-wide singleton that would race with other test classes in the
+ * parallel surefire execution.
  */
+@Category(SequentialTest.class)
 public class IncrementalMaintenanceTest {
 
   /** Generous timeout for CI environments where thread scheduling can be slow. */

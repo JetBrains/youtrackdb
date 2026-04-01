@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -31,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for the rebalance trigger and IO executor plumbing (Step 10).
@@ -42,7 +44,12 @@ import org.junit.Test;
  *   <li>Null executor safety (no scheduling when executor is absent)</li>
  *   <li>Rebalance scheduling when mutation threshold is exceeded</li>
  * </ul>
+ *
+ * <p>Runs sequentially because it mutates {@link GlobalConfiguration},
+ * a JVM-wide singleton that would race with other test classes in the
+ * parallel surefire execution.
  */
+@Category(SequentialTest.class)
 public class RebalanceTriggerTest {
 
   // GlobalConfiguration is JVM-global mutable state. Other test classes
