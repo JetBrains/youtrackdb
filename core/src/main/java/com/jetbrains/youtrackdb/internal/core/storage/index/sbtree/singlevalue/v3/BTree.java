@@ -575,6 +575,69 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   @Override
+  public long getApproximateEntriesCount(@Nonnull AtomicOperation atomicOperation) {
+    try {
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> {
+            final var pageView =
+                loadPageOptimistic(atomicOperation, fileId, ENTRY_POINT_INDEX);
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(pageView);
+            return entryPoint.getApproximateEntriesCount();
+          },
+          () -> {
+            try (final var entryPointCacheEntry =
+                loadPageForRead(atomicOperation, fileId, ENTRY_POINT_INDEX)) {
+              final var entryPoint =
+                  new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+              return entryPoint.getApproximateEntriesCount();
+            }
+          });
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during retrieving approximate entries count of index "
+                  + getName(),
+              this),
+          e, storage.getName());
+    }
+  }
+
+  @Override
+  public void setApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long count) {
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (final var entryPointCacheEntry =
+              loadPageForWrite(
+                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+            entryPoint.setApproximateEntriesCount(count);
+          }
+        });
+  }
+
+  @Override
+  public void addToApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long delta) {
+    executeInsideComponentOperation(
+        atomicOperation,
+        operation -> {
+          try (final var entryPointCacheEntry =
+              loadPageForWrite(
+                  atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
+            final var entryPoint =
+                new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
+            entryPoint.setApproximateEntriesCount(
+                entryPoint.getApproximateEntriesCount() + delta);
+          }
+        });
+  }
+
+  @Override
   public RID remove(@Nonnull final AtomicOperation atomicOperation, final K key) {
     return calculateInsideComponentOperation(
         atomicOperation,

@@ -68,4 +68,25 @@ public interface CellBTreeSingleValue<K> {
       @Nonnull AtomicOperation atomicOperation);
 
   void acquireAtomicExclusiveLock(@Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Returns the persisted approximate count of live (non-tombstone) entries.
+   * Uses optimistic read with fallback to pinned read.
+   */
+  long getApproximateEntriesCount(@Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Sets the persisted approximate entry count to an absolute value.
+   * Used by {@code clear()} and {@code buildInitialHistogram()} to reset
+   * or recalibrate the count.
+   */
+  void setApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long count);
+
+  /**
+   * Adds a delta to the persisted approximate entry count. Used at commit
+   * time to apply accumulated {@code IndexCountDelta} values.
+   */
+  void addToApproximateEntriesCount(
+      @Nonnull AtomicOperation atomicOperation, long delta);
 }
