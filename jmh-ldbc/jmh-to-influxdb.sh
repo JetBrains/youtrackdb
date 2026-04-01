@@ -47,7 +47,7 @@ TIMESTAMP_NS=$(( TIMESTAMP * 1000000000 ))
 
 # Escape InfluxDB tag value: backslash-escape spaces, commas, equals
 escape_tag() {
-  printf '%s' "$1" | sed 's/ /\\ /g; s/,/\\,/g; s/=/\\=/g'
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/ /\\ /g; s/,/\\,/g; s/=/\\=/g'
 }
 
 BRANCH_ESC=$(escape_tag "$BRANCH")
@@ -58,6 +58,7 @@ LINE_DATA=$(jq -r --arg branch "$BRANCH_ESC" \
                    --arg sha "$SHA_ESC" \
                    --arg ts "$TIMESTAMP_NS" '
   # Build benchmark lines
+  def esc: gsub("\\\\"; "\\\\") | gsub(" "; "\\ ") | gsub(","; "\\,") | gsub("="; "\\=");
   [ .[] |
     .benchmark as $bench |
     ($bench | split(".")[-2]) as $class |
@@ -69,7 +70,7 @@ LINE_DATA=$(jq -r --arg branch "$BRANCH_ESC" \
     ($pm.score // 0) as $score |
     ($pm.scoreError // 0) as $err |
     ($pm.scorePercentiles // {}) as $pct |
-    "jmh_benchmark,query=\($method | gsub(" "; "\\\\ ") | gsub(","; "\\\\,") | gsub("="; "\\\\=")),suite=\($suite | gsub(" "; "\\\\ ") | gsub(","; "\\\\,") | gsub("="; "\\\\=")),branch=\($branch),commit_sha=\($sha) score=\($score),score_error=\($err),score_p0_00=\($pct["0.0"] // 0),score_p50_00=\($pct["50.0"] // 0),score_p90_00=\($pct["90.0"] // 0),score_p95_00=\($pct["95.0"] // 0),score_p99_00=\($pct["99.0"] // 0),score_p99_99=\($pct["99.99"] // 0),score_p100_00=\($pct["100.0"] // 0) \($ts)"
+    "jmh_benchmark,query=\($method | esc),suite=\($suite | esc),branch=\($branch),commit_sha=\($sha) score=\($score),score_error=\($err),score_p0_00=\($pct["0.0"] // 0),score_p50_00=\($pct["50.0"] // 0),score_p90_00=\($pct["90.0"] // 0),score_p95_00=\($pct["95.0"] // 0),score_p99_00=\($pct["99.0"] // 0),score_p99_99=\($pct["99.99"] // 0),score_p100_00=\($pct["100.0"] // 0) \($ts)"
   ] +
   # Build scalability lines (MT/ST ratio per query)
   (
@@ -88,14 +89,14 @@ LINE_DATA=$(jq -r --arg branch "$BRANCH_ESC" \
       (map(select(.type == "ST")) | first // null) as $st |
       (map(select(.type == "MT")) | first // null) as $mt |
       select($st != null and $mt != null and $st.score > 0) |
-      "scalability,query=\($st.query | gsub(" "; "\\\\ ") | gsub(","; "\\\\,") | gsub("="; "\\\\=")),branch=\($branch),commit_sha=\($sha) ratio=\($mt.score / $st.score),st_score=\($st.score),mt_score=\($mt.score) \($ts)"
+      "scalability,query=\($st.query | esc),branch=\($branch),commit_sha=\($sha) ratio=\($mt.score / $st.score),st_score=\($st.score),mt_score=\($mt.score) \($ts)"
     )
   ) |
   .[]
 ' "$INPUT")
 
-NUM_BENCHMARKS=$(echo "$LINE_DATA" | grep -c '^jmh_benchmark,' || true)
-NUM_SCALABILITY=$(echo "$LINE_DATA" | grep -c '^scalability,' || true)
+NUM_BENCHMARKS=$(printf "%s\n" "$LINE_DATA" | grep -c '^jmh_benchmark,' || true)
+NUM_SCALABILITY=$(printf "%s\n" "$LINE_DATA" | grep -c '^scalability,' || true)
 echo "Parsed $NUM_BENCHMARKS benchmark results, $NUM_SCALABILITY scalability metrics"
 
 if [ "$DRY_RUN" = true ]; then
@@ -106,11 +107,11 @@ fi
 # Push to InfluxDB
 WRITE_URL="${INFLUXDB_URL%/}/api/v2/write?org=${INFLUXDB_ORG}&bucket=${INFLUXDB_BUCKET}&precision=ns"
 
-HTTP_CODE=$(curl -s -o /tmp/influxdb-response-$$.txt -w '%{http_code}' \
+HTTP_CODE=$(printf "%s" "$LINE_DATA" | curl -s -o /tmp/influxdb-response-$$.txt -w '%{http_code}' \
   -X POST "$WRITE_URL" \
   -H "Authorization: Token ${INFLUXDB_TOKEN}" \
   -H "Content-Type: text/plain; charset=utf-8" \
-  --data-binary "$LINE_DATA")
+  --data-binary @-)
 
 if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
   echo "InfluxDB write successful: $HTTP_CODE"
