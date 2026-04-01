@@ -5336,11 +5336,7 @@ public class DocValidationTest {
     g.command("REVOKE POLICY ON database.class.RevokeDocEmployee.name FROM reader");
   }
 
-  // Line 51: REVOKE on database.query resource
-  // NOTE: Skipped — REVOKE on database.query triggers NPE in Role.revoke() (null key).
-  // This appears to be a runtime bug (YTDB issue TBD), not a doc issue.
-
-  // Line 52: REVOKE on database.command.<command> resource
+  // Line 50: REVOKE on database.command.<command> resource
   @Test
   public void testRevokeOnDatabaseCommand() {
     g.command("REVOKE CREATE ON database.command.create FROM reader");
