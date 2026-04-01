@@ -101,6 +101,11 @@ public class CellBTreeSingleValueEntryPointV3Test {
 
       ep.setApproximateEntriesCount(Long.MAX_VALUE);
       assertEquals(Long.MAX_VALUE, ep.getApproximateEntriesCount());
+
+      // Adjacent fields must not be corrupted by the all-bits-set value.
+      assertEquals("treeSize unchanged", 0, ep.getTreeSize());
+      assertEquals("pagesSize unchanged", 1, ep.getPagesSize());
+      assertEquals("freeListHead unchanged", -1, ep.getFreeListHead());
     } finally {
       releasePage(page);
     }
@@ -116,16 +121,23 @@ public class CellBTreeSingleValueEntryPointV3Test {
       var ep = new CellBTreeSingleValueEntryPointV3<>(page);
       ep.init();
 
+      // Interleaved write-read to detect cross-field overwrites in order.
       ep.setTreeSize(100);
-      ep.setApproximateEntriesCount(200);
-      ep.setPagesSize(300);
-      ep.setFreeListHead(400);
+      assertEquals("treeSize after set", 100, ep.getTreeSize());
 
-      assertEquals("treeSize", 100, ep.getTreeSize());
-      assertEquals("approximateEntriesCount", 200,
+      ep.setApproximateEntriesCount(200);
+      assertEquals("approximateEntriesCount after set", 200,
           ep.getApproximateEntriesCount());
-      assertEquals("pagesSize", 300, ep.getPagesSize());
-      assertEquals("freeListHead", 400, ep.getFreeListHead());
+      assertEquals("treeSize not overwritten", 100, ep.getTreeSize());
+
+      ep.setPagesSize(300);
+      assertEquals("pagesSize after set", 300, ep.getPagesSize());
+      assertEquals("approximateEntriesCount not overwritten", 200,
+          ep.getApproximateEntriesCount());
+
+      ep.setFreeListHead(400);
+      assertEquals("freeListHead after set", 400, ep.getFreeListHead());
+      assertEquals("pagesSize not overwritten", 300, ep.getPagesSize());
     } finally {
       releasePage(page);
     }
@@ -162,6 +174,64 @@ public class CellBTreeSingleValueEntryPointV3Test {
       assertEquals("updated freeListHead", 42, ep.getFreeListHead());
       ep.setFreeListHead(-1);
       assertEquals("reset freeListHead", -1, ep.getFreeListHead());
+    } finally {
+      releasePage(page);
+    }
+  }
+
+  // Verifies that getFreeListHead() returns 0 literally when 0 is stored,
+  // confirming the removal of the old binary-compat guard that mapped 0 → -1.
+  @Test
+  public void freeListHeadReturnsZeroLiterally() {
+    CacheEntry page = allocatePage();
+    try {
+      var ep = new CellBTreeSingleValueEntryPointV3<>(page);
+      ep.init();
+
+      ep.setFreeListHead(0);
+      assertEquals("freeListHead should return 0, not -1",
+          0, ep.getFreeListHead());
+    } finally {
+      releasePage(page);
+    }
+  }
+
+  // Verifies that negative values round-trip through approximateEntriesCount.
+  // Documents the current behavior: no validation, raw long storage.
+  @Test
+  public void approximateEntriesCountNegativeValue() {
+    CacheEntry page = allocatePage();
+    try {
+      var ep = new CellBTreeSingleValueEntryPointV3<>(page);
+      ep.init();
+
+      ep.setApproximateEntriesCount(-1L);
+      assertEquals(-1L, ep.getApproximateEntriesCount());
+
+      ep.setApproximateEntriesCount(Long.MIN_VALUE);
+      assertEquals(Long.MIN_VALUE, ep.getApproximateEntriesCount());
+    } finally {
+      releasePage(page);
+    }
+  }
+
+  // Verifies that treeSize and approximateEntriesCount, which are adjacent
+  // 8-byte fields, do not overlap when both hold large values with
+  // high-order bits set.
+  @Test
+  public void adjacentLongFieldsDoNotOverlapAtFullWidth() {
+    CacheEntry page = allocatePage();
+    try {
+      var ep = new CellBTreeSingleValueEntryPointV3<>(page);
+      ep.init();
+
+      ep.setTreeSize(0xDEAD_BEEF_CAFE_BABEL);
+      ep.setApproximateEntriesCount(0x1234_5678_9ABC_DEF0L);
+
+      assertEquals(0xDEAD_BEEF_CAFE_BABEL, ep.getTreeSize());
+      assertEquals(0x1234_5678_9ABC_DEF0L,
+          ep.getApproximateEntriesCount());
+      assertEquals("pagesSize unchanged", 1, ep.getPagesSize());
     } finally {
       releasePage(page);
     }
