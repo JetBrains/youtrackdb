@@ -196,25 +196,6 @@ public class CellBTreeSingleValueEntryPointV3Test {
     }
   }
 
-  // Verifies that negative values round-trip through approximateEntriesCount.
-  // Documents the current behavior: no validation, raw long storage.
-  @Test
-  public void approximateEntriesCountNegativeValue() {
-    CacheEntry page = allocatePage();
-    try {
-      var ep = new CellBTreeSingleValueEntryPointV3<>(page);
-      ep.init();
-
-      ep.setApproximateEntriesCount(-1L);
-      assertEquals(-1L, ep.getApproximateEntriesCount());
-
-      ep.setApproximateEntriesCount(Long.MIN_VALUE);
-      assertEquals(Long.MIN_VALUE, ep.getApproximateEntriesCount());
-    } finally {
-      releasePage(page);
-    }
-  }
-
   // Verifies that treeSize and approximateEntriesCount, which are adjacent
   // 8-byte fields, do not overlap when both hold large values with
   // high-order bits set.
@@ -232,6 +213,35 @@ public class CellBTreeSingleValueEntryPointV3Test {
       assertEquals(0x1234_5678_9ABC_DEF0L,
           ep.getApproximateEntriesCount());
       assertEquals("pagesSize unchanged", 1, ep.getPagesSize());
+    } finally {
+      releasePage(page);
+    }
+  }
+
+  // Verifies that calling init() on a page that already holds non-default
+  // values resets all four managed fields to their defaults, acting as a
+  // full re-initialization.
+  @Test
+  public void initResetsNonDefaultValues() {
+    CacheEntry page = allocatePage();
+    try {
+      var ep = new CellBTreeSingleValueEntryPointV3<>(page);
+      ep.init();
+
+      // Set all fields to non-default values.
+      ep.setTreeSize(999);
+      ep.setApproximateEntriesCount(888);
+      ep.setPagesSize(777);
+      ep.setFreeListHead(666);
+
+      // Re-initialize — all fields must return to defaults.
+      ep.init();
+
+      assertEquals("treeSize reset", 0, ep.getTreeSize());
+      assertEquals("approximateEntriesCount reset",
+          0, ep.getApproximateEntriesCount());
+      assertEquals("pagesSize reset", 1, ep.getPagesSize());
+      assertEquals("freeListHead reset", -1, ep.getFreeListHead());
     } finally {
       releasePage(page);
     }

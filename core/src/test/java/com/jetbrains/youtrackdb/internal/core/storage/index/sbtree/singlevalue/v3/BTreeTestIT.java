@@ -1080,12 +1080,29 @@ public class BTreeTestIT {
   // a delta additively (not as an absolute value).
   @Test
   public void approximateEntriesCountSetGetAndAdd() throws Exception {
+    // A freshly created BTree must report 0 approximate entries (set by
+    // init() on the entry point page during create()).
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "freshly created BTree must have count 0",
+            0L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
     // set → get round-trip
     atomicOperationsManager.executeInsideAtomicOperation(
-        atomicOperation -> singleValueTree.setApproximateEntriesCount(atomicOperation, 100L));
+        atomicOperation -> singleValueTree.setApproximateEntriesCount(
+            atomicOperation, 100L));
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> Assert.assertEquals(100L,
             singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // Verify treeSize (adjacent field on same entry point page) is not
+    // corrupted by writing approximateEntriesCount.
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(
+            "treeSize must not be corrupted by setApproximateEntriesCount",
+            0L,
+            singleValueTree.size(atomicOperation)));
 
     // addTo adds to existing value, not replaces
     atomicOperationsManager.executeInsideAtomicOperation(

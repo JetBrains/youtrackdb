@@ -607,6 +607,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   @Override
   public void setApproximateEntriesCount(
       @Nonnull AtomicOperation atomicOperation, long count) {
+    assert count >= 0
+        : "setApproximateEntriesCount called with negative count: " + count;
     executeInsideComponentOperation(
         atomicOperation,
         operation -> {
@@ -631,8 +633,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
                   atomicOperation, fileId, ENTRY_POINT_INDEX, true)) {
             final var entryPoint =
                 new CellBTreeSingleValueEntryPointV3<K>(entryPointCacheEntry);
-            entryPoint.setApproximateEntriesCount(
-                entryPoint.getApproximateEntriesCount() + delta);
+            long updated = entryPoint.getApproximateEntriesCount() + delta;
+            assert updated >= 0
+                : "approximateEntriesCount underflow: current="
+                    + entryPoint.getApproximateEntriesCount()
+                    + " delta=" + delta;
+            entryPoint.setApproximateEntriesCount(updated);
           }
         });
   }
