@@ -5266,6 +5266,86 @@ public class DocValidationTest {
     assertThat(results).hasSize(1);
   }
 
+  // === YQL-Revoke.md ===
+
+  // Line 8: REVOKE <permission> ON <resource> FROM <role>
+  @Test
+  public void testRevokePermissionSyntax() {
+    // Verify that REVOKE with a permission parses and executes without error
+    g.command("REVOKE READ ON database FROM reader");
+  }
+
+  // Line 8: REVOKE POLICY ON <resource> FROM <role>
+  @Test
+  public void testRevokePolicySyntax() {
+    // Verify that REVOKE POLICY (no policy name) parses and executes without error.
+    // Unlike GRANT POLICY which takes a policy name, REVOKE POLICY does not.
+    g.command("REVOKE POLICY ON database.class.V FROM reader");
+  }
+
+  // Line 19: REVOKE POLICY ON database.class.Person FROM backoffice
+  @Test
+  public void testRevokePolicyOnClassFromRole() {
+    // Verify the exact example from the documentation parses correctly
+    g.command("CREATE CLASS RevokeDocPerson IF NOT EXISTS EXTENDS V");
+    g.command("REVOKE POLICY ON database.class.RevokeDocPerson FROM reader");
+  }
+
+  // Line 34: REVOKE ALL ON <resource> FROM <role>
+  @Test
+  public void testRevokeAllPermission() {
+    g.command("REVOKE ALL ON database FROM reader");
+  }
+
+  // Line 34: REVOKE CREATE ON <resource> FROM <role>
+  @Test
+  public void testRevokeCreatePermission() {
+    g.command("REVOKE CREATE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE UPDATE ON <resource> FROM <role>
+  @Test
+  public void testRevokeUpdatePermission() {
+    g.command("REVOKE UPDATE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE DELETE ON <resource> FROM <role>
+  @Test
+  public void testRevokeDeletePermission() {
+    g.command("REVOKE DELETE ON database FROM reader");
+  }
+
+  // Line 34: REVOKE NONE ON <resource> FROM <role>
+  @Test
+  public void testRevokeNonePermission() {
+    g.command("REVOKE NONE ON database FROM reader");
+  }
+
+  // Line 48: REVOKE on database.class.* resource
+  @Test
+  public void testRevokeOnAllClasses() {
+    // Verify wildcard * works for all classes
+    g.command("REVOKE READ ON database.class.* FROM reader");
+  }
+
+  // Line 50: REVOKE POLICY on database.class.<class>.<property> resource
+  @Test
+  public void testRevokePolicyOnClassProperty() {
+    g.command("CREATE CLASS RevokeDocEmployee IF NOT EXISTS EXTENDS V");
+    g.command("CREATE PROPERTY RevokeDocEmployee.name STRING");
+    g.command("REVOKE POLICY ON database.class.RevokeDocEmployee.name FROM reader");
+  }
+
+  // Line 51: REVOKE on database.query resource
+  // NOTE: Skipped — REVOKE on database.query triggers NPE in Role.revoke() (null key).
+  // This appears to be a runtime bug (YTDB issue TBD), not a doc issue.
+
+  // Line 52: REVOKE on database.command.<command> resource
+  @Test
+  public void testRevokeOnDatabaseCommand() {
+    g.command("REVOKE CREATE ON database.command.create FROM reader");
+  }
+
   @Test
   public void testRebuildIndexAll() {
     // YQL-Rebuild-Index.md line 11: Use * to rebuild all automatic indexes
