@@ -2252,13 +2252,6 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Applies index entry count deltas accumulated during the transaction to
-   * the engines' in-memory {@code AtomicLong} counters. Called after
-   * {@code endTxCommit()} succeeds so that counters always reflect committed
-   * state only. On rollback, the delta holder is discarded with the
-   * operation.
-   */
-  /**
    * Persists accumulated index count deltas to the BTree entry point pages
    * within the current WAL atomic operation. Called between
    * {@code commitIndexes()} and the catch clause in the commit flow, so any
@@ -2286,6 +2279,13 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Applies index entry count deltas accumulated during the transaction to
+   * the engines' in-memory {@code AtomicLong} counters. Called after
+   * {@code endTxCommit()} succeeds so that counters always reflect committed
+   * state only. On rollback, the delta holder is discarded with the
+   * operation.
+   */
   private void applyIndexCountDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getIndexCountDeltas();
     if (holder == null) {
