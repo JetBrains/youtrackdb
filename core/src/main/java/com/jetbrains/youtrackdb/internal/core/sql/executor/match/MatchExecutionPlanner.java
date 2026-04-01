@@ -964,17 +964,10 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Scans a text string for references to any of the known pattern aliases using
-   * word-boundary matching. An alias is considered referenced if it appears as a
-   * standalone word (e.g., {@code friend} or {@code friend.name}, but not as a
-   * substring of a longer identifier like {@code friendship}).
-   *
-   * @param text               the string to scan
-   * @param allPatternAliases  all known aliases to check for
-   * @param result             set to add found aliases to
-   */
-  /**
    * Scans a text string for alias references using pre-compiled word-boundary patterns.
+   * An alias is considered referenced if it appears as a standalone word (e.g.,
+   * {@code friend} or {@code friend.name}, but not as a substring of a longer
+   * identifier like {@code friendship}).
    */
   private static void collectAliasesFromText(
       String text,
@@ -1145,7 +1138,7 @@ public class MatchExecutionPlanner {
     // Walk backward looking for edges that introduced a NEW alias (one that was
     // not yet visited when that edge was processed). Use visitedBefore[j] to
     // check whether the edge at index j introduced its target as a new alias.
-    var currentAlias = (String) null;
+    String currentAlias = null;
     for (int j = checkIdx - 1; j >= 0; j--) {
       var prevEdge = scheduledEdges.get(j);
       var prevTarget = targetAlias(prevEdge);
@@ -1317,12 +1310,13 @@ public class MatchExecutionPlanner {
       rows *= fanOutLong;
       var target = targetAlias(edgeT);
       // Apply selectivity for WHERE filters on intermediate nodes
-      if (aliasFilters.containsKey(target) && aliasFilters.get(target) != null) {
+      if (aliasFilters.get(target) != null) {
         rows = Math.max(1, rows / 2);
       }
       // Track current class for next hop
-      if (aliasClasses.containsKey(target)) {
-        currentClass = aliasClasses.get(target);
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
       }
     }
 
@@ -1340,18 +1334,12 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
-    var singleClasses = new HashMap<String, String>();
-    var singleFilters = new HashMap<String, SQLWhereClause>();
-    var singleRids = new HashMap<String, SQLRid>();
-    if (aliasClasses.containsKey(alias)) {
-      singleClasses.put(alias, aliasClasses.get(alias));
-    }
-    if (aliasFilters.containsKey(alias)) {
-      singleFilters.put(alias, aliasFilters.get(alias));
-    }
-    if (aliasRids.containsKey(alias)) {
-      singleRids.put(alias, aliasRids.get(alias));
-    }
+    var cls = aliasClasses.get(alias);
+    var filter = aliasFilters.get(alias);
+    var rid = aliasRids.get(alias);
+    var singleClasses = cls != null ? Map.of(alias, cls) : Map.<String, String>of();
+    var singleFilters = filter != null ? Map.of(alias, filter) : Map.<String, SQLWhereClause>of();
+    var singleRids = rid != null ? Map.of(alias, rid) : Map.<String, SQLRid>of();
 
     var rootEstimates = estimateRootEntries(singleClasses, singleRids, singleFilters, context);
     var count = rootEstimates.get(alias);

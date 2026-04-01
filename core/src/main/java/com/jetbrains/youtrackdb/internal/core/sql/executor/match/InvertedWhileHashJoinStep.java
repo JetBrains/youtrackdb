@@ -81,21 +81,34 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
           "inverted-while hash join step requires a previous step");
     }
 
-    // Build phase: find anchor vertex and collect all reachable RIDs
+    // Build phase: find ALL anchor vertices and collect reachable RIDs.
+    // Maps each reachable RID → the anchor vertex it descends from, so the
+    // probe phase can set targetAlias to the correct anchor.
     var session = ctx.getDatabaseSession();
-    var anchorResult = findAnchorVertex(ctx);
-    if (anchorResult == null) {
-      // Anchor not found → no row can match → consume and discard all upstream
+    var anchors = findAnchorVertices(ctx, session);
+    if (anchors.isEmpty()) {
+      // No anchor found → no row can match → consume and discard all upstream
       var upstream = prev.start(ctx);
       return upstream.filter((row, c) -> null);
     }
 
-    var anchorVertex = toResultInternal(anchorResult, session);
-    reachableRids = collectReachableRids(anchorVertex, session);
+    var ridToAnchor = new java.util.HashMap<RID, Result>();
+    reachableRids = new java.util.HashSet<>();
+    for (var anchor : anchors) {
+      var anchorRid = extractRid(anchor);
+      if (anchorRid != null) {
+        ridToAnchor.put(anchorRid, anchor);
+        reachableRids.add(anchorRid);
+      }
+      for (var descendantRid : collectDescendantRids(anchor, session)) {
+        reachableRids.add(descendantRid);
+        ridToAnchor.putIfAbsent(descendantRid, anchor);
+      }
+    }
 
     // Capture locally for null-safety
     var builtSet = reachableRids;
-    var anchor = anchorVertex;
+    var builtMap = ridToAnchor;
 
     // Probe phase: filter upstream rows by directClass membership
     var upstream = prev.start(ctx);
@@ -105,15 +118,18 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       if (rid == null || !builtSet.contains(rid)) {
         return null; // Not in hierarchy → discard
       }
-      // Match: set targetAlias to the anchor vertex
+      // Match: set targetAlias to the anchor vertex this directClass descends from
+      var anchor = builtMap.get(rid);
       return new MatchResultRow(c.getDatabaseSession(), row, targetAlias, anchor);
     });
   }
 
   /**
-   * Finds the anchor vertex by executing SELECT FROM anchorClass WHERE anchorFilter.
+   * Finds ALL anchor vertices matching the anchor filter. Multiple anchors are
+   * supported to maintain semantic equivalence with the original WHILE traversal
+   * which would match against any valid anchor.
    */
-  @Nullable private Result findAnchorVertex(CommandContext ctx) {
+  private List<Result> findAnchorVertices(CommandContext ctx, DatabaseSessionEmbedded session) {
     var select = new SQLSelectStatement(-1);
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
@@ -130,35 +146,34 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     var subCtx = new BasicCommandContext();
     subCtx.setParentWithoutOverridingChild(ctx);
     var plan = select.createExecutionPlan(subCtx, false);
+    var results = new ArrayList<Result>();
     var stream = plan.start();
     try {
-      if (stream.hasNext(subCtx)) {
-        return stream.next(subCtx);
+      while (stream.hasNext(subCtx)) {
+        results.add(toResultInternal(stream.next(subCtx), session));
       }
-      return null;
     } finally {
       stream.close(subCtx);
       plan.close();
     }
+    return results;
   }
 
   /**
-   * Collects all RIDs reachable from the anchor vertex via the inverse edge
-   * direction. Uses one SQL query per BFS level to ensure correct edge resolution
-   * across all storage backends. The anchor itself is included in the set.
+   * Collects all descendant RIDs reachable from the anchor vertex via the inverse
+   * edge direction (BFS). Does NOT include the anchor itself — the caller adds it.
+   * Size is bounded by the hash join threshold to prevent OOM on large graphs.
    */
-  private Set<RID> collectReachableRids(Result anchor, DatabaseSessionEmbedded session) {
+  private Set<RID> collectDescendantRids(Result anchor, DatabaseSessionEmbedded session) {
     var rids = new HashSet<RID>();
     var anchorRid = extractRid(anchor);
     if (anchorRid == null) {
       return rids;
     }
-    rids.add(anchorRid);
 
     // Level-by-level BFS from anchor via inverse edge direction.
     // Each frontier node is queried individually to avoid reliance on
     // List<RID> parameter binding behavior which varies across backends.
-    // Size is bounded by the hash join threshold to prevent OOM on large graphs.
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";

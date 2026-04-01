@@ -133,8 +133,9 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
 
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     try (var rs = session.query(sql, correlatedRid)) {
-      while (rs.hasNext()) {
+      while (rs.hasNext() && set.size() < maxSize) {
         var row = rs.next();
         var rid = InvertedWhileHashJoinStep.extractRid(row);
         if (rid != null) {
