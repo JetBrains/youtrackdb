@@ -199,9 +199,7 @@ public class HelperClasses {
   }
 
   public static int readInteger(final ReadBytesContainer container) {
-    var buf = new byte[IntegerSerializer.INT_SIZE];
-    container.getBytes(buf, 0, IntegerSerializer.INT_SIZE);
-    return IntegerSerializer.deserializeLiteral(buf, 0);
+    return container.getInt();
   }
 
   public static byte readByte(final ReadBytesContainer container) {
@@ -209,9 +207,7 @@ public class HelperClasses {
   }
 
   public static long readLong(final ReadBytesContainer container) {
-    var buf = new byte[LongSerializer.LONG_SIZE];
-    container.getBytes(buf, 0, LongSerializer.LONG_SIZE);
-    return LongSerializer.deserializeLiteral(buf, 0);
+    return container.getLong();
   }
 
   @Nullable public static RecordIdInternal readOptimizedLink(
@@ -438,10 +434,12 @@ public class HelperClasses {
     while (size-- > 0) {
       final var key = readString(bytes);
       final var value = readOptimizedLink(bytes, justRunThrough);
-      if (value.equals(NULL_RECORD_ID)) {
-        result.putInternal(key, null);
-      } else {
-        result.putInternal(key, value);
+      if (!justRunThrough) {
+        if (value.equals(NULL_RECORD_ID)) {
+          result.putInternal(key, null);
+        } else {
+          result.putInternal(key, value);
+        }
       }
     }
     return result;

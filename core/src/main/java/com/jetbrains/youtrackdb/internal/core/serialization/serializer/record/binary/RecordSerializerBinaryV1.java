@@ -1335,18 +1335,21 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case LINKMAP -> value = readLinkMap(bytes, owner, justRunThrough);
       case EMBEDDEDMAP -> value = readEmbeddedMap(session, bytes, owner);
       case DECIMAL -> {
-        // DecimalSerializer requires byte[] — compute exact size first to avoid
-        // copying the entire remaining buffer. Layout: int(scale) + int(len) + byte[len]
-        var sizeHeader = new byte[IntegerSerializer.INT_SIZE * 2];
+        // Layout: int(scale) + int(unscaledLen) + byte[unscaledLen]
+        // Read the two header ints via getInt() to compute the total size without
+        // a staging array, then read the complete decimal bytes in a single allocation.
         var startPos = bytes.offset();
-        bytes.getBytes(sizeHeader, 0, sizeHeader.length);
-        bytes.setOffset(startPos);
-        var unscaledLen = IntegerSerializer.deserializeLiteral(
-            sizeHeader, IntegerSerializer.INT_SIZE);
-        var totalDecSize = IntegerSerializer.INT_SIZE * 2 + unscaledLen;
-        var decBytes = new byte[totalDecSize];
-        bytes.getBytes(decBytes, 0, totalDecSize);
-        value = DecimalSerializer.staticDeserialize(decBytes, 0);
+        bytes.skip(IntegerSerializer.INT_SIZE); // skip scale
+        var unscaledLen = bytes.getInt(); // read unscaledLen
+        bytes.setOffset(startPos); // seek back to start
+        if (justRunThrough) {
+          bytes.skip(IntegerSerializer.INT_SIZE * 2 + unscaledLen);
+        } else {
+          var totalDecSize = IntegerSerializer.INT_SIZE * 2 + unscaledLen;
+          var decBytes = new byte[totalDecSize];
+          bytes.getBytes(decBytes, 0, totalDecSize);
+          value = DecimalSerializer.staticDeserialize(decBytes, 0);
+        }
       }
       case LINKBAG -> {
         var bag = readLinkBag(session, bytes);
@@ -1368,13 +1371,13 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     if (type != null) {
       var found = new EntityEmbeddedSetImpl<>(owner);
+      var schema = resolveSchema(found);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
         if (itemType == null) {
           found.addInternal(null);
         } else {
-          found.addInternal(
-              deserializeValue(db, bytes, itemType, found, false, resolveSchema(found)));
+          found.addInternal(deserializeValue(db, bytes, itemType, found, false, schema));
         }
       }
       return found;
@@ -1391,13 +1394,13 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     if (type != null) {
       var found = new EntityEmbeddedListImpl<>(owner);
+      var schema = resolveSchema(found);
       for (var i = 0; i < items; i++) {
         var itemType = readOType(bytes, false);
         if (itemType == null) {
           found.addInternal(null);
         } else {
-          found.addInternal(
-              deserializeValue(db, bytes, itemType, found, false, resolveSchema(found)));
+          found.addInternal(deserializeValue(db, bytes, itemType, found, false, schema));
         }
       }
       return found;
@@ -1644,6 +1647,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     String fieldName;
     PropertyTypeInternal type;
     var cumulativeSize = valuesStart;
+    var schema = resolveSchema(entity);
     while (bytes.offset() < valuesStart) {
       final var len = VarIntSerializer.readAsInteger(bytes);
       int fieldLength;
@@ -1663,7 +1667,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         if (fieldLength != 0) {
           var headerCursor = bytes.offset();
           bytes.setOffset(cumulativeSize);
-          var schema = resolveSchema(entity);
           final var value = deserializeValue(session, bytes, type, entity, false, schema);
           if (bytes.offset() > last) {
             last = bytes.offset();
@@ -1705,6 +1708,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     var headerStart = bytes.offset();
     var valuesStart = headerStart + headerLength;
     var currentValuePos = valuesStart;
+    var schema = resolveSchema(entity);
 
     while (bytes.offset() < valuesStart) {
       final var len = VarIntSerializer.readAsInteger(bytes);
@@ -1735,7 +1739,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         if (fieldLength != 0) {
           var headerCursor = bytes.offset();
           bytes.setOffset(currentValuePos);
-          var schema = resolveSchema(entity);
           final var value = deserializeValue(db, bytes, type, entity, false, schema);
           bytes.setOffset(headerCursor);
           entity.setDeserializedPropertyInternal(fieldName, value, type);

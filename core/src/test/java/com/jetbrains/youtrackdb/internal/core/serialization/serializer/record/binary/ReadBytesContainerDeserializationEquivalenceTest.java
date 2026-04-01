@@ -67,11 +67,20 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
 
   @After
   public void tearDown() {
-    if (session != null) {
-      session.close();
-    }
-    if (youTrackDB != null) {
-      youTrackDB.close();
+    try {
+      if (session != null && !session.isClosed()) {
+        session.close();
+      }
+    } finally {
+      if (youTrackDB != null) {
+        try {
+          if (youTrackDB.exists("readBytesEquiv")) {
+            youTrackDB.drop("readBytesEquiv");
+          }
+        } finally {
+          youTrackDB.close();
+        }
+      }
     }
   }
 
@@ -104,6 +113,8 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     assertTrue(rbcResult.getProperty("boolTrue"));
     assertFalse(rbcResult.getProperty("boolFalse"));
     assertEquals("Hello World", rbcResult.getProperty("stringField"));
+    assertNotNull(rbcResult.getProperty("dateField"));
+    assertEquals(new Date(1617235200000L), rbcResult.getProperty("dateTimeField"));
     session.rollback();
   }
 
@@ -261,6 +272,9 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
 
     var rbcResult = deserializePartialViaReadBytesContainer(serialized, "b");
     assertEquals(2, (int) rbcResult.getProperty("b"));
+    // Unrequested fields must not be populated
+    assertFalse(rbcResult.hasProperty("a"));
+    assertFalse(rbcResult.hasProperty("c"));
     session.rollback();
   }
 
@@ -276,6 +290,8 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     var rbcResult = deserializePartialViaReadBytesContainer(serialized, "a", "c");
     assertEquals("alpha", rbcResult.getProperty("a"));
     assertEquals("gamma", rbcResult.getProperty("c"));
+    // Unrequested field must not be populated
+    assertFalse(rbcResult.hasProperty("b"));
     session.rollback();
   }
 

@@ -93,9 +93,8 @@ public class RecordSerializerBinary implements RecordSerializer {
       return;
     }
 
-    // Wire byte[] deserialization through ReadBytesContainer, proving the two paths
-    // are equivalent. The ReadBytesContainer wraps the same byte[] with an offset of 1
-    // (skipping the serializer version byte).
+    // Wrap byte[] in ReadBytesContainer (skipping the serializer version byte at index 0)
+    // so that byte[] callers share the same deserialization path as direct-buffer callers.
     final var container = new ReadBytesContainer(iSource, 1);
     try {
       if (iFields != null && iFields.length > 0) {
@@ -122,12 +121,25 @@ public class RecordSerializerBinary implements RecordSerializer {
       @Nonnull ReadBytesContainer container,
       @Nonnull RecordAbstract iRecord,
       String[] iFields) {
-    if (iFields != null && iFields.length > 0) {
-      serializerByVersion[serializerVersion].deserializePartial(
-          session, (EntityImpl) iRecord, container, iFields);
-    } else {
-      serializerByVersion[serializerVersion].deserialize(
-          session, (EntityImpl) iRecord, container);
+    if (serializerVersion < 0 || serializerVersion >= serializerByVersion.length) {
+      throw new IllegalArgumentException(
+          "Unsupported serializer version: " + serializerVersion);
+    }
+    try {
+      if (iFields != null && iFields.length > 0) {
+        serializerByVersion[serializerVersion].deserializePartial(
+            session, (EntityImpl) iRecord, container, iFields);
+      } else {
+        serializerByVersion[serializerVersion].deserialize(
+            session, (EntityImpl) iRecord, container);
+      }
+    } catch (RuntimeException e) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Error deserializing record with id %s via ReadBytesContainer",
+              iRecord.getIdentity().toString());
+      throw e;
     }
   }
 

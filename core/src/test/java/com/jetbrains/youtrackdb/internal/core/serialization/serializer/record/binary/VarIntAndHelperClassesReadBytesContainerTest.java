@@ -96,7 +96,7 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var rbc = new ReadBytesContainer(bytes);
 
     assertEquals(12345, VarIntSerializer.readAsInteger(rbc));
-    assertEquals(VarIntSerializer.readAsInteger(bc), 12345);
+    assertEquals(12345, VarIntSerializer.readAsInteger(bc));
   }
 
   @Test
@@ -109,7 +109,7 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var rbc = new ReadBytesContainer(bytes);
 
     assertEquals(9876543210L, VarIntSerializer.readAsLong(rbc));
-    assertEquals(VarIntSerializer.readAsLong(bc), 9876543210L);
+    assertEquals(9876543210L, VarIntSerializer.readAsLong(bc));
   }
 
   @Test

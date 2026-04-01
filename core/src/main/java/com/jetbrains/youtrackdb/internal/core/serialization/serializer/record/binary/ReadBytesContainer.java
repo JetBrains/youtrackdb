@@ -83,20 +83,19 @@ public final class ReadBytesContainer {
 
   /**
    * Reads {@code length} bytes and creates a UTF-8 String. Guards against OOM by checking remaining
-   * bytes before allocating.
+   * bytes before allocating. Throws {@link BufferUnderflowException} if length is negative or
+   * exceeds remaining bytes.
    */
   public String getStringBytes(int length) {
-    if (length > buffer.remaining()) {
+    if (length < 0 || length > buffer.remaining()) {
       throw new BufferUnderflowException();
     }
     if (buffer.hasArray()) {
+      var pos = buffer.position();
       var result =
           new String(
-              buffer.array(),
-              buffer.arrayOffset() + buffer.position(),
-              length,
-              StandardCharsets.UTF_8);
-      buffer.position(buffer.position() + length);
+              buffer.array(), buffer.arrayOffset() + pos, length, StandardCharsets.UTF_8);
+      buffer.position(pos + length);
       return result;
     }
     var bytes = new byte[length];
@@ -107,10 +106,11 @@ public final class ReadBytesContainer {
   /**
    * Reads {@code length} bytes and returns an interned String via the provided string cache. Falls
    * back to a plain String if no cache is available. Guards against OOM by checking remaining bytes
-   * before allocating.
+   * before allocating. Throws {@link BufferUnderflowException} if length is negative or exceeds
+   * remaining bytes.
    */
   public String getInternedString(@Nullable StringCache cache, int length) {
-    if (length > buffer.remaining()) {
+    if (length < 0 || length > buffer.remaining()) {
       throw new BufferUnderflowException();
     }
 
@@ -129,7 +129,19 @@ public final class ReadBytesContainer {
     if (cache != null) {
       return cache.getString(bytes, bytesOffset, length);
     }
-    return new String(bytes, bytesOffset, length, StandardCharsets.UTF_8);
+    // Match the intern() behavior of HelperClasses.stringFromBytesIntern for the rare
+    // case when no StringCache is available (e.g., during early initialization).
+    return new String(bytes, bytesOffset, length, StandardCharsets.UTF_8).intern();
+  }
+
+  /** Reads a big-endian int (4 bytes) and advances the position. No intermediate allocation. */
+  public int getInt() {
+    return buffer.getInt();
+  }
+
+  /** Reads a big-endian long (8 bytes) and advances the position. No intermediate allocation. */
+  public long getLong() {
+    return buffer.getLong();
   }
 
   /** Returns the number of bytes remaining between the current position and the limit. */
@@ -142,9 +154,14 @@ public final class ReadBytesContainer {
     return buffer.position();
   }
 
-  /** Advances the position by {@code n} bytes without reading. */
+  /**
+   * Advances the position by {@code n} bytes without reading. Throws {@link
+   * IllegalArgumentException} if {@code n} is negative or would advance past the limit.
+   */
   public void skip(int n) {
-    assert n >= 0 : "skip amount must be non-negative";
+    if (n < 0) {
+      throw new IllegalArgumentException("skip amount must be non-negative: " + n);
+    }
     buffer.position(buffer.position() + n);
   }
 
