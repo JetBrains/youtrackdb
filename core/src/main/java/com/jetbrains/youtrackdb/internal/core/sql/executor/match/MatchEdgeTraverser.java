@@ -432,19 +432,20 @@ public class MatchEdgeTraverser implements ExecutionStream {
         }
       }
 
+      // Mark the starting point as visited to prevent re-entry from sibling
+      // branches at any depth level. This must be OUTSIDE the expansion block
+      // because leaf-level nodes (where the while condition fails) would
+      // otherwise never be marked, causing O(fan-out) duplication.
+      if (dedupVisited != null && startingPoint != null
+          && startingPoint.getIdentity() != null) {
+        dedupVisited.add(startingPoint.getIdentity());
+      }
+
       // Recurse into neighbors if depth allows and WHILE condition holds
       if (startingPoint != null
           && (maxDepth == null || depth < maxDepth)
           && (whileCondition == null
               || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
-
-        // Mark the starting point as visited before expanding neighbors so
-        // that cycles back to it are detected.
-        if (dedupVisited != null) {
-          assert startingPoint.getIdentity() != null
-              : "graph vertex identity must not be null";
-          dedupVisited.add(startingPoint.getIdentity());
-        }
 
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
