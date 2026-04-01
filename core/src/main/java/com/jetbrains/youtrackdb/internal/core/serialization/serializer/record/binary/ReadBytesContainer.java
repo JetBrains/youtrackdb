@@ -20,17 +20,16 @@
 
 package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary;
 
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import java.io.UnsupportedEncodingException;
+import com.jetbrains.youtrackdb.internal.core.db.StringCache;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import javax.annotation.Nullable;
 
 /**
  * Read-only, ByteBuffer-backed container for the record deserialization path. Replaces {@link
- * BytesContainer} on the read side — provides position-tracked read methods without any
- * mutable alloc/resize semantics.
+ * BytesContainer} on the read side — provides position-tracked read methods without any mutable
+ * alloc/resize semantics.
  *
  * <p>Supports both heap ByteBuffers (for byte[] wrap fallback) and direct ByteBuffers (for
  * PageFrame zero-copy reads).
@@ -73,6 +72,7 @@ public final class ReadBytesContainer {
    * field name matching where bytes are compared without consumption.
    */
   public byte peekByte(int relativeOffset) {
+    assert relativeOffset >= 0 : "peekByte relativeOffset must be non-negative";
     return buffer.get(buffer.position() + relativeOffset);
   }
 
@@ -81,8 +81,14 @@ public final class ReadBytesContainer {
     buffer.get(dst, dstOffset, length);
   }
 
-  /** Reads {@code length} bytes and creates a UTF-8 String. */
+  /**
+   * Reads {@code length} bytes and creates a UTF-8 String. Guards against OOM by checking remaining
+   * bytes before allocating.
+   */
   public String getStringBytes(int length) {
+    if (length > buffer.remaining()) {
+      throw new BufferUnderflowException();
+    }
     if (buffer.hasArray()) {
       var result =
           new String(
@@ -99,11 +105,15 @@ public final class ReadBytesContainer {
   }
 
   /**
-   * Reads {@code length} bytes and returns an interned String via the session's string cache. Falls
-   * back to {@code new String(...).intern()} if no cache is available.
+   * Reads {@code length} bytes and returns an interned String via the provided string cache. Falls
+   * back to a plain String if no cache is available. Guards against OOM by checking remaining bytes
+   * before allocating.
    */
-  public String getInternedString(DatabaseSessionEmbedded session, int length) {
-    // StringCache requires byte[] — extract from the buffer
+  public String getInternedString(@Nullable StringCache cache, int length) {
+    if (length > buffer.remaining()) {
+      throw new BufferUnderflowException();
+    }
+
     byte[] bytes;
     int bytesOffset;
     if (buffer.hasArray()) {
@@ -116,22 +126,10 @@ public final class ReadBytesContainer {
       bytesOffset = 0;
     }
 
-    try {
-      var context = session.getSharedContext();
-      if (context != null) {
-        var cache = context.getStringCache();
-        if (cache != null) {
-          return cache.getString(bytes, bytesOffset, length);
-        }
-      }
-      return new String(bytes, bytesOffset, length, StandardCharsets.UTF_8).intern();
-    } catch (UnsupportedEncodingException e) {
-      throw BaseException.wrapException(
-          new SerializationException(
-              session.getDatabaseName(), "Error on string decoding"),
-          e,
-          session.getDatabaseName());
+    if (cache != null) {
+      return cache.getString(bytes, bytesOffset, length);
     }
+    return new String(bytes, bytesOffset, length, StandardCharsets.UTF_8);
   }
 
   /** Returns the number of bytes remaining between the current position and the limit. */
@@ -146,6 +144,7 @@ public final class ReadBytesContainer {
 
   /** Advances the position by {@code n} bytes without reading. */
   public void skip(int n) {
+    assert n >= 0 : "skip amount must be non-negative";
     buffer.position(buffer.position() + n);
   }
 

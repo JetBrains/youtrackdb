@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedCollection;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -33,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.Collection;
@@ -83,8 +81,7 @@ public class HelperClasses {
     public PropertyTypeInternal keyType;
   }
 
-  @Nullable
-  public static PropertyTypeInternal readOType(final BytesContainer bytes, boolean justRunThrough) {
+  @Nullable public static PropertyTypeInternal readOType(final BytesContainer bytes, boolean justRunThrough) {
     if (justRunThrough) {
       bytes.offset++;
       return null;
@@ -106,8 +103,7 @@ public class HelperClasses {
     }
   }
 
-  @Nullable
-  public static PropertyTypeInternal readType(BytesContainer bytes) {
+  @Nullable public static PropertyTypeInternal readType(BytesContainer bytes) {
     var typeId = bytes.bytes[bytes.offset++];
     if (typeId == -1) {
       return null;
@@ -151,8 +147,7 @@ public class HelperClasses {
     return value;
   }
 
-  @Nullable
-  public static RecordIdInternal readOptimizedLink(final BytesContainer bytes,
+  @Nullable public static RecordIdInternal readOptimizedLink(final BytesContainer bytes,
       boolean justRunThrough) {
     var collectionId = VarIntSerializer.readAsInteger(bytes);
     var collectionPos = VarIntSerializer.readAsLong(bytes);
@@ -169,21 +164,15 @@ public class HelperClasses {
 
   public static String stringFromBytesIntern(DatabaseSessionEmbedded session, final byte[] bytes,
       final int offset, final int len) {
-    try {
-      var context = session.getSharedContext();
-      if (context != null) {
-        var cache = context.getStringCache();
-        if (cache != null) {
-          return cache.getString(bytes, offset, len);
-        }
+    var context = session.getSharedContext();
+    if (context != null) {
+      var cache = context.getStringCache();
+      if (cache != null) {
+        return cache.getString(bytes, offset, len);
       }
-
-      return new String(bytes, offset, len, StandardCharsets.UTF_8).intern();
-    } catch (UnsupportedEncodingException e) {
-      throw BaseException.wrapException(
-          new SerializationException(session.getDatabaseName(), "Error on string decoding"),
-          e, session.getDatabaseName());
     }
+
+    return new String(bytes, offset, len, StandardCharsets.UTF_8).intern();
   }
 
   public static byte[] bytesFromString(final String toWrite) {
@@ -355,8 +344,7 @@ public class HelperClasses {
     return rid;
   }
 
-  @Nullable
-  public static PropertyTypeInternal getLinkedType(DatabaseSessionEmbedded session,
+  @Nullable public static PropertyTypeInternal getLinkedType(DatabaseSessionEmbedded session,
       SchemaClass clazz,
       PropertyTypeInternal type, String key) {
     if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET

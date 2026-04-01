@@ -429,4 +429,119 @@ public class ReadBytesContainerTest {
     assertArrayEquals(data, dst);
     assertEquals(0, container.remaining());
   }
+
+  // --- Error / boundary tests ---
+
+  @Test
+  public void testPeekByteThrowsOnOutOfBounds() {
+    // peekByte at an offset beyond the buffer limit should throw
+    var container = new ReadBytesContainer(new byte[] {1, 2});
+    assertThrows(IndexOutOfBoundsException.class, () -> container.peekByte(2));
+  }
+
+  @Test
+  public void testGetBytesThrowsOnUnderflow() {
+    // Requesting more bytes than available should throw BufferUnderflowException
+    var container = new ReadBytesContainer(new byte[] {1, 2});
+    var dst = new byte[5];
+    assertThrows(BufferUnderflowException.class, () -> container.getBytes(dst, 0, 5));
+  }
+
+  @Test
+  public void testGetStringBytesThrowsOnUnderflow() {
+    // getStringBytes with length > remaining should throw before allocating
+    var container = new ReadBytesContainer(new byte[] {1, 2});
+    assertThrows(BufferUnderflowException.class, () -> container.getStringBytes(10));
+  }
+
+  @Test
+  public void testGetStringBytesThrowsOnUnderflowDirectBuffer() {
+    // Same test with direct ByteBuffer — ensures guard fires before allocation
+    var buf = ByteBuffer.allocateDirect(2);
+    buf.put(new byte[] {1, 2});
+    buf.flip();
+    var container = new ReadBytesContainer(buf);
+    assertThrows(BufferUnderflowException.class, () -> container.getStringBytes(10));
+  }
+
+  @Test
+  public void testSkipPastEndThrows() {
+    // Skipping past the buffer limit should throw
+    var container = new ReadBytesContainer(new byte[] {1, 2});
+    assertThrows(IllegalArgumentException.class, () -> container.skip(5));
+  }
+
+  @Test
+  public void testSetOffsetPastLimitThrows() {
+    var container = new ReadBytesContainer(new byte[] {1, 2, 3});
+    assertThrows(IllegalArgumentException.class, () -> container.setOffset(10));
+  }
+
+  @Test
+  public void testSetOffsetNegativeThrows() {
+    var container = new ReadBytesContainer(new byte[] {1, 2, 3});
+    assertThrows(IllegalArgumentException.class, () -> container.setOffset(-1));
+  }
+
+  @Test
+  public void testSlicePastRemainingThrows() {
+    var container = new ReadBytesContainer(new byte[] {1, 2, 3});
+    assertThrows(IndexOutOfBoundsException.class, () -> container.slice(5));
+  }
+
+  @Test
+  public void testSliceIsIndependentOfParentPositionChanges() {
+    // Verify slice and parent have truly independent positions
+    var container = new ReadBytesContainer(new byte[] {1, 2, 3, 4, 5, 6});
+    container.skip(1);
+    var sliced = container.slice(3); // slices bytes [2, 3, 4]
+
+    // Mutate parent position
+    container.getByte(); // reads byte at position 4 (value 5)
+
+    // Slice should still read from its own position 0, unaffected by parent
+    assertEquals(2, sliced.getByte());
+    assertEquals(3, sliced.getByte());
+  }
+
+  @Test
+  public void testGetStringBytesWithHeapBufferOffset() {
+    // Verify getStringBytes works correctly when the heap buffer has a non-zero arrayOffset
+    var data = new byte[] {0, 0, 'H', 'i', '!'};
+    var container = new ReadBytesContainer(data, 2);
+
+    assertEquals("Hi!", container.getStringBytes(3));
+    assertEquals(0, container.remaining());
+  }
+
+  @Test
+  public void testSliceZeroLength() {
+    // Zero-length slice should produce an empty sub-container
+    var container = new ReadBytesContainer(new byte[] {1, 2, 3});
+    container.skip(1);
+    var sliced = container.slice(0);
+
+    assertEquals(0, sliced.remaining());
+    assertEquals(1, container.offset());
+  }
+
+  @Test
+  public void testGetInternedStringWithNullCache() {
+    // When cache is null, getInternedString should return a plain String
+    var data = "hello".getBytes(StandardCharsets.UTF_8);
+    var container = new ReadBytesContainer(data);
+
+    var result = container.getInternedString(null, 5);
+
+    assertEquals("hello", result);
+    assertEquals(0, container.remaining());
+  }
+
+  @Test
+  public void testGetInternedStringThrowsOnUnderflow() {
+    // getInternedString with length > remaining should throw before allocating
+    var container = new ReadBytesContainer(new byte[] {1, 2});
+    assertThrows(BufferUnderflowException.class,
+        () -> container.getInternedString(null, 10));
+  }
 }
