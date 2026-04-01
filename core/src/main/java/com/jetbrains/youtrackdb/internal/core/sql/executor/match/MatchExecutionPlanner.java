@@ -834,10 +834,13 @@ public class MatchExecutionPlanner {
       }
       estimate *= fanOutLong;
 
-      // Apply selectivity for intermediate filters
+      // Apply selectivity for intermediate filters — use histogram-based
+      // estimation if an index is available, otherwise fall back to default.
       var filter = item.getFilter();
       if (filter != null && filter.getFilter() != null) {
-        estimate = estimate / 2; // 0.5 selectivity heuristic
+        double selectivity = estimateFilterSelectivity(
+            filter.getFilter(), currentClass, context);
+        estimate = Math.max(1, Math.round(estimate * selectivity));
       }
       // Track current class for next hop's fan-out estimation
       if (filter != null && filter.getClassName(context) != null) {
@@ -1309,9 +1312,12 @@ public class MatchExecutionPlanner {
       }
       rows *= fanOutLong;
       var target = targetAlias(edgeT);
-      // Apply selectivity for WHERE filters on intermediate nodes
-      if (aliasFilters.get(target) != null) {
-        rows = Math.max(1, rows / 2);
+      // Apply selectivity — histogram-based if index available, default otherwise
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        rows = Math.max(1, Math.round(rows * selectivity));
       }
       // Track current class for next hop
       var targetClass = aliasClasses.get(target);
@@ -2174,6 +2180,50 @@ public class MatchExecutionPlanner {
     return EdgeFanOutEstimator.estimateFanOut(
         session, edgeClassName, sourceClassName, direction,
         outVertexClass, inVertexClass);
+  }
+
+  /**
+   * Estimates the selectivity of a WHERE clause for cardinality estimation.
+   * Uses the existing {@link TraversalPreFilterHelper#findIndexForFilter} +
+   * {@link IndexSearchDescriptor} pipeline to get histogram-based estimates
+   * when an index exists. Falls back to
+   * {@link SelectivityEstimator#defaultSelectivity()} otherwise.
+   *
+   * @param where      the WHERE clause to estimate
+   * @param className  the class the filter applies to, or null
+   * @param ctx        the command context
+   * @return selectivity in (0.0, 1.0]
+   */
+  private static double estimateFilterSelectivity(
+      @Nullable SQLWhereClause where,
+      @Nullable String className,
+      CommandContext ctx) {
+    if (where == null || className == null) {
+      return SelectivityEstimator.defaultSelectivity();
+    }
+    // Try to find an index that covers this filter and use its statistics
+    var indexDesc = TraversalPreFilterHelper.findIndexForFilter(where, className, ctx);
+    if (indexDesc != null) {
+      var session = ctx.getDatabaseSession();
+      var stats = indexDesc.getIndex().getStatistics(session);
+      if (stats != null && stats.totalCount() > 0) {
+        var histogram = indexDesc.getIndex().getHistogram(session);
+        // Extract the leading condition and estimate selectivity via histogram
+        var baseExpr = where.getBaseExpression();
+        if (baseExpr instanceof SQLBinaryCondition bc
+            && bc.getRight().isEarlyCalculated(ctx)) {
+          var value = bc.getRight().execute((Result) null, ctx);
+          if (value != null) {
+            double sel = SelectivityEstimator.estimateForOperator(
+                bc.getOperator(), stats, histogram, value);
+            if (sel >= 0) {
+              return Math.max(0.001, sel); // clamp to avoid zero
+            }
+          }
+        }
+      }
+    }
+    return SelectivityEstimator.defaultSelectivity();
   }
 
   /**
