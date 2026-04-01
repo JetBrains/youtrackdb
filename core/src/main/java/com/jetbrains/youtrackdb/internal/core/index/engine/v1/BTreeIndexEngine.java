@@ -72,4 +72,22 @@ public interface BTreeIndexEngine extends V1IndexEngine {
    * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
    */
   void addToApproximateNullCount(long delta);
+
+  /**
+   * Persists the accumulated count deltas to the BTree entry point page(s)
+   * within the given atomic operation. Called by
+   * {@code AbstractStorage.persistIndexCountDeltas()} inside the commit's WAL
+   * atomic operation, between {@code commitIndexes()} and
+   * {@code endTxCommit()}.
+   *
+   * <p>Each engine implementation maps the total/null deltas to its underlying
+   * tree(s). Single-value applies {@code totalDelta} to its single tree.
+   * Multi-value splits: {@code totalDelta - nullDelta} to svTree,
+   * {@code nullDelta} to nullTree.
+   *
+   * @param atomicOperation current atomic operation for WAL-protected page I/O
+   * @param totalDelta net change to total visible entry count
+   * @param nullDelta net change to null-key visible entry count
+   */
+  void persistCountDelta(AtomicOperation atomicOperation, long totalDelta, long nullDelta);
 }

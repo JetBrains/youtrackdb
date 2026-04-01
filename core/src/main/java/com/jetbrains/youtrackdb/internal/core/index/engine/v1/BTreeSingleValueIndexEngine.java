@@ -591,6 +591,14 @@ public final class BTreeSingleValueIndexEngine
     approximateNullCount.addAndGet(delta);
   }
 
+  @Override
+  public void persistCountDelta(
+      AtomicOperation atomicOperation, long totalDelta, long nullDelta) {
+    // Single-value engine stores all entries (including nulls) in one BTree.
+    // The full totalDelta applies to the single tree's persisted count.
+    sbTree.addToApproximateEntriesCount(atomicOperation, totalDelta);
+  }
+
   /**
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.

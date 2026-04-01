@@ -626,6 +626,16 @@ public final class BTreeMultiValueIndexEngine
     approximateNullCount.addAndGet(delta);
   }
 
+  @Override
+  public void persistCountDelta(
+      AtomicOperation atomicOperation, long totalDelta, long nullDelta) {
+    // Multi-value engine splits entries across two trees:
+    // svTree holds non-null entries, nullTree holds null entries.
+    // totalDelta = nonNullDelta + nullDelta, so nonNullDelta = totalDelta - nullDelta.
+    svTree.addToApproximateEntriesCount(atomicOperation, totalDelta - nullDelta);
+    nullTree.addToApproximateEntriesCount(atomicOperation, nullDelta);
+  }
+
   /**
    * Sets the histogram manager for this engine. Called during engine
    * lifecycle (create/load) once the manager is initialized.
