@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -327,9 +328,12 @@ public class MatchExecutionPlanner {
    * Maximum estimated build-side cardinality for which the planner will choose a
    * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
    * If the estimated NOT-pattern result set exceeds this threshold, the planner
-   * falls back to {@link FilterNotMatchPatternStep}.
+   * falls back to {@link FilterNotMatchPatternStep}. Configurable via
+   * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
    */
-  static final long HASH_JOIN_THRESHOLD = 10_000;
+  static long getHashJoinThreshold() {
+    return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong();
+  }
 
   /**
    * Fixed fan-out heuristic per edge traversal hop in NOT-pattern cardinality
@@ -835,7 +839,7 @@ public class MatchExecutionPlanner {
    *   <li>The origin alias has a known class in {@code aliasClasses} (needed to
    *       construct the build-side scan).</li>
    *   <li>The estimated build-side cardinality does not exceed
-   *       {@link #HASH_JOIN_THRESHOLD}.</li>
+   *       {@link #getHashJoinThreshold()}.</li>
    * </ol>
    */
   static boolean canUseHashJoin(
@@ -853,7 +857,7 @@ public class MatchExecutionPlanner {
     }
     var estimatedCardinality =
         estimateNotPatternCardinality(exp, aliasClasses, aliasFilters, aliasRids, context);
-    return estimatedCardinality <= HASH_JOIN_THRESHOLD;
+    return estimatedCardinality <= getHashJoinThreshold();
   }
 
   /**
@@ -1014,7 +1018,7 @@ public class MatchExecutionPlanner {
    *   <li>ends with a <b>consistency-check edge</b> — an edge whose target alias was already
    *       visited before this edge (both endpoints known, cost 0 in the scheduler)</li>
    *   <li>no filter on any branch node depends on {@code $matched} or {@code $parent}</li>
-   *   <li>estimated cardinality does not exceed {@link #HASH_JOIN_THRESHOLD}</li>
+   *   <li>estimated cardinality does not exceed {@link #getHashJoinThreshold()}</li>
    *   <li>no intermediate alias uses an auto-generated name ({@link #DEFAULT_ALIAS_PREFIX})</li>
    * </ul>
    *
@@ -1240,7 +1244,7 @@ public class MatchExecutionPlanner {
     // apply 0.5 selectivity for WHERE filters
     long cardinality = estimateBranchCardinality(
         branchRoot, branchEdges, aliasClasses, aliasFilters, aliasRids, context);
-    if (cardinality > HASH_JOIN_THRESHOLD) {
+    if (cardinality > getHashJoinThreshold()) {
       return null;
     }
 
