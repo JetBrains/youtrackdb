@@ -113,6 +113,22 @@ public class RecordSerializerBinary implements RecordSerializer {
   }
 
   @Override
+  public void fromStream(
+      @Nonnull DatabaseSessionEmbedded session,
+      byte serializerVersion,
+      @Nonnull ReadBytesContainer container,
+      @Nonnull RecordAbstract iRecord,
+      String[] iFields) {
+    if (iFields != null && iFields.length > 0) {
+      serializerByVersion[serializerVersion].deserializePartial(
+          session, (EntityImpl) iRecord, container, iFields);
+    } else {
+      serializerByVersion[serializerVersion].deserialize(
+          session, (EntityImpl) iRecord, container);
+    }
+  }
+
+  @Override
   public byte[] toStream(@Nonnull DatabaseSessionEmbedded session, @Nonnull RecordAbstract record) {
     if (record instanceof Blob) {
       return record.toStream();

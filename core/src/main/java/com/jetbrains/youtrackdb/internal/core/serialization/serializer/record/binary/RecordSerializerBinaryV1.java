@@ -1629,6 +1629,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     deserialize(db, entity, bytes);
   }
 
+  @Override
   public void deserialize(
       DatabaseSessionEmbedded session,
       final EntityImpl entity,
@@ -1685,6 +1686,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
   }
 
+  @Override
   public void deserializePartial(
       DatabaseSessionEmbedded db,
       EntityImpl entity,

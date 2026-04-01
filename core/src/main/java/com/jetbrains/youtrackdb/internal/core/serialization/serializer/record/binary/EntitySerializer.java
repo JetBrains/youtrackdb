@@ -42,8 +42,20 @@ public interface EntitySerializer {
 
   void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes);
 
+  default void deserialize(DatabaseSessionEmbedded db, EntityImpl entity,
+      ReadBytesContainer bytes) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialization not supported by " + getClass().getSimpleName());
+  }
+
   void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes,
       String[] iFields);
+
+  default void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
+      ReadBytesContainer bytes, String[] iFields) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialization not supported by " + getClass().getSimpleName());
+  }
 
   Object deserializeValue(DatabaseSessionEmbedded db, BytesContainer bytes,
       PropertyTypeInternal type,
