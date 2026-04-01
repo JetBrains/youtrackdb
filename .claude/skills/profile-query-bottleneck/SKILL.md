@@ -52,15 +52,25 @@ ssh root@<IP> 'cd /tmp && \
 Run the target benchmark with async-profiler attached:
 
 ```bash
-ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-  -Dspotless.check.skip=true \
-  -Djmh.args="<BenchmarkClass>.<method> -f 1 -wi 1 -w 10s -i 1 -r 60s -t 1 \
-  -prof async:libPath=/opt/async-profiler/lib/libasyncProfiler.so;output=flamegraph;dir=/root/profiles" \
+ssh root@<IP> 'cd /root/ytdb && mkdir -p /root/profiles && \
+  ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Dspotless.check.skip=true \
+  "-Djmh.args=<BenchmarkClass>.<method> -f 1 -wi 1 -w 10s -i 1 -r 60s -t 1 \
+  -prof async:libPath=/opt/async-profiler/lib/libasyncProfiler.so\\;output=flamegraph\\;dir=/root/profiles" \
   2>&1 | tee /root/prof.log'
 ```
 
+**Critical — semicolon escaping**: The Maven exec plugin passes `${jmh.args}` through
+`/bin/sh -c`, so bare semicolons are interpreted as shell command separators. You **must**
+double-escape them as `\\;` inside the `-Djmh.args` value. Without this, the `-prof async`
+option silently receives truncated arguments and produces no output files.
+
 **Important**: Use `-t 1` (single thread) for profiling — multi-threaded profiles are
 harder to interpret and the contention patterns differ from the actual bottleneck.
+
+**Important**: Do NOT run any other CPU-intensive process (builds, other benchmarks,
+diagnostic programs) while profiling. Concurrent processes compete for CPU and memory,
+causing OOM kills (exit 137), corrupted profiles, and skewed results. Finish all other
+work first, then run the profiler on a quiet machine.
 
 Download the flame graphs:
 ```bash
@@ -70,10 +80,11 @@ scp root@<IP>:/root/profiles/<benchmark-name>-Throughput/flame-cpu-forward.html 
 
 ### 2b. Collapsed Stacks for Programmatic Analysis
 
-Run again with `output=collapsed` to get machine-parseable stacks:
+Run again with `output=collapsed` to get machine-parseable stacks (same escaping rules):
 
 ```bash
--prof async:libPath=/opt/async-profiler/lib/libasyncProfiler.so;output=collapsed;dir=/root/profiles2
+"-Djmh.args=<BenchmarkClass>.<method> -f 1 -wi 1 -w 10s -i 1 -r 60s -t 1 \
+-prof async:libPath=/opt/async-profiler/lib/libasyncProfiler.so\\;output=collapsed\\;dir=/root/profiles2"
 ```
 
 Download:
@@ -223,11 +234,20 @@ public class QueryDiag {
   `Map<String, Object>` (not a `Result` instance). Cast directly to `Map`.
 - **DB locking**: If the program crashes or is killed, remove lock files before re-running:
   `find /root/ytdb/jmh-ldbc/target/ldbc-bench-db -name "*.lock" -exec rm -f {} \;`
+- **JMH lock file**: If JMH exits abnormally (OOM kill, SIGKILL), it leaves `/tmp/jmh.lock`.
+  Remove it before re-running: `rm -f /tmp/jmh.lock`
+- **SQL parser limitations**: The YouTrackDB SQL parser does not support function calls
+  like `out('KNOWS').size()` in ORDER BY. Always alias computed expressions first:
+  `SELECT out('KNOWS').size() as cnt ... ORDER BY cnt DESC` (not `ORDER BY out('KNOWS').size() DESC`)
 
 ### 3c. Compiling and Running
 
+**Important**: Run from the **project root** (`/root/ytdb`), not from `jmh-ldbc/`.
+The diagnostic program uses `./jmh-ldbc/target/ldbc-bench-db` as the DB path.
+The benchmark itself (JMH via Maven) runs from `jmh-ldbc/` and uses `./target/ldbc-bench-db`.
+
 ```bash
-# Compile against the uber-jar (has all dependencies)
+# From /root/ytdb — compile against the uber-jar (has all dependencies)
 javac -proc:none -cp "jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar" QueryDiag.java
 
 # Run with required --add-opens flags
@@ -240,8 +260,12 @@ java --add-opens java.base/java.lang=ALL-UNNAMED \
      --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED \
      --add-opens java.base/java.net=ALL-UNNAMED \
+     --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED \
      -cp ".:jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar" -Xmx4g QueryDiag
 ```
+
+Note: the `jdk.unsupported/sun.misc=ALL-UNNAMED` flag is required for the storage engine.
+Without it, the DB opens but fails with `InaccessibleObjectException` on first record load.
 
 ### 3d. What to Measure
 
@@ -339,16 +363,30 @@ hcloud ssh-key delete "$KEY_NAME"
 | Post | 1,192,942 |
 | Comment | ~2,000,000 |
 | Forum | 106,594 |
-| HAS_MEMBER edges | 3,260,692 |
+| Company | ~1,575 |
+| Country | ~111 |
 | KNOWS edges | ~360,000 |
 | HAS_CREATOR edges | ~3,200,000 |
+| HAS_MEMBER edges | 3,260,692 |
+| WORK_AT edges | 22,766 |
+| STUDY_AT edges | ~17,000 |
+| IS_LOCATED_IN edges | ~4,400,000 |
 
 Average degrees:
-- KNOWS: ~34 per person
+- KNOWS: ~34 per person (min 0, max 977)
 - HAS_CREATOR (Post only): ~112 posts per person
 - HAS_MEMBER: ~30 members per forum, ~307 forums per person
 - CONTAINER_OF: ~11 posts per forum
+- WORK_AT: ~2.15 per person (min 0, max 5)
+- Companies per country: ~14 on average
+
+WORK_AT.workFrom distribution (year → edge count):
+1998: 117, 1999: 411, 2000: 887, 2001: 1227, 2002: 1667, 2003: 1999,
+2004: 2155, 2005: 2127, 2006: 2168, 2007: 2332, 2008: 2252, 2009: 1918,
+2010: 1484, 2011: 1105, 2012: 825, 2013: 92
+→ 85% of WORK_AT edges have workFrom < 2010
 
 These numbers are essential for estimating query cost. A `while: ($depth < 2)` KNOWS
 traversal from a typical person produces 34 + 34*34 ≈ 1,190 paths (with duplicates),
-~800 distinct friends.
+~800 distinct friends. For high-degree persons (top 5 have 936-977 KNOWS), this
+explodes to ~51K paths (~8.4K distinct) with 6.1x duplication.
