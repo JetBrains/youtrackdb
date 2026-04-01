@@ -28,10 +28,10 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Tests for DurableComponent.loadPageOptimistic() and executeOptimisticStorageRead().
+ * Tests for StorageComponent.loadPageOptimistic() and executeOptimisticStorageRead().
  * Uses a test subclass that exposes the protected methods.
  */
-public class DurableComponentOptimisticReadTest {
+public class StorageComponentOptimisticReadTest {
 
   private static final int PAGE_SIZE = 4096;
   private static final long FILE_ID = 1;
@@ -42,7 +42,7 @@ public class DurableComponentOptimisticReadTest {
   private ReadCache mockReadCache;
   private AtomicOperation mockAtomicOp;
   private OptimisticReadScope scope;
-  private TestDurableComponent component;
+  private TestStorageComponent component;
 
   @Before
   public void setUp() {
@@ -62,7 +62,7 @@ public class DurableComponentOptimisticReadTest {
     mockAtomicOp = mock(AtomicOperation.class);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
-    component = new TestDurableComponent(mockStorage);
+    component = new TestStorageComponent(mockStorage);
   }
 
   @After
@@ -456,6 +456,50 @@ public class DurableComponentOptimisticReadTest {
     releaseFrame(frame3);
   }
 
+  @Test
+  public void testDurableFlagStoredCorrectlyWhenTrue() {
+    // The default TestStorageComponent passes durable=true.
+    assertEquals(true, component.isDurable());
+  }
+
+  @Test
+  public void testDurableFlagStoredCorrectlyWhenFalse() {
+    // A non-durable component must report isDurable()=false.
+    var nonDurableComponent = new TestStorageComponent(
+        component.storage, false);
+    assertEquals(false, nonDurableComponent.isDurable());
+  }
+
+  @Test
+  public void testAddFilePassesNonDurableFlagFromComponent() throws IOException {
+    // When a non-durable StorageComponent calls addFile(), it must call the 2-arg
+    // addFile(name, true) directly — not the 1-arg default which would pass false.
+    var nonDurableComponent = new TestStorageComponent(
+        component.storage, false);
+    var op = mock(AtomicOperation.class);
+    when(op.addFile("test-file.dat", true)).thenReturn(42L);
+
+    long fileId = nonDurableComponent.testAddFile(op, "test-file.dat");
+
+    assertEquals(42L, fileId);
+    verify(op).addFile("test-file.dat", true);
+    // Ensure the 1-arg overload was NOT called (would silently pass false via default)
+    verify(op, never()).addFile("test-file.dat");
+  }
+
+  @Test
+  public void testAddFilePassesDurableFlagFromComponent() throws IOException {
+    // When a durable StorageComponent (default) calls addFile(), it should pass
+    // nonDurable=false to the atomic operation.
+    var op = mock(AtomicOperation.class);
+    when(op.addFile("test-file.dat", false)).thenReturn(99L);
+
+    long fileId = component.testAddFile(op, "test-file.dat");
+
+    assertEquals(99L, fileId);
+    verify(op).addFile("test-file.dat", false);
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();
@@ -472,11 +516,15 @@ public class DurableComponentOptimisticReadTest {
   }
 
   /**
-   * Test subclass that exposes protected DurableComponent methods.
+   * Test subclass that exposes protected StorageComponent methods.
    */
-  private static class TestDurableComponent extends DurableComponent {
-    TestDurableComponent(AbstractStorage storage) {
-      super(storage, "test", ".tst", "test.lock");
+  private static class TestStorageComponent extends StorageComponent {
+    TestStorageComponent(AbstractStorage storage) {
+      this(storage, true);
+    }
+
+    TestStorageComponent(AbstractStorage storage, boolean durable) {
+      super(storage, "test", ".tst", "test.lock", durable);
     }
 
     PageView testLoadPageOptimistic(AtomicOperation op, long fileId, long pageIndex) {
@@ -495,6 +543,10 @@ public class DurableComponentOptimisticReadTest {
         OptimisticReadAction optimistic,
         PinnedReadAction pinned) throws IOException {
       executeOptimisticStorageRead(op, optimistic, pinned);
+    }
+
+    long testAddFile(AtomicOperation op, String fileName) throws IOException {
+      return addFile(op, fileName);
     }
   }
 }

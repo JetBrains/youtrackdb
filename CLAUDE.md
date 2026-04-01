@@ -54,7 +54,7 @@ The `docs/` folder contains project documentation. See `docs/README.md` for the 
   - `EngineMemory` (memory) - In-memory storage using direct memory buffers
 - **Two-tier cache**: `ReadCache` (LockFreeReadCache) + `WriteCache` (WOWCache)
 - **WAL** (Write-Ahead Logging): `LogSequenceNumber` (segment, position) pairs, atomic operations
-- **DurableComponent**: Base class for all crash-recoverable data structures
+- **StorageComponent**: Base class for all storage-backed data structures (durable and non-durable)
 
 ### Gremlin Integration
 - Uses a **custom fork** of Apache TinkerPop (group ID `io.youtrackdb` instead of `org.apache.tinkerpop`)

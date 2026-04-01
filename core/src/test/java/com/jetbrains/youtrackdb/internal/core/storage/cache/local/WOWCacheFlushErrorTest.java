@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -448,6 +449,10 @@ public class WOWCacheFlushErrorTest {
     // flushWriteCacheFromMinLSN, but protects against future refactors
     setField(cache, "filesLock", new ReadersWriterSpinLock());
 
+    // nonDurableFileIds is accessed by the assert guard in flushWriteCacheFromMinLSN
+    // that verifies non-durable pages never appear in the dirty pages table
+    setField(cache, "nonDurableFileIds", new IntOpenHashSet());
+
     // dirtyPages and localDirtyPages are accessed by convertSharedDirtyPagesToLocal()
     // which is called at the start of flushWriteCacheFromMinLSN
     setField(
@@ -500,5 +505,71 @@ public class WOWCacheFlushErrorTest {
       }
     }
     throw new NoSuchFieldException(fieldName);
+  }
+
+  // --- executeFileFlush WAL guard tests ---
+  // Note: These tests use reflection to inject mocks into private fields because
+  // WOWCache has no test-friendly constructor. Field name changes will cause
+  // runtime failures.
+
+  /**
+   * Sets up a mock WOWCache with the given non-durable file IDs, a mock WAL,
+   * and empty writeCachePages. Returns the mock WAL for verification.
+   */
+  private WriteAheadLog setupCacheForFileFlush(
+      WOWCache cache, IntOpenHashSet nonDurableIds) throws Exception {
+    Field ndField = WOWCache.class.getDeclaredField("nonDurableFileIds");
+    ndField.setAccessible(true);
+    ndField.set(cache, nonDurableIds);
+
+    WriteAheadLog mockWal = mock(WriteAheadLog.class);
+    Field walField = WOWCache.class.getDeclaredField("writeAheadLog");
+    walField.setAccessible(true);
+    walField.set(cache, mockWal);
+
+    Field wcpField = WOWCache.class.getDeclaredField("writeCachePages");
+    wcpField.setAccessible(true);
+    wcpField.set(cache, new ConcurrentHashMap<>());
+
+    return mockWal;
+  }
+
+  /**
+   * Verifies that {@code executeFileFlush()} skips the WAL flush when all files in the
+   * set are non-durable. Non-durable files never produce WAL records, so flushing the
+   * WAL is unnecessary overhead.
+   */
+  @Test
+  public void testExecuteFileFlushSkipsWALFlushForNonDurableOnlyFiles() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    var nonDurable = new IntOpenHashSet();
+    nonDurable.add(5);
+    var mockWal = setupCacheForFileFlush(cache, nonDurable);
+
+    var fileIdSet = new IntOpenHashSet();
+    fileIdSet.add(5);
+    cache.executeFileFlush(fileIdSet);
+
+    Mockito.verify(mockWal, Mockito.never()).flush();
+  }
+
+  /**
+   * Verifies that {@code executeFileFlush()} does flush the WAL when the set contains
+   * at least one durable file.
+   */
+  @Test
+  public void testExecuteFileFlushFlushesWALForDurableFiles() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    var nonDurable = new IntOpenHashSet();
+    nonDurable.add(5);
+    var mockWal = setupCacheForFileFlush(cache, nonDurable);
+
+    // Mix: durable (ID 10) + non-durable (ID 5)
+    var fileIdSet = new IntOpenHashSet();
+    fileIdSet.add(5);
+    fileIdSet.add(10);
+    cache.executeFileFlush(fileIdSet);
+
+    Mockito.verify(mockWal).flush();
   }
 }

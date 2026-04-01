@@ -295,7 +295,7 @@ public class CachePointerPageFrameTest {
   public void testPageFrameCoordinatesPropagatedByPageFrameConstructor() {
     // Verifies that the PageFrame-based constructor propagates fileId and pageIndex
     // to the PageFrame, so the coordinate-verification guard in
-    // DurableComponent.loadPageOptimistic() can detect frame reuse.
+    // StorageComponent.loadPageOptimistic() can detect frame reuse.
     var allocator = new DirectMemoryAllocator();
     var pool = new PageFramePool(4096, allocator, 2);
     var frame = pool.acquire(true, Intention.TEST);

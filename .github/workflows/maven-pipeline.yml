@@ -313,7 +313,7 @@ jobs:
 
   # ------------------------------------------------------------------
   # JOB: SMALL CACHE INTEGRATION TESTS (advisory, not in ci-status gate)
-  # Runs DurableComponent ITs with 4 MB disk cache to exercise
+  # Runs StorageComponent ITs with 4 MB disk cache to exercise
   # optimistic read fallback under heavy eviction pressure.
   # ------------------------------------------------------------------
   test-small-cache-linux:

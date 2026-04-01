@@ -48,6 +48,16 @@ public interface ReadCache {
 
   long addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
 
+  /**
+   * Registers a file with an explicit non-durability flag. The default implementation
+   * delegates to the 3-arg overload (ignores nonDurable), preserving backward
+   * compatibility for implementations that do not support non-durable files.
+   */
+  default long addFile(String fileName, long fileId, WriteCache writeCache, boolean nonDurable)
+      throws IOException {
+    return addFile(fileName, fileId, writeCache);
+  }
+
   CacheEntry loadForWrite(
       long fileId,
       long pageIndex,

@@ -40,7 +40,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -89,7 +89,7 @@ import javax.annotation.Nullable;
  *
  * @since 8/7/13
  */
-public final class BTree<K> extends DurableComponent implements CellBTreeSingleValue<K> {
+public final class BTree<K> extends StorageComponent implements CellBTreeSingleValue<K> {
 
   private static final int SPLITERATOR_CACHE_SIZE =
       GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
@@ -122,7 +122,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       final String dataFileExtension,
       final String nullFileExtension,
       final AbstractStorage storage) {
-    super(storage, name, dataFileExtension, name + dataFileExtension);
+    super(storage, name, dataFileExtension, name + dataFileExtension, true);
     acquireExclusiveLock();
     try {
       this.nullFileExtension = nullFileExtension;
@@ -137,7 +137,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       final String dataFileExtension,
       final String nullFileExtension,
       final AbstractStorage storage, BinarySerializerFactory serializerFactory) {
-    super(storage, name, dataFileExtension, name + dataFileExtension);
+    super(storage, name, dataFileExtension, name + dataFileExtension, true);
     acquireExclusiveLock();
     try {
       this.nullFileExtension = nullFileExtension;

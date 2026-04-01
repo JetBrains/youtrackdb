@@ -7,12 +7,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.core.exception.CommonDurableComponentException;
+import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurableComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import org.junit.Before;
 import org.junit.Test;
@@ -20,7 +20,7 @@ import org.junit.Test;
 /**
  * Verifies that {@link AtomicOperationsManager#executeInsideComponentOperation} and
  * {@link AtomicOperationsManager#calculateInsideComponentOperation} correctly propagate
- * componentName and dbName in the wrapping {@link CommonDurableComponentException}
+ * componentName and dbName in the wrapping {@link CommonStorageComponentException}
  * when the delegate throws.
  */
 public class AtomicOperationsManagerComponentOpExceptionTest {
@@ -30,7 +30,7 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
 
   private AtomicOperationsManager manager;
   private AtomicOperation operation;
-  private DurableComponent component;
+  private StorageComponent component;
 
   @Before
   public void setUp() {
@@ -49,13 +49,13 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
     // skips the actual locking.
     when(operation.containsInLockedObjects(anyString())).thenReturn(true);
 
-    component = mock(DurableComponent.class);
+    component = mock(StorageComponent.class);
     when(component.getLockName()).thenReturn(COMPONENT_LOCK_NAME);
   }
 
   /**
    * When executeInsideComponentOperation's consumer throws, the wrapping
-   * CommonDurableComponentException must have dbName=storageName and
+   * CommonStorageComponentException must have dbName=storageName and
    * componentName=componentLockName (not swapped).
    */
   @Test
@@ -68,14 +68,14 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
             throw new RuntimeException("test failure");
           });
       fail("Expected exception to be thrown");
-    } catch (CommonDurableComponentException e) {
+    } catch (CommonStorageComponentException e) {
       assertExceptionFieldsCorrect(e);
     }
   }
 
   /**
    * When calculateInsideComponentOperation's function throws, the wrapping
-   * CommonDurableComponentException must have dbName=storageName and
+   * CommonStorageComponentException must have dbName=storageName and
    * componentName=componentLockName (not swapped).
    */
   @Test
@@ -88,7 +88,7 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
             throw new RuntimeException("test failure");
           });
       fail("Expected exception to be thrown");
-    } catch (CommonDurableComponentException e) {
+    } catch (CommonStorageComponentException e) {
       assertExceptionFieldsCorrect(e);
     }
   }
@@ -98,7 +98,7 @@ public class AtomicOperationsManagerComponentOpExceptionTest {
    * Both values must be distinct (STORAGE_NAME != COMPONENT_LOCK_NAME) so that
    * a parameter-swap mutation is detectable.
    */
-  private static void assertExceptionFieldsCorrect(CommonDurableComponentException e) {
+  private static void assertExceptionFieldsCorrect(CommonStorageComponentException e) {
     assertEquals(STORAGE_NAME, e.getDbName());
     // getMessage() includes both DB Name and Component Name labels
     assertTrue(

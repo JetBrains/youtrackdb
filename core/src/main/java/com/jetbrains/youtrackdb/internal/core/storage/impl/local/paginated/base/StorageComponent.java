@@ -37,13 +37,13 @@ import java.io.IOException;
 import javax.annotation.Nonnull;
 
 /**
- * Base class for all durable data structures, that is data structures state of which can be
- * consistently restored after system crash but results of last operations in small interval before
- * crash may be lost.
+ * Base class for all storage-backed data structures that participate in the page cache lifecycle.
+ * Durable components have their state restored from WAL after a crash; non-durable components are
+ * deleted on crash recovery and recreated on next open.
  *
  * @since 8/27/13
  */
-public abstract class DurableComponent extends SharedResourceAbstract {
+public abstract class StorageComponent extends SharedResourceAbstract {
   protected final AtomicOperationsManager atomicOperationsManager;
   protected final AbstractStorage storage;
   protected final ReadCache readCache;
@@ -56,11 +56,14 @@ public abstract class DurableComponent extends SharedResourceAbstract {
 
   private final String lockName;
 
-  public DurableComponent(
+  private final boolean durable;
+
+  public StorageComponent(
       @Nonnull final AbstractStorage storage,
       @Nonnull final String name,
       final String extension,
-      final String lockName) {
+      final String lockName,
+      final boolean durable) {
     super();
 
     this.extension = extension;
@@ -71,6 +74,12 @@ public abstract class DurableComponent extends SharedResourceAbstract {
     this.readCache = storage.getReadCache();
     this.writeCache = storage.getWriteCache();
     this.lockName = lockName;
+    this.durable = durable;
+  }
+
+  /** Returns {@code true} if this component participates in WAL crash recovery. */
+  public boolean isDurable() {
+    return durable;
   }
 
   public String getLockName() {
@@ -177,7 +186,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected long addFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addFile(fileName);
+    return atomicOperation.addFile(fileName, !durable);
   }
 
   protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)

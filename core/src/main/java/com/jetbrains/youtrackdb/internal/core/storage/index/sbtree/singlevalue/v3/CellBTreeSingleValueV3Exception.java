@@ -20,14 +20,14 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3;
 
-import com.jetbrains.youtrackdb.internal.core.exception.DurableComponentException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageComponentException;
 
 /**
- * Exception thrown by the v3 single-value cell B-tree during durable component operations.
+ * Exception thrown by the v3 single-value cell B-tree during storage component operations.
  *
  * @since 8/30/13
  */
-public final class CellBTreeSingleValueV3Exception extends DurableComponentException {
+public final class CellBTreeSingleValueV3Exception extends StorageComponentException {
 
   @SuppressWarnings("unused")
   public CellBTreeSingleValueV3Exception(final CellBTreeSingleValueV3Exception exception) {

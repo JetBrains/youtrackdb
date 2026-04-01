@@ -52,6 +52,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -121,6 +122,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import net.jpountz.xxhash.XXHash64;
+import net.jpountz.xxhash.XXHashFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -213,6 +216,31 @@ public final class WOWCache extends AbstractWriteCache
    * @see #NAME_ID_MAP_V3
    */
   private static final int MAX_FILE_RECORD_LEN = 16 << 10;
+
+  /**
+   * Primary side file for persisting non-durable file IDs.
+   */
+  private static final String NON_DURABLE_FILES = "non_durable_files" + NAME_ID_MAP_EXTENSION;
+
+  /**
+   * Shadow copy of the non-durable files side file. Written first during updates; if the primary
+   * is corrupt on read, the shadow is used as fallback.
+   */
+  private static final String NON_DURABLE_FILES_SHADOW =
+      "non_durable_files_shadow" + NAME_ID_MAP_EXTENSION;
+
+  /**
+   * Binary format version for the non-durable files side file. Format:
+   * {@code [4 bytes version][8 bytes xxHash64][4 bytes count][count × 4 bytes fileId]}
+   */
+  private static final int NON_DURABLE_FILES_VERSION = 1;
+
+  private static final long XX_HASH_SEED = 0xADF678FE45L;
+  private static final XXHash64 XX_HASH_64;
+
+  static {
+    XX_HASH_64 = XXHashFactory.fastestInstance().hash64();
+  }
 
   /**
    * Marks pages which have a checksum stored.
@@ -442,6 +470,22 @@ public final class WOWCache extends AbstractWriteCache
    * Double write log which is used in write cache to prevent page tearing in case of server crash.
    */
   private final DoubleWriteLog doubleWriteLog;
+
+  /**
+   * Set of internal file IDs that are registered as non-durable. Non-durable files participate
+   * in the normal page cache lifecycle but opt out of WAL logging, double-write log protection,
+   * and fsync. Updated via clone-mutate-publish under {@link #filesLock} write lock; readers
+   * access the volatile reference without locking for lock-free O(1) contains checks.
+   */
+  private volatile IntOpenHashSet nonDurableFileIds = new IntOpenHashSet();
+
+  /**
+   * When {@code true}, {@link #deleteFile(long)} skips the per-file
+   * {@link #writeNonDurableRegistry()} call. Set during bulk recovery
+   * ({@link #deleteNonDurableFilesOnRecovery}) to avoid redundant I/O —
+   * the recovery method does a single batch registry write at the end.
+   */
+  private boolean suppressNonDurableRegistryPersist;
 
   private boolean closed;
   private final ExecutorService executor;
@@ -833,9 +877,17 @@ public final class WOWCache extends AbstractWriteCache
   public void updateDirtyPagesTable(
       final CachePointer pointer, final LogSequenceNumber startLSN) {
     final var fileId = pointer.getFileId();
+    final var intFileId = internalFileId(fileId);
+
+    // Non-durable pages must never enter the dirtyPages table — they have no WAL records,
+    // so tracking them would block WAL segment truncation for segments with no durable data.
+    if (nonDurableFileIds.contains(intFileId)) {
+      return;
+    }
+
     final long pageIndex = pointer.getPageIndex();
 
-    final var pageKey = new PageKey(internalFileId(fileId), pageIndex);
+    final var pageKey = new PageKey(intFileId, pageIndex);
 
     LogSequenceNumber dirtyLSN;
     if (startLSN != null) {
@@ -861,6 +913,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long addFile(final String fileName, long fileId) throws IOException {
+    return addFile(fileName, fileId, false);
+  }
+
+  @Override
+  public long addFile(final String fileName, long fileId, final boolean nonDurable)
+      throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -917,6 +975,13 @@ public final class WOWCache extends AbstractWriteCache
 
       writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
 
+      if (nonDurable) {
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.add(intId);
+        nonDurableFileIds = updated;
+        writeNonDurableRegistry();
+      }
+
       return fileId;
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
@@ -924,6 +989,83 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  @Override
+  public boolean isNonDurable(final long fileId) {
+    final var intId = extractFileId(fileId);
+    return nonDurableFileIds.contains(intId);
+  }
+
+  @SuppressWarnings("CheckedExceptionNotThrown") // Interface contract declares IOException
+  @Override
+  public IntOpenHashSet deleteNonDurableFilesOnRecovery(
+      final ReadCache readCache) throws IOException {
+    // Snapshot the non-durable IDs under the lock, then release before calling
+    // readCache.deleteFile() — which re-acquires filesLock internally via
+    // WOWCache.deleteFile(). The lock is not reentrant.
+    final IntOpenHashSet deletedIds;
+    filesLock.acquireReadLock();
+    try {
+      final var currentSet = nonDurableFileIds;
+      if (currentSet.isEmpty()) {
+        return new IntOpenHashSet();
+      }
+      deletedIds = new IntOpenHashSet(currentSet);
+    } finally {
+      filesLock.releaseReadLock();
+    }
+
+    // Suppress per-file registry writes during bulk deletion — we do a single
+    // batch write at the end to avoid redundant I/O (each writeNonDurableRegistry
+    // rewrites the side files and may fsync).
+    suppressNonDurableRegistryPersist = true;
+    try {
+      // Delete each non-durable file from both caches (lock-free iteration over snapshot)
+      for (final var intIterator = deletedIds.iterator(); intIterator.hasNext();) {
+        final var intId = intIterator.nextInt();
+        final var externalId = composeFileId(id, intId);
+
+        try {
+          // readCache.deleteFile() clears read cache pages and delegates to
+          // writeCache.deleteFile() which handles disk deletion + name-id map cleanup
+          // + non-durable registry removal under filesLock
+          readCache.deleteFile(externalId, this);
+        } catch (final Exception e) {
+          // Keep the ID in deletedIds so WAL replay skips records for this file.
+          // Non-durable pages were never WAL-logged, so replaying records on top of
+          // stale non-durable data would produce silent corruption. The side file
+          // still contains this ID — the next recovery retries the physical deletion.
+          logger.error(
+              "Failed to delete non-durable file with internal ID {} during crash recovery,"
+                  + " continuing. WAL replay will skip records for this file.",
+              intId,
+              e);
+        }
+      }
+    } finally {
+      suppressNonDurableRegistryPersist = false;
+    }
+
+    // Persist the updated registry under the write lock. If all deletions succeeded,
+    // nonDurableFileIds is already empty (each deleteFile call removed the ID) and
+    // writeNonDurableRegistry() deletes the side files. If some failed, it persists
+    // only the remaining IDs so the next recovery can retry them.
+    // Wrapped in try-catch: the critical work (file deletion) is already done and
+    // deletedIds must be returned so WAL replay can skip the correct records.
+    filesLock.acquireWriteLock();
+    try {
+      writeNonDurableRegistry();
+    } catch (final IOException e) {
+      logger.error(
+          "Failed to persist non-durable registry after crash recovery deletion,"
+              + " stale side files may remain",
+          e);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+
+    return deletedIds;
   }
 
   @Override
@@ -942,6 +1084,12 @@ public final class WOWCache extends AbstractWriteCache
       try {
         for (final var intId : nameIdMap.values()) {
           if (intId < 0) {
+            continue;
+          }
+
+          // Non-durable files do not need fsync — their data is discarded on crash,
+          // so forcing it to stable storage would be unnecessary write amplification.
+          if (nonDurableFileIds.contains(intId)) {
             continue;
           }
 
@@ -1297,6 +1445,19 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
+        // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
+        if (nonDurableFileIds.contains(intId)) {
+          final var updated = new IntOpenHashSet(nonDurableFileIds);
+          updated.remove(intId);
+          nonDurableFileIds = updated;
+
+          // During bulk recovery the caller batches a single registry write at the end,
+          // so skip the per-file I/O here to avoid redundant fsync overhead.
+          if (!suppressNonDurableRegistryPersist) {
+            writeNonDurableRegistry();
+          }
+        }
+
         writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
       }
     } finally {
@@ -1419,6 +1580,16 @@ public final class WOWCache extends AbstractWriteCache
       idNameMap.put(intFileId, newFileName);
       nameIdMap.remove(fileName);
       nameIdMap.put(newFileName, intFileId);
+
+      // Remove the replaced file's internal ID from non-durable registry if present.
+      // The newFile replaces the old file under intFileId, so newIntFileId is no longer
+      // valid. The intFileId retains whatever durability status the original had.
+      if (nonDurableFileIds.contains(newIntFileId)) {
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.remove(newIntFileId);
+        nonDurableFileIds = updated;
+        writeNonDurableRegistry();
+      }
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Replace of file was interrupted"),
@@ -1532,8 +1703,24 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.close();
 
+      // Non-durable side files are intentionally preserved on clean shutdown so that
+      // crash recovery can identify and delete non-durable files if the next startup
+      // follows a crash. On clean open, initNameIdMapping() reads the side files to
+      // restore the nonDurableFileIds set; on crash recovery, recoverIfNeeded() calls
+      // deleteNonDurableFilesOnRecovery() which reads the same set and deletes the files.
+      //
+      // Best-effort final persist of non-durable state. Every mutation already writes
+      // the registry, so this is redundant in the normal case. If it fails, the side
+      // files still reflect the state from the last successful mutation write.
+      try {
+        writeNonDurableRegistry();
+      } catch (final IOException e) {
+        logger.warn("Failed to write non-durable registry during close", e);
+      }
+
       nameIdMap.clear();
       idNameMap.clear();
+      nonDurableFileIds = new IntOpenHashSet();
 
       return closedIds.toLongArray();
     } finally {
@@ -1786,6 +1973,11 @@ public final class WOWCache extends AbstractWriteCache
 
         nameIdMapHolderPath = null;
       }
+
+      // Delete non-durable side files alongside name-id map deletion
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
+      nonDurableFileIds = new IntOpenHashSet();
     } finally {
       filesLock.releaseWriteLock();
     }
@@ -1890,6 +2082,10 @@ public final class WOWCache extends AbstractWriteCache
     } else {
       storedNameIdMapToV3();
     }
+
+    // Load non-durable file IDs after all name-id map migrations are complete, so we can
+    // filter out IDs that no longer exist in idNameMap.
+    nonDurableFileIds = readNonDurableRegistry();
   }
 
   private void storedNameIdMapToV3() throws IOException {
@@ -1931,6 +2127,184 @@ public final class WOWCache extends AbstractWriteCache
           StandardCopyOption.ATOMIC_MOVE);
     } catch (AtomicMoveNotSupportedException e) {
       Files.move(nameIdMapHolderFileV3T, storagePath.resolve(NAME_ID_MAP_V3));
+    }
+  }
+
+  /**
+   * Writes the current set of non-durable file IDs to the shadow-copy side file pair.
+   * Write protocol: write shadow → fsync → write primary → fsync.
+   *
+   * <p>Format: {@code [4 bytes version][8 bytes xxHash64][4 bytes count][count × 4 bytes fileId]}
+   *
+   * <p>Must be called under {@link #filesLock} write lock.
+   */
+  private void writeNonDurableRegistry() throws IOException {
+    final var currentSet = nonDurableFileIds;
+    if (currentSet.isEmpty()) {
+      // No non-durable files — delete both side files if they exist.
+      // Delete shadow first, then primary: a crash between the two deletions leaves
+      // the primary (which is read first on recovery) as the authoritative source.
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
+      Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
+      return;
+    }
+
+    final var count = currentSet.size();
+    // version(4) + xxHash(8) + count(4) + count*fileId(4)
+    final var buffer = ByteBuffer.allocate(4 + 8 + 4 + count * 4);
+    buffer.order(ByteOrder.BIG_ENDIAN);
+
+    // Write version first
+    buffer.putInt(NON_DURABLE_FILES_VERSION);
+
+    // Reserve space for xxHash (will be written after content)
+    final var hashPosition = buffer.position();
+    assert hashPosition == 4
+        : "hashPosition must be 4 (one version int written); got " + hashPosition;
+    buffer.position(hashPosition + 8);
+
+    // Write count and file IDs
+    buffer.putInt(count);
+    for (final var intIterator = currentSet.iterator(); intIterator.hasNext();) {
+      buffer.putInt(intIterator.nextInt());
+    }
+
+    assert buffer.position() == buffer.capacity()
+        : "Buffer not fully written: position=" + buffer.position()
+            + " capacity=" + buffer.capacity();
+
+    // Compute xxHash over the content after the hash field (from count onward)
+    final var contentStart = hashPosition + 8;
+    final var xxHash =
+        XX_HASH_64.hash(buffer, contentStart, buffer.capacity() - contentStart, XX_HASH_SEED);
+    buffer.putLong(hashPosition, xxHash);
+
+    buffer.rewind();
+
+    // Write shadow first, then primary
+    final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
+    try (final var channel =
+        FileChannel.open(
+            shadowPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.TRUNCATE_EXISTING)) {
+      IOUtils.writeByteBuffer(buffer, channel, 0);
+      if (callFsync) {
+        channel.force(true);
+      }
+    }
+
+    buffer.rewind();
+
+    final var primaryPath = storagePath.resolve(NON_DURABLE_FILES);
+    try (final var channel =
+        FileChannel.open(
+            primaryPath,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.TRUNCATE_EXISTING)) {
+      IOUtils.writeByteBuffer(buffer, channel, 0);
+      if (callFsync) {
+        channel.force(true);
+      }
+    }
+  }
+
+  /**
+   * Reads non-durable file IDs from the shadow-copy side file pair.
+   * Read protocol: try primary, if hash invalid → try shadow, if both invalid → return empty.
+   * Filters out IDs not present in {@link #idNameMap}.
+   *
+   * <p>Must be called under {@link #filesLock} write lock, after name-id map is fully loaded.
+   */
+  private IntOpenHashSet readNonDurableRegistry() {
+    final var primaryPath = storagePath.resolve(NON_DURABLE_FILES);
+    final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
+
+    var result = readNonDurableRegistryFile(primaryPath);
+    if (result != null) {
+      return result;
+    }
+
+    result = readNonDurableRegistryFile(shadowPath);
+    if (result != null) {
+      return result;
+    }
+
+    // Both missing or corrupt — safe fallback: treat all files as durable
+    return new IntOpenHashSet();
+  }
+
+  /**
+   * Attempts to read non-durable file IDs from a single side file. Returns null if the file
+   * does not exist, is too small, or has an invalid xxHash.
+   */
+  private IntOpenHashSet readNonDurableRegistryFile(final Path path) {
+    if (!Files.exists(path)) {
+      return null;
+    }
+
+    try (final var channel =
+        FileChannel.open(path, StandardOpenOption.READ)) {
+      final var size = channel.size();
+
+      // Minimum valid size: version(4) + hash(8) + count(4) = 16 bytes
+      if (size < 16) {
+        logger.warn("Non-durable registry file {} is too small ({}), ignoring", path, size);
+        return null;
+      }
+
+      // Sanity check: side file should never be larger than a few KB
+      if (size > MAX_FILE_RECORD_LEN) {
+        logger.warn("Non-durable registry file {} is too large ({}), ignoring", path, size);
+        return null;
+      }
+
+      final var buffer = ByteBuffer.allocate((int) size);
+      buffer.order(ByteOrder.BIG_ENDIAN);
+      IOUtils.readByteBuffer(buffer, channel);
+      buffer.rewind();
+
+      final var version = buffer.getInt();
+      if (version != NON_DURABLE_FILES_VERSION) {
+        logger.warn(
+            "Non-durable registry file {} has unsupported version {}, ignoring",
+            path, version);
+        return null;
+      }
+
+      final var storedHash = buffer.getLong();
+
+      // Verify xxHash over content after the hash field
+      final var contentStart = 4 + 8; // version + hash
+      final var xxHash =
+          XX_HASH_64.hash(buffer, contentStart, buffer.capacity() - contentStart, XX_HASH_SEED);
+      if (xxHash != storedHash) {
+        logger.warn("Non-durable registry file {} has invalid checksum, ignoring", path);
+        return null;
+      }
+
+      final var count = buffer.getInt();
+      if (count < 0 || count > (size - contentStart - 4) / 4) {
+        logger.warn(
+            "Non-durable registry file {} has invalid count {}, ignoring", path, count);
+        return null;
+      }
+
+      final var result = new IntOpenHashSet(count);
+      for (var i = 0; i < count; i++) {
+        final var fileId = buffer.getInt();
+        // Only keep IDs that still exist in the name-id map (filter stale entries)
+        if (idNameMap.containsKey(fileId)) {
+          result.add(fileId);
+        }
+      }
+
+      return result;
+    } catch (final IOException e) {
+      logger.warn("Failed to read non-durable registry file {}", path, e);
+      return null;
     }
   }
 
@@ -2849,6 +3223,14 @@ public final class WOWCache extends AbstractWriteCache
 
       while (lsnPagesIterator.hasNext() && pageKeysToFlush.size() < pagesFlushLimit - chunksSize) {
         final var pageKey = lsnPagesIterator.next();
+
+        // Non-durable pages must never appear in dirtyPages (and therefore not in
+        // localDirtyPagesBySegment). If this fires, updateDirtyPagesTable's early-return
+        // guard was bypassed.
+        assert !nonDurableFileIds.contains(pageKey.fileId)
+            : "Non-durable page found in dirty pages table: fileId=" + pageKey.fileId
+                + ", pageIndex=" + pageKey.pageIndex;
+
         var fileId = pageKey.fileId;
         var fileSize = fileIdSizeMap.get(fileId);
 
@@ -3030,7 +3412,12 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    final var flushedPages = flushPages(chunks, maxFullLogLSN);
+    // Use partitionAndFlushChunks for defense-in-depth: if a non-durable page ever
+    // leaked into dirtyPages (bypassing the updateDirtyPagesTable guard), it would be
+    // routed to flushNonDurablePages instead of going through the DWL/fsync path.
+    // The assert at the top of the dirty-page iteration loop is the primary guard,
+    // but it is disabled in production (-ea not set).
+    final var flushedPages = partitionAndFlushChunks(chunks, maxFullLogLSN);
     if (copiedPages != flushedPages) {
       throw new IllegalStateException(
           "Copied pages (" + copiedPages + " ) != flushed pages (" + flushedPages + ")");
@@ -3138,6 +3525,132 @@ public final class WOWCache extends AbstractWriteCache
     removeWrittenPagesFromCache(chunks);
 
     return flushedPages;
+  }
+
+  /**
+   * Flushes non-durable pages to their data files without WAL sync, double-write log, or
+   * fsync. Non-durable data is discarded on crash, so these protections are unnecessary.
+   * On I/O error, logs a warning but does NOT set {@code flushError} — a non-durable flush
+   * failure must not block durable flushes.
+   */
+  private int flushNonDurablePages(final ArrayList<ArrayList<WritePageContainer>> chunks) {
+    if (chunks.isEmpty()) {
+      return 0;
+    }
+
+    // Count total pages upfront so we can return the correct count even on error.
+    // The caller (flushExclusiveWriteCache) already incremented copiedPages for these
+    // pages, so returning a matching count prevents the copiedPages != flushedPages
+    // invariant check from crashing the flush thread on a non-durable I/O error.
+    var totalPages = 0;
+    for (final var chunk : chunks) {
+      totalPages += chunk.size();
+    }
+
+    var flushedPages = 0;
+
+    final var containerPointers = new ArrayList<Pointer>(chunks.size());
+    final var containerBuffers = new ArrayList<ByteBuffer>(chunks.size());
+    final var chunkPageIndexes = new IntArrayList(chunks.size());
+    final var chunkFileIds = new IntArrayList(chunks.size());
+
+    final var buffersByFileId =
+        new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    try {
+      flushedPages =
+          copyPageChunksIntoTheBuffers(
+              chunks,
+              flushedPages,
+              containerPointers,
+              containerBuffers,
+              buffersByFileId,
+              chunkPageIndexes,
+              chunkFileIds);
+      // Skip doubleWriteLog.write() — non-durable pages do not need DWL protection
+      writePageChunksToFiles(buffersByFileId);
+      // Skip fsyncFiles() — non-durable data does not need to be forced to stable storage
+    } catch (final Exception e) {
+      // Non-durable data is discardable — log and continue without setting flushError.
+      // Do NOT call removeWrittenPagesFromCache here — pages may not have been written
+      // successfully, so they must remain in the write cache for retry on the next flush.
+      LogManager.instance()
+          .warn(
+              this,
+              "Error flushing non-durable pages in storage %s. Data will be discarded on crash.",
+              e,
+              storageName);
+      // Release per-page copy buffers to prevent direct memory leak. Each
+      // WritePageContainer holds a pageCopyDirectMemoryPointer allocated by the caller
+      // (bufferPool.acquireDirect); normally released by removeWrittenPagesFromCache,
+      // which we skip on error.
+      for (final var chunk : chunks) {
+        for (final var chunkPage : chunk) {
+          bufferPool.release(chunkPage.pageCopyDirectMemoryPointer);
+        }
+      }
+      return totalPages;
+    } finally {
+      for (final var containerPointer : containerPointers) {
+        if (containerPointer != null) {
+          DirectMemoryAllocator.instance().deallocate(containerPointer);
+        }
+      }
+    }
+
+    removeWrittenPagesFromCache(chunks);
+
+    return flushedPages;
+  }
+
+  /**
+   * Partitions chunks by durability and flushes each group through the appropriate path:
+   * durable chunks go through {@link #flushPages} (WAL sync + DWL + fsync), non-durable
+   * chunks go through {@link #flushNonDurablePages} (write only, no crash protection).
+   *
+   * @return total number of pages flushed across both paths
+   */
+  private int partitionAndFlushChunks(
+      final ArrayList<ArrayList<WritePageContainer>> chunks,
+      final LogSequenceNumber fullLogLSN)
+      throws java.lang.InterruptedException, IOException {
+    if (chunks.isEmpty()) {
+      return 0;
+    }
+
+    // Capture a consistent snapshot of the non-durable file ID set. The volatile read
+    // happens once here instead of per-chunk, ensuring all chunks in a single call are
+    // classified against the same snapshot.
+    final var localNonDurableFileIds = nonDurableFileIds;
+
+    // Fast path: when no non-durable files exist (common case for existing databases),
+    // skip partitioning entirely — all chunks are durable.
+    if (localNonDurableFileIds.isEmpty()) {
+      return flushPages(chunks, fullLogLSN);
+    }
+
+    final var durableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
+    final var nonDurableChunks = new ArrayList<ArrayList<WritePageContainer>>(chunks.size());
+
+    for (final var chunk : chunks) {
+      if (chunk.isEmpty()) {
+        continue;
+      }
+      // All pages in a chunk share the same file (chunks are split on file boundaries
+      // in flushExclusiveWriteCache and executeFileFlush), so checking the first page
+      // is sufficient to classify the entire chunk.
+      final var firstPage = chunk.getFirst();
+      final var fileId = firstPage.originalPagePointer.getFileId();
+      if (localNonDurableFileIds.contains(internalFileId(fileId))) {
+        nonDurableChunks.add(chunk);
+      } else {
+        durableChunks.add(chunk);
+      }
+    }
+
+    var flushed = 0;
+    flushed += flushPages(durableChunks, fullLogLSN);
+    flushed += flushNonDurablePages(nonDurableChunks);
+    return flushed;
   }
 
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
@@ -3325,6 +3838,9 @@ public final class WOWCache extends AbstractWriteCache
     // amount of dirty pages that exist only in write cache
     final var ewcSize = exclusiveWriteCacheSize.get();
 
+    // Snapshot for assertions — same pattern as executeFileFlush.
+    final var localNonDurableFileIds = nonDurableFileIds;
+
     // we flush at least chunkSize pages but no more than amount of exclusive pages.
     pagesToFlushLimit = Math.min(Math.max(pagesToFlushLimit, chunkSize), ewcSize);
 
@@ -3421,7 +3937,7 @@ public final class WOWCache extends AbstractWriteCache
               chunk = new ArrayList<>(16);
             }
 
-            flushedPages += flushPages(chunks, maxFullLogLSN);
+            flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
             if (latch != null && exclusiveWriteCacheSize.get() <= exclusiveWriteCacheMaxSize) {
               latch.countDown();
             }
@@ -3483,8 +3999,13 @@ public final class WOWCache extends AbstractWriteCache
               pointer.releaseSharedLock(sharedStamp);
             }
 
+            // Non-durable pages have null endLSN (setEndLSN is skipped in
+            // commitChanges), so they are naturally excluded from maxFullLogLSN
+            // by the null check. Only durable pages contribute to WAL pinning.
             if (fullLSN != null
                 && (maxFullLogLSN == null || maxFullLogLSN.compareTo(fullLSN) < 0)) {
+              assert !localNonDurableFileIds.contains(internalFileId(pointer.getFileId()))
+                  : "Non-durable page should not have a non-null endLSN";
               maxFullLogLSN = fullLSN;
             }
 
@@ -3505,7 +4026,7 @@ public final class WOWCache extends AbstractWriteCache
                 chunk = new ArrayList<>(16);
               }
 
-              flushedPages += flushPages(chunks, maxFullLogLSN);
+              flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
 
               chunks.clear();
               prevChunksSize = 0;
@@ -3534,7 +4055,7 @@ public final class WOWCache extends AbstractWriteCache
             // we need to check only prevChunksSize because current chunk is empty
             if (prevChunksSize >= this.chunkSize
                 || underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
-              flushedPages += flushPages(chunks, maxFullLogLSN);
+              flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
 
               chunks.clear();
               prevChunksSize = 0;
@@ -3578,7 +4099,7 @@ public final class WOWCache extends AbstractWriteCache
       chunks.add(chunk);
     }
 
-    flushedPages += flushPages(chunks, maxFullLogLSN);
+    flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
     if (copiedPages != flushedPages) {
       throw new IllegalStateException(
           "Copied pages (" + copiedPages + " ) != flushed pages (" + flushedPages + ")");
@@ -3598,7 +4119,25 @@ public final class WOWCache extends AbstractWriteCache
       return null;
     }
 
-    writeAheadLog.flush();
+    // Only flush WAL if at least one file in the set is durable. Non-durable
+    // files never produce WAL records, so flushing is unnecessary overhead.
+    final var localNonDurableFileIds = nonDurableFileIds;
+    if (localNonDurableFileIds.isEmpty()) {
+      // Common case: no non-durable files exist — all files are durable.
+      writeAheadLog.flush();
+    } else {
+      boolean hasDurableFile = false;
+      var idIterator = fileIdSet.intIterator();
+      while (idIterator.hasNext()) {
+        if (!localNonDurableFileIds.contains(idIterator.nextInt())) {
+          hasDurableFile = true;
+          break;
+        }
+      }
+      if (hasDurableFile) {
+        writeAheadLog.flush();
+      }
+    }
 
     final var pagesToFlush = new TreeSet<PageKey>();
     for (final var entry : writeCachePages.entrySet()) {
@@ -3633,6 +4172,8 @@ public final class WOWCache extends AbstractWriteCache
 
             final var endLSN = pagePointer.getEndLSN();
 
+            // Non-durable pages have null endLSN (setEndLSN is skipped in
+            // commitChanges), so they are naturally excluded from maxLSN.
             if (endLSN != null && (maxLSN == null || endLSN.compareTo(maxLSN) > 0)) {
               maxLSN = endLSN;
             }
@@ -3651,18 +4192,26 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         if (chunks.size() >= 4 * chunkSize) {
-          flushPages(chunks, maxLSN);
+          partitionAndFlushChunks(chunks, maxLSN);
           chunks.clear();
         }
       }
     }
 
-    flushPages(chunks, maxLSN);
+    partitionAndFlushChunks(chunks, maxLSN);
 
     if (callFsync) {
       var fileIdIterator = fileIdSet.intIterator();
       while (fileIdIterator.hasNext()) {
-        final var finalId = composeFileId(id, fileIdIterator.nextInt());
+        final var intFileId = fileIdIterator.nextInt();
+
+        // Non-durable files do not need fsync — skip to avoid unnecessary I/O.
+        // Use the same snapshot as the WAL-guard loop above for consistency.
+        if (localNonDurableFileIds.contains(intFileId)) {
+          continue;
+        }
+
+        final var finalId = composeFileId(id, intFileId);
         final var entry = files.acquire(finalId);
         if (entry != null) {
           try {
