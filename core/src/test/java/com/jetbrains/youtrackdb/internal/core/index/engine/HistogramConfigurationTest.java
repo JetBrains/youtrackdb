@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -23,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests that histogram configuration parameters from
@@ -31,7 +33,12 @@ import org.junit.Test;
  *
  * <p>Each test temporarily overrides a config value, exercises the code
  * path that reads it, and then restores the original in {@link #tearDown()}.
+ *
+ * <p>Runs sequentially because it mutates {@link GlobalConfiguration},
+ * a JVM-wide singleton that would race with other test classes in the
+ * parallel surefire execution.
  */
+@Category(SequentialTest.class)
 public class HistogramConfigurationTest {
 
   /**
