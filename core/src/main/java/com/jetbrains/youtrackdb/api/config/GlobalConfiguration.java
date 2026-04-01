@@ -851,6 +851,16 @@ public enum GlobalConfiguration {
       10000,
       true),
 
+  QUERY_MATCH_HASH_JOIN_THRESHOLD(
+      "youtrackdb.query.match.hashJoinThreshold",
+      "Maximum estimated build-side cardinality for the MATCH hash join"
+          + " optimization. When the planner estimates that a NOT sub-pattern or"
+          + " secondary branch produces more rows than this threshold, it falls"
+          + " back to nested-loop evaluation. Set to 0 to disable hash join.",
+      Long.class,
+      10000L,
+      true),
+
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
