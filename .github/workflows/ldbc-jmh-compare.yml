@@ -214,9 +214,7 @@ jobs:
           if [ "$DB_READY" = "false" ]; then
             echo "Extracting CSV dataset..."
             mkdir -p "$CSV_DIR"
-            cd "$CSV_DIR"
-            tar xf "$CSV_TAR"
-            cd "$GITHUB_WORKSPACE"
+            tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
 
             echo "=== Extracted CSV contents ==="
             ls -la "$CSV_DIR/" | head -20
@@ -349,9 +347,7 @@ jobs:
           if [ "$DB_READY" = "false" ]; then
             echo "Extracting CSV dataset..."
             mkdir -p "$CSV_DIR"
-            cd "$CSV_DIR"
-            tar xf "$CSV_TAR"
-            cd "$GITHUB_WORKSPACE"
+            tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
 
             echo "=== Extracted CSV contents ==="
             ls -la "$CSV_DIR/" | head -20
