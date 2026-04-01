@@ -4674,6 +4674,13 @@ public class CASDiskWriteAheadLogIT {
           }
         }
 
+        // Flush all pending records to disk before verifying the post-last-record state.
+        // Without this flush, next() only guarantees that data up to the given LSN is on disk,
+        // but EmptyWALRecords logged by appendNewSegment() after the last user record may not
+        // have been flushed yet. readFromDisk() truncates at the writtenUpTo segment, so
+        // unflushed records in later segments would be missed — causing a count mismatch.
+        wal.flush();
+
         // After the last record, the behavior depends on whether new segments were appended
         // after the last user record.
         var lastResult = wal.next(records.get(recordsCount - 1).getLsn(), 500);
