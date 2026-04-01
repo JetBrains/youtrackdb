@@ -582,7 +582,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public void addToApproximateEntryCount(long delta) {
+  public void addToApproximateEntriesCount(long delta) {
     approximateIndexEntriesCount.addAndGet(delta);
   }
 

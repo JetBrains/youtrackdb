@@ -165,7 +165,7 @@ public class BTreeEngineHistogramBuildTest {
   public void singleValue_getTotalCount_reflectsCounterValue() {
     // getTotalCount() is O(1): reads approximateIndexEntriesCount directly.
     var f = new SingleValueFixture();
-    f.engine.addToApproximateEntryCount(3);
+    f.engine.addToApproximateEntriesCount(3);
     assertEquals(3, f.engine.getTotalCount(f.op));
   }
 
@@ -176,10 +176,10 @@ public class BTreeEngineHistogramBuildTest {
   }
 
   @Test
-  public void singleValue_addToApproximateEntryCount_negativeDelta() {
+  public void singleValue_addToApproximateEntriesCount_negativeDelta() {
     var f = new SingleValueFixture();
-    f.engine.addToApproximateEntryCount(10);
-    f.engine.addToApproximateEntryCount(-3);
+    f.engine.addToApproximateEntriesCount(10);
+    f.engine.addToApproximateEntriesCount(-3);
     assertEquals(7, f.engine.getTotalCount(f.op));
   }
 
@@ -284,7 +284,7 @@ public class BTreeEngineHistogramBuildTest {
   public void multiValue_getTotalCount_reflectsCounterValue() {
     // getTotalCount() is O(1): reads approximateIndexEntriesCount directly.
     var f = new MultiValueFixture();
-    f.engine.addToApproximateEntryCount(3);
+    f.engine.addToApproximateEntriesCount(3);
     assertEquals(3, f.engine.getTotalCount(f.op));
   }
 
@@ -294,7 +294,7 @@ public class BTreeEngineHistogramBuildTest {
     // the other. This mirrors the commit path where applyIndexCountDeltas
     // calls both addTo methods separately.
     var f = new MultiValueFixture();
-    f.engine.addToApproximateEntryCount(5);
+    f.engine.addToApproximateEntriesCount(5);
     f.engine.addToApproximateNullCount(2);
     assertEquals(5, f.engine.getTotalCount(f.op));
     assertEquals(2, f.engine.getNullCount(f.op));
@@ -568,7 +568,7 @@ public class BTreeEngineHistogramBuildTest {
     // clear() must reset both approximateIndexEntriesCount and
     // approximateNullCount to 0.
     var f = new SingleValueFixture();
-    f.engine.addToApproximateEntryCount(10);
+    f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
 
     f.engine.clear(f.storage, f.op);
@@ -581,7 +581,7 @@ public class BTreeEngineHistogramBuildTest {
   public void multiValue_clear_resetsBothCountersToZero() throws IOException {
     // clear() must reset both counters to 0 for multi-value engine.
     var f = new MultiValueFixture();
-    f.engine.addToApproximateEntryCount(10);
+    f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(3);
 
     f.engine.clear(f.storage, f.op);

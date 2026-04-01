@@ -65,7 +65,7 @@ public interface BTreeIndexEngine extends V1IndexEngine {
    * Adjusts the approximate total entry count by the given delta. Called by
    * {@code AbstractStorage.applyIndexCountDeltas()} after a successful commit.
    */
-  void addToApproximateEntryCount(long delta);
+  void addToApproximateEntriesCount(long delta);
 
   /**
    * Adjusts the approximate null entry count by the given delta. Called by

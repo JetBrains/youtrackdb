@@ -2269,7 +2269,7 @@ public abstract class AbstractStorage
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
-          btreeEngine.addToApproximateEntryCount(delta.totalDelta);
+          btreeEngine.addToApproximateEntriesCount(delta.totalDelta);
           btreeEngine.addToApproximateNullCount(delta.nullDelta);
         }
       }
