@@ -965,14 +965,8 @@ public class MatchExecutionPlanner {
    * @param allPatternAliases  all known aliases to check for
    * @param result             set to add found aliases to
    */
-  private static void collectAliasesFromText(
-      String text, Set<String> allPatternAliases, Set<String> result) {
-    collectAliasesFromText(text, allPatternAliases, result, Map.of());
-  }
-
   /**
-   * Overload that accepts pre-compiled patterns to avoid repeated regex compilation
-   * when scanning multiple expressions.
+   * Scans a text string for alias references using pre-compiled word-boundary patterns.
    */
   private static void collectAliasesFromText(
       String text,
@@ -1220,9 +1214,16 @@ public class MatchExecutionPlanner {
         return null;
       }
     }
-    // Also check the consistency-check edge's target (which is a shared alias, but
-    // its filter might reference $matched)
+    // Also check shared aliases (checkTarget, checkSource, branchRoot) — their
+    // filters are used in the build-side plan's scan or leftFilter, and $matched
+    // is not populated in the isolated context.
     if (filterDependsOnContext(aliasFilters.get(checkTarget))) {
+      return null;
+    }
+    if (filterDependsOnContext(aliasFilters.get(checkSource))) {
+      return null;
+    }
+    if (branchRoot != null && filterDependsOnContext(aliasFilters.get(branchRoot))) {
       return null;
     }
 
@@ -1403,7 +1404,10 @@ public class MatchExecutionPlanner {
     var originFilter = aliasFilters.get(originAlias);
 
     // Build the origin scan: SELECT FROM <class> [WHERE ...]
-    var select = createSelectStatement(originClass, originRid, originFilter);
+    // Copy the WHERE clause to prevent mutable filter corruption (same as
+    // buildHashJoinBranchPlan and addStepsFor).
+    var select = createSelectStatement(
+        originClass, originRid, originFilter == null ? null : originFilter.copy());
 
     // Create PatternNode for the origin alias
     var originNode = new PatternNode();
@@ -3057,12 +3061,19 @@ public class MatchExecutionPlanner {
     if (value instanceof String s && !s.isEmpty()) {
       // Strip surrounding quotes if present (defensive — execute() typically
       // returns the unquoted string, but some AST paths may retain quotes)
-      if (s.length() >= 2
-          && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
-              || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'))) {
-        return s.substring(1, s.length() - 1);
+      var label = s;
+      if (label.length() >= 2
+          && ((label.charAt(0) == '\'' && label.charAt(label.length() - 1) == '\'')
+              || (label.charAt(0) == '"' && label.charAt(label.length() - 1) == '"'))) {
+        label = label.substring(1, label.length() - 1);
       }
-      return s;
+      // Validate: edge class names must be valid identifiers. Reject anything
+      // containing characters that could break SQL string interpolation (e.g.,
+      // single quotes from escaped literals in the MATCH parser).
+      if (!label.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+        return null;
+      }
+      return label;
     }
     return null;
   }

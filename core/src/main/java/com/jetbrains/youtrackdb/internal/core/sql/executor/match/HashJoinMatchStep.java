@@ -262,28 +262,34 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       return JoinKey.ofObjectsOwned(new Object[] {value});
     }
 
-    // Multi-alias: check if all values are RIDs
+    // Multi-alias: try to populate RID[] directly, fall back to Object[] on
+    // first non-RID value (avoids double array allocation in the common case).
     var size = sharedAliases.size();
-    var values = new Object[size];
-    var allRids = true;
+    var rids = new RID[size];
     for (int i = 0; i < size; i++) {
-      values[i] = row.getProperty(sharedAliases.get(i));
-      if (values[i] == null) {
+      var value = row.getProperty(sharedAliases.get(i));
+      if (value == null) {
         return null;
       }
-      if (!(values[i] instanceof RID)) {
-        allRids = false;
+      if (value instanceof RID rid) {
+        rids[i] = rid;
+      } else {
+        // Non-RID found — fall back to Object[] for all values
+        var objects = new Object[size];
+        for (int j = 0; j < i; j++) {
+          objects[j] = rids[j]; // copy already-extracted RIDs
+        }
+        objects[i] = value;
+        for (int j = i + 1; j < size; j++) {
+          objects[j] = row.getProperty(sharedAliases.get(j));
+          if (objects[j] == null) {
+            return null;
+          }
+        }
+        return JoinKey.ofObjectsOwned(objects);
       }
     }
-
-    if (allRids) {
-      var rids = new RID[size];
-      for (int i = 0; i < size; i++) {
-        rids[i] = (RID) values[i];
-      }
-      return JoinKey.ofRidsOwned(rids);
-    }
-    return JoinKey.ofObjectsOwned(values);
+    return JoinKey.ofRidsOwned(rids);
   }
 
   @Override
