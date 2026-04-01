@@ -2854,7 +2854,7 @@ public final class WOWCache extends AbstractWriteCache
 
         if (fileSize == -1) {
           var fileForSize = files.get(externalFileId(fileId));
-          // File may have been deleted concurrently — skip pages for deleted files.
+          // File may have been deleted concurrently — skip this page.
           if (fileForSize == null) {
             continue;
           }
@@ -2988,7 +2988,7 @@ public final class WOWCache extends AbstractWriteCache
           lastFileId = -1;
 
           var fileForSize = files.get(externalFileId(pageKey.fileId));
-          // File may have been deleted concurrently — skip pages for deleted files.
+          // File may have been deleted concurrently — skip this page.
           if (fileForSize == null) {
             continue;
           }

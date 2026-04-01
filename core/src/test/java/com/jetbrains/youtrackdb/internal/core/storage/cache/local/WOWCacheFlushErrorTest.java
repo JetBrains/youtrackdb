@@ -115,8 +115,8 @@ public class WOWCacheFlushErrorTest {
 
   /**
    * Verifies that {@code callPageIsBrokenListeners} iterates through registered listeners
-   * and notifies them when a page is broken. Covers the for-loop body at line 627 and
-   * the listener invocation path.
+   * and notifies them when a page is broken. Covers the for-loop body in
+   * {@code callPageIsBrokenListeners} and the listener invocation path.
    */
   @SuppressWarnings("unchecked") // unchecked: generic WeakReference list mock
   @Test
@@ -290,6 +290,107 @@ public class WOWCacheFlushErrorTest {
   }
 
   /**
+   * Verifies that {@code flushWriteCacheFromMinLSN()} correctly handles the case where a page's
+   * shared lock cannot be acquired and the file still exists but the page is beyond the file size.
+   * This covers the false branch of the null-file guard in the lock-failure path of the for-loop
+   * (file is not null) and the subsequent {@code break flushCycle} when the page exceeds file
+   * bounds.
+   *
+   * <p>Scenario: the page at index 5 is collected into {@code pageKeysToFlush} during the inner
+   * while-loop (file reports size = 6 pages). In the for-loop, the lock fails and the file now
+   * reports size = 0 (shrunk concurrently), so {@code pageIndex * pageSize >= fileSize} triggers
+   * {@code break flushCycle}.
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test
+  public void testFlushWriteCacheFromMinLSNBreaksWhenFileShrunkOnFailedLock() throws Exception {
+    var cache = buildCacheForFlushTest();
+
+    // Two separate file mocks: one for the inner while-loop (large file) and one for the
+    // for-loop else branch (file shrunk to 0 — still exists but page is now beyond bounds)
+    var whileLoopFile = mock(File.class);
+    Mockito.when(whileLoopFile.getUnderlyingFileSize()).thenReturn(6L * PAGE_SIZE);
+    var forLoopFile = mock(File.class);
+    Mockito.when(forLoopFile.getUnderlyingFileSize()).thenReturn(0L);
+
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    Mockito.when(filesContainer.get(anyLong())).thenReturn(whileLoopFile).thenReturn(forLoopFile);
+    setField(cache, "files", filesContainer);
+
+    // Page at index 5 — within bounds during while-loop (6 pages), but beyond in for-loop (0)
+    var pageKey = new PageKey(7, 5);
+    var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
+    var pages = new TreeSet<PageKey>();
+    pages.add(pageKey);
+    localDirtyPagesBySegment.put(1L, pages);
+    setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
+
+    // CachePointer that fails to acquire shared lock
+    var writeCachePages = new ConcurrentHashMap<PageKey, CachePointer>();
+    var cachePointer = mock(CachePointer.class);
+    Mockito.when(cachePointer.tryAcquireSharedLock()).thenReturn(0L);
+    writeCachePages.put(pageKey, cachePointer);
+    setField(cache, "writeCachePages", writeCachePages);
+
+    // Should complete without error — break flushCycle exits the method cleanly
+    invokeFlushWriteCacheFromMinLSN(cache, 1L, 2L, 10);
+
+    // Verify the lock attempt was made (confirms we entered the else branch)
+    Mockito.verify(cachePointer).tryAcquireSharedLock();
+
+    // Verify the second files.get() was called (for-loop file-size check after lock failure)
+    Mockito.verify(filesContainer, Mockito.times(2)).get(anyLong());
+  }
+
+  /**
+   * Verifies segment advancement when the inner while-loop does NOT exhaust the iterator but
+   * no progress is made in the for-loop. This exercises the second disjunct of the compound
+   * condition ({@code chunksSize == chunksSizeBeforeFlush}) independently of the first
+   * ({@code !lsnPagesIterator.hasNext()}).
+   *
+   * <p>Scenario: segment 1 has two pages. {@code pagesFlushLimit = 1} causes the inner
+   * while-loop to collect only the first page (leaving the iterator with {@code hasNext() ==
+   * true}). In the for-loop, the page's lock fails and the file is found to be deleted
+   * ({@code continue}), so {@code chunksSize} stays at 0. The segment-advancement condition
+   * fires on the second disjunct and the method terminates instead of looping infinitely.
+   */
+  @SuppressWarnings("unchecked") // unchecked: ClosableLinkedContainer<Long, File> mock
+  @Test(timeout = 10_000)
+  public void testFlushWriteCacheFromMinLSNAdvancesOnNoProgressWithRemainingPages()
+      throws Exception {
+    var cache = buildCacheForFlushTest();
+
+    // Two pages in the same segment — the inner while-loop will collect only the first
+    // because pagesFlushLimit = 1
+    var filesContainer = mock(ClosableLinkedContainer.class);
+    var mockFile = mock(File.class);
+    Mockito.when(mockFile.getUnderlyingFileSize()).thenReturn((long) PAGE_SIZE);
+    // First call (while-loop size lookup): valid file. Second call (for-loop lock-fail
+    // path): null (deleted between collection and flush).
+    Mockito.when(filesContainer.get(anyLong())).thenReturn(mockFile).thenReturn(null);
+    setField(cache, "files", filesContainer);
+
+    var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
+    var segPages = new TreeSet<PageKey>();
+    segPages.add(new PageKey(7, 0));
+    segPages.add(new PageKey(7, 1));
+    localDirtyPagesBySegment.put(1L, segPages);
+    setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
+
+    // CachePointer with failed lock acquisition
+    var writeCachePages = new ConcurrentHashMap<PageKey, CachePointer>();
+    var cachePointer = mock(CachePointer.class);
+    Mockito.when(cachePointer.tryAcquireSharedLock()).thenReturn(0L);
+    writeCachePages.put(new PageKey(7, 0), cachePointer);
+    setField(cache, "writeCachePages", writeCachePages);
+
+    // pagesFlushLimit = 1 so the inner while-loop collects only the first page,
+    // leaving lsnPagesIterator.hasNext() == true.
+    // segStart=1, segEnd=3 — must advance past segment 1 and terminate.
+    invokeFlushWriteCacheFromMinLSN(cache, 1L, 3L, 1);
+  }
+
+  /**
    * Verifies the segment-advancement fix: when segment 1 contains only pages for deleted files,
    * the flush method must advance to segment 2 rather than retrying segment 1 indefinitely.
    * Without the fix, this test would hang forever (infinite loop).
@@ -317,6 +418,12 @@ public class WOWCacheFlushErrorTest {
 
   // ---------------------------------------------------------------------------
   // Helper methods
+  //
+  // These tests depend on the following WOWCache internal fields (via reflection):
+  //   files, filesLock, id, pageSize, storageName, closed,
+  //   dirtyPages, localDirtyPages, localDirtyPagesBySegment, writeCachePages,
+  //   flushError, pageIsBrokenListeners
+  // If any of these fields are renamed or removed, update setField() calls here.
   // ---------------------------------------------------------------------------
 
   /**
