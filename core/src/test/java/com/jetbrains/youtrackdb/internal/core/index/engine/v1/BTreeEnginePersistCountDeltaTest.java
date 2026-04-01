@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -41,6 +42,7 @@ public class BTreeEnginePersistCountDeltaTest {
 
     // Full totalDelta (10) forwarded to sbTree, nullDelta (1) is ignored
     verify(f.sbTree).addToApproximateEntriesCount(f.op, 10);
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -51,9 +53,11 @@ public class BTreeEnginePersistCountDeltaTest {
   public void singleValue_persistCountDelta_handlesNegativeDelta() {
     var f = new SingleValueFixture();
 
-    f.engine.persistCountDelta(f.op, -3, 0);
+    // nullDelta (2) should be ignored — sbTree still gets -3, not -5
+    f.engine.persistCountDelta(f.op, -3, 2);
 
     verify(f.sbTree).addToApproximateEntriesCount(f.op, -3);
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   /**
@@ -64,9 +68,11 @@ public class BTreeEnginePersistCountDeltaTest {
   public void singleValue_persistCountDelta_handlesZeroDelta() {
     var f = new SingleValueFixture();
 
-    f.engine.persistCountDelta(f.op, 0, 0);
+    // totalDelta=0 forwarded as-is; nullDelta=3 is ignored
+    f.engine.persistCountDelta(f.op, 0, 3);
 
     verify(f.sbTree).addToApproximateEntriesCount(f.op, 0);
+    verifyNoMoreInteractions(f.sbTree);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -87,6 +93,7 @@ public class BTreeEnginePersistCountDeltaTest {
     verify(f.svTree).addToApproximateEntriesCount(f.op, 7);
     // nullTree: 3 null entries
     verify(f.nullTree).addToApproximateEntriesCount(f.op, 3);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   /**
@@ -101,6 +108,7 @@ public class BTreeEnginePersistCountDeltaTest {
 
     verify(f.svTree).addToApproximateEntriesCount(f.op, 0);
     verify(f.nullTree).addToApproximateEntriesCount(f.op, 5);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   /**
@@ -115,6 +123,7 @@ public class BTreeEnginePersistCountDeltaTest {
 
     verify(f.svTree).addToApproximateEntriesCount(f.op, 8);
     verify(f.nullTree).addToApproximateEntriesCount(f.op, 0);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   /**
@@ -130,6 +139,7 @@ public class BTreeEnginePersistCountDeltaTest {
     verify(f.svTree).addToApproximateEntriesCount(f.op, -3);
     // nullTree: -1
     verify(f.nullTree).addToApproximateEntriesCount(f.op, -1);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   /**
@@ -143,6 +153,25 @@ public class BTreeEnginePersistCountDeltaTest {
 
     verify(f.svTree).addToApproximateEntriesCount(f.op, 0);
     verify(f.nullTree).addToApproximateEntriesCount(f.op, 0);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
+  }
+
+  /**
+   * Multi-value engine: nullDelta exceeds totalDelta, resulting in a negative
+   * non-null delta to svTree. This occurs when a transaction removes more
+   * non-null entries than it adds while also adding null entries.
+   */
+  @Test
+  public void multiValue_persistCountDelta_nullDeltaExceedsTotalDelta() {
+    var f = new MultiValueFixture();
+
+    f.engine.persistCountDelta(f.op, 2, 5);
+
+    // svTree: 2 - 5 = -3 (non-null entries decreased)
+    verify(f.svTree).addToApproximateEntriesCount(f.op, -3);
+    // nullTree: 5
+    verify(f.nullTree).addToApproximateEntriesCount(f.op, 5);
+    verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
