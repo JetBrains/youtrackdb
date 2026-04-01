@@ -158,6 +158,131 @@ public class HelperClasses {
     }
   }
 
+  // --- ReadBytesContainer overloads for the deserialization path ---
+
+  @Nullable public static PropertyTypeInternal readOType(
+      final ReadBytesContainer bytes, boolean justRunThrough) {
+    if (justRunThrough) {
+      bytes.skip(1);
+      return null;
+    }
+
+    var typeId = readByte(bytes);
+    if (typeId == -1) {
+      return null;
+    }
+
+    return PropertyTypeInternal.getById(typeId);
+  }
+
+  @Nullable public static PropertyTypeInternal readType(ReadBytesContainer bytes) {
+    var typeId = bytes.getByte();
+    if (typeId == -1) {
+      return null;
+    }
+    return PropertyTypeInternal.getById(typeId);
+  }
+
+  public static byte[] readBinary(final ReadBytesContainer bytes) {
+    final var n = VarIntSerializer.readAsInteger(bytes);
+    final var newValue = new byte[n];
+    bytes.getBytes(newValue, 0, n);
+    return newValue;
+  }
+
+  public static String readString(final ReadBytesContainer bytes) {
+    final var len = VarIntSerializer.readAsInteger(bytes);
+    if (len == 0) {
+      return "";
+    }
+    final var res = bytes.getStringBytes(len);
+    return res;
+  }
+
+  public static int readInteger(final ReadBytesContainer container) {
+    var buf = new byte[IntegerSerializer.INT_SIZE];
+    container.getBytes(buf, 0, IntegerSerializer.INT_SIZE);
+    return IntegerSerializer.deserializeLiteral(buf, 0);
+  }
+
+  public static byte readByte(final ReadBytesContainer container) {
+    return container.getByte();
+  }
+
+  public static long readLong(final ReadBytesContainer container) {
+    var buf = new byte[LongSerializer.LONG_SIZE];
+    container.getBytes(buf, 0, LongSerializer.LONG_SIZE);
+    return LongSerializer.deserializeLiteral(buf, 0);
+  }
+
+  @Nullable public static RecordIdInternal readOptimizedLink(
+      final ReadBytesContainer bytes, boolean justRunThrough) {
+    var collectionId = VarIntSerializer.readAsInteger(bytes);
+    var collectionPos = VarIntSerializer.readAsLong(bytes);
+    if (justRunThrough) {
+      return null;
+    } else {
+      return new RecordId(collectionId, collectionPos);
+    }
+  }
+
+  public static <T extends TrackedCollection<?, Identifiable>> T readLinkCollection(
+      final ReadBytesContainer bytes, final T found, boolean justRunThrough) {
+    var type = bytes.getByte();
+    if (type != 0) {
+      throw new SerializationException("Invalid type of embedded collection");
+    }
+
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    for (var i = 0; i < items; i++) {
+      var id = readOptimizedLink(bytes, justRunThrough);
+      if (!justRunThrough) {
+        if (id.equals(NULL_RECORD_ID)) {
+          found.addInternal(null);
+        } else {
+          found.addInternal(id);
+        }
+      }
+    }
+    return found;
+  }
+
+  public static Map<String, Identifiable> readLinkMap(
+      final ReadBytesContainer bytes, final RecordElement owner, boolean justRunThrough) {
+    var version = bytes.getByte();
+    if (version != 0) {
+      throw new SerializationException("Invalid version of link map");
+    }
+
+    var size = VarIntSerializer.readAsInteger(bytes);
+    EntityLinkMapIml result = null;
+    if (!justRunThrough) {
+      result = new EntityLinkMapIml(owner);
+    }
+    while (size-- > 0) {
+      final var key = readString(bytes);
+      final var value = readOptimizedLink(bytes, justRunThrough);
+      if (value.equals(NULL_RECORD_ID)) {
+        result.putInternal(key, null);
+      } else {
+        result.putInternal(key, value);
+      }
+    }
+    return result;
+  }
+
+  public static RID readLinkOptimizedEmbedded(
+      DatabaseSessionEmbedded db, final ReadBytesContainer bytes) {
+    RID rid =
+        new RecordId(
+            VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
+    if (!rid.isPersistent()) {
+      rid = db.refreshRid(rid);
+    }
+
+    return rid;
+  }
+
   public static String stringFromBytes(final byte[] bytes, final int offset, final int len) {
     return new String(bytes, offset, len, StandardCharsets.UTF_8);
   }
