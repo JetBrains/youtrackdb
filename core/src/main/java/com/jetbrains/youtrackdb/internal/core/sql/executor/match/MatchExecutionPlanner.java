@@ -335,12 +335,10 @@ public class MatchExecutionPlanner {
     return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong();
   }
 
-  /**
-   * Fixed fan-out heuristic per edge traversal hop in NOT-pattern cardinality
-   * estimation. Each edge in the NOT pattern multiplies the estimated cardinality
-   * by this factor (before applying any filter selectivity).
-   */
-  private static final long FANOUT_PER_HOP = 10;
+  // FANOUT_PER_HOP removed — fan-out is now computed per-edge via
+  // EdgeFanOutEstimator.estimateFanOut() using schema statistics
+  // (edgeCount / sourceCount). Falls back to GlobalConfiguration
+  // .QUERY_STATS_DEFAULT_FAN_OUT when schema metadata is unavailable.
 
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
@@ -789,7 +787,8 @@ public class MatchExecutionPlanner {
    *   <li>Get the origin alias's base cardinality via {@link #estimateRootEntries}.
    *       If the origin alias has no estimable class/RID/filter, returns
    *       {@code Long.MAX_VALUE} to force fallback to nested-loop.</li>
-   *   <li>For each edge in the NOT expression, multiply by {@link #FANOUT_PER_HOP}.</li>
+   *   <li>For each edge, multiply by schema-based fan-out via
+   *       {@link EdgeFanOutEstimator#estimateFanOut}.</li>
    *   <li>For each intermediate filter (non-null WHERE clause), apply 0.5 selectivity.</li>
    *   <li>Cap at {@code Long.MAX_VALUE} to avoid overflow.</li>
    * </ol>
@@ -812,19 +811,29 @@ public class MatchExecutionPlanner {
         && aliasFilters.get(originAlias) == null) {
       return Long.MAX_VALUE;
     }
+    var session = context.getDatabaseSession();
     long estimate = estimateAliasCardinality(
         originAlias, aliasClasses, aliasFilters, aliasRids, context);
+    var currentClass = aliasClasses.get(originAlias);
     for (var item : exp.getItems()) {
-      // Each edge multiplies cardinality by fan-out heuristic
-      if (estimate > Long.MAX_VALUE / FANOUT_PER_HOP) {
+      // Estimate fan-out from schema statistics (edgeCount / sourceCount)
+      // or fall back to default if schema metadata is unavailable
+      var method = item.getMethod();
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (estimate > Long.MAX_VALUE / fanOutLong) {
         return Long.MAX_VALUE; // overflow guard
       }
-      estimate *= FANOUT_PER_HOP;
+      estimate *= fanOutLong;
 
       // Apply selectivity for intermediate filters
       var filter = item.getFilter();
       if (filter != null && filter.getFilter() != null) {
         estimate = estimate / 2; // 0.5 selectivity heuristic
+      }
+      // Track current class for next hop's fan-out estimation
+      if (filter != null && filter.getClassName(context) != null) {
+        currentClass = filter.getClassName(context);
       }
     }
     return estimate;
@@ -1240,7 +1249,7 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Estimate cardinality: start from branch root, multiply by FANOUT_PER_HOP per edge,
+    // Estimate cardinality: start from branch root, multiply by schema fan-out per edge,
     // apply 0.5 selectivity for WHERE filters
     long cardinality = estimateBranchCardinality(
         branchRoot, branchEdges, aliasClasses, aliasFilters, aliasRids, context);
@@ -1268,8 +1277,8 @@ public class MatchExecutionPlanner {
 
   /**
    * Estimates the cardinality of a hash join branch. Starts from the branch root's
-   * estimated record count and multiplies by {@link #FANOUT_PER_HOP} per edge,
-   * applying 0.5 selectivity for nodes with WHERE filters.
+   * estimated record count and multiplies by schema-based fan-out per edge
+   * (via {@link EdgeFanOutEstimator}), applying 0.5 selectivity for WHERE filters.
    */
   private static long estimateBranchCardinality(
       String branchRoot,
@@ -1278,6 +1287,7 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, SQLRid> aliasRids,
       CommandContext context) {
+    var session = context.getDatabaseSession();
     // Start with branch root cardinality
     long rows = estimateAliasCardinality(
         branchRoot, aliasClasses, aliasFilters, aliasRids, context);
@@ -1285,15 +1295,24 @@ public class MatchExecutionPlanner {
     // Skip the last edge (consistency-check edge) — it doesn't expand cardinality,
     // it's a filter verifying the target alias matches an already-visited node (cost 0).
     int edgeCount = Math.max(0, branchEdges.size() - 1);
+    var currentClass = aliasClasses.get(branchRoot);
     for (int i = 0; i < edgeCount; i++) {
-      if (rows > Long.MAX_VALUE / FANOUT_PER_HOP) {
+      var edgeT = branchEdges.get(i);
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (rows > Long.MAX_VALUE / fanOutLong) {
         return Long.MAX_VALUE; // overflow guard
       }
-      rows *= FANOUT_PER_HOP;
-      var target = targetAlias(branchEdges.get(i));
+      rows *= fanOutLong;
+      var target = targetAlias(edgeT);
       // Apply selectivity for WHERE filters on intermediate nodes
       if (aliasFilters.containsKey(target) && aliasFilters.get(target) != null) {
         rows = Math.max(1, rows / 2);
+      }
+      // Track current class for next hop
+      if (aliasClasses.containsKey(target)) {
+        currentClass = aliasClasses.get(target);
       }
     }
 
@@ -2109,6 +2128,52 @@ public class MatchExecutionPlanner {
         outVertexClass, inVertexClass);
 
     return CostModel.edgeTraversalCost(sourceRows, fanOut);
+  }
+
+  /**
+   * Estimates the fan-out for a single edge traversal using schema statistics
+   * via {@link EdgeFanOutEstimator}. Falls back to
+   * {@link EdgeFanOutEstimator#defaultFanOut()} if schema metadata is
+   * unavailable.
+   *
+   * @param method         the edge's traversal method (e.g., out('KNOWS'))
+   * @param sourceClassName class of the vertex we traverse FROM, or null
+   * @param session        database session for schema access
+   * @return estimated fan-out (avg neighbors per source vertex)
+   */
+  static double estimateMethodFanOut(
+      SQLMethodCall method,
+      @Nullable String sourceClassName,
+      DatabaseSessionEmbedded session) {
+    if (method == null) {
+      return EdgeFanOutEstimator.defaultFanOut();
+    }
+    Direction direction = parseDirection(method.getMethodNameString());
+    if (direction == null) {
+      return EdgeFanOutEstimator.defaultFanOut();
+    }
+    String edgeClassName = extractEdgeClassName(method);
+    String outVertexClass = null;
+    String inVertexClass = null;
+    if (edgeClassName != null) {
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      if (schema != null) {
+        var edgeClass = schema.getClassInternal(edgeClassName);
+        if (edgeClass != null) {
+          var outProp = edgeClass.getPropertyInternal("out");
+          if (outProp != null && outProp.getLinkedClass() != null) {
+            outVertexClass = outProp.getLinkedClass().getName();
+          }
+          var inProp = edgeClass.getPropertyInternal("in");
+          if (inProp != null && inProp.getLinkedClass() != null) {
+            inVertexClass = inProp.getLinkedClass().getName();
+          }
+        }
+      }
+    }
+    return EdgeFanOutEstimator.estimateFanOut(
+        session, edgeClassName, sourceClassName, direction,
+        outVertexClass, inVertexClass);
   }
 
   /**
