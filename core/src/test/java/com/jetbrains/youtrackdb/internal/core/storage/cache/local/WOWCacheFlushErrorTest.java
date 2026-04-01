@@ -449,6 +449,10 @@ public class WOWCacheFlushErrorTest {
     // flushWriteCacheFromMinLSN, but protects against future refactors
     setField(cache, "filesLock", new ReadersWriterSpinLock());
 
+    // nonDurableFileIds is accessed by the assert guard in flushWriteCacheFromMinLSN
+    // that verifies non-durable pages never appear in the dirty pages table
+    setField(cache, "nonDurableFileIds", new IntOpenHashSet());
+
     // dirtyPages and localDirtyPages are accessed by convertSharedDirtyPagesToLocal()
     // which is called at the start of flushWriteCacheFromMinLSN
     setField(
