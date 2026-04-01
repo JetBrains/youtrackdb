@@ -193,4 +193,67 @@ public class CorrelatedOptionalHashJoinTest extends DbTestBase {
         result.get(0).getProperty("knowsStart"));
     session.rollback();
   }
+
+  /**
+   * Verifies that the correlated optional hash join correctly rebuilds the
+   * neighbor set when the correlated alias value changes across upstream rows.
+   *
+   * Graph extension: two startPersons (alice id=1, bob id=2) each have messages
+   * liked by different people. The correlated KNOWS edge references
+   * $matched.startPerson, so the hash join must re-evaluate the build side
+   * for each distinct startPerson value.
+   *
+   * alice (id=1): messages m1 liked by bob, m2 liked by dave
+   *   bob KNOWS alice → knowsStart = alice
+   *   dave does NOT know alice → knowsStart = null
+   *
+   * bob (id=2): create message m4 liked by carol
+   *   carol KNOWS alice but NOT bob → knowsStart = null for bob's context
+   */
+  @Test
+  public void correlatedOptional_correlatedValueChanges_rebuildsNeighborSet() {
+    session.begin();
+    // Create message m4 owned by bob, liked by carol
+    session.execute("CREATE VERTEX Message set content='m4'").close();
+    session.execute(
+        "CREATE EDGE HAS_CREATOR from (select from Message where content='m4')"
+            + " to (select from Person where name='bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE LIKES from (select from Person where name='carol')"
+            + " to (select from Message where content='m4')")
+        .close();
+
+    // Query with multiple startPerson values — the correlated alias changes
+    var result = session.query(
+        "MATCH {class:Person, as:startPerson, where:(id in [1, 2])}"
+            + ".in('HAS_CREATOR'){as:message}"
+            + ".in('LIKES'){as:liker}"
+            + ".out('KNOWS'){as:knowsStart,"
+            + " where:(@rid = $matched.startPerson.@rid), optional:true}"
+            + " RETURN startPerson.name as spName,"
+            + " liker.name as likerName, knowsStart.name as knowsName")
+        .toList();
+
+    // alice's context: bob→alice (match), dave→null (no match)
+    // bob's context: carol→null (carol KNOWS alice, not bob)
+    assertTrue("should return at least 3 rows", result.size() >= 3);
+
+    for (var row : result) {
+      var sp = (String) row.getProperty("spName");
+      var liker = (String) row.getProperty("likerName");
+      var knows = (String) row.getProperty("knowsName");
+      if ("alice".equals(sp) && "bob".equals(liker)) {
+        // bob KNOWS alice → knowsStart = alice
+        assertEquals("alice", knows);
+      } else if ("alice".equals(sp) && "dave".equals(liker)) {
+        // dave does NOT know alice
+        assertNull("dave should not know alice", knows);
+      } else if ("bob".equals(sp) && "carol".equals(liker)) {
+        // carol KNOWS alice, NOT bob → knowsStart should be null
+        assertNull("carol should not know bob", knows);
+      }
+    }
+    session.rollback();
+  }
 }
