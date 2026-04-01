@@ -12,10 +12,9 @@ import org.junit.Test;
 
 /**
  * End-to-end SQL-level integration tests verifying that hash join optimizations
- * (anti-join for NOT patterns, semi-join for secondary branches) in MATCH queries
- * produce correct results and are selected by the planner when eligible. Inner-join
- * tests are deferred pending a fix for the INNER_JOIN execution with variable
- * schedule orderings.
+ * (anti-join for NOT patterns, semi-join and inner-join for secondary branches)
+ * in MATCH queries produce correct results and are selected by the planner when
+ * eligible.
  *
  * <p>Test graph structure (created in {@link #beforeTest}):
  * <pre>
@@ -259,12 +258,12 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * Diamond pattern with intermediate alias in RETURN — should NOT use hash join
-   * because the intermediate alias is needed downstream and the INNER_JOIN execution
-   * has a known issue with certain schedule orderings. Falls back to nested-loop.
+   * Diamond pattern with intermediate alias in RETURN — should use INNER_JOIN
+   * because the intermediate alias is needed downstream and the build-side row
+   * values must be merged into the result.
    */
   @Test
-  public void diamondPattern_intermediateInReturn_noHashJoin() {
+  public void diamondPattern_intermediateInReturn_usesHashInnerJoin() {
     session.begin();
     var result = session.query(
         "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -275,9 +274,34 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    // Intermediate alias in RETURN → falls back to nested-loop (no hash join)
-    assertFalse("plan should NOT use hash join when intermediate is in RETURN, got:\n"
-        + plan, plan.contains("HASH SEMI_JOIN") || plan.contains("HASH INNER_JOIN"));
+    assertTrue("plan should use HASH INNER_JOIN when intermediate is in RETURN, got:\n"
+        + plan, plan.contains("HASH INNER_JOIN"));
+    session.commit();
+  }
+
+  /**
+   * Diamond pattern with intermediate alias in RETURN — correctness test.
+   * All four aliases (a, b, c, t) must appear in the result rows with correct
+   * values, including the intermediate 'c' merged from the build side.
+   */
+  @Test
+  public void diamondPattern_innerJoin_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+            + " RETURN a.name as aName, b.name as bName, c.name as cName,"
+            + " t.name as tName")
+        .toList();
+
+    assertFalse("inner join query should return results", result.isEmpty());
+    for (var row : result) {
+      assertNotNull("a.name missing", row.getProperty("aName"));
+      assertNotNull("b.name missing", row.getProperty("bName"));
+      assertNotNull("c.name missing", row.getProperty("cName"));
+      assertNotNull("t.name missing", row.getProperty("tName"));
+    }
     session.commit();
   }
 
@@ -338,4 +362,5 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(Set.of("n1:t1", "n1:t2"), names);
     session.commit();
   }
+
 }

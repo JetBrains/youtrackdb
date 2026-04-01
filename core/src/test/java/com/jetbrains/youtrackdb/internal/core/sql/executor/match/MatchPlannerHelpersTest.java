@@ -725,12 +725,12 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Same diamond but "c" is referenced downstream (in RETURN) → rejected because
-   * the INNER_JOIN execution has a known issue with certain schedule orderings.
-   * Falls back to nested-loop evaluation.
+   * Same diamond but "c" is referenced downstream (in RETURN) → classified as
+   * INNER_JOIN so that build-side intermediate alias values are merged into the
+   * result rows.
    */
   @Test
-  public void identifyHashJoinBranches_intermediateInReturn_rejected() {
+  public void identifyHashJoinBranches_intermediateInReturn_innerJoin() {
     var nodeA = new PatternNode();
     nodeA.alias = "a";
     var nodeB = new PatternNode();
@@ -761,7 +761,7 @@ public class MatchPlannerHelpersTest {
         new EdgeTraversal(edgeAC, true),
         new EdgeTraversal(edgeCD, true));
 
-    // c is downstream → branch rejected (falls back to nested-loop)
+    // c is downstream → INNER_JOIN (build-side rows merged into result)
     var downstream = Set.of("a", "c", "d");
     var ctx = buildMockContext("Person", 50);
 
@@ -770,7 +770,12 @@ public class MatchPlannerHelpersTest {
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
         Map.of(), Map.of(), ctx);
 
-    assertThat(result).isEmpty();
+    assertThat(result).hasSize(1);
+    var branch = result.get(0);
+    assertThat(branch.joinMode()).isEqualTo(JoinMode.INNER_JOIN);
+    assertThat(branch.sharedAliases()).containsExactlyInAnyOrder("a", "d");
+    assertThat(branch.intermediateAliases()).containsExactly("c");
+    assertThat(branch.scanAlias()).isIn("a", "c", "d");
   }
 
   /**
@@ -999,19 +1004,37 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Branch where the scan alias (otherShared) has no class and no RID → not eligible
-   * because the build-side plan cannot scan records.
+   * Branch where the preferred scan alias (otherShared = d) has no class, but another
+   * shared alias (branchRoot = a) does → eligible, with scanAlias falling back to "a".
    */
   @Test
-  public void identifyHashJoinBranches_scanAliasNoClass_noBranch() {
+  public void identifyHashJoinBranches_scanAliasFallback_usesBranchRoot() {
     var diamond = buildDiamondSchedule();
     var ctx = buildMockContext("Person", 50);
 
-    // Omit "d" from aliasClasses — it has no class and no RID
+    // Omit "d" from aliasClasses — findScanAlias should fall back to branchRoot "a"
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person"),
         Map.of(), Map.of(), ctx);
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).scanAlias()).isEqualTo("a");
+    assertThat(result.get(0).joinMode()).isEqualTo(JoinMode.SEMI_JOIN);
+  }
+
+  /**
+   * Branch where NO alias (shared or intermediate) has a class or RID → not eligible
+   * because the build-side plan cannot scan records from any starting point.
+   */
+  @Test
+  public void identifyHashJoinBranches_noAliasHasClass_noBranch() {
+    var diamond = buildDiamondSchedule();
+    var ctx = buildMockContext("Person", 50);
+
+    // No alias has a class → findScanAlias returns null → branch rejected
+    var result = MatchExecutionPlanner.identifyHashJoinBranches(
+        diamond.schedule, Set.of("a", "d"),
+        Map.of(), Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
