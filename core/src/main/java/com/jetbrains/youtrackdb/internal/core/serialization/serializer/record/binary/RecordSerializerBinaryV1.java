@@ -1334,14 +1334,18 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case LINKMAP -> value = readLinkMap(bytes, owner, justRunThrough);
       case EMBEDDEDMAP -> value = readEmbeddedMap(session, bytes, owner);
       case DECIMAL -> {
-        // DecimalSerializer requires byte[] — extract from buffer
-        var decBytes = new byte[bytes.remaining()];
+        // DecimalSerializer requires byte[] — compute exact size first to avoid
+        // copying the entire remaining buffer. Layout: int(scale) + int(len) + byte[len]
+        var sizeHeader = new byte[IntegerSerializer.INT_SIZE * 2];
         var startPos = bytes.offset();
-        bytes.getBytes(decBytes, 0, decBytes.length);
+        bytes.getBytes(sizeHeader, 0, sizeHeader.length);
         bytes.setOffset(startPos);
+        var unscaledLen = IntegerSerializer.deserializeLiteral(
+            sizeHeader, IntegerSerializer.INT_SIZE);
+        var totalDecSize = IntegerSerializer.INT_SIZE * 2 + unscaledLen;
+        var decBytes = new byte[totalDecSize];
+        bytes.getBytes(decBytes, 0, totalDecSize);
         value = DecimalSerializer.staticDeserialize(decBytes, 0);
-        var decSize = DecimalSerializer.staticGetObjectSize(decBytes, 0);
-        bytes.skip(decSize);
       }
       case LINKBAG -> {
         var bag = readLinkBag(session, bytes);
@@ -1368,7 +1372,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         if (itemType == null) {
           found.addInternal(null);
         } else {
-          found.addInternal(deserializeValue(db, bytes, itemType, found, false, null));
+          found.addInternal(
+              deserializeValue(db, bytes, itemType, found, false, resolveSchema(found)));
         }
       }
       return found;
@@ -1390,7 +1395,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         if (itemType == null) {
           found.addInternal(null);
         } else {
-          found.addInternal(deserializeValue(db, bytes, itemType, found, false, null));
+          found.addInternal(
+              deserializeValue(db, bytes, itemType, found, false, resolveSchema(found)));
         }
       }
       return found;
@@ -1404,18 +1410,31 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
     final var result = new EntityEmbeddedMapImpl<Object>(owner);
+    var schema = resolveSchema(result);
     for (var i = 0; i < size; i++) {
       var keyType = readOType(bytes, false);
-      var key = deserializeValue(db, bytes, keyType, result, false, null);
+      var key = deserializeValue(db, bytes, keyType, result, false, schema);
       final var type = HelperClasses.readType(bytes);
       if (type != null) {
-        var value = deserializeValue(db, bytes, type, result, false, null);
+        var value = deserializeValue(db, bytes, type, result, false, schema);
         result.putInternal(key.toString(), value);
       } else {
         result.putInternal(key.toString(), null);
       }
     }
     return result;
+  }
+
+  /** Resolves ImmutableSchema from a RecordElement by walking up to the owning EntityImpl. */
+  @Nullable private static ImmutableSchema resolveSchema(RecordElement element) {
+    var entity = element;
+    while (!(entity instanceof EntityImpl) && entity != null) {
+      entity = entity.getOwner();
+    }
+    if (entity != null) {
+      return ((EntityImpl) entity).getImmutableSchema();
+    }
+    return null;
   }
 
   protected static EntityLinkSetImpl readLinkSet(
