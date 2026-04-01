@@ -66,7 +66,7 @@ public class ExpandStepPrettyPrintTest {
   @Test
   public void prettyPrint_edgeRidLookupFilter() {
     var ridExpr = mock(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression.class);
-    var desc = new RidFilterDescriptor.EdgeRidLookup("HAS_CREATOR", "out", ridExpr);
+    var desc = new RidFilterDescriptor.EdgeRidLookup("HAS_CREATOR", "out", ridExpr, false);
     var step = new ExpandStep(ctx, false, null, null, null, desc, null);
     var output = step.prettyPrint(0, 2);
 
@@ -112,7 +112,7 @@ public class ExpandStepPrettyPrintTest {
     IntSet ids = new IntOpenHashSet(new int[] {5, 6});
 
     var ridExpr = mock(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression.class);
-    var ridDesc = new RidFilterDescriptor.EdgeRidLookup("KNOWS", "in", ridExpr);
+    var ridDesc = new RidFilterDescriptor.EdgeRidLookup("KNOWS", "in", ridExpr, false);
 
     var indexDesc = mock(IndexSearchDescriptor.class);
     var index = mock(Index.class);

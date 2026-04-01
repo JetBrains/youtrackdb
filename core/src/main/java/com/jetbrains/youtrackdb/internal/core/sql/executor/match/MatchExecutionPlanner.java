@@ -302,6 +302,17 @@ public class MatchExecutionPlanner {
   /** Maps each alias to a specific RID if one was provided in the pattern. */
   private Map<String, SQLRid> aliasRids;
 
+  /**
+   * Aliases whose class was inferred from edge LINK schema rather than
+   * explicitly declared. Inferred aliases must NOT outcompete explicit
+   * roots during scheduling — a low-cardinality inferred class can cause
+   * the scheduler to reverse traversal direction across while steps,
+   * producing 0 results. Their estimates are inflated to {@code
+   * Long.MAX_VALUE} so they sort last in root selection while remaining
+   * available for prefetching and collection-ID filtering.
+   */
+  private Set<String> inferredWhileExprAliases = Set.of();
+
   /** Set to `true` if at least one node in the pattern is marked `optional: true`. */
   private boolean foundOptional = false;
 
@@ -429,9 +440,18 @@ public class MatchExecutionPlanner {
 
     var result = new SelectExecutionPlan(context);
 
-    // Phase 3: Estimate how many root records each aliased node will produce
+    // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasRids, aliasFilters, context);
+    // Inflate estimates for inferred-class aliases so they never outcompete
+    // explicitly declared roots. A low-cardinality inferred class can cause
+    // the scheduler to reverse traversal direction across while steps.
+    // The alias stays in the map for prefetching; only root priority changes.
+    for (var alias : inferredWhileExprAliases) {
+      if (estimatedRootEntries.containsKey(alias)) {
+        estimatedRootEntries.put(alias, Long.MAX_VALUE);
+      }
+    }
 
     // Aliases with fewer records than THRESHOLD and no dependency on $matched are prefetched
     var aliasesToPrefetch =
@@ -1810,6 +1830,25 @@ public class MatchExecutionPlanner {
         if (involvedAliases != null && !involvedAliases.isEmpty()) {
           var edgeClass = getEdgeClassName(edgeJ);
           var edgeDirection = getEdgeDirection(edgeJ);
+          var collectEdgeRids = false;
+
+          // .inV()/.outV() steps have no edge class — propagate from the
+          // preceding .outE('CLASS')/.inE('CLASS') step if present.
+          // The preceding edge iterates edge RIDs, so collectEdgeRids=true.
+          if (edgeClass == null && j > 0) {
+            var prevEdge = schedule.get(j - 1);
+            var prevMethodName = getMethodName(prevEdge);
+            if ("oute".equals(prevMethodName) || "ine".equals(prevMethodName)) {
+              edgeClass = getEdgeClassName(prevEdge);
+              // Normalize direction: "oute" -> "out", "ine" -> "in"
+              edgeDirection = getEdgeDirection(prevEdge);
+              if (edgeDirection != null && edgeDirection.endsWith("e")) {
+                edgeDirection =
+                    edgeDirection.substring(0, edgeDirection.length() - 1);
+              }
+              collectEdgeRids = true;
+            }
+          }
 
           if (edgeClass != null && edgeDirection != null) {
             var sourceAliasJ = edgeJ.out
@@ -1819,11 +1858,12 @@ public class MatchExecutionPlanner {
               var edgeI = schedule.get(producingEdgeIdx);
               edgeI.addIntersectionDescriptor(
                   new RidFilterDescriptor.EdgeRidLookup(
-                      edgeClass, edgeDirection, ridExpr));
+                      edgeClass, edgeDirection, ridExpr, collectEdgeRids));
               logger.debug(
                   "MATCH pre-filter: EdgeRidLookup on edge[{}] "
-                      + "({}({}) back-ref from alias '{}')",
-                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
+                      + "({}({}) back-ref from alias '{}', edgeRids={})",
+                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
+                  collectEdgeRids);
             }
           }
         }
@@ -1938,6 +1978,19 @@ public class MatchExecutionPlanner {
       case "in" -> "out";
       default -> syntacticDirection;
     };
+  }
+
+  /**
+   * Returns the lowercased method name for the given edge traversal
+   * (e.g. {@code "out"}, {@code "oute"}, {@code "inv"}).
+   */
+  @Nullable static String getMethodName(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null) {
+      return null;
+    }
+    var name = method.getMethodNameString();
+    return name != null ? name.toLowerCase(Locale.ROOT) : null;
   }
 
   /**
@@ -2126,14 +2179,16 @@ public class MatchExecutionPlanner {
     // traversed in the wrong direction.  Non-recursive aliases in the same
     // expression (downstream of the while) are safe to infer.
     var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
+    var inferredAliases = new HashSet<String>();
     for (var expr : this.matchExpressions) {
       addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
-          ctx, whileAliases);
+          ctx, whileAliases, inferredAliases);
     }
 
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
     this.aliasRids = aliasRids;
+    this.inferredWhileExprAliases = inferredAliases;
 
     rebindFilters(aliasFilters);
   }
@@ -2198,7 +2253,8 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context,
-      Set<String> whileAliases) {
+      Set<String> whileAliases,
+      Set<String> inferredWhileExprAliases) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
 
     // Track the edge class set by the most recent outE/inE item, so that a
@@ -2240,6 +2296,7 @@ public class MatchExecutionPlanner {
             var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
             if (inferred != null) {
               aliasClasses.put(alias, inferred);
+              inferredWhileExprAliases.add(alias);
               logger.debug(
                   "MATCH class inference: alias '{}' -> class '{}' "
                       + "(from edge LINK schema)",

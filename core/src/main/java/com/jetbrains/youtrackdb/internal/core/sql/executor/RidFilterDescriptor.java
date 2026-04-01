@@ -132,11 +132,17 @@ public sealed interface RidFilterDescriptor {
    * when a pattern has {@code {B}.edge{C, where: (@rid = $matched.X.@rid)}},
    * the expression resolves to the already-bound X's RID, and the reverse
    * lookup produces the set of vertices connected to X via the edge.
+   *
+   * <p>When {@code collectEdgeRids} is {@code true}, collects primary RIDs
+   * (edge records) instead of secondary RIDs (vertices). This is needed
+   * for {@code .outE()}/{@code .inE()} traversals where the link bag
+   * iterator filters on edge RIDs, not vertex RIDs.
    */
   record EdgeRidLookup(
       String edgeClassName,
       String traversalDirection,
-      SQLExpression targetRidExpression) implements RidFilterDescriptor {
+      SQLExpression targetRidExpression,
+      boolean collectEdgeRids) implements RidFilterDescriptor {
 
     /**
      * Returns the reverse link bag size — exact, O(1) stored field.
@@ -164,7 +170,7 @@ public sealed interface RidFilterDescriptor {
         return null;
       }
       return TraversalPreFilterHelper.resolveReverseEdgeLookup(
-          targetRid, edgeClassName, traversalDirection, ctx);
+          targetRid, edgeClassName, traversalDirection, collectEdgeRids, ctx);
     }
 
     /** Resolves the target RID from the expression. */

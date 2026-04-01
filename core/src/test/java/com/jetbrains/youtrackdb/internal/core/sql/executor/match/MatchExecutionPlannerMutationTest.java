@@ -1206,7 +1206,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses).containsOnly(entry(edgeAlias, "KNOWS"));
   }
@@ -1224,7 +1224,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses).containsOnly(entry(edgeAlias, "HAS_MEMBER"));
   }
@@ -1258,7 +1258,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     // inV reads "in" property → Person, NOT "out" → Forum
     assertThat(aliasClasses)
@@ -1294,7 +1294,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     // outV reads "out" property → Person, NOT "in" → Company
     assertThat(aliasClasses)
@@ -1330,7 +1330,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     // inV reads "in" property → Person, NOT "out" → Company
     assertThat(aliasClasses)
@@ -1365,7 +1365,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     // outV reads "out" property → Person, NOT "in" → Message
     assertThat(aliasClasses)
@@ -1384,7 +1384,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses).isEmpty();
   }
@@ -1411,7 +1411,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses)
         .containsOnly(entry("e", "KNOWS"), entry("v1", "Person"));
@@ -1447,7 +1447,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses)
         .containsOnly(
@@ -1471,7 +1471,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses).containsOnly(entry("e1", "KNOWS"));
   }
@@ -1491,7 +1491,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses).containsOnly(entry("e", "PreExisting"));
   }
@@ -1510,7 +1510,7 @@ public class MatchExecutionPlannerMutationTest {
     // Both aliases are in the while set → no inference for either
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of("e", "v"));
+        mockContext(), Set.of("e", "v"), new java.util.HashSet<>());
 
     assertThat(aliasClasses).isEmpty();
   }
@@ -1530,7 +1530,7 @@ public class MatchExecutionPlannerMutationTest {
     // Only "person" is in the while set → "membership" should still be inferred
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of("person"));
+        mockContext(), Set.of("person"), new java.util.HashSet<>());
 
     // "person" should NOT be inferred (in while set)
     assertThat(aliasClasses).doesNotContainKey("person");
@@ -1561,7 +1561,7 @@ public class MatchExecutionPlannerMutationTest {
 
     MatchExecutionPlanner.addAliases(
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
-        mockContext(), Set.of());
+        mockContext(), Set.of(), new java.util.HashSet<>());
 
     assertThat(aliasClasses)
         .containsOnly(entry("e", "X"), entry("mid", "Person"));

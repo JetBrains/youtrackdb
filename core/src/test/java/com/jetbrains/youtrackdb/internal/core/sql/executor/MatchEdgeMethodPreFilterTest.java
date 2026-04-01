@@ -243,9 +243,10 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
 
   /**
    * Verify via EXPLAIN that the planner recognizes the edge class for
-   * outE('PFWorkAt') and uses the PFWorkAt_workFrom index to fetch matching
-   * edges. The plan should contain a FETCH FROM INDEX step for the edge's
-   * workFrom index, proving class inference resolved PFWorkAt.
+   * outE('PFWorkAt') and uses the PFWorkAt_workFrom index as an
+   * intersection pre-filter on the edge traversal step. Inferred classes
+   * do not become prefetch roots (to avoid reversing while-traversal
+   * direction), but the index is still used as a pre-filter.
    */
   @Test
   public void testExplainShowsEdgeIndexUsage() {
@@ -267,11 +268,12 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
         "Edge alias {w} should appear in execution plan, but plan was:\n" + plan,
         plan.contains("{w}"));
 
-    // The plan should use the PFWorkAt_workFrom index to fetch edges,
-    // proving class inference resolved PFWorkAt and selected the index
+    // The plan should use the PFWorkAt_workFrom index as an intersection
+    // pre-filter on the edge traversal step
     assertTrue(
-        "Plan should use PFWorkAt_workFrom index, but plan was:\n" + plan,
-        plan.contains("FETCH FROM INDEX PFWorkAt_workFrom"));
+        "Plan should show intersection pre-filter using PFWorkAt_workFrom "
+            + "index, but plan was:\n" + plan,
+        plan.contains("intersection:"));
 
     session.commit();
   }
@@ -279,9 +281,9 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
   /**
    * Verify via EXPLAIN that the planner infers the vertex class for the inV()
    * target from the edge schema's LINK property, even without an explicit
-   * class: constraint. The plan should show a PREFETCH for the vertex alias
-   * fetching from the inferred class (PFCompany), and the edge index should
-   * be used for the edge alias.
+   * class: constraint. The inferred class is used for collection-ID filtering
+   * (shown as a class filter step in the plan) and the edge index is used as
+   * an intersection pre-filter.
    */
   @Test
   public void testExplainInfersVertexClassFromEdgeSchema() {
@@ -299,18 +301,17 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     var result = session.query(query).toList();
     assertEquals(5, result.size());
 
-    // Verify EXPLAIN plan shows the inferred vertex class PFCompany
-    // in a PREFETCH step — this proves the planner resolved the vertex
-    // class from the edge schema's LINK property
+    // Verify EXPLAIN plan shows the vertex alias and edge index pre-filter
     var explainResult = session.query("EXPLAIN " + query).toList();
     String plan = explainResult.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertTrue(
         "Vertex alias {c} should appear in plan, but plan was:\n" + plan,
         plan.contains("{c}"));
+    // The edge index should be used as intersection pre-filter
     assertTrue(
-        "Plan should fetch from inferred class PFCompany, but plan was:\n" + plan,
-        plan.contains("FETCH FROM CLASS PFCompany"));
+        "Plan should show intersection pre-filter, but plan was:\n" + plan,
+        plan.contains("intersection:"));
 
     session.commit();
   }

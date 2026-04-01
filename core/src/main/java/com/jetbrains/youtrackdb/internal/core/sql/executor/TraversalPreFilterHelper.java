@@ -165,6 +165,32 @@ public final class TraversalPreFilterHelper {
       String edgeClassName,
       String traversalDirection,
       CommandContext ctx) {
+    return resolveReverseEdgeLookup(
+        targetRid, edgeClassName, traversalDirection, false, ctx);
+  }
+
+  /**
+   * Resolves the reverse edge lookup, optionally collecting edge RIDs
+   * (primary) instead of vertex RIDs (secondary).
+   *
+   * <p>When {@code collectEdgeRids} is {@code false} (default), collects
+   * secondary RIDs (the vertices on the other side of each edge). This is
+   * correct for {@code .out()}/{@code .in()} traversals whose link bag
+   * iterators filter on vertex RIDs.
+   *
+   * <p>When {@code collectEdgeRids} is {@code true}, collects primary RIDs
+   * (the edge records themselves). This is needed for {@code .outE()}/
+   * {@code .inE()} traversals whose link bag iterators filter on edge RIDs.
+   *
+   * @param collectEdgeRids if {@code true}, collect edge RIDs (primary);
+   *     if {@code false}, collect vertex RIDs (secondary)
+   */
+  @Nullable public static RidSet resolveReverseEdgeLookup(
+      RID targetRid,
+      String edgeClassName,
+      String traversalDirection,
+      boolean collectEdgeRids,
+      CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     EntityImpl targetEntity;
     try {
@@ -193,7 +219,7 @@ public final class TraversalPreFilterHelper {
     var ridSet = new RidSet();
     var count = 0;
     for (RidPair pair : linkBag) {
-      ridSet.add(pair.secondaryRid());
+      ridSet.add(collectEdgeRids ? pair.primaryRid() : pair.secondaryRid());
       count++;
       if ((count & CHECKPOINT_INTERVAL_MASK) == 0
           && shouldAbort(count)) {
