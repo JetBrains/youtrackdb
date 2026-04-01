@@ -912,15 +912,24 @@ public class MatchExecutionPlanner {
 
     var referenced = new HashSet<String>();
 
+    // Pre-compile word-boundary patterns for all aliases (avoids repeated
+    // regex compilation when scanning multiple expressions)
+    var compiled = new HashMap<String, java.util.regex.Pattern>();
+    for (var alias : allPatternAliases) {
+      compiled.put(alias, java.util.regex.Pattern.compile(
+          "\\b" + java.util.regex.Pattern.quote(alias) + "\\b"));
+    }
+
     // Scan RETURN expressions
     for (var expr : returnItems) {
-      collectAliasesFromText(expr.toString(), allPatternAliases, referenced);
+      collectAliasesFromText(expr.toString(), allPatternAliases, referenced, compiled);
     }
 
     // Scan GROUP BY expressions
     if (groupBy != null) {
       for (var expr : groupBy.getItems()) {
-        collectAliasesFromText(expr.toString(), allPatternAliases, referenced);
+        collectAliasesFromText(
+            expr.toString(), allPatternAliases, referenced, compiled);
       }
     }
 
@@ -930,7 +939,7 @@ public class MatchExecutionPlanner {
       for (var item : orderBy.getItems()) {
         var alias = item.getAlias();
         if (alias != null) {
-          collectAliasesFromText(alias, allPatternAliases, referenced);
+          collectAliasesFromText(alias, allPatternAliases, referenced, compiled);
         }
       }
     }
@@ -938,7 +947,8 @@ public class MatchExecutionPlanner {
     // Scan UNWIND identifiers
     if (unwind != null) {
       for (var ident : unwind.getItems()) {
-        collectAliasesFromText(ident.toString(), allPatternAliases, referenced);
+        collectAliasesFromText(
+            ident.toString(), allPatternAliases, referenced, compiled);
       }
     }
 
@@ -957,15 +967,27 @@ public class MatchExecutionPlanner {
    */
   private static void collectAliasesFromText(
       String text, Set<String> allPatternAliases, Set<String> result) {
+    collectAliasesFromText(text, allPatternAliases, result, Map.of());
+  }
+
+  /**
+   * Overload that accepts pre-compiled patterns to avoid repeated regex compilation
+   * when scanning multiple expressions.
+   */
+  private static void collectAliasesFromText(
+      String text,
+      Set<String> allPatternAliases,
+      Set<String> result,
+      Map<String, java.util.regex.Pattern> compiledPatterns) {
     if (text == null || text.isEmpty()) {
       return;
     }
     for (var alias : allPatternAliases) {
-      // Use word-boundary regex to avoid false positives from substrings.
-      // The regex is compiled per alias per expression — acceptable because
-      // the number of aliases and expressions is small (typically < 20 each).
-      var pattern =
-          java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(alias) + "\\b");
+      var pattern = compiledPatterns.get(alias);
+      if (pattern == null) {
+        pattern = java.util.regex.Pattern.compile(
+            "\\b" + java.util.regex.Pattern.quote(alias) + "\\b");
+      }
       if (pattern.matcher(text).find()) {
         result.add(alias);
       }
@@ -1202,6 +1224,29 @@ public class MatchExecutionPlanner {
     // its filter might reference $matched)
     if (filterDependsOnContext(aliasFilters.get(checkTarget))) {
       return null;
+    }
+
+    // Check that no NON-BRANCH edge in the schedule references a branch intermediate
+    // alias via $matched. If an edge outside the branch depends on an intermediate,
+    // moving the branch to the end would break execution (the alias wouldn't be bound
+    // when the dependent edge executes).
+    for (var scheduled : scheduledEdges) {
+      if (branchEdges.contains(scheduled)) {
+        continue; // Skip branch edges themselves
+      }
+      // Check both endpoints' filters for references to branch intermediates
+      for (var interAlias : intermediateAliases) {
+        var outFilter = aliasFilters.get(scheduled.edge.out.alias);
+        var inFilter = aliasFilters.get(scheduled.edge.in.alias);
+        if (outFilter != null
+            && outFilter.toString().contains("$matched." + interAlias)) {
+          return null;
+        }
+        if (inFilter != null
+            && inFilter.toString().contains("$matched." + interAlias)) {
+          return null;
+        }
+      }
     }
 
     // Estimate cardinality: start from branch root, multiply by FANOUT_PER_HOP per edge,
@@ -2813,26 +2858,28 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // The WHERE filter must reference $matched — detect the correlated alias
+    // The WHERE filter must be a simple RID correlation: @rid = $matched.X.@rid
+    // Use regex to extract the correlated alias robustly (handles whitespace,
+    // both operand orders, and rejects complex multi-condition filters).
     var filterStr = whereClause.toString();
-    if (!filterStr.contains("$matched.")) {
+    var ridPattern = java.util.regex.Pattern.compile(
+        "\\$matched\\.(\\w+)\\.@rid");
+    var matcher = ridPattern.matcher(filterStr);
+    if (!matcher.find()) {
+      return null;
+    }
+    var correlatedAlias = matcher.group(1);
+
+    // Reject if there are multiple $matched references (complex filter)
+    if (matcher.find()) {
       return null;
     }
 
-    // Extract the correlated alias from $matched.ALIAS.@rid pattern
-    var matchedIdx = filterStr.indexOf("$matched.");
-    if (matchedIdx < 0) {
-      return null;
-    }
-    var afterMatched = filterStr.substring(matchedIdx + "$matched.".length());
-    var dotIdx = afterMatched.indexOf('.');
-    if (dotIdx < 0) {
-      return null;
-    }
-    var correlatedAlias = afterMatched.substring(0, dotIdx);
-
-    // Verify the filter references @rid (simple RID equality)
-    if (!filterStr.contains("@rid")) {
+    // Verify the filter also references @rid on the other side (simple equality)
+    // Count @rid occurrences — must be exactly 2 (one for each side of =)
+    long ridCount = java.util.regex.Pattern.compile("@rid")
+        .matcher(filterStr).results().count();
+    if (ridCount != 2) {
       return null;
     }
 
@@ -2944,6 +2991,13 @@ public class MatchExecutionPlanner {
     }
     var value = base.execute((Result) null, new BasicCommandContext());
     if (value instanceof String s && !s.isEmpty()) {
+      // Strip surrounding quotes if present (defensive — execute() typically
+      // returns the unquoted string, but some AST paths may retain quotes)
+      if (s.length() >= 2
+          && ((s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'')
+              || (s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"'))) {
+        return s.substring(1, s.length() - 1);
+      }
       return s;
     }
     return null;

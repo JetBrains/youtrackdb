@@ -4841,9 +4841,11 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertNotNull(plan);
 
     // The WHILE edge to matchedClass should be scheduled after the simple
-    // one-hop edge to directClass due to depth multiplier.
-    int directClassPos = plan.indexOf("{directClass}");
-    int matchedClassPos = plan.indexOf("{matchedClass}");
+    // one-hop edge to directClass. The WHILE may be replaced by an
+    // InvertedWhileHashJoinStep (which prints "matchedClass" without braces)
+    // or remain as a regular MatchStep (which prints "{matchedClass}").
+    int directClassPos = plan.indexOf("directClass");
+    int matchedClassPos = plan.indexOf("matchedClass");
     assertTrue("directClass should appear in plan", directClassPos >= 0);
     assertTrue("matchedClass should appear in plan", matchedClassPos >= 0);
     assertTrue(

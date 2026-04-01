@@ -143,9 +143,8 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
   /**
    * Collects all RIDs reachable from the anchor vertex via the inverse edge
-   * direction. Uses a SQL WHILE traversal in the inverse direction to ensure
-   * correct edge resolution (matching the MATCH engine's traversal semantics).
-   * The anchor itself is included in the set.
+   * direction. Uses one SQL query per BFS level to ensure correct edge resolution
+   * across all storage backends. The anchor itself is included in the set.
    */
   private Set<RID> collectReachableRids(Result anchor, DatabaseSessionEmbedded session) {
     var rids = new HashSet<RID>();
@@ -159,16 +158,16 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     // out('X'), the inverse is in('X') — parent to children.
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
-    var queue = new java.util.ArrayDeque<RID>();
-    queue.add(anchorRid);
-    while (!queue.isEmpty()) {
-      var current = queue.poll();
+    var frontier = new java.util.ArrayDeque<RID>();
+    frontier.add(anchorRid);
+    while (!frontier.isEmpty()) {
+      var current = frontier.poll();
       try (var rs = session.query(sql, current)) {
         while (rs.hasNext()) {
           var row = rs.next();
           var rid = extractRid(row);
           if (rid != null && rids.add(rid)) {
-            queue.add(rid);
+            frontier.add(rid);
           }
         }
       }
