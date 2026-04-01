@@ -197,8 +197,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Override
-  @Nullable
-  public BinaryField deserializeField(
+  @Nullable public BinaryField deserializeField(
       DatabaseSessionEmbedded session, final BytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
@@ -524,8 +523,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     serializeEntity(session, entity, bytes, clazz, schema, encryption);
   }
 
-  @Nullable
-  @SuppressWarnings("TypeParameterUnusedInFormals")
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
@@ -1079,7 +1077,8 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case LINKMAP ->
           pointer = writeLinkMap(session, bytes, (Map<Object, Identifiable>) value);
       case EMBEDDEDMAP ->
-          pointer = writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
+          pointer =
+              writeEmbeddedMap(session, bytes, (Map<Object, Object>) value, schema, encryption);
       case LINKBAG -> pointer = writeLinkBag(session, bytes, (LinkBag) value);
     }
     return pointer;
@@ -1142,8 +1141,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return value;
   }
 
-  @Nullable
-  protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded db,
+  @Nullable protected EntityEmbeddedSetImpl<?> readEmbeddedSet(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -1166,8 +1164,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     return null;
   }
 
-  @Nullable
-  protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded db,
+  @Nullable protected EntityEmbeddedListImpl<?> readEmbeddedList(DatabaseSessionEmbedded db,
       final BytesContainer bytes,
       final RecordElement owner) {
 
@@ -1198,5 +1195,428 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   @Override
   public BinaryComparator getComparator() {
     return comparator;
+  }
+
+  // --- ReadBytesContainer overloads for the deserialization path ---
+
+  private static int findMatchingFieldName(
+      final ReadBytesContainer bytes, int len, byte[][] fields) {
+    for (var i = 0; i < fields.length; ++i) {
+      if (fields[i] != null && fields[i].length == len) {
+        var matchField = true;
+        for (var j = 0; j < len; ++j) {
+          if (bytes.peekByte(j) != fields[i][j]) {
+            matchField = false;
+            break;
+          }
+        }
+        if (matchField) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  private static boolean checkMatchForLargerThenZero(
+      final ReadBytesContainer bytes, final byte[] field, int len) {
+    if (field.length != len) {
+      return false;
+    }
+    var match = true;
+    for (var j = 0; j < len; ++j) {
+      if (bytes.peekByte(j) != field[j]) {
+        match = false;
+        break;
+      }
+    }
+    return match;
+  }
+
+  private static HelperClasses.Tuple<Integer, PropertyTypeInternal>
+      getFieldSizeAndTypeFromCurrentPosition(ReadBytesContainer bytes) {
+    var fieldSize = VarIntSerializer.readAsInteger(bytes);
+    var type = readOType(bytes, false);
+    return new HelperClasses.Tuple<>(fieldSize, type);
+  }
+
+  protected Object deserializeValue(
+      DatabaseSessionEmbedded session,
+      final ReadBytesContainer bytes,
+      final PropertyTypeInternal type,
+      final RecordElement owner,
+      boolean justRunThrough,
+      ImmutableSchema schema) {
+    if (type == null) {
+      throw new DatabaseException(session.getDatabaseName(), "Invalid type value: null");
+    }
+    Object value = null;
+    switch (type) {
+      case INTEGER -> value = VarIntSerializer.readAsInteger(bytes);
+      case LONG -> value = VarIntSerializer.readAsLong(bytes);
+      case SHORT -> value = VarIntSerializer.readAsShort(bytes);
+      case STRING -> {
+        if (justRunThrough) {
+          var length = VarIntSerializer.readAsInteger(bytes);
+          bytes.skip(length);
+        } else {
+          value = readString(bytes);
+        }
+      }
+      case DOUBLE -> {
+        if (justRunThrough) {
+          bytes.skip(LongSerializer.LONG_SIZE);
+        } else {
+          value = Double.longBitsToDouble(readLong(bytes));
+        }
+      }
+      case FLOAT -> {
+        if (justRunThrough) {
+          bytes.skip(IntegerSerializer.INT_SIZE);
+        } else {
+          value = Float.intBitsToFloat(readInteger(bytes));
+        }
+      }
+      case BYTE -> {
+        if (justRunThrough) {
+          bytes.skip(1);
+        } else {
+          value = readByte(bytes);
+        }
+      }
+      case BOOLEAN -> {
+        if (justRunThrough) {
+          bytes.skip(1);
+        } else {
+          value = readByte(bytes) == 1;
+        }
+      }
+      case DATETIME -> {
+        if (justRunThrough) {
+          VarIntSerializer.readAsLong(bytes);
+        } else {
+          value = new Date(VarIntSerializer.readAsLong(bytes));
+        }
+      }
+      case DATE -> {
+        if (justRunThrough) {
+          VarIntSerializer.readAsLong(bytes);
+        } else {
+          var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
+          savedTime =
+              convertDayToTimezone(
+                  TimeZone.getTimeZone("GMT"),
+                  DateHelper.getDatabaseTimeZone(session),
+                  savedTime);
+          value = new Date(savedTime);
+        }
+      }
+      case EMBEDDED -> value = deserializeEmbeddedAsDocument(session, bytes, owner);
+      case EMBEDDEDSET -> value = readEmbeddedSet(session, bytes, owner);
+      case EMBEDDEDLIST -> value = readEmbeddedList(session, bytes, owner);
+      case LINKSET -> value = readLinkSet(session, bytes);
+      case LINKLIST -> {
+        EntityLinkListImpl collectionList = null;
+        if (!justRunThrough) {
+          collectionList = new EntityLinkListImpl(owner);
+        }
+        value = readLinkCollection(bytes, collectionList, justRunThrough);
+      }
+      case BINARY -> {
+        if (justRunThrough) {
+          var len = VarIntSerializer.readAsInteger(bytes);
+          bytes.skip(len);
+        } else {
+          value = readBinary(bytes);
+        }
+      }
+      case LINK -> value = readOptimizedLink(bytes, justRunThrough);
+      case LINKMAP -> value = readLinkMap(bytes, owner, justRunThrough);
+      case EMBEDDEDMAP -> value = readEmbeddedMap(session, bytes, owner);
+      case DECIMAL -> {
+        // DecimalSerializer requires byte[] — extract from buffer
+        var decBytes = new byte[bytes.remaining()];
+        var startPos = bytes.offset();
+        bytes.getBytes(decBytes, 0, decBytes.length);
+        bytes.setOffset(startPos);
+        value = DecimalSerializer.staticDeserialize(decBytes, 0);
+        var decSize = DecimalSerializer.staticGetObjectSize(decBytes, 0);
+        bytes.skip(decSize);
+      }
+      case LINKBAG -> {
+        var bag = readLinkBag(session, bytes);
+        bag.setOwner(owner);
+        value = bag;
+      }
+      default -> {
+      }
+    }
+    return value;
+  }
+
+  @Nullable protected EntityEmbeddedSetImpl<?> readEmbeddedSet(
+      DatabaseSessionEmbedded db,
+      final ReadBytesContainer bytes,
+      final RecordElement owner) {
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    var type = readOType(bytes, false);
+
+    if (type != null) {
+      var found = new EntityEmbeddedSetImpl<>(owner);
+      for (var i = 0; i < items; i++) {
+        var itemType = readOType(bytes, false);
+        if (itemType == null) {
+          found.addInternal(null);
+        } else {
+          found.addInternal(deserializeValue(db, bytes, itemType, found, false, null));
+        }
+      }
+      return found;
+    }
+    return null;
+  }
+
+  @Nullable protected EntityEmbeddedListImpl<?> readEmbeddedList(
+      DatabaseSessionEmbedded db,
+      final ReadBytesContainer bytes,
+      final RecordElement owner) {
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    var type = readOType(bytes, false);
+
+    if (type != null) {
+      var found = new EntityEmbeddedListImpl<>(owner);
+      for (var i = 0; i < items; i++) {
+        var itemType = readOType(bytes, false);
+        if (itemType == null) {
+          found.addInternal(null);
+        } else {
+          found.addInternal(deserializeValue(db, bytes, itemType, found, false, null));
+        }
+      }
+      return found;
+    }
+    return null;
+  }
+
+  protected Object readEmbeddedMap(
+      DatabaseSessionEmbedded db,
+      final ReadBytesContainer bytes,
+      final RecordElement owner) {
+    var size = VarIntSerializer.readAsInteger(bytes);
+    final var result = new EntityEmbeddedMapImpl<Object>(owner);
+    for (var i = 0; i < size; i++) {
+      var keyType = readOType(bytes, false);
+      var key = deserializeValue(db, bytes, keyType, result, false, null);
+      final var type = HelperClasses.readType(bytes);
+      if (type != null) {
+        var value = deserializeValue(db, bytes, type, result, false, null);
+        result.putInternal(key.toString(), value);
+      } else {
+        result.putInternal(key.toString(), null);
+      }
+    }
+    return result;
+  }
+
+  protected static EntityLinkSetImpl readLinkSet(
+      DatabaseSessionEmbedded session, ReadBytesContainer bytes) {
+    var configByte = bytes.getByte();
+    var isEmbedded = (configByte & 1) != 0;
+
+    EntityLinkSetImpl ridbag;
+    var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (isEmbedded) {
+      var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, 1);
+      ridbag = new EntityLinkSetImpl(session, embeddedBagDelegate);
+    } else {
+      var btreeLinkBag = readBTreeBasedLinkBag(session, bytes, linkBagSize, 1);
+      ridbag = new EntityLinkSetImpl(session, btreeLinkBag);
+    }
+    return ridbag;
+  }
+
+  protected static LinkBag readLinkBag(
+      DatabaseSessionEmbedded session, ReadBytesContainer bytes) {
+    var configByte = bytes.getByte();
+    var isEmbedded = (configByte & 1) != 0;
+
+    LinkBag ridbag;
+    var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (isEmbedded) {
+      var embeddedBagDelegate =
+          readEmbeddedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
+      ridbag = new LinkBag(session, embeddedBagDelegate);
+    } else {
+      var btreeLinkBag =
+          readBTreeBasedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
+      ridbag = new LinkBag(session, btreeLinkBag);
+    }
+    return ridbag;
+  }
+
+  @Nonnull
+  private static EmbeddedLinkBag readEmbeddedLinkBag(
+      DatabaseSessionEmbedded session,
+      ReadBytesContainer bytes,
+      int linkBagSize,
+      int counterMaxValue) {
+    var changes = new ArrayList<RawPair<RID, AbsoluteChange>>();
+    var continueFlag = readByte(bytes);
+
+    while (continueFlag > 0) {
+      var rid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
+      var counter = VarIntSerializer.readAsInteger(bytes);
+      var secondaryRid = HelperClasses.readLinkOptimizedEmbedded(session, bytes);
+      changes.add(new RawPair<>(rid, new AbsoluteChange(counter, secondaryRid)));
+      continueFlag = readByte(bytes);
+    }
+
+    return new EmbeddedLinkBag(changes, session, linkBagSize, counterMaxValue);
+  }
+
+  @Nonnull
+  private static BTreeBasedLinkBag readBTreeBasedLinkBag(
+      DatabaseSessionEmbedded session,
+      ReadBytesContainer bytes,
+      int linkBagSize,
+      int counterMaxValue) {
+    var fileId = VarIntSerializer.readAsLong(bytes);
+    var linkBagId = VarIntSerializer.readAsLong(bytes);
+    assert fileId > -1;
+
+    var pointer = new LinkBagPointer(fileId, linkBagId);
+    return new BTreeBasedLinkBag(session, pointer, linkBagSize, counterMaxValue);
+  }
+
+  @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
+  protected <RET> RET deserializeFieldTypedLoopAndReturn(
+      DatabaseSessionEmbedded session,
+      ReadBytesContainer bytes,
+      String iFieldName,
+      final ImmutableSchema schema,
+      PropertyEncryption encryption) {
+    final var field = iFieldName.getBytes();
+
+    var headerLength = VarIntSerializer.readAsInteger(bytes);
+    var headerStart = bytes.offset();
+    var valuesStart = headerStart + headerLength;
+    var cumulativeLength = valuesStart;
+
+    while (bytes.offset() < valuesStart) {
+      var len = VarIntSerializer.readAsInteger(bytes);
+
+      if (len > 0) {
+        var match = checkMatchForLargerThenZero(bytes, field, len);
+        bytes.skip(len);
+        var pointerAndType = getFieldSizeAndTypeFromCurrentPosition(bytes);
+        int fieldLength = pointerAndType.getFirstVal();
+        var type = pointerAndType.getSecondVal();
+
+        if (match) {
+          if (fieldLength == 0) {
+            return null;
+          }
+          bytes.setOffset(cumulativeLength);
+          var value = deserializeValue(session, bytes, type, null, false, schema);
+          //noinspection unchecked
+          return (RET) value;
+        }
+        cumulativeLength += fieldLength;
+      } else {
+        final var id = (len * -1) - 1;
+        final var prop = schema.getGlobalPropertyById(id);
+        final var fieldLength = VarIntSerializer.readAsInteger(bytes);
+        var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+
+        if (iFieldName.equals(prop.getName())) {
+          if (fieldLength == 0) {
+            return null;
+          }
+          bytes.setOffset(cumulativeLength);
+          var value = deserializeValue(session, bytes, type, null, false, schema);
+          //noinspection unchecked
+          return (RET) value;
+        }
+        cumulativeLength += fieldLength;
+      }
+    }
+    return null;
+  }
+
+  protected List<MapRecordInfo> getPositionsFromEmbeddedMap(
+      DatabaseSessionEmbedded session,
+      final ReadBytesContainer bytes,
+      ImmutableSchema schema) {
+    List<MapRecordInfo> retList = new ArrayList<>();
+    var numberOfElements = VarIntSerializer.readAsInteger(bytes);
+
+    for (var i = 0; i < numberOfElements; i++) {
+      var keyType = readOType(bytes, false);
+      var key = readString(bytes);
+      var valueType = HelperClasses.readType(bytes);
+      var recordInfo = new MapRecordInfo();
+      recordInfo.fieldType = valueType;
+      recordInfo.key = key;
+      recordInfo.keyType = keyType;
+      var currentOffset = bytes.offset();
+
+      if (valueType != null) {
+        recordInfo.fieldStartOffset = bytes.offset();
+        deserializeValue(session, bytes, valueType, null, true, schema);
+        recordInfo.fieldLength = bytes.offset() - currentOffset;
+        retList.add(recordInfo);
+      } else {
+        recordInfo.fieldStartOffset = 0;
+        recordInfo.fieldLength = 0;
+        retList.add(recordInfo);
+      }
+    }
+    return retList;
+  }
+
+  protected Object deserializeEmbeddedAsDocument(
+      DatabaseSessionEmbedded db,
+      final ReadBytesContainer bytes,
+      final RecordElement owner) {
+    Object value = new EmbeddedEntityImpl(db);
+    deserializeWithClassName(db, (EntityImpl) value, bytes);
+    if (((EntityImpl) value).hasProperty(EntitySerializable.CLASS_NAME)) {
+      String className = ((EntityImpl) value).getProperty(EntitySerializable.CLASS_NAME);
+      try {
+        var clazz = Class.forName(className);
+        var newValue = (EntitySerializable) clazz.newInstance();
+        newValue.fromDocument((EntityImpl) value);
+        value = newValue;
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    } else {
+      var entity = (EntityImpl) value;
+      entity.setOwner(owner);
+      final var rec = (RecordAbstract) entity;
+      rec.unsetDirty();
+    }
+    return value;
+  }
+
+  public void deserializeWithClassName(
+      DatabaseSessionEmbedded db, final EntityImpl entity, final ReadBytesContainer bytes) {
+    final var className = readString(bytes);
+    if (!className.isEmpty()) {
+      entity.setClassNameWithoutPropertiesPostProcessing(className);
+    }
+    // Delegates to the ReadBytesContainer overload of deserialize (Step 4)
+    deserialize(db, entity, bytes);
+  }
+
+  /**
+   * Placeholder for the ReadBytesContainer deserialize overload. Will be fully
+   * implemented in Step 4. For now, this allows deserializeEmbeddedAsDocument
+   * to compile — embedded entities always go through deserialize.
+   */
+  public void deserialize(
+      DatabaseSessionEmbedded db, final EntityImpl entity, final ReadBytesContainer bytes) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialize not yet implemented — Step 4");
   }
 }
