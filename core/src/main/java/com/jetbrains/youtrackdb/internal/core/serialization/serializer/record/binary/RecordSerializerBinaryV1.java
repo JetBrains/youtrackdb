@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.StringCache;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
@@ -1643,7 +1644,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     PropertyTypeInternal type;
     var cumulativeSize = valuesStart;
     while (bytes.offset() < valuesStart) {
-      GlobalProperty prop;
       final var len = VarIntSerializer.readAsInteger(bytes);
       int fieldLength;
       if (len > 0) {
@@ -1652,7 +1652,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         fieldLength = pointerAndType.getFirstVal();
         type = pointerAndType.getSecondVal();
       } else {
-        prop = getGlobalProperty(entity, len);
+        var prop = getGlobalProperty(entity, len);
         fieldName = prop.getName();
         fieldLength = VarIntSerializer.readAsInteger(bytes);
         type = PropertyTypeInternal.convertFromPublicType(prop.getType());
@@ -1748,8 +1748,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     }
   }
 
-  @Nullable private static com.jetbrains.youtrackdb.internal.core.db.StringCache resolveStringCache(
-      DatabaseSessionEmbedded session) {
+  @Nullable private static StringCache resolveStringCache(DatabaseSessionEmbedded session) {
     var context = session.getSharedContext();
     if (context != null) {
       return context.getStringCache();
