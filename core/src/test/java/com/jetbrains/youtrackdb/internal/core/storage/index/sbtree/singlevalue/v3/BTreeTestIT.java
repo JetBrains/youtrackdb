@@ -1075,6 +1075,35 @@ public class BTreeTestIT {
         + (char) (key.charAt(key.length() - 1) + delta);
   }
 
+  // Verifies that setApproximateEntriesCount persists a value readable via
+  // getApproximateEntriesCount, and that addToApproximateEntriesCount applies
+  // a delta additively (not as an absolute value).
+  @Test
+  public void approximateEntriesCountSetGetAndAdd() throws Exception {
+    // set → get round-trip
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.setApproximateEntriesCount(atomicOperation, 100L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(100L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // addTo adds to existing value, not replaces
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+            atomicOperation, 50L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(150L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+
+    // negative delta decrements
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> singleValueTree.addToApproximateEntriesCount(
+            atomicOperation, -30L));
+    atomicOperationsManager.executeInsideAtomicOperation(
+        atomicOperation -> Assert.assertEquals(120L,
+            singleValueTree.getApproximateEntriesCount(atomicOperation)));
+  }
+
   static final class RollbackException extends BaseException implements HighLevelException {
 
     @SuppressWarnings("WeakerAccess")
