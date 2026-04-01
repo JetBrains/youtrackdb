@@ -377,11 +377,11 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // beyond the initial max land in the last bucket until background
       // rebalance fires. During rebalance transitions, in-flight deltas
       // sized for the old bucket layout are discarded (version mismatch),
-      // causing residual drift concentrated in boundary buckets. Allow up
-      // to 200% max per-bucket deviation (observed 134–155% on CI and
-      // locally for the last bucket) and 10% mean deviation.
+      // causing residual drift concentrated in the last bucket. Allow up
+      // to 200% max deviation for the last bucket only (observed 134–155%
+      // on CI and locally), 50% for other buckets, and 10% mean deviation.
       assertFrequencyDeviation("StressInt",
-          histogramIncremental, histogramAnalyzed, 2.00, 0.10);
+          histogramIncremental, histogramAnalyzed, 0.50, 2.00, 0.10);
 
       // ── Distribution check: histogram estimates vs actual counts ──
       // Random inserts in [0, 100K) → each quarter should hold ~25%.
@@ -574,7 +574,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // so small absolute errors produce large relative errors)
       // and 5% mean deviation.
       assertFrequencyDeviation("StressStr",
-          histIncr, histogram, 0.30, 0.05);
+          histIncr, histogram, 0.30, 0.30, 0.05);
     }
 
     assertNotNull("MCV should be tracked", histogram.mcvValue());
@@ -781,7 +781,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // gets many entries, so relative deviation should be small.
       // Allow 10% max per-bucket, 3% mean.
       assertFrequencyDeviation("StressLowNdv",
-          histIncr, histogram, 0.10, 0.03);
+          histIncr, histogram, 0.10, 0.10, 0.03);
     }
 
     // Bucket count should be in a reasonable range. Equi-depth construction
@@ -1226,6 +1226,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       EquiDepthHistogram incremental,
       EquiDepthHistogram analyzed,
       double maxRelDeviation,
+      double lastBucketMaxRelDeviation,
       double meanRelDeviation) {
     if (incremental.bucketCount() != analyzed.bucketCount()) {
       System.out.println("[" + label + "] Bucket count changed ("
@@ -1246,6 +1247,14 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       double relDev = Math.abs(incr - exact)
           / (double) Math.max(exact, 1);
       sumRelDev += relDev;
+
+      double threshold = (i == n - 1)
+          ? lastBucketMaxRelDeviation : maxRelDeviation;
+      assertTrue("[" + label + "] Per-bucket relative deviation "
+          + String.format("%.4f", relDev) + " (bucket "
+          + i + ") exceeds threshold " + threshold,
+          relDev <= threshold);
+
       if (relDev > worstRelDev) {
         worstRelDev = relDev;
         worstBucket = i;
@@ -1258,11 +1267,6 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
         + " max=" + String.format("%.4f", worstRelDev)
         + " (bucket " + worstBucket + ")");
 
-    assertTrue("[" + label + "] Max per-bucket relative deviation "
-        + String.format("%.4f", worstRelDev) + " (bucket "
-        + worstBucket + ") exceeds threshold "
-        + maxRelDeviation,
-        worstRelDev <= maxRelDeviation);
     assertTrue("[" + label + "] Mean relative deviation "
         + String.format("%.4f", meanDev)
         + " exceeds threshold " + meanRelDeviation,
