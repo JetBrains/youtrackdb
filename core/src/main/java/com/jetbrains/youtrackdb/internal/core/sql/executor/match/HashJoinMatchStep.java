@@ -94,6 +94,12 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       // Build phase: execute build-side plan, store full flattened rows
       hashMap = buildHashMap(ctx);
 
+      if (hashMap == null) {
+        // Build exceeded threshold — fall back to nested-loop per-row evaluation
+        var upstream = prev.start(ctx);
+        return upstream.flatMap((row, c) -> nestedLoopInnerJoin(row, c));
+      }
+
       // Capture locally for null-safety in the flatMap lambda
       var builtMap = hashMap;
 
@@ -104,6 +110,12 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
     // Build phase: execute build-side plan with isolated context
     hashSet = buildHashSet(ctx);
+
+    if (hashSet == null) {
+      // Build exceeded threshold — fall back to nested-loop per-row evaluation
+      var upstream = prev.start(ctx);
+      return upstream.filter((row, c) -> nestedLoopProbe(row, c));
+    }
 
     // Capture the reference locally so that the filter lambda is safe even if
     // close() nulls the field mid-stream (e.g., due to timeout).
@@ -120,18 +132,17 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * build-side {@link MatchStep}s execute against the isolated context (not the
    * parent) — this prevents {@code $matched} pollution.
    */
-  private Set<JoinKey> buildHashSet(CommandContext ctx) {
-    // Use parent linkage so the isolated context inherits input parameters
-    // (e.g., :startDate in NOT pattern WHERE clauses) while build-side
-    // MatchSteps write $matched to the child context without polluting the parent.
+  /**
+   * Returns null if the build set exceeds the runtime threshold — the caller
+   * must fall back to per-row nested-loop evaluation.
+   */
+  @Nullable private Set<JoinKey> buildHashSet(CommandContext ctx) {
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(ctx);
 
-    // Deep-copy the build plan bound to the isolated context so that every
-    // step in the plan (including MatchSteps that write $matched) operates
-    // on the isolated context, not the parent.
     var isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
     var set = new HashSet<JoinKey>();
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
 
     var stream = isolatedPlan.start();
     try {
@@ -140,6 +151,9 @@ class HashJoinMatchStep extends AbstractExecutionStep {
         var key = extractKey(row);
         if (key != null) {
           set.add(key);
+          if (maxSize > 0 && set.size() > maxSize) {
+            return null; // threshold exceeded — caller falls back
+          }
         }
       }
     } finally {
@@ -150,20 +164,17 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   }
 
   /**
-   * Executes the build-side plan and collects full (flattened) rows into a hash map
-   * keyed by shared alias values. Used for {@link JoinMode#INNER_JOIN} where the
-   * build-side row data must be merged into upstream rows during the probe phase.
-   *
-   * <p>Each build-side row is flattened into a plain {@link ResultInternal} (copying
-   * all properties) to avoid retaining the layered {@code MatchResultRow} chain in
-   * memory.
+   * Returns null if the build map exceeds the runtime threshold — the caller
+   * must fall back to per-row nested-loop evaluation.
    */
-  private Map<JoinKey, List<Result>> buildHashMap(CommandContext ctx) {
+  @Nullable private Map<JoinKey, List<Result>> buildHashMap(CommandContext ctx) {
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(ctx);
 
     var isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
     var map = new HashMap<JoinKey, List<Result>>();
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
+    long totalRows = 0;
 
     var stream = isolatedPlan.start();
     try {
@@ -171,14 +182,15 @@ class HashJoinMatchStep extends AbstractExecutionStep {
         var row = stream.next(isolatedCtx);
         var key = extractKey(row);
         if (key != null) {
-          // Flatten: copy all properties into a plain ResultInternal to avoid
-          // retaining the layered MatchResultRow chain in memory.
-          // Use parent session — flattened rows outlive the isolated context.
           var flat = new ResultInternal(ctx.getDatabaseSession());
           for (var prop : row.getPropertyNames()) {
             flat.setProperty(prop, row.getProperty(prop));
           }
           map.computeIfAbsent(key, k -> new ArrayList<>()).add(flat);
+          totalRows++;
+          if (maxSize > 0 && totalRows > maxSize) {
+            return null; // threshold exceeded — caller falls back
+          }
         }
       }
     } finally {
@@ -290,6 +302,83 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       }
     }
     return JoinKey.ofRidsOwned(rids);
+  }
+
+  /**
+   * Nested-loop fallback for ANTI/SEMI_JOIN when the build set exceeded the
+   * runtime threshold. For each upstream row, re-executes the build plan in an
+   * isolated context and checks if ANY build-side row has a matching key.
+   */
+  @Nullable private Result nestedLoopProbe(Result row, CommandContext ctx) {
+    var upstreamKey = extractKey(row);
+    if (upstreamKey == null) {
+      return joinMode == JoinMode.ANTI_JOIN ? row : null;
+    }
+
+    var isolatedCtx = new BasicCommandContext();
+    isolatedCtx.setParentWithoutOverridingChild(ctx);
+    var plan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
+    var stream = plan.start();
+    boolean found = false;
+    try {
+      while (stream.hasNext(isolatedCtx)) {
+        var buildRow = stream.next(isolatedCtx);
+        var buildKey = extractKey(buildRow);
+        if (upstreamKey.equals(buildKey)) {
+          found = true;
+          break;
+        }
+      }
+    } finally {
+      stream.close(isolatedCtx);
+      plan.close();
+    }
+    return switch (joinMode) {
+      case ANTI_JOIN -> found ? null : row;
+      case SEMI_JOIN -> found ? row : null;
+      case INNER_JOIN -> throw new IllegalStateException("use nestedLoopInnerJoin");
+    };
+  }
+
+  /**
+   * Nested-loop fallback for INNER_JOIN when the build map exceeded the
+   * runtime threshold. For each upstream row, re-executes the build plan and
+   * merges all matching build-side rows.
+   */
+  private ExecutionStream nestedLoopInnerJoin(Result row, CommandContext ctx) {
+    var upstreamKey = extractKey(row);
+    if (upstreamKey == null) {
+      return ExecutionStream.empty();
+    }
+
+    var isolatedCtx = new BasicCommandContext();
+    isolatedCtx.setParentWithoutOverridingChild(ctx);
+    var plan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
+    var stream = plan.start();
+    var merged = new ArrayList<Result>();
+    var upstreamProps = row.getPropertyNames();
+    try {
+      while (stream.hasNext(isolatedCtx)) {
+        var buildRow = stream.next(isolatedCtx);
+        var buildKey = extractKey(buildRow);
+        if (upstreamKey.equals(buildKey)) {
+          var result = new ResultInternal(ctx.getDatabaseSession());
+          for (var prop : upstreamProps) {
+            result.setProperty(prop, row.getProperty(prop));
+          }
+          for (var prop : buildRow.getPropertyNames()) {
+            if (!result.hasProperty(prop)) {
+              result.setProperty(prop, buildRow.getProperty(prop));
+            }
+          }
+          merged.add(result);
+        }
+      }
+    } finally {
+      stream.close(isolatedCtx);
+      plan.close();
+    }
+    return ExecutionStream.resultIterator(merged.iterator());
   }
 
   @Override
