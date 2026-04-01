@@ -1,18 +1,18 @@
 # YQL - `PROFILE`
 
-PROFILE YQL command returns information about query execution planning and statistics for a specific statement.
+The PROFILE YQL command returns information about query execution planning and statistics for a specific statement.
 The statement is actually executed to provide the execution stats.
 
-The result is the execution plan of the query (like for [EXPLAIN](YQL-Explain.md) ) with additional information about 
+The result is the execution plan of the query (like for [EXPLAIN](YQL-Explain.md)) with additional information about
 execution time spent on each step, in microseconds.
 
 **Syntax**
 
-```
+```sql
 PROFILE <command>
 ```
 
-- **`<command>`** Defines the command that you want to profile, eg. a SELECT statement
+- **`<command>`** Defines the command that you want to profile, e.g., a SELECT statement.
 
 **Examples**
 
@@ -40,7 +40,7 @@ result:
   _$$$OALIAS$$_0 AS `sum(Amount)`, OrderDate
 ```
 
-You can see the `(1.445μs)` at the end of the first line, it means that fetching from index `Orders.OrderDate` took 1.445 microseconds (1.4 milliseconds)
+You can see the `(1.445μs)` at the end of the first line, it means that fetching from index `Orders.OrderDate` took 1.445 microseconds
 
 >For more information, see
 >- [YQL Commands](YQL-Commands.md)
