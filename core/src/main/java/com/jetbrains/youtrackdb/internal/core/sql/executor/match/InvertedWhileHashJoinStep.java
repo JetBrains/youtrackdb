@@ -158,11 +158,13 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     // Level-by-level BFS from anchor via inverse edge direction.
     // Each frontier node is queried individually to avoid reliance on
     // List<RID> parameter binding behavior which varies across backends.
+    // Size is bounded by the hash join threshold to prevent OOM on large graphs.
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
     var frontier = new ArrayList<RID>();
     frontier.add(anchorRid);
-    while (!frontier.isEmpty()) {
+    while (!frontier.isEmpty() && rids.size() < maxSize) {
       var nextFrontier = new ArrayList<RID>();
       for (var current : frontier) {
         try (var rs = session.query(sql, current)) {
@@ -173,6 +175,9 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
               nextFrontier.add(rid);
             }
           }
+        }
+        if (rids.size() >= maxSize) {
+          break;
         }
       }
       frontier = nextFrontier;

@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -45,6 +46,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   private final boolean edgeOut;
 
   @Nullable private Set<RID> neighborRids;
+  @Nullable private RID lastCorrelatedRid;
 
   CorrelatedOptionalHashJoinStep(
       CommandContext ctx,
@@ -78,15 +80,14 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
     // Stateful map: build/rebuild the hash set whenever the correlated alias
     // value changes (handles multi-valued correlated aliases correctly).
-    final RID[] lastCorrelatedRid = {null};
     return upstream.map((row, c) -> {
       var correlatedValue = row.getProperty(correlatedAlias);
       var currentCorrelatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
       // Rebuild neighbor set if correlated alias changed
       if (neighborRids == null
-          || !java.util.Objects.equals(currentCorrelatedRid, lastCorrelatedRid[0])) {
+          || !Objects.equals(currentCorrelatedRid, lastCorrelatedRid)) {
         neighborRids = buildNeighborSet(row, session);
-        lastCorrelatedRid[0] = currentCorrelatedRid;
+        lastCorrelatedRid = currentCorrelatedRid;
       }
       // Capture locally for null-safety if close() is called mid-stream
       var localSet = neighborRids;
@@ -178,6 +179,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   @Override
   public void close() {
     neighborRids = null;
+    lastCorrelatedRid = null;
     super.close();
   }
 

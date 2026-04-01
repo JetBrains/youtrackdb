@@ -340,6 +340,14 @@ public class MatchExecutionPlanner {
   // (edgeCount / sourceCount). Falls back to GlobalConfiguration
   // .QUERY_STATS_DEFAULT_FAN_OUT when schema metadata is unavailable.
 
+  /** Pattern for detecting $matched.ALIAS.@rid correlation in WHERE clauses. */
+  private static final java.util.regex.Pattern MATCHED_RID_PATTERN =
+      java.util.regex.Pattern.compile("\\$matched\\.(\\w+)\\.@rid");
+
+  /** Pattern for counting @rid occurrences in a filter string. */
+  private static final java.util.regex.Pattern RID_PATTERN =
+      java.util.regex.Pattern.compile("@rid");
+
   /**
    * Creates a planner from a pre-built pattern IR. Bypasses SQL AST parsing entirely:
    * {@link #buildPatterns} becomes a no-op because {@code pattern} is already set.
@@ -1223,7 +1231,8 @@ public class MatchExecutionPlanner {
     if (filterDependsOnContext(aliasFilters.get(checkSource))) {
       return null;
     }
-    if (branchRoot != null && filterDependsOnContext(aliasFilters.get(branchRoot))) {
+    // branchRoot is guaranteed non-null (checked at line ~1160)
+    if (filterDependsOnContext(aliasFilters.get(branchRoot))) {
       return null;
     }
 
@@ -1235,16 +1244,16 @@ public class MatchExecutionPlanner {
       if (branchEdges.contains(scheduled)) {
         continue; // Skip branch edges themselves
       }
-      // Check both endpoints' filters for references to branch intermediates
+      // Hoist toString() outside the inner loop to avoid repeated AST serialization
+      var outFilter = aliasFilters.get(scheduled.edge.out.alias);
+      var inFilter = aliasFilters.get(scheduled.edge.in.alias);
+      var outStr = outFilter != null ? outFilter.toString() : null;
+      var inStr = inFilter != null ? inFilter.toString() : null;
       for (var interAlias : intermediateAliases) {
-        var outFilter = aliasFilters.get(scheduled.edge.out.alias);
-        var inFilter = aliasFilters.get(scheduled.edge.in.alias);
-        if (outFilter != null
-            && outFilter.toString().contains("$matched." + interAlias)) {
+        if (outStr != null && outStr.contains("$matched." + interAlias)) {
           return null;
         }
-        if (inFilter != null
-            && inFilter.toString().contains("$matched." + interAlias)) {
+        if (inStr != null && inStr.contains("$matched." + interAlias)) {
           return null;
         }
       }
@@ -1592,7 +1601,6 @@ public class MatchExecutionPlanner {
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
-          edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
         }
       }
@@ -2929,9 +2937,7 @@ public class MatchExecutionPlanner {
     // Use regex to extract the correlated alias robustly (handles whitespace,
     // both operand orders, and rejects complex multi-condition filters).
     var filterStr = whereClause.toString();
-    var ridPattern = java.util.regex.Pattern.compile(
-        "\\$matched\\.(\\w+)\\.@rid");
-    var matcher = ridPattern.matcher(filterStr);
+    var matcher = MATCHED_RID_PATTERN.matcher(filterStr);
     if (!matcher.find()) {
       return null;
     }
@@ -2944,8 +2950,7 @@ public class MatchExecutionPlanner {
 
     // Verify the filter also references @rid on the other side (simple equality)
     // Count @rid occurrences — must be exactly 2 (one for each side of =)
-    long ridCount = java.util.regex.Pattern.compile("@rid")
-        .matcher(filterStr).results().count();
+    long ridCount = RID_PATTERN.matcher(filterStr).results().count();
     if (ridCount != 2) {
       return null;
     }
@@ -3230,7 +3235,8 @@ public class MatchExecutionPlanner {
       // Replace WHILE recursion with pre-materialized reachability hash filter
       var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
       var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
-      var targetFilter = edge.edge.item.getFilter().getFilter();
+      var rawFilter = edge.edge.item.getFilter().getFilter();
+      var targetFilter = rawFilter != null ? rawFilter.copy() : null;
       var edgeLabel = getEdgeClassName(edge);
       var edgeDirection = "out".equals(getEdgeDirection(edge));
       // Anchor class from target alias only — the WHERE filter applies to the
