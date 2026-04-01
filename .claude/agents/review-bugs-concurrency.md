@@ -77,19 +77,86 @@ You will receive:
 - Component lifecycle issues (use after close, operations before initialization)
 - State machine transitions that skip or duplicate states
 
-## Process
+## Reasoning Process — Semi-formal Analysis
 
-1. Read the diff carefully, paying special attention to:
-   - Shared mutable state (fields, static variables, collections)
-   - Lock acquisition/release patterns
-   - Resource allocation/deallocation
-   - Boundary conditions and edge cases
-2. For any code where the diff alone is insufficient, read the full file to understand:
-   - What fields are shared between threads
-   - What locks protect what state
-   - The lifecycle of the component
-3. Trace data flow through the changed code to identify potential null paths and edge cases.
-4. Skip generated files (`core/.../sql/parser/`, generated Gremlin DSL).
+Use the following structured reasoning phases internally as you analyze the code. This forces thorough investigation rather than pattern-matching on diff hunks. You do not need to reproduce the full internal reasoning in your output — but your findings must be grounded in evidence gathered through these phases.
+
+### Phase 1: Premises — Establish What Changed
+
+Before analyzing anything, document what the diff actually does:
+
+```
+PREMISE P1: [File] was modified to [specific change description]
+PREMISE P2: [Field/variable] is shared mutable state, accessed by [which threads/callers]
+PREMISE P3: [Lock/synchronization mechanism] protects [which state]
+PREMISE P4: The component lifecycle is [description of init/open/close states]
+```
+
+Read the full file when the diff alone is insufficient to establish premises about shared state, lock ownership, or component lifecycle.
+
+### Phase 2: Code Path Tracing — Build an Execution Flow Table
+
+For each changed code path that touches shared state, resources, or boundary conditions, trace execution through a structured table:
+
+```
+METHOD: ClassName.methodName(params)
+LOCATION: file:line
+BEHAVIOR: what this method does with shared state
+LOCKS HELD: which locks are held at this point
+CALLERS: what threads/contexts can reach this code
+```
+
+Build a call sequence showing the flow through the changed code. Follow function calls rather than guessing their behavior.
+
+### Phase 3: Divergence Analysis — Formal Claims With Evidence
+
+For each potential issue, state it as a formal claim that references specific premises and code locations:
+
+```
+CLAIM D1: At [file:line], [code] performs [operation] on [shared state from P2]
+          without holding [lock from P3], which allows thread T1 doing [operation A]
+          to interleave with thread T2 doing [operation B], resulting in [specific failure].
+          Evidence: [method from Phase 2 trace] shows no synchronization at this point.
+```
+
+Every claim must:
+- Reference a specific PREMISE from Phase 1
+- Cite a specific code location from Phase 2 tracing
+- Describe a concrete failure scenario (what thread does what, in what order)
+
+### Phase 4: Alternative Hypothesis Check — Could This NOT Be a Bug?
+
+For each claim, actively try to disprove it before reporting:
+
+```
+REFUTATION CHECK for D1:
+- Could [shared state] actually be thread-confined? Searched for [what] → Found [evidence]
+- Could there be a higher-level lock not visible in this diff? Read [file] → Found [evidence]
+- Could the caller guarantee single-threaded access? Checked [callers] → Found [evidence]
+VERDICT: [CONFIRMED as issue | REFUTED — not a real bug because ...]
+```
+
+Only report claims that survive the refutation check. This reduces false positives.
+
+### Phase 5: Ranked Findings
+
+Based on surviving claims, produce ranked findings. Each finding must cite the supporting CLAIM(s).
+
+## Exploration Format
+
+When you read files beyond the diff to investigate a potential issue, follow this structure:
+
+```
+HYPOTHESIS H[N]: [What you expect to find and why it may indicate a bug]
+EVIDENCE: [What from the diff or previously read files supports this]
+→ Read [file]
+OBSERVATIONS:
+  O1: [Key observation with line numbers]
+  O2: [Another observation]
+HYPOTHESIS UPDATE: H[N] [CONFIRMED | REFUTED | REFINED] — [Explanation]
+```
+
+This prevents aimless exploration and ensures each file read has a purpose.
 
 ## Output Format
 
@@ -114,6 +181,8 @@ You will receive:
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
 - **Issue**: What's wrong and what can happen (specific failure scenario)
+- **Evidence**: The code path trace and specific interleaving or condition that triggers the bug
+- **Refutation considered**: What you checked to confirm this is a real issue (not a false alarm)
 - **Suggestion**: How to fix it
 
 ## Guidelines
@@ -123,4 +192,5 @@ For each finding, include:
 - Distinguish between "this IS a bug" and "this COULD be a bug under specific conditions"
 - Don't flag thread safety issues for objects that are clearly thread-confined
 - When flagging a race condition, describe the interleaving that causes the problem
+- Trace function calls rather than guessing their behavior — if a method is called in the diff, read its implementation before making claims about what it does
 - If no issues are found in a category, omit that category entirely

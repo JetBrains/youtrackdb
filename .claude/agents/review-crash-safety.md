@@ -71,18 +71,101 @@ You will receive:
 - Is dirty page flushing ordered correctly with respect to WAL?
 - Could a checkpoint leave a partially-written state visible?
 
-## Process
+## Reasoning Process — Semi-formal Analysis
 
-1. Read the diff carefully, focusing on:
-   - Any code that writes to pages or modifies persistent state
-   - WAL record creation and logging
-   - Cache interactions (pin, read, write, unpin, flush)
-   - Transaction commit/rollback paths
-   - Recovery/redo code paths
-2. For code touching storage internals, read the full file to understand the complete operation lifecycle.
-3. Trace the write path: mutation -> WAL record -> page modification -> commit -> checkpoint.
-4. Verify that the recovery path (WAL replay) can reconstruct any state produced by the write path.
-5. Skip files that don't touch persistent state, storage, WAL, or cache.
+Use the following structured reasoning phases internally as you analyze the code. Crash safety is the most critical review dimension — data loss is unacceptable — so every claim about safety or danger must be backed by explicit evidence from code path tracing. You do not need to reproduce the full internal reasoning in your output, but your findings must be grounded in evidence gathered through these phases.
+
+### Phase 1: Premises — Establish What Changed and What Is Persisted
+
+Before analyzing anything, document what the diff touches:
+
+```
+PREMISE P1: [File] was modified to [specific change description]
+PREMISE P2: [Operation] modifies persistent state in [page/structure]
+PREMISE P3: WAL record type [X] is used to log [operation], containing fields [Y]
+PREMISE P4: The write path is: [mutation → WAL record → page modification → commit → checkpoint]
+PREMISE P5: The recovery path replays via: [redo method/class]
+```
+
+Read the full file when the diff alone is insufficient to establish the complete write path or recovery path.
+
+### Phase 2: Write Path Tracing — Follow Every Mutation to Disk
+
+For each changed code path that modifies persistent state, trace the full lifecycle:
+
+```
+STEP 1: [Mutation initiated] at file:line
+STEP 2: [WAL record created] at file:line — record type: [X], fields: [Y]
+STEP 3: [WAL record written] at file:line — before/after page modification?
+STEP 4: [Page modified in cache] at file:line — page pinned? LSN updated?
+STEP 5: [Page unpinned] at file:line
+STEP 6: [Commit/flush point] at file:line — WAL flushed before dirty page visible?
+```
+
+For each step, note whether a crash at that exact point would leave state recoverable.
+
+### Phase 3: Recovery Path Verification — Can WAL Replay Reconstruct This?
+
+For each write path traced in Phase 2, verify the corresponding recovery path:
+
+```
+RECOVERY CHECK for [operation]:
+- WAL record contains: [fields]
+- redo() implementation at [file:line] uses these fields to: [reconstruction steps]
+- After replay, state matches what a successful write would produce: [YES/NO, why]
+- Replay is idempotent (safe to apply twice): [YES/NO, why]
+```
+
+### Phase 4: Crash Scenario Claims — Formal Divergence Analysis
+
+For each potential issue, state it as a formal claim with a specific crash timing:
+
+```
+CLAIM C1: If the process crashes after [STEP N at file:line] but before [STEP M at file:line],
+          then [specific consequence: data loss / corruption / inconsistency] occurs because
+          [WAL record was not yet written | page was modified without WAL | LSN is stale | ...].
+          Evidence: Write path trace shows [gap in the WAL coverage].
+          Recovery impact: redo() at [file:line] will [fail to reconstruct / produce inconsistent state]
+          because [specific reason].
+```
+
+Every claim must:
+- Specify the exact crash timing window (after line X, before line Y)
+- Reference specific steps from Phase 2 write path tracing
+- Describe the concrete state after crash + recovery
+
+### Phase 5: Alternative Hypothesis Check — Could This Actually Be Safe?
+
+For each claim, actively try to disprove it before reporting:
+
+```
+REFUTATION CHECK for C1:
+- Could a higher-level WAL record cover this operation? Read [file] → Found [evidence]
+- Could the double-write log protect against this torn write? Checked [mechanism] → [evidence]
+- Could this code path only execute for in-memory engine (no crash concern)? Checked [callers] → [evidence]
+- Could atomicity be guaranteed by a single-page write? Checked [page boundaries] → [evidence]
+VERDICT: [CONFIRMED as unsafe | REFUTED — safe because ...]
+```
+
+Only report claims that survive the refutation check.
+
+### Phase 6: Ranked Findings
+
+Based on surviving claims, produce ranked findings. Each finding must cite the supporting CLAIM(s) and crash timing window.
+
+## Exploration Format
+
+When you read files beyond the diff to investigate WAL coverage or recovery paths, follow this structure:
+
+```
+HYPOTHESIS H[N]: [What you expect to find — e.g., "redo() may not handle the new field added in this diff"]
+EVIDENCE: [What from the diff or previously read files supports this]
+→ Read [file]
+OBSERVATIONS:
+  O1: [Key observation with line numbers]
+  O2: [Another observation]
+HYPOTHESIS UPDATE: H[N] [CONFIRMED | REFUTED | REFINED] — [Explanation]
+```
 
 ## Output Format
 
@@ -106,14 +189,17 @@ You will receive:
 
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
-- **Issue**: What's wrong and what happens on crash (specific crash scenario)
+- **Crash scenario**: If the process crashes after [X] but before [Y], then [consequence]
+- **Evidence**: The write path trace showing the gap in crash safety
+- **Recovery impact**: What happens when WAL replay runs after this crash
+- **Refutation considered**: What you checked to confirm this is a real issue
 - **Suggestion**: How to fix it
 
 ## Guidelines
 
-- This is the most critical review dimension — data loss is unacceptable
 - Always describe the specific crash scenario: "If the process crashes after line X but before line Y, then..."
+- Trace the full write path (mutation → WAL → page → commit) rather than guessing whether WAL coverage exists
+- Verify recovery by reading the redo() implementation, not by assuming it handles new operations
 - Be conservative: flag anything that looks like it might bypass WAL
 - If the changes don't touch persistent state at all, say so explicitly and keep the review brief
-- If you need to see more context to verify WAL correctness, read the surrounding code
 - If no issues are found in a category, omit that category entirely
