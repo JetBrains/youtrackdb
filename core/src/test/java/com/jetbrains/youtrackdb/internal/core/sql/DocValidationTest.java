@@ -4792,4 +4792,451 @@ public class DocValidationTest {
     g.command("GRANT READ ON database.class.* TO reader");
   }
 
+  // === YQL-Methods.md ===
+
+  /** YQL-Methods.md — Line 89: .append() concatenates strings */
+  @Test
+  public void testMethodAppend() {
+    g.command("CREATE CLASS MethAppendEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethAppendEmp SET name = 'John', surname = 'Doe'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.append(' ').append(surname) FROM MethAppendEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 108: .asBoolean() converts to boolean */
+  @Test
+  public void testMethodAsBoolean() {
+    g.command("CREATE CLASS MethBoolUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethBoolUser SET name = 'Alice', online = 'true'").iterate();
+          tx.yql("CREATE VERTEX MethBoolUser SET name = 'Bob', online = 'false'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethBoolUser WHERE online.asBoolean() = true").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Alice");
+  }
+
+  /** YQL-Methods.md — Line 162: .asDecimal() converts to decimal */
+  @Test
+  public void testMethodAsDecimal() {
+    g.command("CREATE CLASS MethDecEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethDecEmp SET salary = 50000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT salary.asDecimal() FROM MethDecEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 178: .asFloat() converts to float */
+  @Test
+  public void testMethodAsFloat() {
+    g.command("CREATE CLASS MethFloatItem IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethFloatItem SET ray = 4.5").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethFloatItem WHERE ray.asFloat() > 3.14").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 195: .asInteger() with .left() chain */
+  @Test
+  public void testMethodAsInteger() {
+    g.command("CREATE CLASS MethIntLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethIntLog SET value = '12345'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT value.left(3).asInteger() FROM MethIntLog").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 211: .asList() transforms to list */
+  @Test
+  public void testMethodAsList() {
+    g.command("CREATE CLASS MethListFriend IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethListFriend SET tags = ['a','b','c']").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags.asList() FROM MethListFriend").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 227: .asLong() converts to long */
+  @Test
+  public void testMethodAsLong() {
+    g.command("CREATE CLASS MethLongLog IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLongLog SET date = 1609459200000").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT date.asLong() FROM MethLongLog").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 259: .asSet() transforms to set */
+  @Test
+  public void testMethodAsSet() {
+    g.command("CREATE CLASS MethSetFriend IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSetFriend SET tags = ['a','b','a']").iterate();
+        });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT tags.asSet() FROM MethSetFriend").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 276: .asString() converts to string, .indexOf on result */
+  @Test
+  public void testMethodAsString() {
+    g.command("CREATE CLASS MethStrEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethStrEmp SET salary = 50000.75").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethStrEmp WHERE salary.asString().indexOf('.') > -1")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 293: .charAt() returns character at position */
+  @Test
+  public void testMethodCharAt() {
+    g.command("CREATE CLASS MethCharUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethCharUser SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX MethCharUser SET name = 'Mark'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethCharUser WHERE name.charAt(0) = 'L'").toList());
+    assertThat(results).hasSize(1);
+    Vertex v = (Vertex) results.get(0);
+    assertThat((String) v.value("name")).isEqualTo("Luke");
+  }
+
+  /** YQL-Methods.md — Line 309: .convert() converts to another type */
+  @Test
+  public void testMethodConvert() {
+    g.command("CREATE CLASS MethConvUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethConvUser SET dob = '2000-01-01'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT dob.convert('date') FROM MethConvUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 350: .format() formats value using printf syntax */
+  @Test
+  public void testMethodFormat() {
+    g.command("CREATE CLASS MethFmtEmp IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethFmtEmp SET salary = 12345").iterate();
+        });
+    // Validates the doc example: salary.format("%011d")
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT salary.format('%011d') FROM MethFmtEmp").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 369: .hash() computes hash of string */
+  @Test
+  public void testMethodHash() {
+    g.command("CREATE CLASS MethHashUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethHashUser SET password = 'secret123'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT password.hash('SHA-512') FROM MethHashUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 325: .exclude() removes properties from result */
+  @Test
+  public void testMethodExclude() {
+    g.command("CREATE CLASS MethExclUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethExclUser SET name = 'Alice', password = 'secret'")
+              .iterate();
+        });
+    // Verify exclude() parses and executes — use without EXPAND to avoid Gremlin mapper issue
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.exclude('password') FROM MethExclUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 385: .include() keeps only specified properties */
+  @Test
+  public void testMethodInclude() {
+    g.command("CREATE CLASS MethInclUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethInclUser SET name = 'Alice', email = 'a@b.c', age = 30")
+              .iterate();
+        });
+    // Verify include() parses and executes — use without EXPAND to avoid Gremlin mapper issue
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT @this.include('name') FROM MethInclUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 408: .indexOf() finds position of substring */
+  @Test
+  public void testMethodIndexOf() {
+    g.command("CREATE CLASS MethIdxContact IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethIdxContact SET phone = '+44-555-1234'").iterate();
+          tx.yql("CREATE VERTEX MethIdxContact SET phone = '+1-555-9999'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethIdxContact WHERE phone.indexOf('+44') > -1")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 440: .keys() returns map keys */
+  @Test
+  public void testMethodKeys() {
+    g.command("CREATE CLASS MethKeysActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethKeysActor SET map = {'Luke': 1, 'Han': 2}")
+              .iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethKeysActor WHERE 'Luke' IN map.keys()").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 455: .left() returns substring from start */
+  @Test
+  public void testMethodLeft() {
+    g.command("CREATE CLASS MethLeftActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLeftActor SET name = 'Luke Skywalker'").iterate();
+          tx.yql("CREATE VERTEX MethLeftActor SET name = 'Han Solo'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLeftActor WHERE name.left(4) = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 469: .length() returns string length */
+  @Test
+  public void testMethodLength() {
+    g.command("CREATE CLASS MethLenProv IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLenProv SET name = 'Acme'").iterate();
+          tx.yql("CREATE VERTEX MethLenProv SET name = ''").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLenProv WHERE name.length() > 0").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 502: .prefix() prepends a string */
+  @Test
+  public void testMethodPrefix() {
+    g.command("CREATE CLASS MethPfxProfile IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethPfxProfile SET name = 'Smith'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.prefix('Mr. ') FROM MethPfxProfile").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 550: .replace() replaces string occurrences */
+  @Test
+  public void testMethodReplace() {
+    g.command("CREATE CLASS MethReplUser IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethReplUser SET name = 'Mr. Smith'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT name.replace('Mr.', 'Ms.') FROM MethReplUser").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 567: .right() returns substring from end */
+  @Test
+  public void testMethodRight() {
+    g.command("CREATE CLASS MethRightV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethRightV SET name = 'Luke'").iterate();
+          tx.yql("CREATE VERTEX MethRightV SET name = 'Han'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethRightV WHERE name.right(2) = 'ke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 584: .size() returns collection size */
+  @Test
+  public void testMethodSize() {
+    g.command("CREATE CLASS MethSizeTree IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSizeTree SET children = ['a', 'b']").iterate();
+          tx.yql("CREATE VERTEX MethSizeTree SET children = []").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethSizeTree WHERE children.size() > 0").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 601: .subString() returns substring */
+  @Test
+  public void testMethodSubString() {
+    g.command("CREATE CLASS MethSubStock IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethSubStock SET name = 'Laptop'").iterate();
+          tx.yql("CREATE VERTEX MethSubStock SET name = 'Mouse'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethSubStock WHERE name.substring(0, 1) = 'L'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 607: .substring() on literal string */
+  @Test
+  public void testMethodSubStringLiteral() {
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT \"YouTrackDB\".substring(0,8)").toList());
+    assertThat(results).isNotEmpty();
+  }
+
+  /** YQL-Methods.md — Line 622: .trim() removes whitespace */
+  @Test
+  public void testMethodTrim() {
+    g.command("CREATE CLASS MethTrimActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethTrimActor SET name = '  Luke  '").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethTrimActor WHERE name.trim() = 'Luke'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 637: .toLowerCase() converts to lower case */
+  @Test
+  public void testMethodToLowerCase() {
+    g.command("CREATE CLASS MethLowActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethLowActor SET name = 'Luke'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethLowActor WHERE name.toLowerCase() = 'luke'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 652: .toUpperCase() converts to upper case */
+  @Test
+  public void testMethodToUpperCase() {
+    g.command("CREATE CLASS MethUpActor IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethUpActor SET name = 'Luke'").iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM MethUpActor WHERE name.toUpperCase() = 'LUKE'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 487: .normalize() normalizes a string */
+  @Test
+  public void testMethodNormalize() {
+    g.command("CREATE CLASS MethNormV IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX MethNormV SET name = 'café'").iterate();
+        });
+    // Test that normalize() parses and executes without error
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethNormV WHERE name.normalize() IS NOT NULL AND name.normalize('NFD') IS NOT NULL")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
+  /** YQL-Methods.md — Line 680: .values() returns map values */
+  @Test
+  public void testMethodValues() {
+    g.command("CREATE CLASS MethValClient IF NOT EXISTS EXTENDS V");
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE VERTEX MethValClient SET map = {'name': 'Alice', 'city': 'NYC'}")
+              .iterate();
+        });
+    var results =
+        g.computeInTx(
+            tx -> tx.yql(
+                "SELECT FROM MethValClient WHERE map.values() CONTAINS 'Alice'")
+                .toList());
+    assertThat(results).hasSize(1);
+  }
+
 }
