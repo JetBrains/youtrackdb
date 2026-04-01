@@ -66,30 +66,42 @@ jobs:
             echo "load=csv" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install S3 tools
+      - name: Install CLI tools (mc, jq)
         run: |
-          pip3 install --break-system-packages boto3 -q 2>/dev/null || pip3 install boto3 -q
+          # Install MinIO client (static binary, no Python/pip needed)
+          curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc \
+            || curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o "$HOME/mc"
+          chmod +x /usr/local/bin/mc 2>/dev/null || chmod +x "$HOME/mc"
+          # Ensure mc is on PATH
+          if ! command -v mc &>/dev/null; then
+            export PATH="$HOME:$PATH"
+            echo "$HOME" >> "$GITHUB_PATH"
+          fi
+
+          # Install jq if not present (needed for InfluxDB push)
+          if ! command -v jq &>/dev/null; then
+            curl -fsSL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 \
+              -o /usr/local/bin/jq \
+              || curl -fsSL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 \
+                -o "$HOME/jq"
+            chmod +x /usr/local/bin/jq 2>/dev/null || chmod +x "$HOME/jq"
+            if ! command -v jq &>/dev/null; then
+              echo "$HOME" >> "$GITHUB_PATH"
+            fi
+          fi
+
+          mc alias set hetzner "${{ secrets.HETZNER_S3_ENDPOINT }}" \
+            "${{ secrets.HETZNER_S3_ACCESS_KEY }}" "${{ secrets.HETZNER_S3_SECRET_KEY }}"
+          mc ls hetzner/bench-cache/ldbc/ || echo "Warning: could not list S3 bucket"
 
       - name: Download LDBC CSV dataset from S3
         if: steps.mode.outputs.load == 'csv'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
-          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          os.makedirs('jmh-ldbc/target/ldbc-dataset/sf1', exist_ok=True)
-          print('Downloading SF 1 CSV dataset from S3...')
-          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-composite-merged-fk.tar.zst',
-              '/tmp/dataset.tar.zst')
-          print('Downloaded from S3')
-          PYEOF
+          echo 'Downloading SF 1 CSV dataset from S3...'
+          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-composite-merged-fk.tar.zst /tmp/dataset.tar.zst
+          echo 'Downloaded from S3'
 
+          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
           cd jmh-ldbc/target/ldbc-dataset/sf1
           zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
           tar xf /tmp/dataset.tar
@@ -99,22 +111,10 @@ jobs:
 
       - name: Download pre-built LDBC database from S3
         if: steps.mode.outputs.load == 'prebuilt'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
-          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          print('Downloading pre-built SF 1 database from S3...')
-          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-bench-db.tar.zst',
-              '/tmp/bench-db.tar.zst')
-          print('Downloaded from S3')
-          PYEOF
+          echo 'Downloading pre-built SF 1 database from S3...'
+          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst /tmp/bench-db.tar.zst
+          echo 'Downloaded from S3'
 
           mkdir -p jmh-ldbc/target/ldbc-bench-db
           cd jmh-ldbc/target/ldbc-bench-db
@@ -151,10 +151,6 @@ jobs:
 
       - name: Upload built database to S3
         if: success() && steps.mode.outputs.load == 'csv'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
-          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
         run: |
           set -euo pipefail
           cd jmh-ldbc/target/ldbc-bench-db
@@ -163,18 +159,9 @@ jobs:
           rm -f /tmp/bench-db.tar
           echo "Database archived: $(du -sh /tmp/bench-db.tar.zst | cut -f1)"
 
-          cd "$GITHUB_WORKSPACE"
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          print('Uploading built database to S3...')
-          s3.upload_file('/tmp/bench-db.tar.zst', 'bench-cache',
-              'ldbc/ldbc-sf1-bench-db.tar.zst')
-          print('Uploaded to S3: ldbc/ldbc-sf1-bench-db.tar.zst')
-          PYEOF
+          echo 'Uploading built database to S3...'
+          mc cp /tmp/bench-db.tar.zst hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst
+          echo 'Uploaded to S3: ldbc/ldbc-sf1-bench-db.tar.zst'
 
       - name: Push results to InfluxDB
         if: success()
@@ -182,7 +169,7 @@ jobs:
           INFLUXDB_URL: ${{ secrets.INFLUXDB_URL }}
           INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
         run: |
-          python3 jmh-ldbc/jmh-to-influxdb.py \
+          bash jmh-ldbc/jmh-to-influxdb.sh \
             --input results.json \
             --influxdb-url "$INFLUXDB_URL" \
             --influxdb-token "$INFLUXDB_TOKEN" \
