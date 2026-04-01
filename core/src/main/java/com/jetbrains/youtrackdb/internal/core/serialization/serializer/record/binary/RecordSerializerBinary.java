@@ -93,7 +93,10 @@ public class RecordSerializerBinary implements RecordSerializer {
       return;
     }
 
-    final var container = new BytesContainer(iSource).skip(1);
+    // Wire byte[] deserialization through ReadBytesContainer, proving the two paths
+    // are equivalent. The ReadBytesContainer wraps the same byte[] with an offset of 1
+    // (skipping the serializer version byte).
+    final var container = new ReadBytesContainer(iSource, 1);
     try {
       if (iFields != null && iFields.length > 0) {
         serializerByVersion[iSource[0]].deserializePartial(session, (EntityImpl) iRecord, container,
