@@ -2127,6 +2127,12 @@ public abstract class AbstractStorage
 
             commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
                 indexOperations);
+
+            // Persist accumulated index count deltas to BTree entry point pages.
+            // Runs inside the same WAL atomic operation as commitIndexes — any
+            // failure triggers rollback, ensuring persisted counts always match
+            // index data (design decision D2).
+            persistIndexCountDeltas(atomicOperation);
           } catch (final IOException | RuntimeException e) {
             error = e;
             if (e instanceof RuntimeException runtimeException) {
@@ -2252,6 +2258,34 @@ public abstract class AbstractStorage
    * state only. On rollback, the delta holder is discarded with the
    * operation.
    */
+  /**
+   * Persists accumulated index count deltas to the BTree entry point pages
+   * within the current WAL atomic operation. Called between
+   * {@code commitIndexes()} and the catch clause in the commit flow, so any
+   * failure triggers the existing rollback path.
+   *
+   * <p>Mirrors the defensive checks of {@link #applyIndexCountDeltas}: skips
+   * engines with out-of-bounds IDs, null entries, or non-{@link BTreeIndexEngine}
+   * instances (e.g., if an engine was concurrently dropped, leaving a stale delta).
+   */
+  private void persistIndexCountDeltas(AtomicOperation atomicOperation) {
+    var holder = atomicOperation.getIndexCountDeltas();
+    if (holder == null) {
+      return;
+    }
+    for (var entry : holder.getDeltas().entrySet()) {
+      var engineId = entry.getKey();
+      var delta = entry.getValue();
+      if (engineId >= 0 && engineId < indexEngines.size()) {
+        var engine = indexEngines.get(engineId);
+        if (engine instanceof BTreeIndexEngine btreeEngine) {
+          btreeEngine.persistCountDelta(
+              atomicOperation, delta.totalDelta, delta.nullDelta);
+        }
+      }
+    }
+  }
+
   private void applyIndexCountDeltas(AtomicOperation atomicOperation) {
     var holder = atomicOperation.getIndexCountDeltas();
     if (holder == null) {
