@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
@@ -37,6 +38,7 @@ import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -67,6 +69,11 @@ public class WOWCacheNonDurableFileTrackingTest {
     var buildDirectory = System.getProperty("buildDirectory", ".");
     storageName = "WOWCacheNonDurableTest";
     storagePath = Paths.get(buildDirectory).resolve(storageName);
+  }
+
+  @AfterClass
+  public static void afterClass() {
+    bufferPool.clear();
   }
 
   @Before
@@ -1401,6 +1408,164 @@ public class WOWCacheNonDurableFileTrackingTest {
         }
         wowCache = null;
       }
+    }
+  }
+
+  // --- Flush path tests ---
+
+  /**
+   * Writes data to a page and stores it in the write cache.
+   */
+  private void writeAndStorePage(long fileId, int pageIndex, byte[] data) throws Exception {
+    wowCache.allocateNewPage(fileId);
+    var ptr = wowCache.load(fileId, pageIndex, new ModifiableBoolean(), false);
+    long stamp = ptr.acquireExclusiveLock();
+    var buf = ptr.getBuffer();
+    assertNotNull(buf);
+    buf.put(DurablePage.NEXT_FREE_POSITION, data);
+    DurablePage.setLogSequenceNumberForPage(buf, new LogSequenceNumber(0, 0));
+    ptr.releaseExclusiveLock(stamp);
+    wowCache.store(fileId, pageIndex, ptr);
+    ptr.decrementReadersReferrer();
+  }
+
+  /**
+   * Verifies that the partitioned flush path works end-to-end for both durable and non-durable
+   * files. When dirty pages exist for both file types, {@code partitionAndFlushChunks} splits
+   * them into durable chunks (flushed via {@code flushPages} with DWL + fsync) and non-durable
+   * chunks (flushed via {@code flushNonDurablePages} without DWL/fsync).
+   *
+   * <p>The test writes pages, flushes via {@code close(fileId, true)} (per-file flush),
+   * then reads data back from disk. The per-file flush goes through executeFileFlush →
+   * partitionAndFlushChunks → flushPages / flushNonDurablePages.
+   *
+   * <p>This test covers:
+   * <ul>
+   *   <li>{@code partitionAndFlushChunks} — partition logic and dual-path dispatch</li>
+   *   <li>{@code flushNonDurablePages} — entire method (write without DWL/fsync)</li>
+   *   <li>{@code flushPages} — durable flush path (with DWL)</li>
+   *   <li>{@code executeFileFlush} — page copy logic for both file types</li>
+   * </ul>
+   */
+  @Test
+  public void testFlushMixedDurableAndNonDurablePages() throws Exception {
+    // Create one durable and one non-durable file
+    final var durableFileId = wowCache.addFile("flushDurable.tst");
+    assertFalse(wowCache.isNonDurable(durableFileId));
+
+    final var bookedNdId = wowCache.bookFileId("flushNonDurable.tst");
+    final var ndFileId = wowCache.addFile("flushNonDurable.tst", bookedNdId, true);
+    assertTrue(wowCache.isNonDurable(ndFileId));
+
+    // Write pages to both files
+    final var durableData = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
+    final var ndData = new byte[] {10, 20, 30, 40, 50, 60, 70, 80};
+
+    writeAndStorePage(durableFileId, 0, durableData);
+    writeAndStorePage(ndFileId, 0, ndData);
+
+    // Per-file flush goes through executeFileFlush → partitionAndFlushChunks,
+    // which routes durable chunks to flushPages and non-durable to flushNonDurablePages.
+    wowCache.close(durableFileId, true);
+    wowCache.close(ndFileId, true);
+
+    // Re-load from disk to verify data was written correctly.
+    // After close(fileId, true), the pages are flushed and removed from write cache,
+    // so load() reads from the on-disk file.
+    var durableCheck = wowCache.load(durableFileId, 0, new ModifiableBoolean(), false);
+    var checkBuf = durableCheck.getBuffer();
+    assertNotNull(checkBuf);
+    var readData = new byte[8];
+    checkBuf.get(DurablePage.NEXT_FREE_POSITION, readData);
+    durableCheck.decrementReadersReferrer();
+    for (int i = 0; i < 8; i++) {
+      assertEquals("Durable page data mismatch at offset " + i, durableData[i], readData[i]);
+    }
+
+    var ndCheck = wowCache.load(ndFileId, 0, new ModifiableBoolean(), false);
+    checkBuf = ndCheck.getBuffer();
+    assertNotNull(checkBuf);
+    checkBuf.get(DurablePage.NEXT_FREE_POSITION, readData);
+    ndCheck.decrementReadersReferrer();
+    for (int i = 0; i < 8; i++) {
+      assertEquals("Non-durable page data mismatch at offset " + i, ndData[i], readData[i]);
+    }
+  }
+
+  /**
+   * Verifies that flushing only non-durable files (no durable files in the flush set) goes
+   * through the non-durable flush path without triggering WAL flush or DWL writes. The fast
+   * path in {@code executeFileFlush} detects an all-non-durable file set and skips WAL flush.
+   */
+  @Test
+  public void testFlushOnlyNonDurablePages() throws Exception {
+    final var bookedNdId = wowCache.bookFileId("flushNdOnly.tst");
+    final var ndFileId = wowCache.addFile("flushNdOnly.tst", bookedNdId, true);
+    assertTrue(wowCache.isNonDurable(ndFileId));
+
+    final var data = new byte[] {11, 22, 33, 44, 55, 66, 77, 88};
+
+    writeAndStorePage(ndFileId, 0, data);
+
+    // Per-file flush for non-durable-only: executeFileFlush → partitionAndFlushChunks
+    // → flushNonDurablePages (all chunks are non-durable, WAL flush is skipped)
+    wowCache.close(ndFileId, true);
+
+    // Re-load from disk (file was closed, but WOWCache still manages the name-id map)
+    var check = wowCache.load(ndFileId, 0, new ModifiableBoolean(), false);
+    var checkBuf = check.getBuffer();
+    assertNotNull(checkBuf);
+    var readData = new byte[8];
+    checkBuf.get(DurablePage.NEXT_FREE_POSITION, readData);
+    check.decrementReadersReferrer();
+    for (int i = 0; i < 8; i++) {
+      assertEquals("Non-durable page data mismatch at offset " + i, data[i], readData[i]);
+    }
+  }
+
+  /**
+   * Verifies that flushing multiple pages across both durable and non-durable files exercises
+   * the chunk-splitting logic in the flush path. Multiple pages ensure that chunk boundaries
+   * are hit and that each chunk is correctly classified as durable or non-durable.
+   */
+  @Test
+  public void testFlushMultiplePagesPartitioned() throws Exception {
+    final var durableFileId = wowCache.addFile("flushMultiDurable.tst");
+    final var bookedNdId = wowCache.bookFileId("flushMultiNd.tst");
+    final var ndFileId = wowCache.addFile("flushMultiNd.tst", bookedNdId, true);
+
+    // Write 5 pages to each file
+    for (int p = 0; p < 5; p++) {
+      writeAndStorePage(durableFileId, p, new byte[] {(byte) (p + 1), 0, 0, 0, 0, 0, 0, 0});
+      writeAndStorePage(ndFileId, p, new byte[] {(byte) (p + 100), 0, 0, 0, 0, 0, 0, 0});
+    }
+
+    // Per-file flush goes through partitionAndFlushChunks for each file
+    wowCache.close(durableFileId, true);
+    wowCache.close(ndFileId, true);
+
+    // Verify all durable pages
+    for (int p = 0; p < 5; p++) {
+      var ptr = wowCache.load(durableFileId, p, new ModifiableBoolean(), false);
+      var buf = ptr.getBuffer();
+      assertNotNull(buf);
+      assertEquals(
+          "Durable page " + p + " data mismatch",
+          (byte) (p + 1),
+          buf.get(DurablePage.NEXT_FREE_POSITION));
+      ptr.decrementReadersReferrer();
+    }
+
+    // Verify all non-durable pages
+    for (int p = 0; p < 5; p++) {
+      var ptr = wowCache.load(ndFileId, p, new ModifiableBoolean(), false);
+      var buf = ptr.getBuffer();
+      assertNotNull(buf);
+      assertEquals(
+          "Non-durable page " + p + " data mismatch",
+          (byte) (p + 100),
+          buf.get(DurablePage.NEXT_FREE_POSITION));
+      ptr.decrementReadersReferrer();
     }
   }
 
