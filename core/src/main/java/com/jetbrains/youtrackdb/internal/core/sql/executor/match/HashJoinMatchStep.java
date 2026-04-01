@@ -121,8 +121,11 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * parent) — this prevents {@code $matched} pollution.
    */
   private Set<JoinKey> buildHashSet(CommandContext ctx) {
+    // Use parent linkage so the isolated context inherits input parameters
+    // (e.g., :startDate in NOT pattern WHERE clauses) while build-side
+    // MatchSteps write $matched to the child context without polluting the parent.
     var isolatedCtx = new BasicCommandContext();
-    isolatedCtx.setDatabaseSession(ctx.getDatabaseSession());
+    isolatedCtx.setParentWithoutOverridingChild(ctx);
 
     // Deep-copy the build plan bound to the isolated context so that every
     // step in the plan (including MatchSteps that write $matched) operates
@@ -157,7 +160,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    */
   private Map<JoinKey, List<Result>> buildHashMap(CommandContext ctx) {
     var isolatedCtx = new BasicCommandContext();
-    isolatedCtx.setDatabaseSession(ctx.getDatabaseSession());
+    isolatedCtx.setParentWithoutOverridingChild(ctx);
 
     var isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
     var map = new HashMap<JoinKey, List<Result>>();
