@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
@@ -23,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -35,6 +38,27 @@ import org.junit.Test;
  * aliases are shared with the positive pattern (forming the join key).
  */
 public class MatchPlannerHelpersTest {
+
+  // Pin config values so tests don't break if defaults change
+  private static final double TEST_FAN_OUT = 10.0;
+  private static final double TEST_SELECTIVITY = 0.1;
+
+  private Object savedFanOut;
+  private Object savedSelectivity;
+
+  @Before
+  public void pinConfig() {
+    savedFanOut = GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValue();
+    savedSelectivity = GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.getValue();
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(TEST_FAN_OUT);
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(TEST_SELECTIVITY);
+  }
+
+  @After
+  public void restoreConfig() {
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(savedFanOut);
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(savedSelectivity);
+  }
 
   // ── notPatternDependsOnMatched ──────────────────────────────────────────
 
@@ -224,7 +248,7 @@ public class MatchPlannerHelpersTest {
   /**
    * Origin alias with a known class (100 records), one edge, no intermediate
    * filter. estimateRootEntries adds +1 for unfiltered classes, so origin
-   * estimate is 101. Expected: 101 * 10 (fan-out) = 1010.
+   * estimate is 101. Expected: 101 * TEST_FAN_OUT.
    */
   @Test
   public void estimateNotPatternCardinality_knownOrigin_oneEdge_noFilter() {
@@ -233,7 +257,7 @@ public class MatchPlannerHelpersTest {
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
         exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
-    assertThat(estimate).isEqualTo(1010);
+    assertThat(estimate).isEqualTo(Math.round(101 * TEST_FAN_OUT));
   }
 
   /**
@@ -252,8 +276,8 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Two edges with an intermediate WHERE filter: (100+1) * 10 * 10 / 2 = 5050.
-   * The filter on the second hop applies 0.5 selectivity.
+   * Two edges with an intermediate WHERE filter. Without an index, the pinned
+   * TEST_SELECTIVITY is used: (100+1) * TEST_FAN_OUT * TEST_FAN_OUT * TEST_SELECTIVITY.
    */
   @Test
   public void estimateNotPatternCardinality_twoEdges_withFilter() {
@@ -280,8 +304,9 @@ public class MatchPlannerHelpersTest {
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
         exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
-    // (100+1) * 10 * 10 / 2 = 5050
-    assertThat(estimate).isEqualTo(5050);
+    // (100+1) * TEST_FAN_OUT * TEST_FAN_OUT * TEST_SELECTIVITY
+    long expected = Math.round(101 * TEST_FAN_OUT * TEST_FAN_OUT * TEST_SELECTIVITY);
+    assertThat(estimate).isEqualTo(expected);
   }
 
   /**
@@ -295,13 +320,13 @@ public class MatchPlannerHelpersTest {
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
         exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
-    assertThat(estimate).isEqualTo(510);
+    assertThat(estimate).isEqualTo(Math.round(51 * TEST_FAN_OUT));
   }
 
   /**
-   * Boundary: estimated cardinality exactly at HASH_JOIN_THRESHOLD should still be
-   * eligible. Origin with 999 records: estimateRootEntries returns 999+1=1000,
-   * times fan-out 10 = 10,000 == HASH_JOIN_THRESHOLD.
+   * Boundary: estimated cardinality exactly at threshold should still be eligible.
+   * Origin with 999 records: estimateRootEntries returns 1000,
+   * times TEST_FAN_OUT = 10,000 == threshold (pinned in @Before).
    */
   @Test
   public void canUseHashJoin_exactlyAtThreshold_returnsTrue() {
@@ -314,9 +339,9 @@ public class MatchPlannerHelpersTest {
   }
 
   /**
-   * Boundary: estimated cardinality one above HASH_JOIN_THRESHOLD must fall back to
-   * nested-loop. Origin with 1000 records: estimateRootEntries returns 1000+1=1001,
-   * times fan-out 10 = 10,010 > HASH_JOIN_THRESHOLD.
+   * Boundary: estimated cardinality one above threshold must fall back to nested-loop.
+   * Origin with 1000 records: estimateRootEntries returns 1001,
+   * times TEST_FAN_OUT = 10,010 > threshold.
    */
   @Test
   public void canUseHashJoin_oneAboveThreshold_returnsFalse() {
