@@ -5239,4 +5239,55 @@ public class DocValidationTest {
     assertThat(results).hasSize(1);
   }
 
+  // ===== YQL-Rebuild-Index.md =====
+
+  @Test
+  public void testRebuildIndexNamedIndex() {
+    // YQL-Rebuild-Index.md line 8: REBUILD INDEX <index> syntax
+    // and line 15-18: rebuild an index on the nick property of the class Profile
+    g.command("CREATE CLASS RbIdxProfile EXTENDS V");
+    g.command("CREATE PROPERTY RbIdxProfile.nick STRING");
+    g.command("CREATE INDEX RbIdxProfile.nick ON RbIdxProfile (nick) NOTUNIQUE");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX RbIdxProfile SET nick = 'John'").iterate();
+          tx.yql("CREATE VERTEX RbIdxProfile SET nick = 'Jane'").iterate();
+        });
+    g.close();
+
+    // Rebuild the specific index — should not throw
+    g = youTrackDB.openTraversal("test", "admin", "admin");
+    g.command("REBUILD INDEX RbIdxProfile.nick");
+
+    // Verify data is still accessible via the index after rebuild
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM RbIdxProfile WHERE nick = 'John'").toList());
+    assertThat(results).hasSize(1);
+  }
+
+  @Test
+  public void testRebuildIndexAll() {
+    // YQL-Rebuild-Index.md line 11: Use * to rebuild all automatic indexes
+    // and line 23-24: REBUILD INDEX *
+    g.command("CREATE CLASS RbIdxAllCity EXTENDS V");
+    g.command("CREATE PROPERTY RbIdxAllCity.name STRING");
+    g.command("CREATE INDEX RbIdxAllCity.name ON RbIdxAllCity (name) NOTUNIQUE");
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX RbIdxAllCity SET name = 'Paris'").iterate();
+        });
+    g.close();
+
+    // Rebuild all indexes — should not throw
+    g = youTrackDB.openTraversal("test", "admin", "admin");
+    g.command("REBUILD INDEX *");
+
+    // Verify data is still accessible after rebuilding all indexes
+    var results =
+        g.computeInTx(
+            tx -> tx.yql("SELECT FROM RbIdxAllCity WHERE name = 'Paris'").toList());
+    assertThat(results).hasSize(1);
+  }
+
 }
