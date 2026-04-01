@@ -479,6 +479,14 @@ public final class WOWCache extends AbstractWriteCache
    */
   private volatile IntOpenHashSet nonDurableFileIds = new IntOpenHashSet();
 
+  /**
+   * When {@code true}, {@link #deleteFile(long)} skips the per-file
+   * {@link #writeNonDurableRegistry()} call. Set during bulk recovery
+   * ({@link #deleteNonDurableFilesOnRecovery}) to avoid redundant I/O —
+   * the recovery method does a single batch registry write at the end.
+   */
+  private boolean suppressNonDurableRegistryPersist;
+
   private boolean closed;
   private final ExecutorService executor;
 
@@ -1008,27 +1016,35 @@ public final class WOWCache extends AbstractWriteCache
       filesLock.releaseReadLock();
     }
 
-    // Delete each non-durable file from both caches (lock-free iteration over snapshot)
-    for (final var intIterator = deletedIds.iterator(); intIterator.hasNext();) {
-      final var intId = intIterator.nextInt();
-      final var externalId = composeFileId(id, intId);
+    // Suppress per-file registry writes during bulk deletion — we do a single
+    // batch write at the end to avoid redundant I/O (each writeNonDurableRegistry
+    // rewrites the side files and may fsync).
+    suppressNonDurableRegistryPersist = true;
+    try {
+      // Delete each non-durable file from both caches (lock-free iteration over snapshot)
+      for (final var intIterator = deletedIds.iterator(); intIterator.hasNext();) {
+        final var intId = intIterator.nextInt();
+        final var externalId = composeFileId(id, intId);
 
-      try {
-        // readCache.deleteFile() clears read cache pages and delegates to
-        // writeCache.deleteFile() which handles disk deletion + name-id map cleanup
-        // + non-durable registry removal under filesLock
-        readCache.deleteFile(externalId, this);
-      } catch (final Exception e) {
-        // Keep the ID in deletedIds so WAL replay skips records for this file.
-        // Non-durable pages were never WAL-logged, so replaying records on top of
-        // stale non-durable data would produce silent corruption. The side file
-        // still contains this ID — the next recovery retries the physical deletion.
-        logger.error(
-            "Failed to delete non-durable file with internal ID {} during crash recovery,"
-                + " continuing. WAL replay will skip records for this file.",
-            intId,
-            e);
+        try {
+          // readCache.deleteFile() clears read cache pages and delegates to
+          // writeCache.deleteFile() which handles disk deletion + name-id map cleanup
+          // + non-durable registry removal under filesLock
+          readCache.deleteFile(externalId, this);
+        } catch (final Exception e) {
+          // Keep the ID in deletedIds so WAL replay skips records for this file.
+          // Non-durable pages were never WAL-logged, so replaying records on top of
+          // stale non-durable data would produce silent corruption. The side file
+          // still contains this ID — the next recovery retries the physical deletion.
+          logger.error(
+              "Failed to delete non-durable file with internal ID {} during crash recovery,"
+                  + " continuing. WAL replay will skip records for this file.",
+              intId,
+              e);
+        }
       }
+    } finally {
+      suppressNonDurableRegistryPersist = false;
     }
 
     // Persist the updated registry under the write lock. If all deletions succeeded,
@@ -1434,7 +1450,12 @@ public final class WOWCache extends AbstractWriteCache
           final var updated = new IntOpenHashSet(nonDurableFileIds);
           updated.remove(intId);
           nonDurableFileIds = updated;
-          writeNonDurableRegistry();
+
+          // During bulk recovery the caller batches a single registry write at the end,
+          // so skip the per-file I/O here to avoid redundant fsync overhead.
+          if (!suppressNonDurableRegistryPersist) {
+            writeNonDurableRegistry();
+          }
         }
 
         writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
