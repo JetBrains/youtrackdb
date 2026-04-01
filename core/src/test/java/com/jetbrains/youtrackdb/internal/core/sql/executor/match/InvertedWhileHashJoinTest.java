@@ -188,4 +188,65 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
     assertEquals("tag1", result.get(0).getProperty("tagName"));
     session.commit();
   }
+
+  /**
+   * Multiple anchor vertices with the same name — verifies the WHILE hash
+   * join correctly traverses all matching anchor nodes. Creates a second
+   * TagClass hierarchy (RootClass2 → MiddleClass2 → LeafClass2) with a
+   * tag attached to LeafClass2, then queries for the common ancestor name
+   * pattern that matches both RootClass and RootClass2.
+   *
+   * This exercises the multi-row build side of the inverted WHILE hash join
+   * where more than one anchor vertex is found.
+   */
+  @Test
+  public void whileHierarchy_multipleAnchors_bothHierarchiesTraversed() {
+    session.begin();
+    // Create a second hierarchy: LeafClass2 → MiddleClass2 → RootClass2
+    session.execute("CREATE VERTEX TagClass set name = 'RootClass2'").close();
+    session.execute("CREATE VERTEX TagClass set name = 'MiddleClass2'").close();
+    session.execute("CREATE VERTEX TagClass set name = 'LeafClass2'").close();
+
+    session.execute(
+        "CREATE EDGE IS_SUBCLASS_OF"
+            + " from (select from TagClass where name='LeafClass2')"
+            + " to (select from TagClass where name='MiddleClass2')")
+        .close();
+    session.execute(
+        "CREATE EDGE IS_SUBCLASS_OF"
+            + " from (select from TagClass where name='MiddleClass2')"
+            + " to (select from TagClass where name='RootClass2')")
+        .close();
+
+    // tag4 → LeafClass2 (reachable from RootClass2)
+    session.execute("CREATE VERTEX Tag set name = 'tag4'").close();
+    session.execute(
+        "CREATE EDGE HAS_TYPE from (select from Tag where name='tag4')"
+            + " to (select from TagClass where name='LeafClass2')")
+        .close();
+
+    // Query for tags whose type hierarchy reaches any class named like 'Root%'
+    // Using name LIKE 'RootClass%' to match both RootClass and RootClass2
+    var result = session.query(
+        "MATCH {class:Tag, as:tag}"
+            + ".out('HAS_TYPE'){as:directClass}"
+            + ".out('IS_SUBCLASS_OF'){while: (true),"
+            + " where: (name LIKE 'RootClass%'), as: matchedClass}"
+            + " RETURN tag.name as tagName, matchedClass.name as className")
+        .toList();
+
+    assertFalse("should return results from both hierarchies",
+        result.isEmpty());
+    var tagNames = result.stream()
+        .map(r -> (String) r.getProperty("tagName"))
+        .collect(Collectors.toSet());
+    // tag1 (LeafClass → MiddleClass → RootClass),
+    // tag2 (OtherClass → RootClass),
+    // tag4 (LeafClass2 → MiddleClass2 → RootClass2)
+    assertTrue("tag1 should be found via RootClass", tagNames.contains("tag1"));
+    assertTrue("tag2 should be found via RootClass", tagNames.contains("tag2"));
+    assertTrue("tag4 should be found via RootClass2",
+        tagNames.contains("tag4"));
+    session.rollback();
+  }
 }

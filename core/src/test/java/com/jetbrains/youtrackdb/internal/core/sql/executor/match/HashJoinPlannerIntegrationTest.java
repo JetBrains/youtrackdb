@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -361,6 +362,138 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
         .collect(Collectors.toSet());
     assertEquals(Set.of("n1:t1", "n1:t2"), names);
     session.commit();
+  }
+
+  // ── Runtime fallback tests (threshold exceeded → nested-loop) ─────────
+
+  /**
+   * Forces the runtime threshold to 1, so any build set with >1 entry
+   * exceeds it and triggers the nestedLoopProbe fallback path in
+   * HashJoinMatchStep. Verifies that ANTI_JOIN still produces correct
+   * results when falling back to per-row nested-loop evaluation.
+   *
+   * The build side for this NOT pattern produces 2 entries (n2 and n3,
+   * friends of n1), which exceeds the threshold of 1.
+   */
+  @Test
+  public void runtimeFallback_antiJoin_correctResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      // Threshold=1: any build set with >1 entry triggers nested-loop fallback
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}.out('Friend'){as:b},"
+              + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
+              + " RETURN b.name as bName")
+          .toList();
+      // NOT removes n3 from {n2, n3} → only n2 remains
+      assertEquals(1, result.size());
+      assertEquals("n2", result.get(0).getProperty("bName"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Forces the runtime threshold to 1 to trigger the nestedLoopProbe
+   * fallback for SEMI_JOIN. Diamond pattern with intermediates NOT in
+   * RETURN — planner selects SEMI_JOIN, but at runtime the build set
+   * exceeds threshold=1 and falls back to nested-loop.
+   */
+  @Test
+  public void runtimeFallback_semiJoin_correctResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name as aName, t.name as tName")
+          .toList();
+
+      assertFalse("semi-join fallback should still return results",
+          result.isEmpty());
+      var names = result.stream()
+          .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))
+          .collect(Collectors.toSet());
+      assertEquals(Set.of("n1:t1", "n1:t2"), names);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Forces the runtime threshold to 1 to trigger the nestedLoopInnerJoin
+   * fallback for INNER_JOIN. Diamond pattern with intermediate alias 'c'
+   * in RETURN — planner selects INNER_JOIN, but at runtime the build map
+   * exceeds threshold=1 and falls back to nested-loop.
+   */
+  @Test
+  public void runtimeFallback_innerJoin_correctResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name as aName, b.name as bName,"
+              + " c.name as cName, t.name as tName")
+          .toList();
+
+      assertFalse("inner-join fallback should still return results",
+          result.isEmpty());
+      // Every row must have all four aliases populated
+      for (var row : result) {
+        assertNotNull("a.name missing", row.getProperty("aName"));
+        assertNotNull("b.name missing", row.getProperty("bName"));
+        assertNotNull("c.name missing", row.getProperty("cName"));
+        assertNotNull("t.name missing", row.getProperty("tName"));
+      }
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Setting the threshold to 0 should disable hash join optimization entirely.
+   * The planner should fall back to nested-loop (FilterNotMatchPatternStep)
+   * for NOT patterns, showing "+ NOT (" instead of "HASH ANTI_JOIN" in EXPLAIN.
+   */
+  @Test
+  public void thresholdZero_disablesHashJoin() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b},"
+              + " NOT {as:a}.out('Friend'){as:b, where:(name='n3')}"
+              + " RETURN b.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertFalse("threshold=0 should disable hash join, got:\n" + plan,
+          plan.contains("HASH ANTI_JOIN"));
+      assertTrue("threshold=0 should use nested-loop NOT step, got:\n" + plan,
+          plan.contains("+ NOT ("));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
   }
 
 }
