@@ -985,13 +985,16 @@ public class MatchExecutionPlanner {
    * @param estimatedCardinality estimated number of rows the branch produces
    * @param joinMode            the join mode: SEMI_JOIN if no intermediates are downstream,
    *                            INNER_JOIN if any intermediate is referenced downstream
+   * @param scanAlias           the alias to scan from in the build-side plan — must have a
+   *                            known class or RID in {@code aliasClasses}/{@code aliasRids}
    */
   record HashJoinBranch(
       List<String> sharedAliases,
       List<EdgeTraversal> branchEdges,
       Set<String> intermediateAliases,
       long estimatedCardinality,
-      JoinMode joinMode) {
+      JoinMode joinMode,
+      String scanAlias) {
   }
 
   /**
@@ -1006,11 +1009,9 @@ public class MatchExecutionPlanner {
    *   <li>no intermediate alias uses an auto-generated name ({@link #DEFAULT_ALIAS_PREFIX})</li>
    * </ul>
    *
-   * <p>Currently, only {@link JoinMode#SEMI_JOIN} is selected. Branches with downstream
-   * intermediates are rejected (fall back to nested-loop) because the INNER_JOIN execution
-   * path has a known issue with certain schedule orderings. The {@code JoinMode} field in
-   * {@link HashJoinBranch} and the planner wiring via {@code branch.joinMode()} are in place
-   * for future INNER_JOIN enablement.
+   * <p>Branches are classified as {@link JoinMode#SEMI_JOIN} when no intermediate alias
+   * is referenced downstream, or {@link JoinMode#INNER_JOIN} when at least one intermediate
+   * alias is referenced downstream (requiring build-side row merge into the result).
    *
    * @param scheduledEdges     the edge schedule from {@code getTopologicalSortedSchedule()}
    * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
@@ -1086,8 +1087,8 @@ public class MatchExecutionPlanner {
    * Traces backward from a consistency-check edge at position {@code checkIdx} to find
    * the branch's edges. The branch is the contiguous sub-sequence of edges ending at the
    * consistency-check edge, starting from a "branch root" shared alias. Branches with
-   * downstream intermediates are rejected (fall back to nested-loop) because the
-   * INNER_JOIN execution path has a known issue with certain schedule orderings.
+   * downstream intermediates are classified as {@link JoinMode#INNER_JOIN} (build-side
+   * row merge); branches without are classified as {@link JoinMode#SEMI_JOIN}.
    *
    * @return a {@link HashJoinBranch} if eligible, or {@code null} if not
    */
@@ -1170,25 +1171,19 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Check that all intermediate aliases are NOT in downstreamAliases and
-    // are not auto-generated internal aliases (from .inE()/.outE() etc.).
-    // Branches with downstream intermediates require INNER_JOIN (build-side row
-    // merge), but this path has a known issue with certain schedule orderings
-    // (e.g., triangle patterns where the scheduler picks a non-root alias as the
-    // starting node). Until the INNER_JOIN execution is verified for all schedule
-    // orderings, reject branches with downstream intermediates — the existing
-    // nested-loop path handles them correctly.
+    // Check for auto-generated internal aliases (from .inE()/.outE() etc.)
+    // and classify the join mode based on whether intermediates are downstream.
+    boolean hasDownstreamIntermediate = false;
     for (var alias : intermediateAliases) {
-      if (downstreamAliases.contains(alias)) {
-        return null;
-      }
       if (alias.startsWith(DEFAULT_ALIAS_PREFIX)) {
         return null;
       }
+      if (downstreamAliases.contains(alias)) {
+        hasDownstreamIntermediate = true;
+      }
     }
-    // TODO(YTDB-592): set INNER_JOIN when downstream intermediates are present,
-    // once the build-side plan construction handles variable schedule orderings.
-    var joinMode = JoinMode.SEMI_JOIN;
+    var joinMode = hasDownstreamIntermediate
+        ? JoinMode.INNER_JOIN : JoinMode.SEMI_JOIN;
 
     // Check that no branch edge involves an optional node
     for (var edgeT : branchEdges) {
@@ -1222,16 +1217,17 @@ public class MatchExecutionPlanner {
     var sharedAliases = branchRoot.equals(otherShared)
         ? List.of(branchRoot) : List.of(otherShared, branchRoot);
 
-    // The build plan scans from otherShared (which has the check edge) and
-    // traverses through intermediates to reach branchRoot.
-    // otherShared must have a class or RID so the build plan can scan records.
-    var scanAlias = otherShared;
-    if (aliasClasses.get(scanAlias) == null && aliasRids.get(scanAlias) == null) {
+    // The build plan needs a scan alias with a known class or RID. Try shared
+    // aliases first (otherShared, branchRoot), then intermediates.
+    var scanAlias = findScanAlias(
+        otherShared, branchRoot, intermediateAliases, aliasClasses, aliasRids);
+    if (scanAlias == null) {
       return null;
     }
 
     return new HashJoinBranch(
-        sharedAliases, branchEdges, intermediateAliases, cardinality, joinMode);
+        sharedAliases, branchEdges, intermediateAliases, cardinality, joinMode,
+        scanAlias);
   }
 
   /**
@@ -1298,6 +1294,33 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Selects the best alias to scan from in the build-side plan. Tries shared aliases
+   * first ({@code otherShared}, then {@code branchRoot}), then intermediates. Returns
+   * the first alias that has a known class or RID, or {@code null} if none qualifies.
+   */
+  @Nullable private static String findScanAlias(
+      String otherShared,
+      String branchRoot,
+      Set<String> intermediateAliases,
+      Map<String, String> aliasClasses,
+      Map<String, SQLRid> aliasRids) {
+    // Prefer shared aliases — they anchor the build plan at a join endpoint
+    if (aliasClasses.get(otherShared) != null || aliasRids.get(otherShared) != null) {
+      return otherShared;
+    }
+    if (aliasClasses.get(branchRoot) != null || aliasRids.get(branchRoot) != null) {
+      return branchRoot;
+    }
+    // Fall back to intermediates (relevant for INNER_JOIN where intermediates have classes)
+    for (var alias : intermediateAliases) {
+      if (aliasClasses.get(alias) != null || aliasRids.get(alias) != null) {
+        return alias;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Constructs the build-side {@link SelectExecutionPlan} for a NOT pattern's hash
    * anti-join. The plan scans the origin alias's class and chains the NOT pattern's
    * {@link MatchStep}s to traverse the negative edges.
@@ -1346,9 +1369,9 @@ public class MatchExecutionPlanner {
 
   /**
    * Constructs the build-side {@link SelectExecutionPlan} for a hash join branch.
-   * The plan scans the branch root's class and chains {@link MatchStep}s for each
-   * branch edge except the final consistency-check edge (whose target is the join
-   * point, already visited by the main path).
+   * The plan scans from {@link HashJoinBranch#scanAlias()} (the first shared or
+   * intermediate alias with a known class) and chains {@link MatchStep}s for all
+   * branch edges, building a directed path through the branch's aliases.
    *
    * @param branch          the branch descriptor
    * @param context         the command context
@@ -1359,22 +1382,31 @@ public class MatchExecutionPlanner {
       HashJoinBranch branch,
       CommandContext context,
       boolean profilingEnabled) {
-    // The build plan scans from the first shared alias and traverses through
-    // intermediates to reach the second shared alias. The branch edges are
-    // stored in schedule order ending with the check edge; we need to construct
-    // the forward path from otherShared → intermediates → branchRoot.
-    var scanAlias = branch.sharedAliases().get(0);
+    // The build plan scans from the branch's scan alias (determined by
+    // traceBackwardBranch — the first shared/intermediate alias with a known
+    // class) and traverses through all branch edges to produce rows containing
+    // all branch aliases.
+    var scanAlias = branch.scanAlias();
     var scanClass = aliasClasses.get(scanAlias);
     var scanRid = aliasRids.get(scanAlias);
     var scanFilter = aliasFilters.get(scanAlias);
 
-    var select = createSelectStatement(scanClass, scanRid, scanFilter);
+    // Copy the WHERE clause to prevent mutable state from the main plan's
+    // execution corrupting the build-side filter (matches addStepsFor behavior).
+    var select = createSelectStatement(
+        scanClass, scanRid, scanFilter == null ? null : scanFilter.copy());
     var scanNode = new PatternNode();
     scanNode.alias = scanAlias;
 
+    // Use a sub-context with parent linkage for the SELECT sub-plan, matching
+    // the pattern in addStepsFor(). Without parent linkage, variable lookups
+    // (e.g., input parameters) would fail in the sub-plan's steps.
+    var subCtx = new BasicCommandContext();
+    subCtx.setParentWithoutOverridingChild(context);
+
     var buildPlan = new SelectExecutionPlan(context);
     buildPlan.chain(new MatchFirstStep(
-        context, scanNode, select.createExecutionPlan(context, profilingEnabled),
+        context, scanNode, select.createExecutionPlan(subCtx, profilingEnabled),
         profilingEnabled));
 
     // Build a directed path from scanAlias through intermediates to the other
@@ -1397,9 +1429,10 @@ public class MatchExecutionPlanner {
         if (outAlias.equals(current)) {
           // Forward traversal: current → inAlias
           var traversal = new EdgeTraversal(orig.edge, true);
-          traversal.setLeftClass(aliasClasses.get(current));
-          traversal.setLeftFilter(aliasFilters.get(current));
-          traversal.setLeftRid(aliasRids.get(current));
+          // Left constraints = edge.out node's constraints (same as createPlanForPattern)
+          traversal.setLeftClass(aliasClasses.get(outAlias));
+          traversal.setLeftFilter(aliasFilters.get(outAlias));
+          traversal.setLeftRid(aliasRids.get(outAlias));
           buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
           current = inAlias;
           used[j] = true;
@@ -1408,9 +1441,12 @@ public class MatchExecutionPlanner {
         } else if (inAlias.equals(current)) {
           // Reverse traversal: current → outAlias
           var traversal = new EdgeTraversal(orig.edge, false);
-          traversal.setLeftClass(aliasClasses.get(current));
-          traversal.setLeftFilter(aliasFilters.get(current));
-          traversal.setLeftRid(aliasRids.get(current));
+          // Left constraints = edge.out node's constraints, NOT the current (in) node.
+          // MatchReverseEdgeTraverser uses leftClass/leftFilter/leftRid as TARGET
+          // constraints — the target in reverse mode is edge.out.
+          traversal.setLeftClass(aliasClasses.get(outAlias));
+          traversal.setLeftFilter(aliasFilters.get(outAlias));
+          traversal.setLeftRid(aliasRids.get(outAlias));
           buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
           current = outAlias;
           used[j] = true;
@@ -2748,6 +2784,145 @@ public class MatchExecutionPlanner {
   }
 
   /**
+   * Detects whether an optional edge with a {@code $matched.X.@rid} correlation
+   * can be replaced with a correlated hash lookup. The pattern is:
+   * {@code .out('LABEL'){where: (@rid = $matched.ALIAS.@rid), optional: true}}
+   *
+   * @return a 5-element array [correlatedAlias, probeAlias, targetAlias, edgeLabel,
+   *         direction] or null if the pattern is not detected
+   */
+  @Nullable private String[] detectCorrelatedOptionalJoin(EdgeTraversal edge) {
+    // Must be optional
+    if (!edge.edge.in.isOptionalNode()) {
+      return null;
+    }
+
+    var filter = edge.edge.item.getFilter();
+    if (filter == null) {
+      return null;
+    }
+
+    // No WHILE or maxDepth
+    if (filter.getWhileCondition() != null || filter.getMaxDepth() != null) {
+      return null;
+    }
+
+    // Must have a WHERE filter
+    var whereClause = filter.getFilter();
+    if (whereClause == null) {
+      return null;
+    }
+
+    // The WHERE filter must reference $matched — detect the correlated alias
+    var filterStr = whereClause.toString();
+    if (!filterStr.contains("$matched.")) {
+      return null;
+    }
+
+    // Extract the correlated alias from $matched.ALIAS.@rid pattern
+    var matchedIdx = filterStr.indexOf("$matched.");
+    if (matchedIdx < 0) {
+      return null;
+    }
+    var afterMatched = filterStr.substring(matchedIdx + "$matched.".length());
+    var dotIdx = afterMatched.indexOf('.');
+    if (dotIdx < 0) {
+      return null;
+    }
+    var correlatedAlias = afterMatched.substring(0, dotIdx);
+
+    // Verify the filter references @rid (simple RID equality)
+    if (!filterStr.contains("@rid")) {
+      return null;
+    }
+
+    // The correlated alias must already be visited (it's in aliasClasses or known)
+    if (aliasClasses.get(correlatedAlias) == null
+        && aliasRids.get(correlatedAlias) == null
+        && !pattern.aliasToNode.containsKey(correlatedAlias)) {
+      return null;
+    }
+
+    // Edge must be a simple directional method
+    var edgeLabel = getEdgeClassName(edge);
+    if (edgeLabel == null) {
+      return null;
+    }
+    var direction = getEdgeDirection(edge);
+    if (direction == null || (!"out".equals(direction) && !"in".equals(direction))) {
+      return null;
+    }
+
+    var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+    var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+
+    return new String[] {correlatedAlias, probeAlias, targetAlias, edgeLabel, direction};
+  }
+
+  /**
+   * Detects whether a WHILE edge can be replaced with an inverted reachability
+   * hash filter. The pattern is: unconditional WHILE ({@code while: (true)})
+   * with a simple WHERE filter, no $matched dependency, no depth/path alias,
+   * and a simple directional edge method (out/in with single label).
+   *
+   * @return {@code true} if the edge qualifies for inverted-WHILE optimization
+   */
+  private boolean canUseInvertedWhileJoin(EdgeTraversal edge) {
+    var filter = edge.edge.item.getFilter();
+    if (filter == null) {
+      return false;
+    }
+
+    // Must have a WHILE condition
+    var whileCondition = filter.getWhileCondition();
+    if (whileCondition == null) {
+      return false;
+    }
+
+    // WHILE must be unconditional: (true). Check via the base expression.
+    var baseExpr = whileCondition.getBaseExpression();
+    if (baseExpr == null) {
+      return false;
+    }
+    // The WHILE(true) condition parses as a SQLBooleanExpression wrapping "true"
+    var baseStr = baseExpr.toString().strip().toLowerCase(Locale.ROOT);
+    if (!baseStr.equals("true") && !baseStr.equals("(true)")) {
+      return false;
+    }
+
+    // Must have a WHERE filter on the target node
+    var targetFilter = filter.getFilter();
+    if (targetFilter == null) {
+      return false;
+    }
+
+    // No $matched/$parent dependency
+    if (filterDependsOnContext(targetFilter)) {
+      return false;
+    }
+
+    // No depth or path alias (user doesn't need traversal metadata)
+    if (filter.getDepthAlias() != null || filter.getPathAlias() != null) {
+      return false;
+    }
+
+    // The source alias (probe side) must be known — it's the alias whose RID
+    // we probe against the reachable set. The target alias doesn't need a class
+    // constraint; we find the anchor vertex via the WHERE filter by scanning the
+    // source alias's connected class or the entire edge's target class.
+    // For now, we need at least the edge label to determine the traversal.
+
+    // Edge must be a simple directional method (out/in with single label)
+    var edgeLabel = getEdgeClassName(edge);
+    if (edgeLabel == null) {
+      return false;
+    }
+
+    var direction = getEdgeDirection(edge);
+    return "out".equals(direction) || "in".equals(direction);
+  }
+
+  /**
    * Returns the edge class name from an {@link EdgeTraversal}'s path item
    * method, or {@code null} if none is specified.
    */
@@ -2903,8 +3078,42 @@ public class MatchExecutionPlanner {
               profilingEnabled));
     }
     if (edge.edge.in.isOptionalNode()) {
-      foundOptional = true;
-      plan.chain(new OptionalMatchStep(context, edge, profilingEnabled));
+      // Check if this optional edge can be replaced with a correlated hash lookup
+      var correlatedDesc = detectCorrelatedOptionalJoin(edge);
+      if (correlatedDesc != null) {
+        // Correlated optional hash join: pre-materialize neighbor set, probe per row
+        plan.chain(new CorrelatedOptionalHashJoinStep(
+            context,
+            correlatedDesc[0], // correlatedAlias
+            correlatedDesc[1], // probeAlias
+            correlatedDesc[2], // targetAlias
+            correlatedDesc[3], // edgeLabel
+            "out".equals(correlatedDesc[4]), // edgeOut
+            profilingEnabled));
+        // Still set foundOptional so RemoveEmptyOptionalsStep is present
+        // (no-op for our null values, but needed for other optional nodes)
+        foundOptional = true;
+      } else {
+        foundOptional = true;
+        plan.chain(new OptionalMatchStep(context, edge, profilingEnabled));
+      }
+    } else if (canUseInvertedWhileJoin(edge)) {
+      // Replace WHILE recursion with pre-materialized reachability hash filter
+      var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
+      var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
+      var targetFilter = edge.edge.item.getFilter().getFilter();
+      var edgeLabel = getEdgeClassName(edge);
+      var edgeDirection = "out".equals(getEdgeDirection(edge));
+      // Determine anchor class: try target alias, then source alias. May be null
+      // if neither has an explicit class — the step handles null by omitting the
+      // FROM clause class filter.
+      var anchorClass = aliasClasses.get(targetAlias);
+      if (anchorClass == null) {
+        anchorClass = aliasClasses.get(probeAlias);
+      }
+      plan.chain(new InvertedWhileHashJoinStep(
+          context, anchorClass, targetFilter, edgeLabel, edgeDirection,
+          probeAlias, targetAlias, profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
