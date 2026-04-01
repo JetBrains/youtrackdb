@@ -189,7 +189,7 @@ HYPOTHESIS UPDATE: H[N] [CONFIRMED | REFUTED | REFINED] — [Explanation]
 
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
-- **Crash scenario**: "If the process crashes after [X] but before [Y], then [consequence]"
+- **Crash scenario**: If the process crashes after [X] but before [Y], then [consequence]
 - **Evidence**: The write path trace showing the gap in crash safety
 - **Recovery impact**: What happens when WAL replay runs after this crash
 - **Refutation considered**: What you checked to confirm this is a real issue
