@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -154,19 +155,23 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     }
     rids.add(anchorRid);
 
-    // Level-by-level BFS from anchor via inverse edge direction. Batches all
-    // frontier nodes into a single SQL query per level to avoid per-node overhead.
+    // Level-by-level BFS from anchor via inverse edge direction.
+    // Each frontier node is queried individually to avoid reliance on
+    // List<RID> parameter binding behavior which varies across backends.
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
-    var frontier = List.of(anchorRid);
+    var frontier = new ArrayList<RID>();
+    frontier.add(anchorRid);
     while (!frontier.isEmpty()) {
-      var nextFrontier = new java.util.ArrayList<RID>();
-      try (var rs = session.query(sql, frontier)) {
-        while (rs.hasNext()) {
-          var row = rs.next();
-          var rid = extractRid(row);
-          if (rid != null && rids.add(rid)) {
-            nextFrontier.add(rid);
+      var nextFrontier = new ArrayList<RID>();
+      for (var current : frontier) {
+        try (var rs = session.query(sql, current)) {
+          while (rs.hasNext()) {
+            var row = rs.next();
+            var rid = extractRid(row);
+            if (rid != null && rids.add(rid)) {
+              nextFrontier.add(rid);
+            }
           }
         }
       }

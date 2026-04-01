@@ -76,12 +76,17 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var upstream = prev.start(ctx);
 
-    // Wrap in a stateful map: build the hash set lazily from the first row,
-    // then probe all subsequent rows.
+    // Stateful map: build/rebuild the hash set whenever the correlated alias
+    // value changes (handles multi-valued correlated aliases correctly).
+    final RID[] lastCorrelatedRid = {null};
     return upstream.map((row, c) -> {
-      if (neighborRids == null) {
-        // First row: extract correlated vertex and build the neighbor set
+      var correlatedValue = row.getProperty(correlatedAlias);
+      var currentCorrelatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
+      // Rebuild neighbor set if correlated alias changed
+      if (neighborRids == null
+          || !java.util.Objects.equals(currentCorrelatedRid, lastCorrelatedRid[0])) {
         neighborRids = buildNeighborSet(row, session);
+        lastCorrelatedRid[0] = currentCorrelatedRid;
       }
       // Capture locally for null-safety if close() is called mid-stream
       var localSet = neighborRids;
@@ -90,7 +95,6 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
       var probeRid = InvertedWhileHashJoinStep.extractRid(probeValue);
       if (probeRid != null && localSet != null && localSet.contains(probeRid)) {
         // Hit: liker KNOWS startPerson → set targetAlias to correlated vertex
-        var correlatedValue = row.getProperty(correlatedAlias);
         var matchValue = toResultOrNull(correlatedValue, session);
         return new MatchResultRow(session, row, targetAlias, matchValue);
       } else {
