@@ -154,28 +154,29 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     }
     rids.add(anchorRid);
 
-    // BFS from anchor via inverse edge direction. If the original WHILE was
-    // out('X'), the inverse is in('X') — parent to children.
+    // Level-by-level BFS from anchor via inverse edge direction. Batches all
+    // frontier nodes into a single SQL query per level to avoid per-node overhead.
     var inverseDir = edgeOut ? "in" : "out";
     var sql = "SELECT expand(" + inverseDir + "('" + edgeLabel + "')) FROM ?";
-    var frontier = new java.util.ArrayDeque<RID>();
-    frontier.add(anchorRid);
+    var frontier = List.of(anchorRid);
     while (!frontier.isEmpty()) {
-      var current = frontier.poll();
-      try (var rs = session.query(sql, current)) {
+      var nextFrontier = new java.util.ArrayList<RID>();
+      try (var rs = session.query(sql, frontier)) {
         while (rs.hasNext()) {
           var row = rs.next();
           var rid = extractRid(row);
           if (rid != null && rids.add(rid)) {
-            frontier.add(rid);
+            nextFrontier.add(rid);
           }
         }
       }
+      frontier = nextFrontier;
     }
     return rids;
   }
 
-  @Nullable private static RID extractRid(Object value) {
+  /** Extracts RID from a value that may be a RID, Identifiable, or Result. */
+  @Nullable static RID extractRid(Object value) {
     if (value instanceof RID rid) {
       return rid;
     }

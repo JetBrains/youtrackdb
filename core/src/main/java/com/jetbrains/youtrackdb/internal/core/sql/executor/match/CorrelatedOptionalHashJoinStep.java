@@ -83,10 +83,12 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
         // First row: extract correlated vertex and build the neighbor set
         neighborRids = buildNeighborSet(row, session);
       }
+      // Capture locally for null-safety if close() is called mid-stream
+      var localSet = neighborRids;
 
       var probeValue = row.getProperty(probeAlias);
-      var probeRid = extractRid(probeValue);
-      if (probeRid != null && neighborRids.contains(probeRid)) {
+      var probeRid = InvertedWhileHashJoinStep.extractRid(probeValue);
+      if (probeRid != null && localSet != null && localSet.contains(probeRid)) {
         // Hit: liker KNOWS startPerson → set targetAlias to correlated vertex
         var correlatedValue = row.getProperty(correlatedAlias);
         var matchValue = toResultOrNull(correlatedValue, session);
@@ -112,7 +114,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   private Set<RID> buildNeighborSet(Result firstRow, DatabaseSessionEmbedded session) {
     var set = new HashSet<RID>();
     var correlatedValue = firstRow.getProperty(correlatedAlias);
-    var correlatedRid = extractRid(correlatedValue);
+    var correlatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
     if (correlatedRid == null) {
       return set;
     }
@@ -129,26 +131,13 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
     try (var rs = session.query(sql, correlatedRid)) {
       while (rs.hasNext()) {
         var row = rs.next();
-        var rid = extractRid(row);
+        var rid = InvertedWhileHashJoinStep.extractRid(row);
         if (rid != null) {
           set.add(rid);
         }
       }
     }
     return set;
-  }
-
-  @Nullable private static RID extractRid(Object value) {
-    if (value instanceof RID rid) {
-      return rid;
-    }
-    if (value instanceof Identifiable identifiable) {
-      return identifiable.getIdentity();
-    }
-    if (value instanceof Result result && result.isEntity()) {
-      return result.asEntity().getIdentity();
-    }
-    return null;
   }
 
   @Nullable private static Result toResultOrNull(Object value, DatabaseSessionEmbedded session) {

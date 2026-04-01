@@ -801,28 +801,15 @@ public class MatchExecutionPlanner {
     var originAlias = exp.getOrigin().getAlias();
     assert originAlias != null : "NOT expression origin must have an alias";
 
-    // Build single-alias maps for the origin to reuse estimateRootEntries()
-    var originClasses = new HashMap<String, String>();
-    var originFilters = new HashMap<String, SQLWhereClause>();
-    var originRids = new HashMap<String, SQLRid>();
-    if (aliasClasses.containsKey(originAlias)) {
-      originClasses.put(originAlias, aliasClasses.get(originAlias));
-    }
-    if (aliasFilters.containsKey(originAlias)) {
-      originFilters.put(originAlias, aliasFilters.get(originAlias));
-    }
-    if (aliasRids.containsKey(originAlias)) {
-      originRids.put(originAlias, aliasRids.get(originAlias));
-    }
-
-    var rootEstimates = estimateRootEntries(originClasses, originRids, originFilters, context);
-    var originCount = rootEstimates.get(originAlias);
-    if (originCount == null) {
-      // Origin alias has no class, RID, or filter — cannot estimate
+    // If the origin alias has no class, RID, or filter, we can't estimate —
+    // return MAX_VALUE to force fallback to nested-loop.
+    if (aliasClasses.get(originAlias) == null
+        && aliasRids.get(originAlias) == null
+        && aliasFilters.get(originAlias) == null) {
       return Long.MAX_VALUE;
     }
-
-    long estimate = originCount;
+    long estimate = estimateAliasCardinality(
+        originAlias, aliasClasses, aliasFilters, aliasRids, context);
     for (var item : exp.getItems()) {
       // Each edge multiplies cardinality by fan-out heuristic
       if (estimate > Long.MAX_VALUE / FANOUT_PER_HOP) {
@@ -1596,16 +1583,19 @@ public class MatchExecutionPlanner {
           sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
 
       // Collect edges that belong to hash join branches — skip them in the main loop.
-      // Guard: if ALL edges would be claimed, the main plan would have no source step.
-      // In that case, skip the optimization entirely.
+      // Guards:
+      // - If ALL edges would be claimed, the main plan would have no source step.
+      // - If the FIRST edge is claimed, the main plan loses its scan root and
+      //   subsequent edges may get an incorrect MatchFirstStep.
       var branchEdgeSet = new HashSet<PatternEdge>();
       for (var branch : hashJoinBranches) {
         for (var branchEdge : branch.branchEdges()) {
           branchEdgeSet.add(branchEdge.edge);
         }
       }
-      if (branchEdgeSet.size() >= sortedEdges.size()) {
-        // All edges claimed — fall back to normal execution
+      if (branchEdgeSet.size() >= sortedEdges.size()
+          || branchEdgeSet.contains(sortedEdges.getFirst().edge)) {
+        // All edges claimed or first edge claimed — fall back to normal execution
         branchEdgeSet.clear();
         hashJoinBranches = List.of();
       }
@@ -2845,10 +2835,14 @@ public class MatchExecutionPlanner {
    * can be replaced with a correlated hash lookup. The pattern is:
    * {@code .out('LABEL'){where: (@rid = $matched.ALIAS.@rid), optional: true}}
    *
-   * @return a 5-element array [correlatedAlias, probeAlias, targetAlias, edgeLabel,
-   *         direction] or null if the pattern is not detected
+   * @return descriptor or null if the pattern is not detected
    */
-  @Nullable private String[] detectCorrelatedOptionalJoin(EdgeTraversal edge) {
+  record CorrelatedOptionalDesc(
+      String correlatedAlias, String probeAlias, String targetAlias,
+      String edgeLabel, boolean edgeOut) {
+  }
+
+  @Nullable private CorrelatedOptionalDesc detectCorrelatedOptionalJoin(EdgeTraversal edge) {
     // Must be optional
     if (!edge.edge.in.isOptionalNode()) {
       return null;
@@ -2915,7 +2909,8 @@ public class MatchExecutionPlanner {
     var probeAlias = edge.out ? edge.edge.out.alias : edge.edge.in.alias;
     var targetAlias = edge.out ? edge.edge.in.alias : edge.edge.out.alias;
 
-    return new String[] {correlatedAlias, probeAlias, targetAlias, edgeLabel, direction};
+    return new CorrelatedOptionalDesc(
+        correlatedAlias, probeAlias, targetAlias, edgeLabel, "out".equals(direction));
   }
 
   /**
@@ -3150,11 +3145,11 @@ public class MatchExecutionPlanner {
         // Correlated optional hash join: pre-materialize neighbor set, probe per row
         plan.chain(new CorrelatedOptionalHashJoinStep(
             context,
-            correlatedDesc[0], // correlatedAlias
-            correlatedDesc[1], // probeAlias
-            correlatedDesc[2], // targetAlias
-            correlatedDesc[3], // edgeLabel
-            "out".equals(correlatedDesc[4]), // edgeOut
+            correlatedDesc.correlatedAlias(),
+            correlatedDesc.probeAlias(),
+            correlatedDesc.targetAlias(),
+            correlatedDesc.edgeLabel(),
+            correlatedDesc.edgeOut(),
             profilingEnabled));
         // Still set foundOptional so RemoveEmptyOptionalsStep is present
         // (no-op for our null values, but needed for other optional nodes)
@@ -3170,13 +3165,9 @@ public class MatchExecutionPlanner {
       var targetFilter = edge.edge.item.getFilter().getFilter();
       var edgeLabel = getEdgeClassName(edge);
       var edgeDirection = "out".equals(getEdgeDirection(edge));
-      // Determine anchor class: try target alias, then source alias. May be null
-      // if neither has an explicit class — the step handles null by omitting the
-      // FROM clause class filter.
+      // Anchor class from target alias only — the WHERE filter applies to the
+      // target, not the probe. If null, the step falls back to SELECT FROM V.
       var anchorClass = aliasClasses.get(targetAlias);
-      if (anchorClass == null) {
-        anchorClass = aliasClasses.get(probeAlias);
-      }
       plan.chain(new InvertedWhileHashJoinStep(
           context, anchorClass, targetFilter, edgeLabel, edgeDirection,
           probeAlias, targetAlias, profilingEnabled));
