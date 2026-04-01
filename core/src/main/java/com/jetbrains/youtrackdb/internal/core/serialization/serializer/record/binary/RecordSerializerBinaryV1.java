@@ -1628,14 +1628,132 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     deserialize(db, entity, bytes);
   }
 
-  /**
-   * Placeholder for the ReadBytesContainer deserialize overload. Will be fully
-   * implemented in Step 4. For now, this allows deserializeEmbeddedAsDocument
-   * to compile — embedded entities always go through deserialize.
-   */
   public void deserialize(
-      DatabaseSessionEmbedded db, final EntityImpl entity, final ReadBytesContainer bytes) {
-    throw new UnsupportedOperationException(
-        "ReadBytesContainer deserialize not yet implemented — Step 4");
+      DatabaseSessionEmbedded session,
+      final EntityImpl entity,
+      final ReadBytesContainer bytes) {
+    // Resolve string cache once for field name interning
+    var cache = resolveStringCache(session);
+
+    var headerLength = VarIntSerializer.readAsInteger(bytes);
+    var headerStart = bytes.offset();
+    var valuesStart = headerStart + headerLength;
+    var last = 0;
+    String fieldName;
+    PropertyTypeInternal type;
+    var cumulativeSize = valuesStart;
+    while (bytes.offset() < valuesStart) {
+      GlobalProperty prop;
+      final var len = VarIntSerializer.readAsInteger(bytes);
+      int fieldLength;
+      if (len > 0) {
+        fieldName = bytes.getInternedString(cache, len);
+        var pointerAndType = getFieldSizeAndTypeFromCurrentPosition(bytes);
+        fieldLength = pointerAndType.getFirstVal();
+        type = pointerAndType.getSecondVal();
+      } else {
+        prop = getGlobalProperty(entity, len);
+        fieldName = prop.getName();
+        fieldLength = VarIntSerializer.readAsInteger(bytes);
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+      }
+
+      if (!entity.rawContainsProperty(fieldName)) {
+        if (fieldLength != 0) {
+          var headerCursor = bytes.offset();
+          bytes.setOffset(cumulativeSize);
+          var schema = resolveSchema(entity);
+          final var value = deserializeValue(session, bytes, type, entity, false, schema);
+          if (bytes.offset() > last) {
+            last = bytes.offset();
+          }
+          bytes.setOffset(headerCursor);
+          entity.setDeserializedPropertyInternal(fieldName, value, type);
+        } else {
+          entity.setDeserializedPropertyInternal(fieldName, null, null);
+        }
+      }
+
+      cumulativeSize += fieldLength;
+    }
+
+    final var rec = (RecordAbstract) entity;
+    rec.clearSource();
+
+    if (last > bytes.offset()) {
+      bytes.setOffset(last);
+    }
+  }
+
+  public void deserializePartial(
+      DatabaseSessionEmbedded db,
+      EntityImpl entity,
+      ReadBytesContainer bytes,
+      String[] iFields) {
+    final var fields = new byte[iFields.length][];
+    for (var i = 0; i < iFields.length; ++i) {
+      fields[i] = bytesFromString(iFields[i]);
+    }
+
+    String fieldName;
+    PropertyTypeInternal type;
+    var unmarshalledFields = 0;
+
+    var headerLength = VarIntSerializer.readAsInteger(bytes);
+    var headerStart = bytes.offset();
+    var valuesStart = headerStart + headerLength;
+    var currentValuePos = valuesStart;
+
+    while (bytes.offset() < valuesStart) {
+      final var len = VarIntSerializer.readAsInteger(bytes);
+      boolean found;
+      int fieldLength;
+      if (len > 0) {
+        var fieldPos = findMatchingFieldName(bytes, len, fields);
+        bytes.skip(len);
+        var pointerAndType = getFieldSizeAndTypeFromCurrentPosition(bytes);
+        fieldLength = pointerAndType.getFirstVal();
+        type = pointerAndType.getSecondVal();
+
+        if (fieldPos >= 0) {
+          fieldName = iFields[fieldPos];
+          found = true;
+        } else {
+          fieldName = null;
+          found = false;
+        }
+      } else {
+        final var prop = getGlobalProperty(entity, len);
+        found = checkIfPropertyNameMatchSome(prop, iFields);
+        fieldLength = VarIntSerializer.readAsInteger(bytes);
+        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+        fieldName = prop.getName();
+      }
+      if (found) {
+        if (fieldLength != 0) {
+          var headerCursor = bytes.offset();
+          bytes.setOffset(currentValuePos);
+          var schema = resolveSchema(entity);
+          final var value = deserializeValue(db, bytes, type, entity, false, schema);
+          bytes.setOffset(headerCursor);
+          entity.setDeserializedPropertyInternal(fieldName, value, type);
+        } else {
+          entity.setDeserializedPropertyInternal(fieldName, null, null);
+        }
+        if (++unmarshalledFields == iFields.length) {
+          break;
+        }
+      }
+      currentValuePos += fieldLength;
+    }
+  }
+
+  @Nullable private static com.jetbrains.youtrackdb.internal.core.db.StringCache resolveStringCache(
+      DatabaseSessionEmbedded session) {
+    var context = session.getSharedContext();
+    if (context != null) {
+      return context.getStringCache();
+    }
+    return null;
   }
 }
