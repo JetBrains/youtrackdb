@@ -50,6 +50,12 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
   }
 
   @Test
+  public void testReadUnsignedVarLongZero() {
+    // Zero is a single-byte boundary encoding (0x00)
+    assertVarIntRoundTrip(0L);
+  }
+
+  @Test
   public void testReadUnsignedVarLongLargeValue() {
     // Large value requiring many bytes
     assertVarIntRoundTrip(Long.MAX_VALUE / 2);
@@ -89,8 +95,8 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var bc = new BytesContainer(bytes);
     var rbc = new ReadBytesContainer(bytes);
 
-    assertEquals(
-        VarIntSerializer.readAsInteger(bc), VarIntSerializer.readAsInteger(rbc));
+    assertEquals(12345, VarIntSerializer.readAsInteger(rbc));
+    assertEquals(VarIntSerializer.readAsInteger(bc), 12345);
   }
 
   @Test
@@ -102,7 +108,8 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var bc = new BytesContainer(bytes);
     var rbc = new ReadBytesContainer(bytes);
 
-    assertEquals(VarIntSerializer.readAsLong(bc), VarIntSerializer.readAsLong(rbc));
+    assertEquals(9876543210L, VarIntSerializer.readAsLong(rbc));
+    assertEquals(VarIntSerializer.readAsLong(bc), 9876543210L);
   }
 
   @Test
@@ -191,6 +198,24 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var rbc = new ReadBytesContainer(bytes);
 
     assertEquals(HelperClasses.readString(bc), HelperClasses.readString(rbc));
+  }
+
+  @Test
+  public void testReadStringUtf8FourByteChars() {
+    // 4-byte UTF-8 characters (emoji) to verify byte-length vs char-length handling
+    var emoji = "\uD83D\uDE00\uD83D\uDE01\uD83D\uDE02"; // 3 emoji, 12 UTF-8 bytes
+    var writeContainer = new BytesContainer();
+    HelperClasses.writeString(writeContainer, emoji);
+    var bytes = writeContainer.fitBytes();
+
+    var bc = new BytesContainer(bytes);
+    var rbc = new ReadBytesContainer(bytes);
+
+    var bcResult = HelperClasses.readString(bc);
+    var rbcResult = HelperClasses.readString(rbc);
+
+    assertEquals(emoji, rbcResult);
+    assertEquals(bcResult, rbcResult);
   }
 
   @Test
@@ -368,9 +393,12 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var bc = new BytesContainer(bytes);
     var rbc = new ReadBytesContainer(bytes);
 
-    assertEquals(
-        VarIntSerializer.readUnsignedVarLong(bc),
-        VarIntSerializer.readUnsignedVarLong(rbc));
+    var bcResult = VarIntSerializer.readUnsignedVarLong(bc);
+    var rbcResult = VarIntSerializer.readUnsignedVarLong(rbc);
+
+    // Verify both implementations agree and produce the original value
+    assertEquals(value, rbcResult);
+    assertEquals(bcResult, rbcResult);
   }
 
   private void assertSignedVarIntRoundTrip(long value) {
@@ -381,8 +409,11 @@ public class VarIntAndHelperClassesReadBytesContainerTest {
     var bc = new BytesContainer(bytes);
     var rbc = new ReadBytesContainer(bytes);
 
-    assertEquals(
-        VarIntSerializer.readSignedVarLong(bc),
-        VarIntSerializer.readSignedVarLong(rbc));
+    var bcResult = VarIntSerializer.readSignedVarLong(bc);
+    var rbcResult = VarIntSerializer.readSignedVarLong(rbc);
+
+    // Verify both implementations agree and produce the original value
+    assertEquals(value, rbcResult);
+    assertEquals(bcResult, rbcResult);
   }
 }

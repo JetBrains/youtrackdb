@@ -195,8 +195,7 @@ public class HelperClasses {
     if (len == 0) {
       return "";
     }
-    final var res = bytes.getStringBytes(len);
-    return res;
+    return bytes.getStringBytes(len);
   }
 
   public static int readInteger(final ReadBytesContainer container) {
@@ -262,10 +261,12 @@ public class HelperClasses {
     while (size-- > 0) {
       final var key = readString(bytes);
       final var value = readOptimizedLink(bytes, justRunThrough);
-      if (value.equals(NULL_RECORD_ID)) {
-        result.putInternal(key, null);
-      } else {
-        result.putInternal(key, value);
+      if (!justRunThrough) {
+        if (value.equals(NULL_RECORD_ID)) {
+          result.putInternal(key, null);
+        } else {
+          result.putInternal(key, value);
+        }
       }
     }
     return result;
