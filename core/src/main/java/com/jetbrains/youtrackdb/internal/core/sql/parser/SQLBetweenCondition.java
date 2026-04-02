@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
@@ -279,6 +280,40 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return false;
     }
     return third == null || third.isCacheable(session);
+  }
+
+  /**
+   * Rewrites {@code val BETWEEN low AND high} into
+   * {@code val >= low AND val <= high} during flatten, enabling the index
+   * infrastructure to recognize this as a range condition. The rewritten
+   * binary conditions are fully index-aware, so no changes are needed in
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner}
+   * or {@link com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep}.
+   */
+  @Override
+  public List<SQLAndBlock> flatten(
+      CommandContext ctx, SchemaClassInternal schemaClass) {
+    // Only rewrite simple property references (not any()/all() functions)
+    if (first.isFunctionAny() || first.isFunctionAll()) {
+      return super.flatten(ctx, schemaClass);
+    }
+
+    // val >= low
+    var geCondition = new SQLBinaryCondition(-1);
+    geCondition.left = first.copy();
+    geCondition.operator = new SQLGeOperator(-1);
+    geCondition.right = second.copy();
+
+    // val <= high
+    var leCondition = new SQLBinaryCondition(-1);
+    leCondition.left = first.copy();
+    leCondition.operator = new SQLLeOperator(-1);
+    leCondition.right = third.copy();
+
+    var block = new SQLAndBlock(-1);
+    block.subBlocks.add(geCondition);
+    block.subBlocks.add(leCondition);
+    return Collections.singletonList(block);
   }
 
   @Override
