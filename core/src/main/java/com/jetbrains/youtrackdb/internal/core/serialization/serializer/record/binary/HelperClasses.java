@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedCollection;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -185,6 +186,10 @@ public class HelperClasses {
 
   public static byte[] readBinary(final ReadBytesContainer bytes) {
     final var n = VarIntSerializer.readAsInteger(bytes);
+    if (n < 0 || n > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Binary field size exceeds remaining buffer: " + n + " > " + bytes.remaining());
+    }
     final var newValue = new byte[n];
     bytes.getBytes(newValue, 0, n);
     return newValue;
@@ -194,6 +199,10 @@ public class HelperClasses {
     final var len = VarIntSerializer.readAsInteger(bytes);
     if (len == 0) {
       return "";
+    }
+    if (len < 0 || len > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "String field length exceeds remaining buffer: " + len + " > " + bytes.remaining());
     }
     return bytes.getStringBytes(len);
   }
@@ -229,6 +238,11 @@ public class HelperClasses {
     }
 
     final var items = VarIntSerializer.readAsInteger(bytes);
+    if (items < 0 || items > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Link collection size exceeds remaining buffer: "
+              + items + " > " + bytes.remaining());
+    }
     for (var i = 0; i < items; i++) {
       var id = readOptimizedLink(bytes, justRunThrough);
       if (!justRunThrough) {
@@ -250,6 +264,10 @@ public class HelperClasses {
     }
 
     var size = VarIntSerializer.readAsInteger(bytes);
+    if (size < 0 || size > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Link map size exceeds remaining buffer: " + size + " > " + bytes.remaining());
+    }
     EntityLinkMapIml result = null;
     if (!justRunThrough) {
       result = new EntityLinkMapIml(owner);
