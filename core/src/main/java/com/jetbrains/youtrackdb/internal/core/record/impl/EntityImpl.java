@@ -3466,32 +3466,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
       status = RecordElement.STATUS.LOADED;
     }
 
-    if (propertyNames != null && propertyNames.length > 0) {
-      for (var property : propertyNames) {
-        if (property != null && !property.isEmpty() && property.charAt(0) == '@')
-        // ATTRIBUTE
-        {
-          return true;
-        }
-      }
-
-      // PARTIAL UNMARSHALLING
-      if (properties != null && !properties.isEmpty()) {
-        for (var f : propertyNames) {
-          if (f != null && properties.containsKey(f)) {
-            return true;
-          }
-        }
-      }
-
-      // NO FIELDS FOUND
+    if (!checkDeserializedProperties(propertyNames)) {
       return false;
-    } else {
-      if (source != null)
-      // FULL UNMARSHALLING
-      {
-        source = null;
-      }
+    }
+
+    // Full unmarshalling — release the byte[] source
+    if ((propertyNames == null || propertyNames.length == 0) && source != null) {
+      source = null;
     }
 
     return true;
@@ -3637,13 +3618,26 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * deserialization.
    */
   private boolean evaluateDeserializationResult(String[] propertyNames) {
+    return checkDeserializedProperties(propertyNames);
+  }
+
+  /**
+   * Checks whether the requested properties were found after deserialization.
+   * Returns {@code true} if no specific properties were requested (full
+   * unmarshalling) or if at least one requested property/attribute was found.
+   * Returns {@code false} if specific properties were requested but none
+   * were found in the deserialized state.
+   */
+  private boolean checkDeserializedProperties(String[] propertyNames) {
     if (propertyNames != null && propertyNames.length > 0) {
+      // Check for attribute requests (prefixed with '@')
       for (var property : propertyNames) {
         if (property != null && !property.isEmpty() && property.charAt(0) == '@') {
           return true;
         }
       }
 
+      // Partial unmarshalling — check if any requested property was found
       if (properties != null && !properties.isEmpty()) {
         for (var f : propertyNames) {
           if (f != null && properties.containsKey(f)) {
