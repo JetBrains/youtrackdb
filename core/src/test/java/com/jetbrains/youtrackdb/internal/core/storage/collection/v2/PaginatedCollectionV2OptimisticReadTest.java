@@ -10,11 +10,15 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Random;
 import org.assertj.core.api.Assertions;
@@ -866,4 +870,106 @@ public class PaginatedCollectionV2OptimisticReadTest {
           50, floor.length);
     });
   }
+
+  // --- Integration tests for CollectionPage offset methods and RawPageBuffer ---
+
+  // Verifies that CollectionPage.getRecordContentOffset and getRecordContentLength
+  // return values consistent with the bytes returned by readRecord. Creates a record
+  // via PaginatedCollectionV2, loads the page directly, and compares the content
+  // bytes at the computed offset with the readRecord result.
+  @Test
+  public void testCollectionPageContentOffsetMatchesReadRecord() throws IOException {
+    var data = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      // Read via normal path to get expected content
+      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      byte[] expected = rawBuffer.buffer();
+
+      // Load the page directly and check offset/length
+      long fileId = collection.getFileId();
+      // Page 1 is the first data page (page 0 is the state page)
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+
+        // The first record is at position 0 on the page
+        int contentOffset = page.getRecordContentOffset(0);
+        int contentLength = page.getRecordContentLength(0);
+
+        Assert.assertEquals("Content length should match record data length",
+            expected.length, contentLength);
+        Assert.assertTrue("Content offset should be positive",
+            contentOffset > 0);
+        Assert.assertTrue("Content must fit within page",
+            contentOffset + contentLength <= CollectionPage.PAGE_SIZE);
+
+        // Read bytes directly from the page buffer at the content offset
+        ByteBuffer pageBuffer = entry.getCachePointer().getPageFrame().getBuffer();
+        byte[] actual = new byte[contentLength];
+        for (int i = 0; i < contentLength; i++) {
+          actual[i] = pageBuffer.get(contentOffset + i);
+        }
+        Assert.assertArrayEquals("Bytes at content offset must match readRecord result",
+            expected, actual);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
+  // Verifies the end-to-end zero-copy path: constructs a RawPageBuffer from a real
+  // PageFrame obtained via the read cache, calls sliceContent(), wraps in
+  // ReadBytesContainer, and verifies the bytes match the expected record content.
+  @Test
+  public void testRawPageBufferSliceContentIntegration() throws IOException {
+    var data = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      // Read via normal path to get expected content
+      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      byte[] expected = rawBuffer.buffer();
+
+      // Load the page and construct a RawPageBuffer
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        int contentOffset = page.getRecordContentOffset(0);
+        int contentLength = page.getRecordContentLength(0);
+
+        // Construct RawPageBuffer from the real PageFrame
+        var pageFrame = entry.getCachePointer().getPageFrame();
+        long stamp = pageFrame.tryOptimisticRead();
+        var rawPageBuffer = new RawPageBuffer(
+            pageFrame, stamp, contentOffset, contentLength,
+            rawBuffer.version(), rawBuffer.recordType());
+
+        // sliceContent should return a ByteBuffer with matching content
+        ByteBuffer slice = rawPageBuffer.sliceContent();
+        Assert.assertEquals(contentLength, slice.capacity());
+
+        // Read bytes from the slice
+        byte[] actual = new byte[contentLength];
+        slice.get(actual);
+        Assert.assertArrayEquals("sliceContent bytes must match readRecord result",
+            expected, actual);
+
+        // Stamp should still be valid (no writes happened)
+        Assert.assertTrue("Stamp should still be valid after reading",
+            pageFrame.validate(stamp));
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
 }
