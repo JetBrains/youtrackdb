@@ -48,15 +48,15 @@ public final class BTreeSingleValueIndexEngine
   @Nullable private volatile IndexHistogramManager histogramManager;
 
   // Approximate count of visible index entries, used by the query optimizer for
-  // cost estimation. Initialized via visibility-filtered scan on load(). Adjusted
-  // at commit time via delta holder (not directly in put/remove). AtomicLong
-  // because concurrent TXs can commit index changes simultaneously. Recalibrated
-  // by buildInitialHistogram() as self-healing.
+  // cost estimation. Read from persisted APPROXIMATE_ENTRIES_COUNT on load().
+  // Adjusted at commit time via delta holder (not directly in put/remove).
+  // AtomicLong because concurrent TXs can commit index changes simultaneously.
+  // Recalibrated by buildInitialHistogram() as self-healing.
   private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
 
-  // Approximate count of null-key entries. Follows the same lifecycle as
-  // approximateIndexEntriesCount: initialized on load(), adjusted at commit
-  // time, recalibrated by buildInitialHistogram().
+  // Approximate count of null-key entries. Set to 0 on load() (not separately
+  // persisted for single-value — at most off by 1). Adjusted at commit time,
+  // recalibrated by buildInitialHistogram().
   private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeSingleValueIndexEngine(
@@ -154,8 +154,10 @@ public final class BTreeSingleValueIndexEngine
 
     // Read persisted visible count from the BTree entry point page — O(1)
     // instead of the previous O(n) visibility-filtered scan.
-    approximateIndexEntriesCount.set(
-        sbTree.getApproximateEntriesCount(atomicOperation));
+    long count = sbTree.getApproximateEntriesCount(atomicOperation);
+    assert count >= 0
+        : "Persisted approximate entries count must be non-negative: " + count;
+    approximateIndexEntriesCount.set(count);
     // Null count is not separately persisted for single-value indexes (always
     // 0 or 1). Set to 0; buildInitialHistogram() recalibrates it.
     approximateNullCount.set(0);

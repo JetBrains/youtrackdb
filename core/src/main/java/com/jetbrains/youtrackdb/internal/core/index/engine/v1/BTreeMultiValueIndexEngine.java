@@ -54,15 +54,16 @@ public final class BTreeMultiValueIndexEngine
   @Nullable private volatile IndexHistogramManager histogramManager;
 
   // Approximate count of visible index entries (svTree + nullTree), used by the
-  // query optimizer for cost estimation. Initialized via visibility-filtered scan
-  // on load(). Adjusted at commit time via delta holder (not directly in
-  // doPut/doRemove). AtomicLong because concurrent TXs can commit index changes
-  // simultaneously. Recalibrated by buildInitialHistogram() as self-healing.
+  // query optimizer for cost estimation. Read from persisted
+  // APPROXIMATE_ENTRIES_COUNT on both trees on load(). Adjusted at commit time
+  // via delta holder (not directly in doPut/doRemove). AtomicLong because
+  // concurrent TXs can commit index changes simultaneously. Recalibrated by
+  // buildInitialHistogram() as self-healing.
   private final AtomicLong approximateIndexEntriesCount = new AtomicLong();
 
-  // Approximate count of null-key entries. Follows the same lifecycle as
-  // approximateIndexEntriesCount: initialized on load(), adjusted at commit
-  // time, recalibrated by buildInitialHistogram().
+  // Approximate count of null-key entries. Read from nullTree's persisted
+  // APPROXIMATE_ENTRIES_COUNT on load(). Adjusted at commit time, recalibrated
+  // by buildInitialHistogram().
   private final AtomicLong approximateNullCount = new AtomicLong();
 
   public BTreeMultiValueIndexEngine(
@@ -194,6 +195,10 @@ public final class BTreeMultiValueIndexEngine
     // instead of the previous O(n) visibility-filtered scans.
     long svCount = svTree.getApproximateEntriesCount(atomicOperation);
     long nullCount = nullTree.getApproximateEntriesCount(atomicOperation);
+    assert svCount >= 0
+        : "Persisted svTree approximate entries count must be non-negative: " + svCount;
+    assert nullCount >= 0
+        : "Persisted nullTree approximate entries count must be non-negative: " + nullCount;
     approximateIndexEntriesCount.set(svCount + nullCount);
     approximateNullCount.set(nullCount);
   }
