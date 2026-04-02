@@ -89,20 +89,9 @@ public class RecordSerializerBinaryV1GuardTest {
   }
 
   // --- readLinkSet guards ---
-
-  @Test
-  public void readLinkSetThrowsOnOversizedBagSize() {
-    // configByte (1 byte, embedded=true) + oversized linkBagSize varint
-    var wc = new BytesContainer();
-    var pos = wc.alloc(1);
-    wc.bytes[pos] = 1; // embedded flag set
-    VarIntSerializer.write(wc, Integer.MAX_VALUE);
-    var bytes = wc.fitBytes();
-    var rbc = new ReadBytesContainer(bytes);
-    assertThrows(
-        CorruptedRecordException.class,
-        () -> RecordSerializerBinaryV1.readLinkSet(null, rbc));
-  }
+  // linkBagSize is an element count, not a byte-consumption value. For BTree-based
+  // bags the size is just metadata (elements live in the BTree, not in the buffer).
+  // Only negative values are guarded; oversized counts are caught by downstream reads.
 
   @Test
   public void readLinkSetThrowsOnNegativeBagSize() {
@@ -118,19 +107,6 @@ public class RecordSerializerBinaryV1GuardTest {
   }
 
   // --- readLinkBag guards ---
-
-  @Test
-  public void readLinkBagThrowsOnOversizedBagSize() {
-    var wc = new BytesContainer();
-    var pos = wc.alloc(1);
-    wc.bytes[pos] = 1; // embedded flag
-    VarIntSerializer.write(wc, Integer.MAX_VALUE);
-    var bytes = wc.fitBytes();
-    var rbc = new ReadBytesContainer(bytes);
-    assertThrows(
-        CorruptedRecordException.class,
-        () -> RecordSerializerBinaryV1.readLinkBag(null, rbc));
-  }
 
   @Test
   public void readLinkBagThrowsOnNegativeBagSize() {

@@ -1479,10 +1479,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     EntityLinkSetImpl ridbag;
     var linkBagSize = VarIntSerializer.readAsInteger(bytes);
-    if (linkBagSize < 0 || linkBagSize > bytes.remaining()) {
+    if (linkBagSize < 0) {
       throw new CorruptedRecordException(
-          "Link set size exceeds remaining buffer: "
-              + linkBagSize + " > " + bytes.remaining());
+          "Negative link set size: " + linkBagSize);
     }
     if (isEmbedded) {
       var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, 1);
@@ -1501,10 +1500,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     LinkBag ridbag;
     var linkBagSize = VarIntSerializer.readAsInteger(bytes);
-    if (linkBagSize < 0 || linkBagSize > bytes.remaining()) {
+    if (linkBagSize < 0) {
       throw new CorruptedRecordException(
-          "Link bag size exceeds remaining buffer: "
-              + linkBagSize + " > " + bytes.remaining());
+          "Negative link bag size: " + linkBagSize);
     }
     if (isEmbedded) {
       var embeddedBagDelegate =
