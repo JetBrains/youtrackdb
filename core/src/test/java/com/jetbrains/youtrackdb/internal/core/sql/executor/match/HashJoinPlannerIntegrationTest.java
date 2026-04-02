@@ -663,12 +663,15 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     }
   }
 
+  // ── Back-reference hash join tests (Pattern B — outE+inV chain) ─────
+
   /**
-   * Pattern A — edge-level traversals (outE/inE) should NOT use back-ref
-   * hash join (only vertex-level out/in are eligible).
+   * Pattern B — outE('E').inV() chain with back-reference on the .inV()
+   * target should use ChainSemiJoin, collapsing two edges into one step.
+   * EXPLAIN should show BACK-REF HASH JOIN with both aliases.
    */
   @Test
-  public void backRef_edgeLevelTraversal_notEligible() {
+  public void explainBackRef_outEInV_usesChainSemiJoin() {
     session.begin();
     var result = session.query(
         "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
@@ -680,11 +683,105 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
-    // outE/inE are not vertex-level traversals → no back-ref hash join
-    assertFalse(
-        "edge-level traversal should not use back-ref hash join, got:\n" + plan,
+    assertTrue(
+        "outE+inV chain should use back-ref hash join, got:\n" + plan,
         plan.contains("BACK-REF HASH JOIN"));
     session.commit();
+  }
+
+  /**
+   * Pattern B — correctness test. Uses the same Person/Friend graph with
+   * outE().inV() traversal. Creates a cycle n2→n1 to have a matching result.
+   */
+  @Test
+  public void backRef_outEInV_withCycle_correctResults() {
+    session.begin();
+    // Add a cycle: n2→n1
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e1}.inV(){as:b}"
+            + ".outE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n1→(e1)→n2→(e2)→n1 matches (check.@rid == a.@rid == n1)
+    // n1→(e1)→n3→(e2)→n5 doesn't match (n5 != n1)
+    assertEquals(1, result.size());
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    session.commit();
+  }
+
+  /**
+   * Pattern B — correctness test with fan-out. When multiple edges from
+   * the source vertex match, the chain semi-join should emit one row per
+   * matching edge (intermediate alias gets each edge record).
+   */
+  @Test
+  public void backRef_outEInV_fanOut_multipleEdges() {
+    session.begin();
+    // Add two edges from n2 back to n1 to test fan-out
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e1}.inV(){as:b}"
+            + ".outE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName, e2 as edge2")
+        .toList();
+
+    // n2 has 2 outgoing Friend edges to n1. Each should produce a result row.
+    // b=n2 with 2 different e2 edge records.
+    assertTrue("fan-out should produce multiple rows, got " + result.size(),
+        result.size() >= 2);
+    for (var row : result) {
+      assertEquals("n2", row.getProperty("bName"));
+      assertNotNull("edge2 should be populated", row.getProperty("edge2"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Pattern B — threshold=0 disables chain semi-join. Falls back to regular
+   * MatchStep for both the outE and inV edges.
+   */
+  @Test
+  public void backRef_outEInV_thresholdZero_fallsBack() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".outE('Friend'){as:e}.inV(){as:b}"
+              + ".outE('Friend'){as:e2}.inV(){as:check,"
+              + " where: (@rid = $matched.a.@rid)}"
+              + " RETURN b.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertFalse(
+          "threshold=0 should disable chain semi-join, got:\n" + plan,
+          plan.contains("BACK-REF HASH JOIN"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
   }
 
 }

@@ -1,15 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,7 +91,15 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     var localCache = cache;
     var localDescriptor = descriptor;
 
-    return upstream.filter((row, c) -> probeRow(row, localCache, localDescriptor, session, c));
+    // ChainSemiJoin needs flatMap (fan-out: one source → multiple edges)
+    if (localDescriptor instanceof ChainSemiJoin chainDesc) {
+      return upstream.flatMap(
+          (row, c) -> probeChain(row, localCache, chainDesc, session, c));
+    }
+
+    // SingleEdgeSemiJoin and AntiSemiJoin use filter (0 or 1 output per row)
+    return upstream.filter(
+        (row, c) -> probeRow(row, localCache, localDescriptor, session, c));
   }
 
   /**
@@ -148,7 +163,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       var value = single.backRefExpression().execute(row, ctx);
       return toRid(value);
     }
-    // ChainSemiJoin and AntiSemiJoin will be handled in Tracks 2 and 3
+    if (desc instanceof ChainSemiJoin chain) {
+      var value = chain.backRefExpression().execute(row, ctx);
+      return toRid(value);
+    }
+    // AntiSemiJoin will be handled in Track 3
     return null;
   }
 
@@ -158,6 +177,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Nullable private RID resolveSourceRid(Result row, SemiJoinDescriptor desc) {
     if (desc instanceof SingleEdgeSemiJoin single) {
       var value = row.getProperty(single.sourceAlias());
+      return toRid(value);
+    }
+    if (desc instanceof ChainSemiJoin chain) {
+      var value = row.getProperty(chain.sourceAlias());
       return toRid(value);
     }
     return null;
@@ -199,7 +222,10 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     if (desc instanceof SingleEdgeSemiJoin single) {
       return buildSingleEdgeHashTable(backRefRid, single, ctx);
     }
-    // ChainSemiJoin and AntiSemiJoin will be handled in Tracks 2 and 3
+    if (desc instanceof ChainSemiJoin chain) {
+      return buildChainHashTable(backRefRid, chain, ctx);
+    }
+    // AntiSemiJoin will be handled in Track 3
     return null;
   }
 
@@ -226,6 +252,137 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       }
     }
     return result;
+  }
+
+  /**
+   * Pattern B build: reads the reverse link bag of the back-referenced vertex,
+   * optionally filters by an index RidSet, loads matching edge records, and
+   * groups them by source vertex RID into a {@code Map<RID, List<Result>>}.
+   *
+   * <p>The map key is the source vertex RID (from where the original outE
+   * traversal starts). The value is a list of edge records that connect that
+   * source to the back-referenced vertex via the given edge class.
+   */
+  @Nullable private Map<RID, List<Result>> buildChainHashTable(
+      RID backRefRid, ChainSemiJoin chain, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    EntityImpl targetEntity;
+    try {
+      var rec = session.getActiveTransaction().load(backRefRid);
+      if (!(rec instanceof EntityImpl entity)) {
+        return null;
+      }
+      targetEntity = entity;
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+
+    // Read the reverse link bag
+    var reversePrefix = "out".equals(chain.direction()) ? "in_" : "out_";
+    var fieldName = reversePrefix + chain.edgeClass();
+    var fieldValue = targetEntity.getPropertyInternal(fieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return null;
+    }
+
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
+    if (linkBag.size() > maxSize) {
+      return null; // too large — fall back
+    }
+
+    // Optionally resolve index pre-filter for the intermediate edge
+    RidSet indexRidSet = null;
+    if (chain.indexFilter() != null) {
+      indexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
+          chain.indexFilter(), ctx);
+    }
+
+    var result = new HashMap<RID, List<Result>>();
+    long count = 0;
+    for (var pair : linkBag) {
+      var edgeRid = pair.primaryRid();
+      var sourceVertexRid = pair.secondaryRid();
+
+      // Apply index filter if present (filters edge RIDs)
+      if (indexRidSet != null && !indexRidSet.contains(edgeRid)) {
+        continue;
+      }
+
+      // Load the edge record
+      try {
+        var edgeRec = session.getActiveTransaction().load(edgeRid);
+        var edgeResult = new ResultInternal(session, edgeRec);
+        result.computeIfAbsent(sourceVertexRid, k -> new ArrayList<>())
+            .add(edgeResult);
+        count++;
+        if (maxSize > 0 && count > maxSize) {
+          return null; // threshold exceeded
+        }
+      } catch (RecordNotFoundException e) {
+        // Edge record missing — skip
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Probe for ChainSemiJoin: returns 0..N rows per upstream row (fan-out).
+   * For each matching edge record, emits a result with the intermediate alias
+   * bound to the edge and the target alias bound to the back-ref vertex.
+   */
+  @SuppressWarnings("unchecked")
+  private ExecutionStream probeChain(
+      Result row,
+      LinkedHashMap<RID, Object> lruCache,
+      ChainSemiJoin chain,
+      DatabaseSessionEmbedded session,
+      CommandContext probeCtx) {
+    var backRefRid = resolveBackRefRid(row, chain, probeCtx);
+    if (backRefRid == null) {
+      return ExecutionStream.empty();
+    }
+
+    var hashTable = lruCache.get(backRefRid);
+    if (hashTable == null && !lruCache.containsKey(backRefRid)) {
+      hashTable = buildHashTable(backRefRid, chain, probeCtx);
+      lruCache.put(backRefRid, hashTable);
+    }
+
+    if (hashTable == null) {
+      return ExecutionStream.empty();
+    }
+
+    var sourceRid = resolveSourceRid(row, chain);
+    if (sourceRid == null) {
+      return ExecutionStream.empty();
+    }
+
+    var map = (Map<RID, List<Result>>) hashTable;
+    var edges = map.get(sourceRid);
+    if (edges == null || edges.isEmpty()) {
+      return ExecutionStream.empty();
+    }
+
+    // Load the back-ref vertex once for the target alias value
+    Object backRefVertex;
+    try {
+      backRefVertex = session.getActiveTransaction().load(backRefRid);
+    } catch (Exception e) {
+      return ExecutionStream.empty();
+    }
+
+    // Emit one row per matching edge, adding intermediate and target aliases
+    var results = new ArrayList<Result>(edges.size());
+    for (var edgeResult : edges) {
+      // Layer 1: add intermediate alias (edge record)
+      var withIntermediate = new MatchResultRow(
+          session, row, chain.intermediateAlias(), edgeResult);
+      // Layer 2: add target alias (back-ref vertex)
+      var withTarget = new MatchResultRow(
+          session, withIntermediate, chain.targetAlias(), backRefVertex);
+      results.add(withTarget);
+    }
+    return ExecutionStream.resultIterator(results.iterator());
   }
 
   /**
@@ -266,6 +423,15 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
           + single.sourceAlias()
           + " ⋈ $matched." + single.backRefAlias()
           + " via " + single.direction() + "('" + single.edgeClass() + "'))";
+    }
+    if (descriptor instanceof ChainSemiJoin chain) {
+      return spaces
+          + "+ BACK-REF HASH JOIN ("
+          + chain.sourceAlias()
+          + " ⋈ $matched." + chain.backRefAlias()
+          + " via " + chain.direction() + "E('" + chain.edgeClass() + "').inV()"
+          + " aliases: " + chain.intermediateAlias() + ", " + chain.targetAlias()
+          + ")";
     }
     return spaces + "+ BACK-REF HASH JOIN (" + descriptor.joinMode() + ")";
   }
