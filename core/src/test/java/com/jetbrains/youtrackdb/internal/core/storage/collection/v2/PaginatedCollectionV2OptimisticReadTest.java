@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -138,7 +139,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     // Read in a separate atomic operation (no pending changes) to hit the optimistic path
-    var buffer = atomicOps().calculateInsideAtomicOperation(
+    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op));
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer", buffer);
@@ -169,7 +170,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = collection.readRecord(positions.get(i), op);
+        var buffer = (RawBuffer) collection.readRecord(positions.get(i), op);
         Assertions.assertThat(buffer.buffer())
             .as("Record %d should match inserted data", i)
             .isEqualTo(records.get(i));
@@ -193,7 +194,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     // The optimistic path detects the multi-page pointer and falls back to the pinned path
-    var buffer = atomicOps().calculateInsideAtomicOperation(
+    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op));
 
     Assert.assertNotNull(buffer);
@@ -677,7 +678,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     flushToReadCache();
 
-    var buffer = atomicOps().calculateInsideAtomicOperation(
+    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op));
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer for empty record",
@@ -704,7 +705,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     atomicOps().executeInsideAtomicOperation(op -> {
       // readRecord
-      var buffer = collection.readRecord(pos.collectionPosition, op);
+      var buffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
       Assert.assertEquals(5, buffer.recordType());
 
@@ -773,7 +774,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
       Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT, status);
       Assert.assertTrue(collection.exists(pos.collectionPosition, op));
 
-      var buffer = collection.readRecord(pos.collectionPosition, op);
+      var buffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     });
 
@@ -836,7 +837,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = collection.readRecord(positions.get(i), op);
+        var buffer = (RawBuffer) collection.readRecord(positions.get(i), op);
         Assert.assertNotNull("Record " + i + " should be readable", buffer);
         Assertions.assertThat(buffer.buffer())
             .as("Record %d data should match", i)
