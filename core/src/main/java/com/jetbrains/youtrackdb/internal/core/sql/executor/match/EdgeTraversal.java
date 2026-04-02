@@ -96,6 +96,14 @@ public class EdgeTraversal {
   @Nullable private IntSet acceptedCollectionIds;
 
   /**
+   * When {@code true}, this edge has been consumed by a {@link ChainSemiJoin}
+   * descriptor on a subsequent edge. {@link MatchExecutionPlanner#addStepsFor}
+   * skips consumed edges — the {@link BackRefHashJoinStep} on the next edge
+   * covers both.
+   */
+  private boolean consumed;
+
+  /**
    * @param edge the pattern edge to traverse
    * @param out  `true` for forward traversal, `false` for reverse
    */
@@ -158,6 +166,14 @@ public class EdgeTraversal {
 
   public void setSemiJoinDescriptor(@Nullable SemiJoinDescriptor semiJoinDescriptor) {
     this.semiJoinDescriptor = semiJoinDescriptor;
+  }
+
+  public boolean isConsumed() {
+    return consumed;
+  }
+
+  public void setConsumed(boolean consumed) {
+    this.consumed = consumed;
   }
 
   @Nullable public IntSet getAcceptedCollectionIds() {
@@ -266,6 +282,7 @@ public class EdgeTraversal {
     copy.intersectionDescriptor = intersectionDescriptor;
     copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
+    copy.consumed = consumed;
     // Cache is intentionally not copied — stale data from a previous
     // execution must not leak into a new plan instance.
     return copy;

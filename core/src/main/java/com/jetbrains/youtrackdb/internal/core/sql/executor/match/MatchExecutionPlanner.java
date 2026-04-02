@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.OrderByStep;
@@ -2902,6 +2903,23 @@ public class MatchExecutionPlanner {
                     collectEdgeRids);
               }
             }
+          } else if (j > 0) {
+            // --- Pattern B: outE('E').inV() chain semi-join ---
+            // edge_j is .inV() (no edge class/direction). Check if the
+            // preceding edge is .outE('E') or .inE('E') with a recognized
+            // edge class. If so, collapse both into a ChainSemiJoin.
+            var chainDesc = detectChainSemiJoin(
+                schedule, j, involvedAliases, ridExpr, targetAliasJ,
+                boundAliases, ctx);
+            if (chainDesc != null) {
+              edgeJ.setSemiJoinDescriptor(chainDesc);
+              schedule.get(j - 1).setConsumed(true);
+              logger.debug(
+                  "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
+                      + "({}({}) chain semi-join via $matched.{})",
+                  j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
+                  chainDesc.backRefAlias());
+            }
           }
         }
       }
@@ -2967,6 +2985,78 @@ public class MatchExecutionPlanner {
     // Check threshold is enabled (0 disables hash join)
     var threshold = getHashJoinThreshold();
     return threshold > 0;
+  }
+
+  /**
+   * Detects Pattern B: an {@code .outE('E').inV()} chain where the
+   * {@code .inV()} target has a back-reference {@code @rid = $matched.X.@rid}.
+   * Returns a {@link ChainSemiJoin} descriptor if the pattern qualifies,
+   * or {@code null} otherwise.
+   *
+   * <p>The edge class and direction are extracted from edge_j-1 (the
+   * {@code .outE('E')} edge), not from edge_j ({@code .inV()}).
+   */
+  @Nullable private ChainSemiJoin detectChainSemiJoin(
+      List<EdgeTraversal> schedule,
+      int j,
+      List<String> involvedAliases,
+      SQLExpression ridExpr,
+      String targetAliasJ,
+      Set<String> boundAliases,
+      CommandContext ctx) {
+    // The back-ref must reference exactly one alias that is already bound
+    if (involvedAliases.size() != 1) {
+      return null;
+    }
+    var backRefAlias = involvedAliases.getFirst();
+    if (!boundAliases.contains(backRefAlias)) {
+      return null;
+    }
+    var threshold = getHashJoinThreshold();
+    if (threshold <= 0) {
+      return null;
+    }
+
+    // Check preceding edge (j-1) is an edge-level traversal (outE/inE)
+    var edgePrev = schedule.get(j - 1);
+    var prevDirection = getEdgeDirection(edgePrev);
+    if (prevDirection == null) {
+      return null;
+    }
+    // Must be edge-level: "oute" or "ine"
+    if (!"oute".equals(prevDirection) && !"ine".equals(prevDirection)) {
+      return null;
+    }
+    var prevEdgeClass = getEdgeClassName(edgePrev);
+    if (prevEdgeClass == null) {
+      return null;
+    }
+
+    // Extract aliases. The source alias is the source of edge_j-1 (outE),
+    // not edge_j (inV). The intermediate alias is the target of edge_j-1.
+    var sourceAlias = edgePrev.out
+        ? edgePrev.edge.out.alias : edgePrev.edge.in.alias;
+    var intermediateAlias = edgePrev.out
+        ? edgePrev.edge.in.alias : edgePrev.edge.out.alias;
+
+    // Map oute→out, ine→in for the reverse link bag direction
+    var direction = prevDirection.startsWith("out") ? "out" : "in";
+
+    // Check for optional index pre-filter on the intermediate edge
+    var intermediateFilter = aliasFilters.get(intermediateAlias);
+    IndexSearchDescriptor indexFilter = null;
+    if (intermediateFilter != null) {
+      var intermediateClass = aliasClasses.get(intermediateAlias);
+      if (intermediateClass != null) {
+        indexFilter = TraversalPreFilterHelper.findIndexForFilter(
+            intermediateFilter, intermediateClass, ctx);
+      }
+    }
+
+    return new ChainSemiJoin(
+        prevEdgeClass, direction, ridExpr,
+        sourceAlias, backRefAlias, intermediateAlias,
+        targetAliasJ, indexFilter);
   }
 
   /**
@@ -3310,6 +3400,11 @@ public class MatchExecutionPlanner {
               patternNode,
               select.createExecutionPlan(subContxt, profilingEnabled),
               profilingEnabled));
+    }
+    // Skip edges consumed by a ChainSemiJoin on the next edge — the
+    // BackRefHashJoinStep on the next edge covers both.
+    if (edge.isConsumed()) {
+      return;
     }
     if (edge.edge.in.isOptionalNode()) {
       // Check if this optional edge can be replaced with a correlated hash lookup
