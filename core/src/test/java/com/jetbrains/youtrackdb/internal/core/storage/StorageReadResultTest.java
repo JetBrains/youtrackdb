@@ -21,8 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -60,10 +58,8 @@ public class StorageReadResultTest {
   @Test
   public void testRawBufferIsStorageReadResult() {
     // Verifies that RawBuffer implements StorageReadResult and that
-    // recordVersion() delegates to version().
+    // recordVersion() delegates to version(), recordType() matches.
     var rawBuffer = new RawBuffer(new byte[] {1, 2, 3}, 42L, (byte) 'd');
-
-    assertTrue(rawBuffer instanceof StorageReadResult);
 
     StorageReadResult result = rawBuffer;
     assertEquals(42L, result.recordVersion());
@@ -72,9 +68,10 @@ public class StorageReadResultTest {
 
   @Test
   public void testRawBufferRecordVersionDelegatesToVersion() {
-    // Ensures recordVersion() and version() return the same value.
+    // Ensures recordVersion() returns the same value as version().
     var rawBuffer = new RawBuffer(new byte[0], 99L, (byte) 'b');
-    assertEquals(rawBuffer.version(), rawBuffer.recordVersion());
+    assertEquals(99L, rawBuffer.recordVersion());
+    assertEquals(99L, rawBuffer.version());
   }
 
   // --- RawPageBuffer satisfies StorageReadResult contract ---
@@ -85,8 +82,6 @@ public class StorageReadResultTest {
     // correct version and type accessors.
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer = new RawPageBuffer(pageFrame, stamp, 100, 50, 7L, (byte) 'd');
-
-    assertTrue(pageBuffer instanceof StorageReadResult);
 
     StorageReadResult result = pageBuffer;
     assertEquals(7L, result.recordVersion());
@@ -112,7 +107,6 @@ public class StorageReadResultTest {
         new RawPageBuffer(pageFrame, stamp, contentOffset, testData.length, 1L, (byte) 'd');
 
     ByteBuffer slice = pageBuffer.sliceContent();
-    assertNotNull(slice);
     assertEquals(testData.length, slice.capacity());
     assertEquals(0, slice.position());
     assertEquals(testData.length, slice.limit());
@@ -130,6 +124,8 @@ public class StorageReadResultTest {
 
     ByteBuffer slice = pageBuffer.sliceContent();
     assertEquals(0, slice.capacity());
+    assertEquals(0, slice.position());
+    assertEquals(0, slice.limit());
   }
 
   @Test
@@ -148,6 +144,28 @@ public class StorageReadResultTest {
     // Modify the underlying page buffer and verify the slice sees the change.
     buffer.put(contentOffset, (byte) 0xBB);
     assertEquals((byte) 0xBB, slice.get(0));
+  }
+
+  @Test
+  public void testSliceContentAtExactPageBoundary() {
+    // Record content fills from an offset to the very end of the page buffer,
+    // verifying no off-by-one in ByteBuffer.slice() at the boundary.
+    int capacity = pageFrame.getBuffer().capacity();
+    int contentLength = 10;
+    int contentOffset = capacity - contentLength;
+    ByteBuffer buf = pageFrame.getBuffer();
+    for (int i = 0; i < contentLength; i++) {
+      buf.put(contentOffset + i, (byte) (i + 1));
+    }
+
+    long stamp = pageFrame.tryOptimisticRead();
+    var pageBuffer =
+        new RawPageBuffer(pageFrame, stamp, contentOffset, contentLength, 1L, (byte) 'd');
+
+    ByteBuffer slice = pageBuffer.sliceContent();
+    assertEquals(contentLength, slice.capacity());
+    assertEquals((byte) 1, slice.get(0));
+    assertEquals((byte) 10, slice.get(9));
   }
 
   // --- Sealed interface exhaustiveness ---
