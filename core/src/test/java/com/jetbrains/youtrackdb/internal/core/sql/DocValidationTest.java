@@ -2491,6 +2491,27 @@ public class DocValidationTest {
     });
   }
 
+  // Line 53: DESCRIPTION — set or update the class description.
+  // The DESCRIPTION attribute expects an identifier (unquoted), not a quoted string.
+  @Test
+  public void testAlterClassDescription() {
+    g.command("CREATE CLASS AcDescribed IF NOT EXISTS EXTENDS V");
+    g.command("ALTER CLASS AcDescribed DESCRIPTION TestDescription");
+
+    // Verify the class still works after setting a description
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX AcDescribed SET name = 'test'").iterate();
+    });
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM AcDescribed").toList());
+    assertThat(results).hasSize(1);
+
+    // Cleanup
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX AcDescribed").iterate();
+    });
+  }
+
   // ===================================================================================
   // YQL-Alter-Property.md validation tests
   // ===================================================================================
