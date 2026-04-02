@@ -412,8 +412,8 @@ public final class BTreeMultiValueIndexEngine
       tree.put(atomicOperation, newKey, new SnapshotMarkerRID(value));
       // For a live RecordId from a prior TX, preserve old version for
       // concurrent snapshot readers.
-      if (removedRID instanceof RecordId) {
-        snapshot.addSnapshotPair(oldKey, newKey, value);
+      if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
+        snapshot.addSnapshotPair(oldKey, newKey, removedRID.getIdentity());
       }
       if (removedRID instanceof TombstoneRID) {
         IndexCountDelta.accumulate(atomicOperation, id, +1, isNullKey);

@@ -6264,12 +6264,19 @@ public abstract class AbstractStorage
     var sentinel = new CompositeKey(Long.MIN_VALUE, lwm);
     var stale = versionIdx.headMap(sentinel);
     long evicted = 0;
-    for (var entry : stale.entrySet()) {
+    // Use iterator.remove() instead of stale.clear() to avoid a race with
+    // concurrent addSnapshotPair(): clear() removes ALL entries currently in the
+    // live headMap view, including entries added after the for-loop iterator
+    // passed them. That would orphan the corresponding snapshotData entries
+    // (never cleaned up → slow memory leak). With iterator.remove(), only
+    // entries whose snapshotData was already cleaned are removed from versionIdx.
+    for (var it = stale.entrySet().iterator(); it.hasNext();) {
+      var entry = it.next();
       snapshotData.remove(entry.getKey());
       snapshotData.remove(entry.getValue());
+      it.remove();
       evicted += 2;
     }
-    stale.clear();
     if (evicted > 0) {
       sizeCounter.addAndGet(-evicted);
     }

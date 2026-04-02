@@ -50,7 +50,7 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    */
   @Test
   public void notUnique_concurrentDeleteSameRecord_encountersTombstone()
-      throws Exception {
+      throws Throwable {
     var clazz = db.createClass("RecNU");
     clazz.createProperty("val", PropertyType.INTEGER);
     clazz.createIndex("RecNUIdx", INDEX_TYPE.NOTUNIQUE, "val");
@@ -69,7 +69,7 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    */
   @Test
   public void unique_concurrentDeleteSameRecord_encountersTombstone()
-      throws Exception {
+      throws Throwable {
     var clazz = db.createClass("RecU");
     clazz.createProperty("val", PropertyType.INTEGER);
     clazz.createIndex("RecUIdx", INDEX_TYPE.UNIQUE, "val");
@@ -86,10 +86,10 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
    * synchronize via a barrier, then both commit. The second commit's
    * index {@code remove()} encounters the tombstone from the first.
    */
-  private void runConcurrentDelete(String className) throws Exception {
+  private void runConcurrentDelete(String className) throws Throwable {
     var barrier = new CyclicBarrier(2);
     var done = new CountDownLatch(2);
-    var assertionFired = new AtomicReference<AssertionError>();
+    var failure = new AtomicReference<Throwable>();
 
     for (int i = 0; i < 2; i++) {
       new Thread(() -> {
@@ -102,9 +102,8 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
           barrier.await();
           // Both commit — second one's index remove() finds the tombstone
           s.commit();
-        } catch (AssertionError ae) {
-          assertionFired.compareAndSet(null, ae);
-        } catch (Exception e) {
+        } catch (Throwable t) {
+          failure.compareAndSet(null, t);
           if (s != null) {
             try {
               s.rollback();
@@ -123,8 +122,8 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
     assertTrue("Threads should finish within 10s",
         done.await(10, TimeUnit.SECONDS));
 
-    if (assertionFired.get() != null) {
-      throw assertionFired.get();
+    if (failure.get() != null) {
+      throw failure.get();
     }
   }
 
@@ -200,9 +199,8 @@ public class SnapshotIsolationIndexesConcurrentDeleteTest {
         // Wait for snapshot TX to open between A and B commits
         snapshotOpened.await();
         s.commit();
-      } catch (AssertionError ae) {
-        error.compareAndSet(null, ae);
-      } catch (Exception e) {
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
         if (s != null) {
           try {
             s.rollback();

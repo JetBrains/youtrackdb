@@ -318,8 +318,8 @@ public final class BTreeSingleValueIndexEngine
           newKey.addKey(version);
           wasInserted =
               sbTree.put(atomicOperation, newKey, new SnapshotMarkerRID(value));
-          if (removedRID instanceof RecordId) {
-            indexesSnapshot.addSnapshotPair(oldKey, newKey, value);
+          if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
+            indexesSnapshot.addSnapshotPair(oldKey, newKey, removedRID.getIdentity());
           }
           if (removedRID instanceof TombstoneRID) {
             IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);

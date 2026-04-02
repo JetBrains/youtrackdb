@@ -38,12 +38,12 @@ public class SnapshotIsolationIndexesUniqueTest {
     String fooValue = "Foo";
     String barValue = "Bar";
 
-    // Schema with NOTUNIQUE index
+    // Schema with UNIQUE index
     SchemaClass userSchema = db.createVertexClass("Userr");
     userSchema.createProperty("name", PropertyType.STRING);
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
-    // create MULTIPLE records with the same property value
+    // create a record with an indexed property value
     var graph = openGraph();
     graph.tx().begin();
     var u1 = graph.addV("Userr").property("name", fooValue).next();
@@ -111,13 +111,13 @@ public class SnapshotIsolationIndexesUniqueTest {
     String fooValue = "Foo";
     String barValue = "Bar";
 
-    // Schema with NOTUNIQUE index
+    // Schema with UNIQUE index
     SchemaClass userSchema = db.createVertexClass("Userr");
     userSchema.createProperty("name", PropertyType.STRING);
     userSchema.createProperty("surname", PropertyType.STRING);
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name", "surname");
 
-    // create MULTIPLE records with the same property value
+    // create a record with an indexed property value
     var graph = openGraph();
     graph.tx().begin();
     var u1 = graph.addV("Userr").property("name", fooValue).property("surname", fooValue).next();
@@ -274,12 +274,12 @@ public class SnapshotIsolationIndexesUniqueTest {
     String fooValue = "Foo";
     String barValue = "Bar";
 
-    // Schema with NOTUNIQUE index
+    // Schema with UNIQUE index
     SchemaClass userSchema = db.createVertexClass("Userr");
     userSchema.createProperty("name", PropertyType.STRING);
     userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
 
-    // create MULTIPLE records with the same property value
+    // create a record with an indexed property value
     var graph = openGraph();
     graph.tx().begin();
     var u1 = graph.addV("Userr").property("name", fooValue).next();

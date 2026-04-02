@@ -10,14 +10,19 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link IndexesSnapshot#snapshotVisibility} verifying snapshot isolation
+ * Unit tests for {@link IndexesSnapshot} verifying snapshot isolation
  * of index entries as seen through the primary B-Tree stream.
  *
  * <h3>Key insight</h3>
@@ -144,7 +149,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   // ========================================================================
 
   @Test
-  public void afterRemove128_version120_beforeAnyOp_notVisible() {
+  public void afterFirstRemove_readerBeforeAnyOp_notVisible() {
     // v=121 < 128: snapshot lowerEntry(121) = empty → not visible
     var result = callSnapshotVisibility(pairAfterRemove128(), 121L);
     assertTrue("Before any operation, nothing should be visible", result.isEmpty());
@@ -157,13 +162,13 @@ public class IndexesSnapshotVisibilityFilterTest {
    * (TombstoneRID in snapshot means "was alive at this version")
    */
   @Test
-  public void afterRemove128_version125_wasAlive_visible() {
+  public void afterFirstRemove_readerWhileAlive_visible() {
     var result = callSnapshotVisibility(pairAfterRemove128(), 126L);
     assertEquals("Record was alive at v125, should be visible via snapshot", 1, result.size());
   }
 
   @Test
-  public void afterRemove128_version126_stillAlive_visible() {
+  public void afterFirstRemove_readerStillAliveBeforeRemove_visible() {
     var result = callSnapshotVisibility(pairAfterRemove128(), 127L);
     assertEquals(1, result.size());
   }
@@ -174,7 +179,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   // ========================================================================
 
   @Test
-  public void afterPut130_version120_beforeAll_notVisible() {
+  public void afterReAdd_readerBeforeAnyOp_notVisible() {
     var result = callSnapshotVisibility(pairAfterPut130(), 121L);
     assertTrue(result.isEmpty());
   }
@@ -185,7 +190,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    * entry = TombstoneRID → passes → visible (was alive at v125).
    */
   @Test
-  public void afterPut130_version125_wasAliveBeforeFirstRemove_visible() {
+  public void afterReAdd_readerWhileAliveBeforeFirstRemove_visible() {
     var result = callSnapshotVisibility(pairAfterPut130(), 126L);
     assertEquals(1, result.size());
   }
@@ -198,7 +203,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    * <b>This is the critical test that validates lowerEntry() over floorEntry().</b>
    */
   @Test
-  public void afterPut130_version129_betweenRemoveAndReAdd_notVisible() {
+  public void afterReAdd_readerBetweenRemoveAndReAdd_notVisible() {
     var result = callSnapshotVisibility(pairAfterPut130(), 130L);
     assertTrue("Between remove@128 and re-add@130, record must not be visible", result.isEmpty());
   }
@@ -209,20 +214,20 @@ public class IndexesSnapshotVisibilityFilterTest {
   // ========================================================================
 
   @Test
-  public void afterRemove135_version120_beforeAll_notVisible() {
+  public void afterFinalRemove_readerBeforeAnyOp_notVisible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 121L);
     assertTrue(result.isEmpty());
   }
 
   @Test
-  public void afterRemove135_version125_wasAlive_visible() {
+  public void afterFinalRemove_readerDuringFirstAlivePhase_visible() {
     // v=126 < 135: snapshot lowerEntry(126) = {125: Tombstone} → visible
     var result = callSnapshotVisibility(pairAfterRemove135(), 126L);
     assertEquals(1, result.size());
   }
 
   @Test
-  public void afterRemove135_version127_stillAliveBeforeRemove128_visible() {
+  public void afterFinalRemove_readerJustBeforeFirstRemove_visible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 128L);
     assertEquals(1, result.size());
   }
@@ -232,7 +237,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    * entry = RecordId → not TombstoneRID → filtered → not visible.
    */
   @Test
-  public void afterRemove135_version128_atFirstRemove_notVisible() {
+  public void afterFinalRemove_readerAtFirstRemove_notVisible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 129L);
     assertTrue(result.isEmpty());
   }
@@ -244,7 +249,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    * <b>Critical: using floorEntry() would pick 130: Tombstone → WRONGLY visible.</b>
    */
   @Test
-  public void afterRemove135_version129_betweenRemoveAndReAdd_notVisible() {
+  public void afterFinalRemove_readerBetweenRemoveAndReAdd_notVisible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 130L);
     assertTrue("Must not be visible between remove@128 and re-add@130", result.isEmpty());
   }
@@ -254,19 +259,19 @@ public class IndexesSnapshotVisibilityFilterTest {
    * entry = Tombstone → passes → visible.
    */
   @Test
-  public void afterRemove135_version130_atReAdd_visible() {
+  public void afterFinalRemove_readerAtReAdd_visible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 131L);
     assertEquals(1, result.size());
   }
 
   @Test
-  public void afterRemove135_version132_afterReAdd_visible() {
+  public void afterFinalRemove_readerAfterReAdd_visible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 133L);
     assertEquals(1, result.size());
   }
 
   @Test
-  public void afterRemove135_version134_justBeforeFinalRemove_visible() {
+  public void afterFinalRemove_readerJustBeforeFinalRemove_visible() {
     var result = callSnapshotVisibility(pairAfterRemove135(), 135L);
     assertEquals(1, result.size());
   }
@@ -467,7 +472,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    * <b>floorEntry() would return 110: RecordId too, but using lowerEntry() is correct.</b>
    */
   @Test
-  public void threePhase_afterReAdd_version115_notVisible() {
+  public void threePhase_afterReAdd_readerBetweenRemoveAndReAdd_notVisible() {
     IndexesSnapshot snap = newSnapshot(INDEX_ID);
     RID rid = new RecordId(30, 5);
 
@@ -493,5 +498,223 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     var result = callSnapshotVisibility(snap, pair, 116L);
     assertTrue("Between remove@110 and re-add@120, must not be visible", result.isEmpty());
+  }
+
+  // ========================================================================
+  //  visibilityFilterMapped() — full pipeline tests
+  //  These test the inProgressVersions filtering and the version < visibleVersion
+  //  branches that are only reachable through visibilityFilterMapped(), not through
+  //  emitSnapshotVisibility() alone.
+  // ========================================================================
+
+  /**
+   * Creates a minimal {@link AtomicOperation} proxy that only supports
+   * {@code getAtomicOperationsSnapshot()} — sufficient for visibilityFilterMapped().
+   */
+  private static AtomicOperation atomicOpStub(long visibleVersion,
+      LongOpenHashSet inProgress) {
+    var snap = new AtomicOperationsSnapshot(
+        visibleVersion, visibleVersion, inProgress, visibleVersion);
+    return (AtomicOperation) Proxy.newProxyInstance(
+        AtomicOperation.class.getClassLoader(),
+        new Class[] {AtomicOperation.class},
+        (proxy, method, args) -> {
+          if ("getAtomicOperationsSnapshot".equals(method.getName())) {
+            return snap;
+          }
+          throw new UnsupportedOperationException(method.getName());
+        });
+  }
+
+  private List<RawPair<CompositeKey, RID>> filterMapped(
+      IndexesSnapshot snap, long visibleVersion, LongOpenHashSet inProgress,
+      List<RawPair<CompositeKey, RID>> entries) {
+    return snap
+        .visibilityFilter(
+            atomicOpStub(visibleVersion, inProgress),
+            entries.stream())
+        .toList();
+  }
+
+  private List<RawPair<CompositeKey, RID>> filterMapped(
+      IndexesSnapshot snap, long visibleVersion,
+      List<RawPair<CompositeKey, RID>> entries) {
+    return filterMapped(snap, visibleVersion, LongOpenHashSet.of(), entries);
+  }
+
+  // --- inProgressVersions filtering ---
+
+  /**
+   * An entry whose version matches an in-progress TX must be skipped, even if
+   * the version is below the visible threshold and the RID is a plain RecordId
+   * (which would normally be emitted).
+   */
+  @Test
+  public void inProgress_recordId_filteredOut() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
+
+    // version=100 < visibleVersion=200, but version=100 is in-progress → filtered
+    var result = filterMapped(snap, 200L, LongOpenHashSet.of(100L), List.of(pair));
+    assertTrue("Entry from in-progress TX must be filtered out", result.isEmpty());
+  }
+
+  /**
+   * A TombstoneRID entry from an in-progress TX must also be filtered.
+   */
+  @Test
+  public void inProgress_tombstoneRid_filteredOut() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(
+        new CompositeKey("Foo", RID_20_0, 100L), (RID) new TombstoneRID(RID_20_0));
+
+    var result = filterMapped(snap, 200L, LongOpenHashSet.of(100L), List.of(pair));
+    assertTrue("Tombstone from in-progress TX must be filtered out", result.isEmpty());
+  }
+
+  /**
+   * A SnapshotMarkerRID entry from an in-progress TX must also be filtered.
+   */
+  @Test
+  public void inProgress_snapshotMarkerRid_filteredOut() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(
+        new CompositeKey("Foo", RID_20_0, 100L), (RID) new SnapshotMarkerRID(RID_20_0));
+
+    var result = filterMapped(snap, 200L, LongOpenHashSet.of(100L), List.of(pair));
+    assertTrue("SnapshotMarkerRID from in-progress TX must be filtered out",
+        result.isEmpty());
+  }
+
+  /**
+   * When in-progress set is non-empty but does NOT contain the entry's version,
+   * the entry must still pass through normally.
+   */
+  @Test
+  public void inProgress_nonMatchingVersion_passesThrough() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+
+    // version=100 is NOT in the in-progress set {99, 101}
+    var result = filterMapped(snap, 200L, LongOpenHashSet.of(99L, 101L), List.of(pair));
+    assertEquals("Entry not in in-progress set should pass through", 1, result.size());
+  }
+
+  // --- version < visibleVersion: committed entries by RID type ---
+
+  /**
+   * A committed RecordId entry (version < visibleVersion) represents a live record
+   * and must be emitted as-is.
+   */
+  @Test
+  public void committed_recordId_visible() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+
+    var result = filterMapped(snap, 200L, List.of(pair));
+    assertEquals("Committed RecordId must be visible", 1, result.size());
+    assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  /**
+   * A committed TombstoneRID entry (version < visibleVersion) represents a deleted
+   * record and must be filtered out.
+   */
+  @Test
+  public void committed_tombstoneRid_filteredOut() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(
+        new CompositeKey("Foo", RID_20_0, 100L), (RID) new TombstoneRID(RID_20_0));
+
+    var result = filterMapped(snap, 200L, List.of(pair));
+    assertTrue("Committed TombstoneRID must not be visible", result.isEmpty());
+  }
+
+  /**
+   * A committed SnapshotMarkerRID (version < visibleVersion) represents a re-added
+   * record. It must be emitted with the unwrapped identity RID (not the marker).
+   */
+  @Test
+  public void committed_snapshotMarkerRid_emittedWithIdentity() {
+    var snap = newSnapshot(INDEX_ID);
+    var marker = new SnapshotMarkerRID(RID_20_0);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) marker);
+
+    var result = filterMapped(snap, 200L, List.of(pair));
+    assertEquals("Committed SnapshotMarkerRID must be visible", 1, result.size());
+    // The emitted RID must be the unwrapped identity, not the SnapshotMarkerRID
+    assertEquals(RID_20_0, result.getFirst().second());
+    assertTrue("Emitted RID must be a plain RecordId, not SnapshotMarkerRID",
+        result.getFirst().second() instanceof RecordId);
+  }
+
+  // --- version >= visibleVersion: phantom entries ---
+
+  /**
+   * A RecordId entry with version >= visibleVersion is a phantom insert and must
+   * be filtered out.
+   */
+  @Test
+  public void phantom_recordId_filteredOut() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 200L), (RID) RID_20_0);
+
+    var result = filterMapped(snap, 200L, List.of(pair));
+    assertTrue("Phantom RecordId must not be visible", result.isEmpty());
+  }
+
+  // --- null atomicOperation ---
+
+  /**
+   * When atomicOperation is null, visibleVersion defaults to Long.MAX_VALUE and
+   * inProgressVersions is empty. All non-tombstone entries should be visible.
+   */
+  @Test
+  public void nullAtomicOp_allNonTombstoneVisible() {
+    var snap = newSnapshot(INDEX_ID);
+    var alive = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+    var dead = new RawPair<>(
+        new CompositeKey("Bar", RID_20_0, 100L), (RID) new TombstoneRID(RID_20_0));
+    var marker = new RawPair<>(
+        new CompositeKey("Baz", RID_20_0, 100L), (RID) new SnapshotMarkerRID(RID_20_0));
+
+    var result = snap
+        .visibilityFilter(null, Stream.of(alive, dead, marker))
+        .toList();
+
+    assertEquals("Only alive and marker entries should be visible", 2, result.size());
+  }
+
+  // --- mixed stream ---
+
+  /**
+   * A mixed stream with committed, in-progress, and phantom entries should
+   * produce exactly the expected visible subset in a single pass.
+   */
+  @Test
+  public void mixedStream_correctFiltering() {
+    var snap = newSnapshot(INDEX_ID);
+    var ridA = new RecordId(10, 1);
+    var ridB = new RecordId(10, 2);
+    var ridC = new RecordId(10, 3);
+
+    // Committed alive (version=80 < visibleVersion=100)
+    var committedAlive = new RawPair<>(
+        new CompositeKey("A", ridA, 80L), (RID) ridA);
+    // Committed tombstone (version=90 < visibleVersion=100)
+    var committedDead = new RawPair<>(
+        new CompositeKey("B", ridB, 90L), (RID) new TombstoneRID(ridB));
+    // In-progress (version=95 is in the in-progress set)
+    var inProgressEntry = new RawPair<>(
+        new CompositeKey("C", ridC, 95L), (RID) ridC);
+    // Phantom (version=110 >= visibleVersion=100)
+    var phantom = new RawPair<>(
+        new CompositeKey("D", ridA, 110L), (RID) ridA);
+
+    var result = filterMapped(snap, 100L, LongOpenHashSet.of(95L),
+        List.of(committedAlive, committedDead, inProgressEntry, phantom));
+
+    assertEquals("Only the committed alive entry should survive", 1, result.size());
+    assertEquals(ridA, result.getFirst().second());
   }
 }

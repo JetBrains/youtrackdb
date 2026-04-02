@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -1673,4 +1675,64 @@ public class SnapshotIsolationIndexesNotUniqueTest {
     graph.close();
   }
 
+  /**
+   * Regression: put() replacing a SnapshotMarkerRID must call addSnapshotPair.
+   *
+   * <p>Uses the storage API to call putRidIndexEntry directly (bypassing the
+   * ClassIndexManager remove+put pairing) to create the scenario where put()
+   * encounters a SnapshotMarkerRID from a prior TX's put(). Two consecutive
+   * standalone PUTs for the same (key, rid): the first creates SnapshotMarkerRID
+   * and correctly calls addSnapshotPair; the second finds SnapshotMarkerRID
+   * but must also call addSnapshotPair to preserve the historical version.
+   */
+  @Test
+  public void snapshotMarkerReplacedByPut_mustCreateSnapshotPair() throws Exception {
+    // Schema with NOTUNIQUE index
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.NOTUNIQUE, "name");
+
+    // TX-0: create a vertex with name="Foo"
+    var graph = openGraph();
+    graph.tx().begin();
+    var v = graph.addV("Userr").property("name", "Foo").next();
+    graph.tx().commit();
+
+    var rid = (com.jetbrains.youtrackdb.internal.core.db.record.record.RID) v.id();
+
+    // Disable cleanup so snapshot entries are not evicted
+    db.getStorage().getContextConfiguration().setValue(
+        GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, Integer.MAX_VALUE);
+
+    var index = db.getIndex("IndexPropertyName");
+
+    // TX-1: standalone PUT via Index.put() — bypasses ClassIndexManager's
+    // remove+put pairing. put() finds committed RecordId → writes
+    // SnapshotMarkerRID + addSnapshotPair (correct).
+    long entriesBeforeTx1 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx1 = db.begin();
+    index.put(tx1, "Foo", rid);
+    tx1.commit();
+
+    long entriesAfterTx1 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    assertTrue("TX-1 standalone PUT must create snapshot entries",
+        entriesAfterTx1 > entriesBeforeTx1);
+
+    // TX-2: standalone PUT via Index.put() — put() finds SnapshotMarkerRID
+    // from TX-1. Must also create snapshot entries.
+    long entriesBefore = db.getStorage().getIndexesSnapshotEntriesCount().get();
+    var tx2 = db.begin();
+    index.put(tx2, "Foo", rid);
+    tx2.commit();
+
+    long entriesAfterTx2 = db.getStorage().getIndexesSnapshotEntriesCount().get();
+
+    // TX-2 must have created 2 snapshot entries (one addSnapshotPair = 2 entries:
+    // TombstoneRID at oldKey + RecordId guard at newKey). If the bug is present,
+    // put() skips addSnapshotPair for SnapshotMarkerRID → 0 new entries.
+    assertTrue("TX-2 must create snapshot entries (addSnapshotPair for SnapshotMarkerRID)",
+        entriesAfterTx2 > entriesBefore);
+
+    graph.close();
+  }
 }
