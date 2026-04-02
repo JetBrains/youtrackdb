@@ -1502,7 +1502,13 @@ public class CollectionPageTest {
       // Check small record offset and length
       int offsetSmall = localPage.getRecordContentOffset(0);
       Assert.assertEquals(small.length, localPage.getRecordContentLength(0));
-      Assert.assertTrue(offsetSmall > 0);
+      // Content offset must be at least past the entry header (3 ints)
+      // and the metadata header within the page.
+      int minContentOffset =
+          3 * IntegerSerializer.INT_SIZE + CollectionPage.RECORD_METADATA_HEADER_SIZE;
+      Assert.assertTrue(
+          "offsetSmall " + offsetSmall + " should be >= " + minContentOffset,
+          offsetSmall >= minContentOffset);
       Assert.assertTrue(offsetSmall + small.length <= CollectionPage.PAGE_SIZE);
       byte[] actualSmall = localPage.getRecordBinaryValue(
           0, CollectionPage.RECORD_METADATA_HEADER_SIZE, small.length);
@@ -1511,7 +1517,9 @@ public class CollectionPageTest {
       // Check large record offset and length
       int offsetLarge = localPage.getRecordContentOffset(1);
       Assert.assertEquals(large.length, localPage.getRecordContentLength(1));
-      Assert.assertTrue(offsetLarge > 0);
+      Assert.assertTrue(
+          "offsetLarge " + offsetLarge + " should be >= " + minContentOffset,
+          offsetLarge >= minContentOffset);
       Assert.assertTrue(offsetLarge + large.length <= CollectionPage.PAGE_SIZE);
       // Offsets must differ since they are separate records.
       Assert.assertNotEquals(offsetSmall, offsetLarge);
