@@ -41,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
@@ -1259,6 +1260,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case STRING -> {
         if (justRunThrough) {
           var length = VarIntSerializer.readAsInteger(bytes);
+          if (length < 0 || length > bytes.remaining()) {
+            throw new CorruptedRecordException(
+                "String length exceeds remaining buffer: "
+                    + length + " > " + bytes.remaining());
+          }
           bytes.skip(length);
         } else {
           value = readString(bytes);
@@ -1326,6 +1332,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       case BINARY -> {
         if (justRunThrough) {
           var len = VarIntSerializer.readAsInteger(bytes);
+          if (len < 0 || len > bytes.remaining()) {
+            throw new CorruptedRecordException(
+                "Binary length exceeds remaining buffer: "
+                    + len + " > " + bytes.remaining());
+          }
           bytes.skip(len);
         } else {
           value = readBinary(bytes);
@@ -1342,6 +1353,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         bytes.skip(IntegerSerializer.INT_SIZE); // skip scale
         var unscaledLen = bytes.getInt(); // read unscaledLen
         bytes.setOffset(startPos); // seek back to start
+        if (unscaledLen < 0 || unscaledLen > bytes.remaining()) {
+          throw new CorruptedRecordException(
+              "Decimal unscaled length exceeds remaining buffer: "
+                  + unscaledLen + " > " + bytes.remaining());
+        }
         if (justRunThrough) {
           bytes.skip(IntegerSerializer.INT_SIZE * 2 + unscaledLen);
         } else {
@@ -1367,6 +1383,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final ReadBytesContainer bytes,
       final RecordElement owner) {
     final var items = VarIntSerializer.readAsInteger(bytes);
+    if (items < 0 || items > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Embedded set size exceeds remaining buffer: "
+              + items + " > " + bytes.remaining());
+    }
     var type = readOType(bytes, false);
 
     if (type != null) {
@@ -1390,6 +1411,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final ReadBytesContainer bytes,
       final RecordElement owner) {
     final var items = VarIntSerializer.readAsInteger(bytes);
+    if (items < 0 || items > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Embedded list size exceeds remaining buffer: "
+              + items + " > " + bytes.remaining());
+    }
     var type = readOType(bytes, false);
 
     if (type != null) {
@@ -1413,6 +1439,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final ReadBytesContainer bytes,
       final RecordElement owner) {
     var size = VarIntSerializer.readAsInteger(bytes);
+    if (size < 0 || size > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Embedded map size exceeds remaining buffer: "
+              + size + " > " + bytes.remaining());
+    }
     final var result = new EntityEmbeddedMapImpl<Object>(owner);
     var schema = resolveSchema(result);
     for (var i = 0; i < size; i++) {
@@ -1448,6 +1479,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     EntityLinkSetImpl ridbag;
     var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (linkBagSize < 0 || linkBagSize > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Link set size exceeds remaining buffer: "
+              + linkBagSize + " > " + bytes.remaining());
+    }
     if (isEmbedded) {
       var embeddedBagDelegate = readEmbeddedLinkBag(session, bytes, linkBagSize, 1);
       ridbag = new EntityLinkSetImpl(session, embeddedBagDelegate);
@@ -1465,6 +1501,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
     LinkBag ridbag;
     var linkBagSize = VarIntSerializer.readAsInteger(bytes);
+    if (linkBagSize < 0 || linkBagSize > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Link bag size exceeds remaining buffer: "
+              + linkBagSize + " > " + bytes.remaining());
+    }
     if (isEmbedded) {
       var embeddedBagDelegate =
           readEmbeddedLinkBag(session, bytes, linkBagSize, Integer.MAX_VALUE);
@@ -1572,6 +1613,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       ImmutableSchema schema) {
     List<MapRecordInfo> retList = new ArrayList<>();
     var numberOfElements = VarIntSerializer.readAsInteger(bytes);
+    if (numberOfElements < 0 || numberOfElements > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Embedded map element count exceeds remaining buffer: "
+              + numberOfElements + " > " + bytes.remaining());
+    }
 
     for (var i = 0; i < numberOfElements; i++) {
       var keyType = readOType(bytes, false);
