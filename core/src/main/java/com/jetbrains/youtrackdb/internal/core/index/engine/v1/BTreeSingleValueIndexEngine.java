@@ -214,6 +214,10 @@ public final class BTreeSingleValueIndexEngine
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
+      // Reset persisted count on entry point page after clearing tree data.
+      // persistIndexCountDeltas adds only deltas from replayed entries after
+      // the clear, yielding the correct final count.
+      sbTree.setApproximateEntriesCount(atomicOperation, 0);
       indexesSnapshot.clear();
       approximateIndexEntriesCount.set(0);
       approximateNullCount.set(0);
@@ -532,6 +536,7 @@ public final class BTreeSingleValueIndexEngine
     if (firstKey == null) {
       approximateIndexEntriesCount.set(0);
       approximateNullCount.set(0);
+      sbTree.setApproximateEntriesCount(atomicOperation, 0);
       mgr.buildHistogram(atomicOperation, Stream.empty(), 0, 0,
           mgr.getKeyFieldCount());
       return;
@@ -551,8 +556,11 @@ public final class BTreeSingleValueIndexEngine
 
     // Recalibrate approximate counters from the exact scan to prevent
     // divergence over time (e.g., from rolled-back atomic operations).
+    // Persist recalibrated count to entry point page before building
+    // histogram, so count persistence is not conditional on histogram success.
     approximateIndexEntriesCount.set(totalCount);
     approximateNullCount.set(nullCount);
+    sbTree.setApproximateEntriesCount(atomicOperation, totalCount);
 
     mgr.buildHistogram(
         atomicOperation, nonNullEntries.stream().map(RawPair::first),
