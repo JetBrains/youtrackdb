@@ -2924,6 +2924,23 @@ public class MatchExecutionPlanner {
         }
       }
 
+      // --- Pattern D: NOT IN anti-semi-join detection ---
+      // Check if the target's WHERE clause contains
+      // $currentMatch NOT IN $matched.X.out('E')
+      // Pattern D detection follows below
+      if (edgeJ.getSemiJoinDescriptor() == null) {
+        var antiDesc = detectNotInAntiJoin(
+            targetFilter, targetAliasJ, boundAliases);
+        if (antiDesc != null) {
+          edgeJ.setSemiJoinDescriptor(antiDesc);
+          logger.debug(
+              "MATCH pre-filter: AntiSemiJoin on edge[{}] "
+                  + "(NOT IN $matched.{}.{}('{}'))",
+              j, antiDesc.anchorAlias(),
+              antiDesc.traversalDirection(), antiDesc.traversalEdgeClass());
+        }
+      }
+
       // --- Index pre-filter detection ---
       var targetClass = aliasClasses.get(targetAliasJ);
       if (targetClass == null) {
@@ -2985,6 +3002,107 @@ public class MatchExecutionPlanner {
     // Check threshold is enabled (0 disables hash join)
     var threshold = getHashJoinThreshold();
     return threshold > 0;
+  }
+
+  // Regex for $matched.X.out('E') or $matched.X.in('E')
+  // Group 1: alias name (X), Group 2: direction (out/in), Group 3: edge class (E)
+  private static final java.util.regex.Pattern MATCHED_TRAVERSAL_PATTERN =
+      java.util.regex.Pattern.compile(
+          "\\$matched\\.(\\w+)\\.(out|in)\\(['\"]?(\\w+)['\"]?\\)",
+          java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Detects Pattern D: a {@code $currentMatch NOT IN $matched.X.out('E')}
+   * condition in the target node's WHERE clause. If found, removes the
+   * NOT IN condition from the WHERE clause and returns an
+   * {@link AntiSemiJoin} descriptor. Any remaining conditions in the AND
+   * block stay as residual filter on the {@link MatchEdgeTraverser}.
+   *
+   * @param targetFilter  the WHERE clause on the target node
+   * @param targetAlias   the alias of the target node
+   * @param boundAliases  all aliases bound in the schedule
+   * @return an AntiSemiJoin descriptor, or null if the pattern is not found
+   */
+  @Nullable private static AntiSemiJoin detectNotInAntiJoin(
+      SQLWhereClause targetFilter,
+      String targetAlias,
+      Set<String> boundAliases) {
+    var threshold = getHashJoinThreshold();
+    if (threshold <= 0) {
+      return null;
+    }
+
+    var baseExpr = targetFilter.getBaseExpression();
+    if (baseExpr == null) {
+      return null;
+    }
+
+    // Navigate: SQLOrBlock → single SQLAndBlock → subBlocks list
+    List<SQLBooleanExpression> andSubBlocks;
+    if (baseExpr instanceof SQLOrBlock orBlock) {
+      var orSubs = orBlock.getSubBlocks();
+      if (orSubs == null || orSubs.size() != 1) {
+        return null; // Multiple OR branches — too complex
+      }
+      var firstOr = orSubs.getFirst();
+      if (!(firstOr instanceof SQLAndBlock ab)) {
+        return null;
+      }
+      andSubBlocks = ab.getSubBlocks();
+    } else if (baseExpr instanceof SQLAndBlock ab) {
+      andSubBlocks = ab.getSubBlocks();
+    } else {
+      return null;
+    }
+
+    if (andSubBlocks == null || andSubBlocks.isEmpty()) {
+      return null;
+    }
+    // Scan for NOT IN conditions matching the pattern. The condition may be
+    // nested inside SQLOrBlock → SQLAndBlock → SQLNotBlock (parser wrapping).
+    // We use toString() on each sub-block to match the full pattern string,
+    // avoiding fragile class hierarchy assumptions.
+    for (int i = 0; i < andSubBlocks.size(); i++) {
+      var sub = andSubBlocks.get(i);
+      var condStr = sub.toString().trim();
+      if (!condStr.startsWith("$currentMatch NOT IN ")) {
+        continue;
+      }
+
+      var rhsStr = condStr.substring("$currentMatch NOT IN ".length()).trim();
+      var matcher = MATCHED_TRAVERSAL_PATTERN.matcher(rhsStr);
+      if (!matcher.matches()) {
+        continue;
+      }
+
+      var anchorAlias = matcher.group(1);
+      var direction = matcher.group(2).toLowerCase(Locale.ROOT);
+      var edgeClass = matcher.group(3);
+
+      // Anchor alias must be already bound
+      if (!boundAliases.contains(anchorAlias)) {
+        continue;
+      }
+
+      // Edge class must be a valid identifier (prevent SQL injection)
+      if (!edgeClass.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+        continue;
+      }
+
+      // Remove the NOT IN condition from the AND block
+      andSubBlocks.remove(i);
+
+      // Build residual filter (remaining AND conditions, if any)
+      SQLWhereClause residualFilter = null;
+      if (!andSubBlocks.isEmpty()) {
+        residualFilter = targetFilter; // Modified in-place — remaining conditions stay
+      }
+
+      return new AntiSemiJoin(
+          anchorAlias, edgeClass, direction,
+          anchorAlias, targetAlias, residualFilter);
+    }
+    return null;
   }
 
   /**
@@ -3452,9 +3570,16 @@ public class MatchExecutionPlanner {
         // to avoid catastrophic full V scan
         plan.chain(new MatchStep(context, edge, profilingEnabled));
       }
+    } else if (edge.getSemiJoinDescriptor() instanceof AntiSemiJoin) {
+      // Pattern D: normal traversal + anti-join filter. The NOT IN condition
+      // was removed from the WHERE clause, so the MatchStep traverses without
+      // it. The BackRefHashJoinStep filters results against the exclusion set.
+      plan.chain(new MatchStep(context, edge, profilingEnabled));
+      plan.chain(new BackRefHashJoinStep(
+          context, edge.getSemiJoinDescriptor(), profilingEnabled));
     } else if (edge.getSemiJoinDescriptor() != null) {
-      // Back-reference semi-join: replace per-row link bag traversal with
-      // a one-time hash table build + O(1) probe per upstream row.
+      // Back-reference semi-join (Pattern A/B): replace per-row link bag
+      // traversal with a one-time hash table build + O(1) probe.
       plan.chain(new BackRefHashJoinStep(
           context, edge.getSemiJoinDescriptor(), profilingEnabled));
     } else {

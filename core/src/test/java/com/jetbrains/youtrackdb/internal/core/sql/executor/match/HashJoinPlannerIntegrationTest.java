@@ -727,4 +727,118 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     }
   }
 
+  // ── Back-reference hash join tests (Pattern D — NOT IN anti-join) ──
+
+  /**
+   * Pattern D — IC10-style NOT IN exclusion. The query finds friends-of-friends
+   * of n1, excluding direct friends of n1.
+   *
+   * Graph: n1→n2, n1→n3, n2→n4, n3→n5
+   * n1.out('Friend') = {n2, n3}
+   * n1.out('Friend').out('Friend') = {n4, n5}
+   * After NOT IN n1.out('Friend'): n4 and n5 remain (they are NOT direct friends)
+   */
+  @Test
+  public void explainBackRef_notIn_usesAntiSemiJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "plan should use BACK-REF HASH JOIN ANTI, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN ANTI"));
+    session.commit();
+  }
+
+  /**
+   * Pattern D — correctness test. Friends-of-friends of n1, excluding
+   * direct friends. n1's direct friends are {n2, n3}. FoF are {n4, n5}.
+   * Neither n4 nor n5 is a direct friend of n1, so both should appear.
+   */
+  @Test
+  public void backRef_notIn_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fofName"))
+        .collect(Collectors.toSet());
+    // n2→n4, n3→n5. Neither n4 nor n5 is in n1.out('Friend')={n2,n3}
+    assertEquals(Set.of("n4", "n5"), names);
+    session.commit();
+  }
+
+  /**
+   * Pattern D — correctness with exclusion. Add n4 as a direct friend of n1,
+   * then n4 should be excluded from FoF results because it IS in
+   * n1.out('Friend').
+   */
+  @Test
+  public void backRef_notIn_withExclusion_correctResults() {
+    session.begin();
+    // Make n4 a direct friend of n1
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n1')"
+            + " to (select from Person where name='n4')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("fofName"))
+        .collect(Collectors.toSet());
+    // n4 is now a direct friend of n1, so it's excluded. Only n5 remains.
+    assertEquals(Set.of("n5"), names);
+    session.commit();
+  }
+
+  /**
+   * Pattern D — threshold=0 disables anti-semi-join. Falls back to standard
+   * WHERE evaluation with NOT IN.
+   */
+  @Test
+  public void backRef_notIn_thresholdZero_fallsBack() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+              + ".out('Friend'){as:friend}"
+              + ".out('Friend'){as:fof,"
+              + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+              + " RETURN fof.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertFalse(
+          "threshold=0 should disable anti-semi-join, got:\n" + plan,
+          plan.contains("BACK-REF HASH JOIN ANTI"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
 }
