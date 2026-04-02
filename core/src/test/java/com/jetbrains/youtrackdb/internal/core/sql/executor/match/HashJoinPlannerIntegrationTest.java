@@ -496,4 +496,138 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     }
   }
 
+  // ── Back-reference hash join tests (Pattern A) ─────────────────────────
+
+  /**
+   * Pattern A — single-edge back-reference semi-join. The query traverses
+   * from person n1 to friends, then checks each friend via a back-reference
+   * against n1's known friends. This is the simplest back-reference pattern:
+   * {@code .out('Friend'){target, where: (@rid = $matched.a.@rid)}}.
+   *
+   * <p>Expected: EXPLAIN shows BACK-REF HASH JOIN instead of a regular MatchStep
+   * with EdgeRidLookup intersection.
+   */
+  @Test
+  public void explainBackRef_singleEdge_usesBackRefHashJoin() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "plan should use back-ref hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
+  /**
+   * Pattern A — correctness test. Creates a cycle: n1→n2→n4, and checks
+   * if traversing n4.out('Friend') reaches n1 via back-reference.
+   * Since n4 has no outgoing Friend edges to n1 in our graph, the query
+   * should return no results.
+   */
+  @Test
+  public void backRef_singleEdge_noMatch_emptyResult() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:c}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+    // n1→n2→n4→(no outgoing Friend to n1), n1→n3→n5→(no outgoing Friend to n1)
+    assertEquals(0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Pattern A — correctness with a cycle that DOES match. Creates a
+   * Friend edge from n2 back to n1, forming a cycle n1→n2→n1.
+   * The back-ref check should find n1 via n2.out('Friend').
+   */
+  @Test
+  public void backRef_singleEdge_withCycle_findsMatch() {
+    session.begin();
+    // Add a cycle: n2→n1
+    session.execute(
+        "CREATE EDGE Friend from (select from Person where name='n2')"
+            + " to (select from Person where name='n1')")
+        .close();
+
+    var result = session.query(
+        "MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".out('Friend'){as:b}"
+            + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name as bName")
+        .toList();
+
+    // n1→n2→(check: n2.out('Friend') includes {n1,n4}), @rid=$matched.a.@rid
+    // means check.@rid must equal n1.@rid. n2.out('Friend') contains n1
+    // (the edge we just added) and n4. Only n1 matches → b=n2 is a result.
+    // n1→n3→(check: n3.out('Friend') includes {n5}), no match → filtered out.
+    assertEquals(1, result.size());
+    assertEquals("n2", result.get(0).getProperty("bName"));
+    session.commit();
+  }
+
+  /**
+   * Pattern A — threshold=0 disables back-ref hash join. The planner should
+   * fall back to standard MatchStep with EdgeRidLookup intersection.
+   */
+  @Test
+  public void backRef_thresholdZero_fallsBackToMatchStep() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}"
+              + ".out('Friend'){as:check, where: (@rid = $matched.a.@rid)}"
+              + " RETURN b.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertFalse(
+          "threshold=0 should disable back-ref hash join, got:\n" + plan,
+          plan.contains("BACK-REF HASH JOIN"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Pattern A — edge-level traversals (outE/inE) should NOT use back-ref
+   * hash join (only vertex-level out/in are eligible).
+   */
+  @Test
+  public void backRef_edgeLevelTraversal_notEligible() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+            + ".outE('Friend'){as:e}.inV(){as:b}"
+            + ".outE('Friend'){as:e2}.inV(){as:check,"
+            + " where: (@rid = $matched.a.@rid)}"
+            + " RETURN b.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // outE/inE are not vertex-level traversals → no back-ref hash join
+    assertFalse(
+        "edge-level traversal should not use back-ref hash join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
+    session.commit();
+  }
+
 }

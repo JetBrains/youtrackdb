@@ -2809,11 +2809,19 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> schedule, CommandContext ctx) {
     // Build a map: target alias → edge index, so we can find the producing edge
     Map<String, Integer> targetAliasToEdgeIndex = new HashMap<>();
+    // Track all aliases that are bound (visited) before each edge, including
+    // the root alias which is not the target of any edge.
+    Set<String> boundAliases = new HashSet<>();
     for (var i = 0; i < schedule.size(); i++) {
       var et = schedule.get(i);
+      var sourceAlias = et.out ? et.edge.out.alias : et.edge.in.alias;
       var targetAlias = et.out ? et.edge.in.alias : et.edge.out.alias;
+      if (sourceAlias != null) {
+        boundAliases.add(sourceAlias);
+      }
       if (targetAlias != null) {
         targetAliasToEdgeIndex.put(targetAlias, i);
+        boundAliases.add(targetAlias);
       }
     }
 
@@ -2862,17 +2870,37 @@ public class MatchExecutionPlanner {
           if (edgeClass != null && edgeDirection != null) {
             var sourceAliasJ = edgeJ.out
                 ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
-            var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
-            if (producingEdgeIdx != null) {
-              var edgeI = schedule.get(producingEdgeIdx);
-              edgeI.addIntersectionDescriptor(
-                  new RidFilterDescriptor.EdgeRidLookup(
-                      edgeClass, edgeDirection, ridExpr, collectEdgeRids));
+
+            // --- Semi-join candidacy check (Pattern A) ---
+            // If this is a vertex-level traversal (out/in, not outE/inE)
+            // and the back-ref alias is already bound, try to replace the
+            // per-row link bag scan with a one-time hash table build + O(1)
+            // probe.
+            if (isSemiJoinCandidate(edgeDirection, involvedAliases,
+                boundAliases)) {
+              var backRefAlias = involvedAliases.getFirst();
+              var descriptor = new SingleEdgeSemiJoin(
+                  edgeClass, edgeDirection, ridExpr,
+                  sourceAliasJ, backRefAlias, targetAliasJ);
+              edgeJ.setSemiJoinDescriptor(descriptor);
               logger.debug(
-                  "MATCH pre-filter: EdgeRidLookup on edge[{}] "
-                      + "({}({}) back-ref from alias '{}', edgeRids={})",
-                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
-                  collectEdgeRids);
+                  "MATCH pre-filter: BackRefHashJoin on edge[{}] "
+                      + "({}({}) semi-join via $matched.{})",
+                  j, edgeDirection, edgeClass, backRefAlias);
+            } else {
+              // Fallback: attach EdgeRidLookup on the producing edge
+              var producingEdgeIdx = targetAliasToEdgeIndex.get(sourceAliasJ);
+              if (producingEdgeIdx != null) {
+                var edgeI = schedule.get(producingEdgeIdx);
+                edgeI.addIntersectionDescriptor(
+                    new RidFilterDescriptor.EdgeRidLookup(
+                        edgeClass, edgeDirection, ridExpr, collectEdgeRids));
+                logger.debug(
+                    "MATCH pre-filter: EdgeRidLookup on edge[{}] "
+                        + "({}({}) back-ref from alias '{}', edgeRids={})",
+                    producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
+                    collectEdgeRids);
+              }
             }
           }
         }
@@ -2905,6 +2933,40 @@ public class MatchExecutionPlanner {
             j, targetClass, targetAliasJ);
       }
     }
+  }
+
+  /**
+   * Checks if a back-reference edge qualifies for a semi-join hash table
+   * optimization (Pattern A). The edge must be a vertex-level traversal
+   * ({@code out('E')} or {@code in('E')}, not {@code outE('E')} or
+   * {@code inE('E')}), and the back-referenced alias must be already bound
+   * earlier in the schedule.
+   *
+   * @param edgeDirection    the traversal direction (e.g., "out", "in", "oute")
+   * @param involvedAliases  the aliases referenced by the back-ref expression
+   * @param boundAliases     all aliases bound (visited) in the schedule
+   * @return true if the edge is a semi-join candidate
+   */
+  private static boolean isSemiJoinCandidate(
+      String edgeDirection,
+      List<String> involvedAliases,
+      Set<String> boundAliases) {
+    // Only vertex-level traversals qualify (not outE/inE/bothE/both)
+    if (!"out".equals(edgeDirection) && !"in".equals(edgeDirection)) {
+      return false;
+    }
+    // The back-ref must reference exactly one alias
+    if (involvedAliases.size() != 1) {
+      return false;
+    }
+    // The back-referenced alias must be already bound in the schedule
+    var backRefAlias = involvedAliases.getFirst();
+    if (!boundAliases.contains(backRefAlias)) {
+      return false;
+    }
+    // Check threshold is enabled (0 disables hash join)
+    var threshold = getHashJoinThreshold();
+    return threshold > 0;
   }
 
   /**
@@ -3295,6 +3357,11 @@ public class MatchExecutionPlanner {
         // to avoid catastrophic full V scan
         plan.chain(new MatchStep(context, edge, profilingEnabled));
       }
+    } else if (edge.getSemiJoinDescriptor() != null) {
+      // Back-reference semi-join: replace per-row link bag traversal with
+      // a one-time hash table build + O(1) probe per upstream row.
+      plan.chain(new BackRefHashJoinStep(
+          context, edge.getSemiJoinDescriptor(), profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
