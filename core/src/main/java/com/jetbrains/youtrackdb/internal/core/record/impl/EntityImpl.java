@@ -76,9 +76,11 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.InPlaceComparator;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
@@ -3450,6 +3452,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
+    if (pageFrame != null && source == null) {
+      // PageFrame zero-copy path: speculative deserialization with stamp validation
+      return deserializeFromPageFrame(propertyNames);
+    }
+
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
       checkForProperties();
@@ -3484,6 +3491,146 @@ public class EntityImpl extends RecordAbstract implements Entity {
       {
         source = null;
       }
+    }
+
+    return true;
+  }
+
+  /**
+   * Speculatively deserializes this entity from the held PageFrame reference.
+   * After deserialization, validates the PageFrame stamp. If the stamp is invalid
+   * (page was modified concurrently) or deserialization throws (torn page), restores
+   * the properties snapshot and falls back to a byte[] re-read from storage.
+   *
+   * @param propertyNames null/empty for full deserialization, or specific property names
+   *     for partial deserialization
+   * @return true if properties were successfully deserialized, false otherwise
+   */
+  private boolean deserializeFromPageFrame(String[] propertyNames) {
+    assert pageFrame != null && source == null
+        : "deserializeFromPageFrame called without active PageFrame";
+
+    boolean isPartial = propertyNames != null && propertyNames.length > 0;
+
+    // Capture PageFrame references locally. The serializer's deserialize()
+    // calls clearSource() on full deserialization, which triggers
+    // clearPageFrame(). We need the frame and stamp for post-deserialization
+    // validation even after the entity's fields are cleared.
+    var localFrame = pageFrame;
+    var localStamp = pageStamp;
+
+    // Snapshot properties for rollback on stamp invalidation or torn page.
+    // For full deserialization the map is typically empty; for partial it may
+    // contain results from prior partial calls.
+    var propertiesSnapshot = (properties != null && !properties.isEmpty())
+        ? new HashMap<>(properties) : null;
+    var propertiesCountSnapshot = propertiesCount;
+
+    boolean speculativeSuccess = false;
+    try {
+      // Read serializer version byte from absolute position in the PageFrame buffer
+      byte serializerVersion =
+          localFrame.getBuffer().get(pageContentOffset);
+
+      // Create ReadBytesContainer from a slice starting after the version byte
+      var container = new ReadBytesContainer(
+          localFrame.getBuffer()
+              .slice(pageContentOffset + 1, pageContentLength - 1));
+
+      status = RecordElement.STATUS.UNMARSHALLING;
+      try {
+        checkForProperties();
+        recordSerializer.fromStream(
+            session, serializerVersion, container, this, propertyNames);
+      } finally {
+        status = RecordElement.STATUS.LOADED;
+      }
+
+      speculativeSuccess = true;
+    } catch (RuntimeException e) {
+      // Treat any exception during speculative deserialization as a torn page
+      // (equivalent to stamp invalidation). Restore snapshot and fall through
+      // to re-read.
+    }
+
+    if (speculativeSuccess) {
+      // Validate stamp AFTER deserialization — optimistic read pattern.
+      // Use localFrame/localStamp since the entity's fields may have been
+      // cleared by the serializer's clearSource() call during deserialization.
+      if (localFrame.validate(localStamp)) {
+        // Stamp valid: speculative results are correct.
+        // clearPageFrame() may already have been called by the serializer
+        // (via clearSource) for the full deserialization path.
+        if (isPartial && pageFrame != null) {
+          // Partial path: serializer doesn't call clearSource, PageFrame
+          // is still set — keep it for subsequent partial calls.
+        } else {
+          // Full path or already cleared: ensure clean state
+          clearPageFrame();
+        }
+        return evaluateDeserializationResult(propertyNames);
+      }
+
+      // Stamp invalid: page was modified during deserialization — fall through to re-read
+    }
+
+    // Restore properties snapshot before re-read
+    if (propertiesSnapshot != null) {
+      properties = propertiesSnapshot;
+    } else if (properties != null) {
+      properties.clear();
+    }
+    propertiesCount = propertiesCountSnapshot;
+    clearPageFrame();
+
+    // Re-read from storage via the pinned path (always returns RawBuffer)
+    reReadFromStorage();
+
+    // Re-enter deserialization using the byte[] path (source is now set)
+    return deserializeProperties(propertyNames);
+  }
+
+  /**
+   * Re-reads this record from storage using the pinned read path and populates
+   * the entity's byte[] source. Called as the fallback when PageFrame stamp
+   * validation fails or speculative deserialization throws.
+   */
+  private void reReadFromStorage() {
+    var storage = session.getStorage();
+    var atomicOp = session.getActiveTransaction().getAtomicOperation();
+    var readResult = storage.readRecord(getIdentity(), atomicOp);
+
+    if (readResult instanceof RawBuffer rawBuffer) {
+      fill(rawBuffer.version(), rawBuffer.buffer(), false);
+      fromStream(rawBuffer.buffer());
+    } else {
+      throw new DatabaseException(session.getDatabaseName(),
+          "Expected RawBuffer from pinned re-read for " + getIdentity()
+              + " but got " + readResult.getClass().getSimpleName());
+    }
+  }
+
+  /**
+   * Evaluates the result of deserialization for the requested property names.
+   * Shared between the PageFrame and byte[] paths after successful deserialization.
+   */
+  private boolean evaluateDeserializationResult(String[] propertyNames) {
+    if (propertyNames != null && propertyNames.length > 0) {
+      for (var property : propertyNames) {
+        if (property != null && !property.isEmpty() && property.charAt(0) == '@') {
+          return true;
+        }
+      }
+
+      if (properties != null && !properties.isEmpty()) {
+        for (var f : propertyNames) {
+          if (f != null && properties.containsKey(f)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
     }
 
     return true;
