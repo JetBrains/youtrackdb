@@ -37,6 +37,7 @@ jobs:
       - self-hosted
       - type-ccx33
       - image-x86-system-ubuntu-24.04
+      - in-nbg1-fsn1-hel1
     timeout-minutes: 1200
 
     steps:

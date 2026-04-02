@@ -153,8 +153,9 @@ jobs:
     if: needs.detect-changes.outputs.should_build == 'true'
     runs-on:
       - self-hosted
-      - "${{ matrix.arch == 'x86' && 'type-cpx42' || 'type-cax31' }}"
+      - "${{ matrix.arch == 'x86' && 'type-cpx42' || 'type-cax31-cax21' }}"
       - "image-${{ matrix.arch == 'x86' && 'x86-system' || 'arm-system' }}-ubuntu-24.04"
+      - in-nbg1-fsn1-hel1
     strategy:
       fail-fast: false
       matrix:

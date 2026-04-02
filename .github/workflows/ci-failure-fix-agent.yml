@@ -32,6 +32,7 @@ jobs:
       - self-hosted
       - type-cpx42
       - image-x86-system-ubuntu-24.04
+      - in-nbg1-fsn1-hel1
     timeout-minutes: 360
     env:
       FAILED_RUN_URL: ${{ inputs.failed_run_url }}

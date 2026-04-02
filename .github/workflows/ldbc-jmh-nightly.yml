@@ -6,8 +6,8 @@ permissions:
 
 on:
   schedule:
-    # Run at 3 AM UTC daily (after nightly integration tests)
-    - cron: '0 3 * * *'
+    # Run at 3 AM CET (2 AM UTC), after nightly integration tests
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       branch:
