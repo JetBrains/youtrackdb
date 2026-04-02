@@ -112,8 +112,9 @@ fi
 # Push to InfluxDB
 WRITE_URL="${INFLUXDB_URL%/}/api/v2/write?org=${INFLUXDB_ORG}&bucket=${INFLUXDB_BUCKET}&precision=ns"
 
-RESPONSE_FILE=$(mktemp)
-trap 'rm -f "$RESPONSE_FILE"' EXIT
+TMPDIR_RESP=$(mktemp -d)
+RESPONSE_FILE="$TMPDIR_RESP/response.txt"
+trap 'rm -rf "$TMPDIR_RESP"' EXIT
 
 HTTP_CODE=$(printf "%s" "$LINE_DATA" | curl -s -o "$RESPONSE_FILE" -w '%{http_code}' \
   -X POST "$WRITE_URL" \
