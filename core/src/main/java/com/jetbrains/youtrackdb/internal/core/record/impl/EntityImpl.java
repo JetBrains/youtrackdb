@@ -3134,6 +3134,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     if (status != STATUS.UNMARSHALLING) {
       source = null;
+      clearPageFrame();
     }
 
     if (owner != null) {
@@ -3159,6 +3160,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
     checkForProperties();
+    clearPageFrame();
 
     super.setDirtyNoChanged();
   }
@@ -3717,9 +3719,22 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public void fillFromPage(long version, byte recordType, PageFrame pageFrame,
       long stamp, int contentOffset, int contentLength) {
-    assert pageFrame != null : "PageFrame must not be null";
-    assert contentOffset >= 0 : "contentOffset must be non-negative: " + contentOffset;
-    assert contentLength >= 0 : "contentLength must be non-negative: " + contentLength;
+    assert recordType == RECORD_TYPE
+        : "Unexpected record type for EntityImpl: " + recordType;
+
+    checkForBinding();
+
+    if (pageFrame == null) {
+      throw new IllegalArgumentException("PageFrame must not be null");
+    }
+    if (contentOffset < 0) {
+      throw new IllegalArgumentException(
+          "contentOffset must be non-negative: " + contentOffset);
+    }
+    if (contentLength < 0) {
+      throw new IllegalArgumentException(
+          "contentLength must be non-negative: " + contentLength);
+    }
 
     var session = getSession();
     if (dirty > 0) {
@@ -3727,6 +3742,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Cannot call fillFromPage() on dirty records");
     }
 
+    clearPageFrame();
     removeAllCollectionChangeListeners();
     properties = null;
     propertiesCount = 0;
