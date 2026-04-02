@@ -24,6 +24,13 @@ public record AntiSemiJoin(
     String targetAlias,
     @Nullable SQLWhereClause residualFilter) implements SemiJoinDescriptor {
 
+  // backRefAlias is always identical to anchorAlias — it exists to satisfy
+  // the SemiJoinDescriptor.backRefAlias() interface contract.
+  public AntiSemiJoin {
+    assert anchorAlias.equals(backRefAlias)
+        : "backRefAlias must equal anchorAlias for AntiSemiJoin";
+  }
+
   @Override
   public JoinMode joinMode() {
     return JoinMode.ANTI_JOIN;

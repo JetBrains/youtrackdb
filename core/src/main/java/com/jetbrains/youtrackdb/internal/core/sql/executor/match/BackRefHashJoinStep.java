@@ -48,6 +48,17 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   /** Default LRU cache capacity for per-binding hash tables. */
   private static final int CACHE_CAPACITY = 256;
 
+  /** Sentinel value for cache entries where the build phase failed. */
+  private static final Object BUILD_FAILED = new Object();
+
+  /**
+   * Pairs a hash table with the loaded back-ref entity, avoiding redundant
+   * {@code load()} calls on the hot path. For Pattern A (SEMI_JOIN), the
+   * entity is used as the target alias value on probe hits.
+   */
+  private record CachedBuild(Object hashTable, @Nullable Object backRefEntity) {
+  }
+
   private final SemiJoinDescriptor descriptor;
 
   /**
@@ -117,22 +128,35 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     // Resolve back-ref alias RID from $matched
     var backRefRid = resolveBackRefRid(row, desc, probeCtx);
     if (backRefRid == null) {
-      // Cannot resolve back-ref — conservative: skip row for SEMI, keep for ANTI
       return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
     }
 
-    // Look up or build hash table for this binding
-    var hashTable = lruCache.get(backRefRid);
-    if (hashTable == null && !lruCache.containsKey(backRefRid)) {
-      hashTable = buildHashTable(backRefRid, desc, probeCtx);
-      lruCache.put(backRefRid, hashTable);
+    // Single lookup: BUILD_FAILED sentinel distinguishes "not cached" from
+    // "cached as failed" without a second containsKey() call.
+    var cached = lruCache.get(backRefRid);
+    if (cached == null) {
+      var ht = buildHashTable(backRefRid, desc, probeCtx);
+      if (ht == null) {
+        lruCache.put(backRefRid, BUILD_FAILED);
+        return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
+      }
+      // Load the back-ref entity once per binding (for SEMI_JOIN target value)
+      Object entity = null;
+      if (desc.joinMode() == JoinMode.SEMI_JOIN) {
+        try {
+          entity = session.getActiveTransaction().load(backRefRid);
+        } catch (RecordNotFoundException e) {
+          // vertex gone — treat as build failure
+        }
+      }
+      cached = new CachedBuild(ht, entity);
+      lruCache.put(backRefRid, cached);
     }
-
-    if (hashTable == null) {
-      // Build failed or returned null (threshold exceeded, no link bag, etc.)
-      // Conservative: skip row for SEMI, keep for ANTI
+    if (cached == BUILD_FAILED) {
       return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
     }
+
+    var build = (CachedBuild) cached;
 
     // Probe: extract source RID from upstream row
     var sourceRid = resolveSourceRid(row, desc);
@@ -140,12 +164,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
     }
 
-    var set = (Set<RID>) hashTable;
+    var set = (Set<RID>) build.hashTable();
     var found = set.contains(sourceRid);
     return switch (desc.joinMode()) {
       case SEMI_JOIN -> found
-          ? new MatchResultRow(session, row, desc.targetAlias(),
-              resolveTargetValue(row, desc, probeCtx, session))
+          ? new MatchResultRow(session, row, desc.targetAlias(), build.backRefEntity())
           : null;
       case ANTI_JOIN -> found ? null : row;
       case INNER_JOIN -> throw new IllegalStateException(
@@ -168,7 +191,9 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return toRid(value);
     }
     if (desc instanceof AntiSemiJoin anti) {
-      // Resolve $matched.X — the anchor alias vertex RID
+      // AntiSemiJoin resolves the anchor via $matched context variable
+      // (not via a backRefExpression), because NOT IN conditions reference
+      // $matched.X directly rather than through an @rid equality expression.
       var matched = ctx.getVariable("$matched");
       if (matched instanceof Result matchedResult) {
         var value = matchedResult.getProperty(anti.anchorAlias());
@@ -201,27 +226,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   }
 
   /**
-   * Resolves the target alias value to attach to the result row on a SEMI_JOIN
-   * hit. For Pattern A, the target is the back-referenced vertex itself.
-   */
-  @Nullable private Object resolveTargetValue(
-      Result row, SemiJoinDescriptor desc, CommandContext ctx,
-      DatabaseSessionEmbedded session) {
-    if (desc instanceof SingleEdgeSemiJoin) {
-      var backRefRid = resolveBackRefRid(row, desc, ctx);
-      if (backRefRid == null) {
-        return null;
-      }
-      try {
-        return session.getActiveTransaction().load(backRefRid);
-      } catch (Exception e) {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  /**
    * Builds the hash table for a given back-ref binding RID. For Pattern A
    * (SingleEdgeSemiJoin), reads the reverse link bag and materializes a
    * {@code Set<RID>} of opposite-side vertex RIDs.
@@ -247,27 +251,23 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
   /**
    * Pattern A build: reads the reverse link bag of the back-referenced vertex
-   * and collects opposite-side vertex RIDs into a {@code HashSet<RID>}.
+   * via {@link TraversalPreFilterHelper}. Returns the bitmap-backed
+   * {@link RidSet} directly — no copy to {@code HashSet} needed since
+   * {@code RidSet} already implements {@code Set<RID>} with O(1)
+   * {@code contains()}.
    */
   @Nullable private Set<RID> buildSingleEdgeHashTable(
       RID backRefRid, SingleEdgeSemiJoin single, CommandContext ctx) {
-    // Use TraversalPreFilterHelper to read the reverse link bag
     var ridSet = TraversalPreFilterHelper.resolveReverseEdgeLookup(
         backRefRid, single.edgeClass(), single.direction(), ctx);
     if (ridSet == null) {
       return null; // link bag not found or exceeds cap
     }
-
-    // Convert RidSet (bitmap-backed) to HashSet<RID> for O(1) probe
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
-    var result = new HashSet<RID>();
-    for (var rid : ridSet) {
-      result.add(rid);
-      if (maxSize > 0 && result.size() > maxSize) {
-        return null; // threshold exceeded — fall back
-      }
+    if (maxSize > 0 && ridSet.size() > maxSize) {
+      return null; // threshold exceeded — fall back
     }
-    return result;
+    return ridSet;
   }
 
   /**
@@ -402,44 +402,46 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    var hashTable = lruCache.get(backRefRid);
-    if (hashTable == null && !lruCache.containsKey(backRefRid)) {
-      hashTable = buildHashTable(backRefRid, chain, probeCtx);
-      lruCache.put(backRefRid, hashTable);
+    var cached = lruCache.get(backRefRid);
+    if (cached == null) {
+      var ht = buildHashTable(backRefRid, chain, probeCtx);
+      if (ht == null) {
+        lruCache.put(backRefRid, BUILD_FAILED);
+        return ExecutionStream.empty();
+      }
+      // Load the back-ref vertex once per binding for the target alias
+      Object entity = null;
+      try {
+        entity = session.getActiveTransaction().load(backRefRid);
+      } catch (RecordNotFoundException e) {
+        // vertex gone
+      }
+      cached = new CachedBuild(ht, entity);
+      lruCache.put(backRefRid, cached);
     }
-
-    if (hashTable == null) {
+    if (cached == BUILD_FAILED) {
       return ExecutionStream.empty();
     }
 
+    var build = (CachedBuild) cached;
     var sourceRid = resolveSourceRid(row, chain);
     if (sourceRid == null) {
       return ExecutionStream.empty();
     }
 
-    var map = (Map<RID, List<Result>>) hashTable;
+    var map = (Map<RID, List<Result>>) build.hashTable();
     var edges = map.get(sourceRid);
     if (edges == null || edges.isEmpty()) {
-      return ExecutionStream.empty();
-    }
-
-    // Load the back-ref vertex once for the target alias value
-    Object backRefVertex;
-    try {
-      backRefVertex = session.getActiveTransaction().load(backRefRid);
-    } catch (Exception e) {
       return ExecutionStream.empty();
     }
 
     // Emit one row per matching edge, adding intermediate and target aliases
     var results = new ArrayList<Result>(edges.size());
     for (var edgeResult : edges) {
-      // Layer 1: add intermediate alias (edge record)
       var withIntermediate = new MatchResultRow(
           session, row, chain.intermediateAlias(), edgeResult);
-      // Layer 2: add target alias (back-ref vertex)
       var withTarget = new MatchResultRow(
-          session, withIntermediate, chain.targetAlias(), backRefVertex);
+          session, withIntermediate, chain.targetAlias(), build.backRefEntity());
       results.add(withTarget);
     }
     return ExecutionStream.resultIterator(results.iterator());

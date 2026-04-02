@@ -2930,7 +2930,7 @@ public class MatchExecutionPlanner {
       // Pattern D detection follows below
       if (edgeJ.getSemiJoinDescriptor() == null) {
         var antiDesc = detectNotInAntiJoin(
-            targetFilter, targetAliasJ, boundAliases);
+            targetFilter, targetAliasJ, boundAliases, edgeJ);
         if (antiDesc != null) {
           edgeJ.setSemiJoinDescriptor(antiDesc);
           logger.debug(
@@ -3026,7 +3026,8 @@ public class MatchExecutionPlanner {
   @Nullable private static AntiSemiJoin detectNotInAntiJoin(
       SQLWhereClause targetFilter,
       String targetAlias,
-      Set<String> boundAliases) {
+      Set<String> boundAliases,
+      EdgeTraversal edge) {
     var threshold = getHashJoinThreshold();
     if (threshold <= 0) {
       return null;
@@ -3089,13 +3090,17 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // Remove the NOT IN condition from the AND block
+      // Remove the NOT IN condition from BOTH the aliasFilters entry
+      // and the AST filter on the edge's target node. The MatchStep reads
+      // its filter from the AST (item.getFilter().getFilter()), not from
+      // aliasFilters, so we must strip both to prevent double evaluation.
       andSubBlocks.remove(i);
+      stripNotInFromAstFilter(edge, condStr);
 
       // Build residual filter (remaining AND conditions, if any)
       SQLWhereClause residualFilter = null;
       if (!andSubBlocks.isEmpty()) {
-        residualFilter = targetFilter; // Modified in-place — remaining conditions stay
+        residualFilter = targetFilter;
       }
 
       return new AntiSemiJoin(
@@ -3103,6 +3108,59 @@ public class MatchExecutionPlanner {
           anchorAlias, targetAlias, residualFilter);
     }
     return null;
+  }
+
+  /**
+   * Removes a NOT IN condition from the AST filter on the edge's target node.
+   * This is needed because the MatchStep reads its filter from the AST
+   * ({@code item.getFilter().getFilter()}), not from {@code aliasFilters}.
+   * Without this, the MatchStep would re-evaluate the NOT IN per row,
+   * negating the anti-join optimization.
+   */
+  private static void stripNotInFromAstFilter(
+      EdgeTraversal edge, String notInString) {
+    var matchFilter = edge.edge.item.getFilter();
+    if (matchFilter == null) {
+      return;
+    }
+    var astWhere = matchFilter.getFilter();
+    if (astWhere == null) {
+      return;
+    }
+    var astBase = astWhere.getBaseExpression();
+    if (astBase == null) {
+      return;
+    }
+
+    // Walk the AST structure and find the sub-block matching the NOT IN string
+    List<SQLBooleanExpression> targetList = null;
+    int targetIdx = -1;
+
+    if (astBase instanceof SQLAndBlock ab) {
+      targetList = ab.getSubBlocks();
+    } else if (astBase instanceof SQLOrBlock ob) {
+      var orSubs = ob.getSubBlocks();
+      if (orSubs != null && orSubs.size() == 1
+          && orSubs.getFirst() instanceof SQLAndBlock ab) {
+        targetList = ab.getSubBlocks();
+      }
+    }
+
+    if (targetList != null) {
+      for (int k = 0; k < targetList.size(); k++) {
+        if (targetList.get(k).toString().trim().equals(notInString)) {
+          targetIdx = k;
+          break;
+        }
+      }
+      if (targetIdx >= 0) {
+        targetList.remove(targetIdx);
+        // If no conditions remain, clear the WHERE clause entirely
+        if (targetList.isEmpty()) {
+          matchFilter.setFilter(null);
+        }
+      }
+    }
   }
 
   /**
