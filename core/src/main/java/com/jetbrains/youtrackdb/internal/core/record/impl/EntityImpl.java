@@ -3598,9 +3598,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * the entity's byte[] source. Called as the fallback when PageFrame stamp
    * validation fails or speculative deserialization throws.
    *
-   * <p>Note: currently the storage optimistic path may return RawPageBuffer
-   * (after Step 4 wires it up). In the fallback context, we extract bytes
-   * from RawPageBuffer to ensure a byte[]-backed re-read.
+   * <p>The storage read may return either {@link RawBuffer} (byte[]-backed) or
+   * {@link RawPageBuffer} (PageFrame reference). In either case, bytes are
+   * extracted into the entity's {@code source} field to ensure subsequent
+   * deserialization uses the byte[] path (no further PageFrame dependency).
+   *
+   * @throws RecordNotFoundException if the record was deleted between the
+   *     original optimistic read and this fallback re-read. This is expected
+   *     behavior — the caller should let the exception propagate, as the
+   *     record genuinely no longer exists.
    */
   private void reReadFromStorage() {
     var storage = session.getStorage();

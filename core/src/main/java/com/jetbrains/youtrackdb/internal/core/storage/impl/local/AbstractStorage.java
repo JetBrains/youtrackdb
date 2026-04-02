@@ -95,6 +95,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.St
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
@@ -4486,7 +4487,7 @@ public abstract class AbstractStorage
                 result.recordVersion(),
                 result instanceof RawBuffer rb
                     ? (rb.buffer() != null ? rb.buffer().length : 0)
-                    : "page-ref");
+                    : ((RawPageBuffer) result).contentLength());
       }
 
       return result;

@@ -51,16 +51,27 @@ public record RawPageBuffer(
     implements StorageReadResult {
 
   public RawPageBuffer {
-    assert pageFrame != null : "PageFrame must not be null";
-    assert contentOffset >= 0 : "contentOffset must be non-negative";
-    assert contentLength >= 0 : "contentLength must be non-negative";
-    assert contentOffset + contentLength <= pageFrame.getBuffer().capacity()
-        : "content region ["
-            + contentOffset
-            + ", "
-            + (contentOffset + contentLength)
-            + ") exceeds page buffer capacity "
-            + pageFrame.getBuffer().capacity();
+    if (pageFrame == null) {
+      throw new IllegalArgumentException("PageFrame must not be null");
+    }
+    if (contentOffset < 0) {
+      throw new IllegalArgumentException(
+          "contentOffset must be non-negative: " + contentOffset);
+    }
+    if (contentLength < 0) {
+      throw new IllegalArgumentException(
+          "contentLength must be non-negative: " + contentLength);
+    }
+    int end = Math.addExact(contentOffset, contentLength);
+    if (end > pageFrame.getBuffer().capacity()) {
+      throw new IllegalArgumentException(
+          "content region ["
+              + contentOffset
+              + ", "
+              + end
+              + ") exceeds page buffer capacity "
+              + pageFrame.getBuffer().capacity());
+    }
   }
 
   /**

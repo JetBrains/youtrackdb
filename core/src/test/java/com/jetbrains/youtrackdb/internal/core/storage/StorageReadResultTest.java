@@ -210,4 +210,67 @@ public class StorageReadResultTest {
     assertEquals(42L, pageBuffer.recordVersion());
     assertEquals((byte) 'v', pageBuffer.recordType());
   }
+
+  // --- RawPageBuffer runtime bounds validation ---
+
+  @Test
+  public void testRawPageBufferRejectsNullPageFrame() {
+    // Validates that the constructor throws IllegalArgumentException
+    // (not AssertionError) when pageFrame is null.
+    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(null, 0L, 0, 0, 1L, (byte) 'd'));
+    assertEquals("PageFrame must not be null", ex.getMessage());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsNegativeContentOffset() {
+    // Validates runtime rejection of negative contentOffset.
+    long stamp = pageFrame.tryOptimisticRead();
+    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(pageFrame, stamp, -1, 10, 1L, (byte) 'd'));
+    assertEquals("contentOffset must be non-negative: -1", ex.getMessage());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsNegativeContentLength() {
+    // Validates runtime rejection of negative contentLength.
+    long stamp = pageFrame.tryOptimisticRead();
+    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(pageFrame, stamp, 0, -1, 1L, (byte) 'd'));
+    assertEquals("contentLength must be non-negative: -1", ex.getMessage());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsContentRegionExceedingCapacity() {
+    // Validates that content region exceeding page buffer capacity is rejected.
+    int capacity = pageFrame.getBuffer().capacity();
+    long stamp = pageFrame.tryOptimisticRead();
+    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(pageFrame, stamp, capacity - 5, 10, 1L, (byte) 'd'));
+    int expectedEnd = capacity - 5 + 10;
+    assertEquals(
+        "content region [" + (capacity - 5) + ", " + expectedEnd
+            + ") exceeds page buffer capacity " + capacity,
+        ex.getMessage());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsIntegerOverflowInContentRegion() {
+    // Validates that Math.addExact catches integer overflow when
+    // contentOffset + contentLength would exceed Integer.MAX_VALUE.
+    long stamp = pageFrame.tryOptimisticRead();
+    org.junit.Assert.assertThrows(ArithmeticException.class,
+        () -> new RawPageBuffer(
+            pageFrame, stamp, Integer.MAX_VALUE, 1, 1L, (byte) 'd'));
+  }
+
+  @Test
+  public void testRawPageBufferAcceptsExactBoundary() {
+    // Content region [0, capacity) exactly fills the page — should succeed.
+    int capacity = pageFrame.getBuffer().capacity();
+    long stamp = pageFrame.tryOptimisticRead();
+    var pageBuffer = new RawPageBuffer(
+        pageFrame, stamp, 0, capacity, 1L, (byte) 'd');
+    assertEquals(capacity, pageBuffer.contentLength());
+  }
 }
