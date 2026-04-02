@@ -334,6 +334,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     return plan;
   }
 
+  /** Runs EXPLAIN with parameters and returns the executionPlanAsString. */
+  private String explainPlan(String query, Object... args) {
+    var result = session.query("EXPLAIN " + query, args).toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    return plan;
+  }
+
   /** Collects a single string property from all result rows into a set. */
   private Set<String> collectProperty(String query, String property) {
     return session.query(query).toList().stream()
@@ -640,6 +649,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
       contents.add(r.getProperty("content"));
     }
     assertEquals(Set.of("m0", "m1"), contents);
+
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate < :maxDate)}"
+            + " RETURN msg.content as content",
+        new java.util.HashMap<>(java.util.Map.of("maxDate", 1200L)));
+    assertTrue("Plan should show index intersection:\n" + plan,
+        plan.contains("intersection: index"));
     session.commit();
   }
 
@@ -660,6 +678,14 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " RETURN msg.content as content",
         "content");
     assertEquals(Set.of("m10", "m11"), contents);
+
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate >= 1800 AND content LIKE 'm1%')}"
+            + " RETURN msg.content as content");
+    assertTrue("Plan should show index intersection:\n" + plan,
+        plan.contains("intersection: index"));
     session.commit();
   }
 
@@ -706,6 +732,14 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " RETURN msg.content as content")
         .toList();
     assertEquals(0, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate > 99999)}"
+            + " RETURN msg.content as content");
+    assertTrue("Plan should show index intersection:\n" + plan,
+        plan.contains("intersection: index"));
     session.commit();
   }
 
@@ -1457,6 +1491,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " SKIP 2 LIMIT 2")
         .toList();
     assertEquals(2, result.size());
+
+    // Use the base query without SKIP/LIMIT for EXPLAIN
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate >= 1000)}"
+            + " RETURN msg.content as content");
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1518,6 +1561,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // general has m0(1000), m1(1100), m2(1200) with creationDate < 1300
     long cnt = result.get(0).getProperty("cnt");
     assertEquals(3L, cnt);
+
+    // Use the inner MATCH query for EXPLAIN
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate < 1300)}"
+            + " RETURN msg");
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1581,6 +1633,14 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
       contents.add(r.getProperty("content"));
     }
     assertEquals(Set.of("m4", "m5", "m6", "m7"), contents);
+
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate >= 1400 AND creationDate <= 1700)}"
+            + " RETURN forum.title as forumTitle, msg.content as content");
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1612,6 +1672,16 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // p0→p2→p4→p6: no back to p0
     // No triangles expected
     assertEquals(0, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
+            + ".out('CKnows'){as: friend}"
+            + ".out('CKnows'){as: fof}"
+            + ".out('CKnows'){as: back,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN friend.name as f1, fof.name as f2");
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 

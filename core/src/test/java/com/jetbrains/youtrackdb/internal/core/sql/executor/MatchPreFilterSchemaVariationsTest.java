@@ -40,6 +40,15 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     return plan;
   }
 
+  /** Runs EXPLAIN with parameters and returns the executionPlanAsString. */
+  private String explainPlan(String query, Object... args) {
+    var result = session.query("EXPLAIN " + query, args).toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
+    return plan;
+  }
+
   private Set<String> collectStrings(String query, String property) {
     return session.query(query).toList().stream()
         .map(r -> (String) r.getProperty(property))
@@ -1220,6 +1229,10 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
         .toList();
     // Only 'c' (val=20) matches val >= 15
     assertEquals(1, result.size());
+
+    // Target alias 'target' has no explicit class: in the pattern, so the
+    // planner cannot resolve its schema class and the index pre-filter
+    // is not attached. No intersection expected here.
     session.commit();
   }
 
@@ -1315,6 +1328,10 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
       names.add(r.getProperty("name"));
     }
     assertEquals(Set.of("pp3", "pp4"), names);
+
+    // Target alias 'target' has no explicit class: in the pattern, so the
+    // planner cannot resolve its schema class and the index pre-filter
+    // is not attached. No intersection expected here.
     session.commit();
   }
 

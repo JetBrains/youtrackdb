@@ -6,7 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Test;
@@ -40,6 +42,15 @@ public class MatchPreFilterGapCoverageTest extends DbTestBase {
 
   private String explainPlan(String query) {
     var result = session.query("EXPLAIN " + query).toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    return plan;
+  }
+
+  /** Runs EXPLAIN with parameters and returns the executionPlanAsString. */
+  private String explainPlan(String query, Map<String, Object> params) {
+    var result = session.query("EXPLAIN " + query, params).toList();
     assertEquals(1, result.size());
     String plan = result.get(0).getProperty("executionPlanAsString");
     assertNotNull(plan);
@@ -142,11 +153,20 @@ public class MatchPreFilterGapCoverageTest extends DbTestBase {
             + ".out('DR2Knows'){as: friend,"
             + "  where: (@rid = :targetRid)}"
             + " RETURN friend.name as friendName",
-        new java.util.HashMap<>(java.util.Map.of("targetRid", yRid)))
+        new HashMap<>(Map.of("targetRid", yRid)))
         .toList();
 
     assertEquals(1, result.size());
     assertEquals("y", result.get(0).getProperty("friendName"));
+
+    String plan = explainPlan(
+        "MATCH {class: DR2Person, as: p, where: (name = 'x')}"
+            + ".out('DR2Knows'){as: friend,"
+            + "  where: (@rid = :targetRid)}"
+            + " RETURN friend.name as friendName",
+        new HashMap<>(Map.of("targetRid", yRid)));
+    assertTrue("Plan should show direct-rid intersection:\n" + plan,
+        plan.contains("intersection: direct-rid"));
     session.commit();
   }
 
