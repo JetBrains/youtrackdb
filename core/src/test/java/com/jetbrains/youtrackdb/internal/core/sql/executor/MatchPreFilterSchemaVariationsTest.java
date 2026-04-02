@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -3192,6 +3193,535 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
             + " RETURN post.title, writeEdge.ts");
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // Missing combinations — PR #822 + PR #904 cross-feature coverage
+  // ========================================================================
+
+  /**
+   * Combo: back-reference + BETWEEN in the same query. One edge uses
+   * EdgeRidLookup (@rid = $matched), another uses IndexLookup via BETWEEN.
+   */
+  @Test
+  public void combo_backRefPlusBetween() {
+    session.execute("CREATE class CBPerson extends V").close();
+    session.execute("CREATE property CBPerson.name STRING").close();
+
+    session.execute("CREATE class CBMsg extends V").close();
+    session.execute("CREATE property CBMsg.text STRING").close();
+    session.execute("CREATE property CBMsg.ts LONG").close();
+    session.execute("CREATE index CBMsg_ts on CBMsg (ts) NOTUNIQUE").close();
+
+    session.execute("CREATE class CBWrote extends E").close();
+    session.execute("CREATE property CBWrote.out LINK CBPerson").close();
+    session.execute("CREATE property CBWrote.in LINK CBMsg").close();
+
+    session.execute("CREATE class CBForum extends V").close();
+    session.execute("CREATE class CBContains extends E").close();
+    session.execute("CREATE property CBContains.out LINK CBForum").close();
+    session.execute("CREATE property CBContains.in LINK CBMsg").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CBPerson set name = 'alice'").close();
+    session.execute("CREATE VERTEX CBForum set title = 'main'").close();
+    for (int i = 1; i <= 6; i++) {
+      session.execute(
+          "CREATE VERTEX CBMsg set text = 'm" + i + "', ts = " + (i * 100))
+          .close();
+      session.execute(
+          "CREATE EDGE CBContains FROM (SELECT FROM CBForum WHERE title = 'main')"
+              + " TO (SELECT FROM CBMsg WHERE text = 'm" + i + "')")
+          .close();
+    }
+    // alice wrote m1, m2, m3
+    for (int i = 1; i <= 3; i++) {
+      session.execute(
+          "CREATE EDGE CBWrote FROM (SELECT FROM CBPerson WHERE name = 'alice')"
+              + " TO (SELECT FROM CBMsg WHERE text = 'm" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // forum → msgs BETWEEN ts 200 AND 400 → creator = alice (back-ref)
+    // ts BETWEEN 200 AND 400: m2(200), m3(300), m4(400)
+    // alice wrote m1,m2,m3 → intersection: m2, m3
+    var result = session.query(
+        "MATCH {class: CBPerson, as: person, where: (name = 'alice')}"
+            + ".out('CBWrote'){as: myMsg}"
+            + ".in('CBContains'){as: forum}"
+            + ".out('CBContains'){as: forumMsg,"
+            + "  where: (ts BETWEEN 200 AND 400)}"
+            + ".in('CBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN forumMsg.text as text")
+        .toList();
+
+    Set<String> texts = new HashSet<>();
+    for (var r : result) {
+      texts.add(r.getProperty("text"));
+    }
+    assertTrue("Should find m2", texts.contains("m2"));
+    assertTrue("Should find m3", texts.contains("m3"));
+    assertFalse("Should NOT find m4 (not by alice)", texts.contains("m4"));
+
+    String plan = explainPlan(
+        "MATCH {class: CBPerson, as: person, where: (name = 'alice')}"
+            + ".out('CBWrote'){as: myMsg}"
+            + ".in('CBContains'){as: forum}"
+            + ".out('CBContains'){as: forumMsg,"
+            + "  where: (ts BETWEEN 200 AND 400)}"
+            + ".in('CBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN forumMsg.text");
+    assertTrue("Plan should show intersection (index + backref):\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Combo: multi-pattern with IndexLookup on one pattern and EdgeRidLookup
+   * back-ref on another. Both optimizations should activate independently.
+   */
+  @Test
+  public void combo_multiPattern_indexPlusBackRef() {
+    session.execute("CREATE class MPPerson extends V").close();
+    session.execute("CREATE property MPPerson.name STRING").close();
+
+    session.execute("CREATE class MPMsg extends V").close();
+    session.execute("CREATE property MPMsg.ts LONG").close();
+    session.execute("CREATE index MPMsg_ts on MPMsg (ts) NOTUNIQUE").close();
+
+    session.execute("CREATE class MPWrote extends E").close();
+    session.execute("CREATE property MPWrote.out LINK MPPerson").close();
+    session.execute("CREATE property MPWrote.in LINK MPMsg").close();
+
+    session.execute("CREATE class MPKnows extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MPPerson set name = 'alice'").close();
+    session.execute("CREATE VERTEX MPPerson set name = 'bob'").close();
+    session.execute("CREATE EDGE MPKnows FROM"
+        + " (SELECT FROM MPPerson WHERE name = 'alice')"
+        + " TO (SELECT FROM MPPerson WHERE name = 'bob')").close();
+
+    for (int i = 1; i <= 4; i++) {
+      session.execute(
+          "CREATE VERTEX MPMsg set ts = " + (i * 100)).close();
+      String author = i <= 2 ? "alice" : "bob";
+      session.execute(
+          "CREATE EDGE MPWrote FROM"
+              + " (SELECT FROM MPPerson WHERE name = '" + author + "')"
+              + " TO (SELECT FROM MPMsg WHERE ts = " + (i * 100) + ")")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Pattern 1: alice → knows → friend
+    // Pattern 2: alice → wrote → msg{ts >= 200}
+    var result = session.query(
+        "MATCH {class: MPPerson, as: person, where: (name = 'alice')}"
+            + ".out('MPKnows'){as: friend},"
+            + " {as: person}.out('MPWrote'){as: msg, where: (ts >= 200)}"
+            + " RETURN friend.name as friendName, msg.ts as msgTs")
+        .toList();
+
+    assertFalse("Should have results", result.isEmpty());
+    for (var r : result) {
+      assertEquals("bob", r.getProperty("friendName"));
+      assertTrue("ts should be >= 200",
+          ((Number) r.getProperty("msgTs")).longValue() >= 200);
+    }
+
+    String plan = explainPlan(
+        "MATCH {class: MPPerson, as: person, where: (name = 'alice')}"
+            + ".out('MPKnows'){as: friend},"
+            + " {as: person}.out('MPWrote'){as: msg, where: (ts >= 200)}"
+            + " RETURN friend.name, msg.ts");
+    assertTrue("Plan should show index intersection on msg:\n" + plan,
+        plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  /**
+   * Combo: optional edge with back-reference @rid = $matched.X.@rid.
+   * Tests that the optional LEFT semantics (null on miss) work correctly
+   * with the EdgeRidLookup intersection active.
+   */
+  @Test
+  public void combo_optional_backRef() {
+    session.execute("CREATE class OBPerson extends V").close();
+    session.execute("CREATE property OBPerson.name STRING").close();
+    session.execute("CREATE property OBPerson.pid INTEGER").close();
+
+    session.execute("CREATE class OBMsg extends V").close();
+    session.execute("CREATE class OBWrote extends E").close();
+    session.execute("CREATE class OBLiked extends E").close();
+    session.execute("CREATE class OBKnows extends E").close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX OBPerson set name = 'alice', pid = 1").close();
+    session.execute(
+        "CREATE VERTEX OBPerson set name = 'bob', pid = 2").close();
+    session.execute(
+        "CREATE VERTEX OBPerson set name = 'carol', pid = 3").close();
+    session.execute("CREATE VERTEX OBMsg set text = 'm1'").close();
+
+    // alice wrote m1
+    session.execute(
+        "CREATE EDGE OBWrote FROM (SELECT FROM OBPerson WHERE name = 'alice')"
+            + " TO (SELECT FROM OBMsg WHERE text = 'm1')")
+        .close();
+    // bob and carol liked m1
+    session.execute(
+        "CREATE EDGE OBLiked FROM (SELECT FROM OBPerson WHERE name = 'bob')"
+            + " TO (SELECT FROM OBMsg WHERE text = 'm1')")
+        .close();
+    session.execute(
+        "CREATE EDGE OBLiked FROM (SELECT FROM OBPerson WHERE name = 'carol')"
+            + " TO (SELECT FROM OBMsg WHERE text = 'm1')")
+        .close();
+    // bob knows alice, carol does NOT know alice
+    session.execute(
+        "CREATE EDGE OBKnows FROM (SELECT FROM OBPerson WHERE name = 'bob')"
+            + " TO (SELECT FROM OBPerson WHERE name = 'alice')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // alice → wrote → msg → liked by → liker → knows → ?{@rid=$matched.author, optional}
+    var result = session.query(
+        "MATCH {class: OBPerson, as: author, where: (name = 'alice')}"
+            + ".out('OBWrote'){as: msg}"
+            + ".in('OBLiked'){as: liker}"
+            + ".out('OBKnows'){as: knowsAuthor,"
+            + "  where: (@rid = $matched.author.@rid), optional: true}"
+            + " RETURN liker.name as likerName,"
+            + "  knowsAuthor.name as knowsName")
+        .toList();
+
+    // bob liked m1, bob knows alice → knowsAuthor = alice
+    // carol liked m1, carol does NOT know alice → knowsAuthor = null
+    assertEquals(2, result.size());
+    for (var r : result) {
+      String liker = r.getProperty("likerName");
+      if ("bob".equals(liker)) {
+        assertEquals("alice", r.getProperty("knowsName"));
+      } else if ("carol".equals(liker)) {
+        assertNull("carol should not know alice",
+            r.getProperty("knowsName"));
+      }
+    }
+
+    String plan = explainPlan(
+        "MATCH {class: OBPerson, as: author, where: (name = 'alice')}"
+            + ".out('OBWrote'){as: msg}"
+            + ".in('OBLiked'){as: liker}"
+            + ".out('OBKnows'){as: knowsAuthor,"
+            + "  where: (@rid = $matched.author.@rid), optional: true}"
+            + " RETURN liker.name, knowsAuthor.name");
+    assertTrue("Plan should show intersection for optional back-ref:\n"
+        + plan, plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Combo: NOT pattern with back-reference intersection. The positive branch
+   * has a back-ref, and the NOT sub-pattern should not interfere with it.
+   */
+  @Test
+  public void combo_NOT_backRef() {
+    session.execute("CREATE class NBPerson extends V").close();
+    session.execute("CREATE property NBPerson.name STRING").close();
+    session.execute("CREATE class NBMsg extends V").close();
+    session.execute("CREATE class NBWrote extends E").close();
+    session.execute("CREATE property NBWrote.out LINK NBPerson").close();
+    session.execute("CREATE property NBWrote.in LINK NBMsg").close();
+    session.execute("CREATE class NBFlagged extends E").close();
+    session.execute("CREATE class NBForum extends V").close();
+    session.execute("CREATE class NBContains extends E").close();
+    session.execute("CREATE property NBContains.out LINK NBForum").close();
+    session.execute("CREATE property NBContains.in LINK NBMsg").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX NBPerson set name = 'alice'").close();
+    session.execute("CREATE VERTEX NBForum set title = 'main'").close();
+    for (int i = 1; i <= 4; i++) {
+      session.execute("CREATE VERTEX NBMsg set text = 'n" + i + "'").close();
+      session.execute(
+          "CREATE EDGE NBContains FROM"
+              + " (SELECT FROM NBForum WHERE title = 'main')"
+              + " TO (SELECT FROM NBMsg WHERE text = 'n" + i + "')")
+          .close();
+    }
+    // alice wrote n1, n2, n3 (not n4)
+    for (int i = 1; i <= 3; i++) {
+      session.execute(
+          "CREATE EDGE NBWrote FROM"
+              + " (SELECT FROM NBPerson WHERE name = 'alice')"
+              + " TO (SELECT FROM NBMsg WHERE text = 'n" + i + "')")
+          .close();
+    }
+    // n2 is flagged
+    session.execute(
+        "CREATE EDGE NBFlagged FROM"
+            + " (SELECT FROM NBPerson WHERE name = 'alice')"
+            + " TO (SELECT FROM NBMsg WHERE text = 'n2')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // Back-ref: alice's msgs in forum, NOT flagged
+    var result = session.query(
+        "MATCH {class: NBPerson, as: person, where: (name = 'alice')}"
+            + ".out('NBWrote'){as: myMsg}"
+            + ".in('NBContains'){as: forum}"
+            + ".out('NBContains'){as: forumMsg}"
+            + ".in('NBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)},"
+            + " NOT {as: person}.out('NBFlagged'){as: forumMsg}"
+            + " RETURN forumMsg.text as text")
+        .toList();
+
+    Set<String> texts = new HashSet<>();
+    for (var r : result) {
+      texts.add(r.getProperty("text"));
+    }
+    assertTrue("Should find n1", texts.contains("n1"));
+    assertTrue("Should find n3", texts.contains("n3"));
+    assertFalse("Should NOT find n2 (flagged)", texts.contains("n2"));
+    assertFalse("Should NOT find n4 (not by alice)", texts.contains("n4"));
+
+    String plan = explainPlan(
+        "MATCH {class: NBPerson, as: person, where: (name = 'alice')}"
+            + ".out('NBWrote'){as: myMsg}"
+            + ".in('NBContains'){as: forum}"
+            + ".out('NBContains'){as: forumMsg}"
+            + ".in('NBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)},"
+            + " NOT {as: person}.out('NBFlagged'){as: forumMsg}"
+            + " RETURN forumMsg.text");
+    assertTrue("Plan should show intersection for back-ref:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Combo: multi-source class scan with back-reference. Each source person
+   * independently triggers EdgeRidLookup for their own posts.
+   */
+  @Test
+  public void combo_multiSource_backRef() {
+    session.execute("CREATE class MSBPerson extends V").close();
+    session.execute("CREATE property MSBPerson.name STRING").close();
+    session.execute("CREATE class MSBMsg extends V").close();
+    session.execute("CREATE class MSBWrote extends E").close();
+    session.execute("CREATE property MSBWrote.out LINK MSBPerson").close();
+    session.execute("CREATE property MSBWrote.in LINK MSBMsg").close();
+    session.execute("CREATE class MSBForum extends V").close();
+    session.execute("CREATE class MSBContains extends E").close();
+    session.execute("CREATE property MSBContains.out LINK MSBForum").close();
+    session.execute("CREATE property MSBContains.in LINK MSBMsg").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MSBForum set title = 'general'").close();
+    for (int i = 0; i < 3; i++) {
+      session.execute(
+          "CREATE VERTEX MSBPerson set name = 'u" + i + "'").close();
+      for (int j = 0; j < 2; j++) {
+        String mName = "msg" + i + "_" + j;
+        session.execute(
+            "CREATE VERTEX MSBMsg set text = '" + mName + "'").close();
+        session.execute(
+            "CREATE EDGE MSBWrote FROM"
+                + " (SELECT FROM MSBPerson WHERE name = 'u" + i + "')"
+                + " TO (SELECT FROM MSBMsg WHERE text = '" + mName + "')")
+            .close();
+        session.execute(
+            "CREATE EDGE MSBContains FROM"
+                + " (SELECT FROM MSBForum WHERE title = 'general')"
+                + " TO (SELECT FROM MSBMsg WHERE text = '" + mName + "')")
+            .close();
+      }
+    }
+    session.commit();
+
+    session.begin();
+    // Class scan: all persons → their posts in forum → back-ref
+    var result = session.query(
+        "MATCH {class: MSBPerson, as: person}"
+            + ".out('MSBWrote'){as: myMsg}"
+            + ".in('MSBContains'){as: forum}"
+            + ".out('MSBContains'){as: forumMsg}"
+            + ".in('MSBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN person.name as pName, forumMsg.text as text")
+        .toList();
+
+    // Each person should find their own 2 messages
+    assertFalse("Should have results", result.isEmpty());
+    Set<String> persons = new HashSet<>();
+    for (var r : result) {
+      persons.add(r.getProperty("pName"));
+    }
+    assertEquals(Set.of("u0", "u1", "u2"), persons);
+
+    String plan = explainPlan(
+        "MATCH {class: MSBPerson, as: person}"
+            + ".out('MSBWrote'){as: myMsg}"
+            + ".in('MSBContains'){as: forum}"
+            + ".out('MSBContains'){as: forumMsg}"
+            + ".in('MSBWrote'){as: author,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN person.name, forumMsg.text");
+    assertTrue("Plan should show intersection for back-ref:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * PR #904: outE with WHERE matching all edges. Tests that the pre-filter
+   * handles the case where the index RidSet contains all edges (100% match).
+   */
+  @Test
+  public void edgeMethod_outE_allEdgesMatch() {
+    session.execute("CREATE class AEPerson extends V").close();
+    session.execute("CREATE property AEPerson.name STRING").close();
+    session.execute("CREATE class AECompany extends V").close();
+    session.execute("CREATE class AEWorksAt extends E").close();
+    session.execute("CREATE property AEWorksAt.out LINK AEPerson").close();
+    session.execute("CREATE property AEWorksAt.in LINK AECompany").close();
+    session.execute("CREATE property AEWorksAt.year INTEGER").close();
+    session.execute(
+        "CREATE index AEWorksAt_year on AEWorksAt (year) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX AEPerson set name = 'pat'").close();
+    for (int i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX AECompany set name = 'co" + i + "'").close();
+      session.execute(
+          "CREATE EDGE AEWorksAt FROM"
+              + " (SELECT FROM AEPerson WHERE name = 'pat')"
+              + " TO (SELECT FROM AECompany WHERE name = 'co" + i + "')"
+              + " SET year = " + (2020 + i))
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // year >= 2020 matches ALL 5 edges
+    var result = session.query(
+        "MATCH {class: AEPerson, as: p, where: (name = 'pat')}"
+            + ".outE('AEWorksAt'){as: w, where: (year >= 2020)}"
+            + ".inV(){as: c}"
+            + " RETURN c.name as cName")
+        .toList();
+    assertEquals(5, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: AEPerson, as: p, where: (name = 'pat')}"
+            + ".outE('AEWorksAt'){as: w, where: (year >= 2020)}"
+            + ".inV(){as: c} RETURN c.name");
+    assertTrue("Plan should show intersection even when all match:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * PR #904: multiple outE edges between same vertex pair, filtered by
+   * indexed property. Tests that edge-method pre-filter operates on edge
+   * RIDs (not vertex RIDs) and returns all matching edges.
+   */
+  @Test
+  public void edgeMethod_outE_multipleEdgesSamePair() {
+    session.execute("CREATE class MEPNode extends V").close();
+    session.execute("CREATE property MEPNode.name STRING").close();
+    session.execute("CREATE class MEPEdge extends E").close();
+    session.execute("CREATE property MEPEdge.out LINK MEPNode").close();
+    session.execute("CREATE property MEPEdge.in LINK MEPNode").close();
+    session.execute("CREATE property MEPEdge.weight INTEGER").close();
+    session.execute(
+        "CREATE index MEPEdge_weight on MEPEdge (weight) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX MEPNode set name = 'a'").close();
+    session.execute("CREATE VERTEX MEPNode set name = 'b'").close();
+
+    // 3 edges from a to b with different weights
+    for (int w : new int[] {10, 20, 30}) {
+      session.execute(
+          "CREATE EDGE MEPEdge FROM (SELECT FROM MEPNode WHERE name = 'a')"
+              + " TO (SELECT FROM MEPNode WHERE name = 'b') SET weight = " + w)
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // weight >= 15 → 2 edges (20, 30)
+    var result = session.query(
+        "MATCH {class: MEPNode, as: src, where: (name = 'a')}"
+            + ".outE('MEPEdge'){as: e, where: (weight >= 15)}"
+            + ".inV(){as: tgt}"
+            + " RETURN e.weight as w")
+        .toList();
+    assertEquals(2, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: MEPNode, as: src, where: (name = 'a')}"
+            + ".outE('MEPEdge'){as: e, where: (weight >= 15)}"
+            + ".inV(){as: tgt} RETURN e.weight");
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * IndexLookup with <= operator (the only missing range operator).
+   */
+  @Test
+  public void indexFilter_rangeLeOperator() {
+    session.execute("CREATE class LEHub extends V").close();
+    session.execute("CREATE property LEHub.name STRING").close();
+    session.execute("CREATE class LEItem extends V").close();
+    session.execute("CREATE property LEItem.val INTEGER").close();
+    session.execute("CREATE index LEItem_val on LEItem (val) NOTUNIQUE")
+        .close();
+    session.execute("CREATE class LELink extends E").close();
+    session.execute("CREATE property LELink.out LINK LEHub").close();
+    session.execute("CREATE property LELink.in LINK LEItem").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX LEHub set name = 'h'").close();
+    for (int i = 0; i < 5; i++) {
+      session.execute(
+          "CREATE VERTEX LEItem set val = " + (i * 10)).close();
+      session.execute(
+          "CREATE EDGE LELink FROM (SELECT FROM LEHub WHERE name = 'h')"
+              + " TO (SELECT FROM LEItem WHERE val = " + (i * 10) + ")")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // val <= 20 → items with val 0, 10, 20
+    var result = session.query(
+        "MATCH {class: LEHub, as: hub, where: (name = 'h')}"
+            + ".out('LELink'){as: item, where: (val <= 20)}"
+            + " RETURN item.val as v")
+        .toList();
+    assertEquals(3, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: LEHub, as: hub, where: (name = 'h')}"
+            + ".out('LELink'){as: item, where: (val <= 20)}"
+            + " RETURN item.val");
+    assertTrue("Plan should show index intersection for <= :\n" + plan,
+        plan.contains("intersection: index"));
     session.commit();
   }
 }
