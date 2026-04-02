@@ -3771,8 +3771,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show intersection optimization for back-reference",
-        plan.contains("intersection:"));
+    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -3861,8 +3861,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show intersection optimization for back-reference",
-        plan.contains("intersection:"));
+    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -3973,8 +3973,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show intersection optimization for back-reference",
-        plan.contains("intersection:"));
+    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4051,8 +4051,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show intersection optimization for back-reference",
-        plan.contains("intersection:"));
+    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4171,8 +4171,8 @@ public class MatchStatementExecutionTest extends DbTestBase {
     assertEquals(1, explain.size());
     String plan = explain.get(0).getProperty("executionPlanAsString");
     assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    assertTrue("Plan should show intersection optimization for back-reference",
-        plan.contains("intersection:"));
+    assertTrue("Plan should show back-ref optimization (intersection or hash join)",
+        plan.contains("intersection:") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4404,9 +4404,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + matchQuery).toList();
     var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
     assertTrue(
-        "Plan should show EdgeRidLookup intersection with in('EHasCreator'),"
-            + " plan was:\n" + plan,
-        plan.contains("intersection:") && plan.contains("EHasCreator"));
+        "Plan should show back-ref optimization (intersection or hash join)"
+            + " for EHasCreator, plan was:\n" + plan,
+        (plan.contains("intersection:") && plan.contains("EHasCreator"))
+            || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4518,9 +4519,10 @@ public class MatchStatementExecutionTest extends DbTestBase {
     // Plan should show "intersection: in('CxHasCreator')" — confirming
     // EdgeRidLookup descriptor was used with the correct edge class.
     assertTrue(
-        "Plan should show CxHasCreator in intersection annotation,"
+        "Plan should show back-ref optimization for CxHasCreator,"
             + " plan was:\n" + plan,
-        plan.contains("CxHasCreator") && plan.contains("intersection"));
+        (plan.contains("CxHasCreator") && plan.contains("intersection"))
+            || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 
@@ -4595,9 +4597,9 @@ public class MatchStatementExecutionTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + matchQuery).toList();
     var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
     assertTrue(
-        "Plan should show intersection pre-filter for large link bag,"
+        "Plan should show back-ref optimization for large link bag,"
             + " plan was:\n" + plan,
-        plan.contains("intersection"));
+        plan.contains("intersection") || plan.contains("BACK-REF HASH JOIN"));
     session.commit();
   }
 

@@ -70,6 +70,15 @@ public class EdgeTraversal {
   @Nullable private RidFilterDescriptor intersectionDescriptor;
 
   /**
+   * Semi-join descriptor for back-reference hash join optimization. When set,
+   * {@link BackRefHashJoinStep} replaces the normal {@link MatchStep} for this
+   * edge. Mutually exclusive with {@link #intersectionDescriptor} for the same
+   * back-reference — when a semi-join descriptor is attached, no
+   * {@link RidFilterDescriptor.EdgeRidLookup} is created for the back-ref edge.
+   */
+  @Nullable private SemiJoinDescriptor semiJoinDescriptor;
+
+  /**
    * Fixed-capacity cache of resolved RidSets, keyed by
    * {@link RidFilterDescriptor#cacheKey}. Stops accepting new entries
    * at capacity — no eviction, no LRU bookkeeping. Allocated lazily
@@ -141,6 +150,14 @@ public class EdgeTraversal {
       intersectionDescriptor = new RidFilterDescriptor.Composite(
           List.of(intersectionDescriptor, descriptor));
     }
+  }
+
+  @Nullable public SemiJoinDescriptor getSemiJoinDescriptor() {
+    return semiJoinDescriptor;
+  }
+
+  public void setSemiJoinDescriptor(@Nullable SemiJoinDescriptor semiJoinDescriptor) {
+    this.semiJoinDescriptor = semiJoinDescriptor;
   }
 
   @Nullable public IntSet getAcceptedCollectionIds() {
@@ -247,6 +264,7 @@ public class EdgeTraversal {
       copy.leftRid = leftRid.copy();
     }
     copy.intersectionDescriptor = intersectionDescriptor;
+    copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
     // Cache is intentionally not copied — stale data from a previous
     // execution must not leak into a new plan instance.
