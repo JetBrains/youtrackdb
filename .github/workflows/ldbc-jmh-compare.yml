@@ -111,6 +111,14 @@ jobs:
           # Copy comparison script to /tmp/ so it survives git checkouts
           cp jmh-ldbc/jmh-compare.py /tmp/jmh-compare-${{ github.run_id }}.py
 
+      # Compile head first to fail fast — avoids wasting hours on base
+      # benchmarks only to discover the branch doesn't compile.
+      - name: 'Pre-flight: verify head compiles'
+        run: |
+          chmod +x mvnw
+          ./mvnw -pl jmh-ldbc -am compile -DskipTests \
+            -Dspotless.check.skip=true -q
+
       # ── Download data (once) ─────────────────────────────────────────────
       # Always download the CSV dataset as a fallback.
       # Download the pre-built DB too when requested (faster setup).
