@@ -4487,7 +4487,8 @@ public abstract class AbstractStorage
                 result.recordVersion(),
                 result instanceof RawBuffer rb
                     ? (rb.buffer() != null ? rb.buffer().length : 0)
-                    : ((RawPageBuffer) result).contentLength());
+                    : result instanceof RawPageBuffer rpb ? rpb.contentLength()
+                        : 0);
       }
 
       return result;

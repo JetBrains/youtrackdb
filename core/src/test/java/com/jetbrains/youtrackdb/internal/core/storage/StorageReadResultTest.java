@@ -21,6 +21,8 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -217,7 +219,7 @@ public class StorageReadResultTest {
   public void testRawPageBufferRejectsNullPageFrame() {
     // Validates that the constructor throws IllegalArgumentException
     // (not AssertionError) when pageFrame is null.
-    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+    var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(null, 0L, 0, 0, 1L, (byte) 'd'));
     assertEquals("PageFrame must not be null", ex.getMessage());
   }
@@ -226,7 +228,7 @@ public class StorageReadResultTest {
   public void testRawPageBufferRejectsNegativeContentOffset() {
     // Validates runtime rejection of negative contentOffset.
     long stamp = pageFrame.tryOptimisticRead();
-    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+    var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(pageFrame, stamp, -1, 10, 1L, (byte) 'd'));
     assertEquals("contentOffset must be non-negative: -1", ex.getMessage());
   }
@@ -235,7 +237,7 @@ public class StorageReadResultTest {
   public void testRawPageBufferRejectsNegativeContentLength() {
     // Validates runtime rejection of negative contentLength.
     long stamp = pageFrame.tryOptimisticRead();
-    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+    var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(pageFrame, stamp, 0, -1, 1L, (byte) 'd'));
     assertEquals("contentLength must be non-negative: -1", ex.getMessage());
   }
@@ -245,7 +247,7 @@ public class StorageReadResultTest {
     // Validates that content region exceeding page buffer capacity is rejected.
     int capacity = pageFrame.getBuffer().capacity();
     long stamp = pageFrame.tryOptimisticRead();
-    var ex = org.junit.Assert.assertThrows(IllegalArgumentException.class,
+    var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(pageFrame, stamp, capacity - 5, 10, 1L, (byte) 'd'));
     int expectedEnd = capacity - 5 + 10;
     assertEquals(
@@ -259,18 +261,60 @@ public class StorageReadResultTest {
     // Validates that Math.addExact catches integer overflow when
     // contentOffset + contentLength would exceed Integer.MAX_VALUE.
     long stamp = pageFrame.tryOptimisticRead();
-    org.junit.Assert.assertThrows(ArithmeticException.class,
+    var ex = assertThrows(ArithmeticException.class,
         () -> new RawPageBuffer(
             pageFrame, stamp, Integer.MAX_VALUE, 1, 1L, (byte) 'd'));
+    assertEquals("integer overflow", ex.getMessage());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsIntMinValueContentOffset() {
+    // Integer.MIN_VALUE is the extreme negative boundary — validates no
+    // unsigned interpretation or bit-twiddling issues in the bounds check.
+    long stamp = pageFrame.tryOptimisticRead();
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(
+            pageFrame, stamp, Integer.MIN_VALUE, 0, 1L, (byte) 'd'));
+    assertTrue(ex.getMessage().contains("contentOffset"));
   }
 
   @Test
   public void testRawPageBufferAcceptsExactBoundary() {
     // Content region [0, capacity) exactly fills the page — should succeed.
+    // Verify end-to-end via sliceContent to confirm no off-by-one.
     int capacity = pageFrame.getBuffer().capacity();
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer = new RawPageBuffer(
         pageFrame, stamp, 0, capacity, 1L, (byte) 'd');
     assertEquals(capacity, pageBuffer.contentLength());
+    assertEquals(0, pageBuffer.contentOffset());
+
+    ByteBuffer slice = pageBuffer.sliceContent();
+    assertEquals(capacity, slice.capacity());
+    assertEquals(0, slice.position());
+    assertEquals(capacity, slice.limit());
+  }
+
+  @Test
+  public void testRawPageBufferAcceptsZeroLengthAtCapacity() {
+    // Content region [capacity, capacity) is empty — should succeed.
+    // Verifies the > vs >= boundary in the capacity check.
+    int capacity = pageFrame.getBuffer().capacity();
+    long stamp = pageFrame.tryOptimisticRead();
+    var pageBuffer = new RawPageBuffer(
+        pageFrame, stamp, capacity, 0, 1L, (byte) 'd');
+    assertEquals(0, pageBuffer.contentLength());
+    assertEquals(capacity, pageBuffer.contentOffset());
+  }
+
+  @Test
+  public void testRawPageBufferRejectsOffsetBeyondCapacity() {
+    // Even with zero length, offset past capacity is invalid.
+    int capacity = pageFrame.getBuffer().capacity();
+    long stamp = pageFrame.tryOptimisticRead();
+    var ex = assertThrows(IllegalArgumentException.class,
+        () -> new RawPageBuffer(
+            pageFrame, stamp, capacity + 1, 0, 1L, (byte) 'd'));
+    assertTrue(ex.getMessage().contains("exceeds page buffer capacity"));
   }
 }
