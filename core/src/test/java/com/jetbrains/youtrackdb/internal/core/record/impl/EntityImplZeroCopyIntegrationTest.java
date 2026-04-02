@@ -4,11 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -17,6 +19,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
@@ -78,6 +82,8 @@ public class EntityImplZeroCopyIntegrationTest {
    * pairs. Returns the RID of the committed record.
    */
   private RID createRecord(String className, String... keyValues) {
+    assert keyValues.length % 2 == 0 : "keyValues must be key-value pairs";
+
     var schema = session.getMetadata().getSchema();
     if (!schema.existsClass(className)) {
       schema.createClass(className);
@@ -93,20 +99,37 @@ public class EntityImplZeroCopyIntegrationTest {
   }
 
   /**
-   * Closes and reopens the database to flush all pages from the write cache to
-   * the read cache. After this, record loads go through the optimistic read
-   * path (which returns RawPageBuffer for single-page records).
+   * Closes and reopens the database to flush all pages from the write cache,
+   * then warms up the read cache by loading the given records through the
+   * pinned path. After warming, subsequent record loads in new transactions
+   * go through the optimistic read path (returning RawPageBuffer for
+   * single-page records).
+   *
+   * <p>The warmup step is necessary because the optimistic path requires
+   * pages to already be present in the read cache. The first load after
+   * reopen always goes through the pinned path; only subsequent loads can
+   * use the optimistic path.
    */
-  private void flushToReadCache() {
+  private void flushToReadCache(RID... warmupRids) {
     if (session != null && !session.isClosed()) {
       session.close();
     }
     youTrackDB.close();
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
     session = youTrackDB.open(DB_NAME, "admin", "admin");
+
+    // Warm up the read cache: load records through the pinned path so their
+    // pages are populated in the read cache for subsequent optimistic reads.
+    if (warmupRids.length > 0) {
+      session.begin();
+      for (var rid : warmupRids) {
+        session.load(rid);
+      }
+      session.rollback();
+    }
   }
 
-  // --- Test 1: End-to-end zero-copy property access ---
+  // --- End-to-end zero-copy property access ---
 
   /**
    * Verifies that loading a record through the session API after flushing to
@@ -116,26 +139,36 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testZeroCopyPropertyAccessEndToEnd() {
     var rid = createRecord("ZeroCopy", "name", "Alice", "city", "Berlin");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
 
-    // Before property access, entity should be PageFrame-backed (zero-copy path)
-    // Note: the optimistic path may fall back to byte[] if the page is not in
-    // read cache or if the optimistic read fails. We verify the data is correct
-    // regardless of which path was taken.
+    // Verify the zero-copy path was taken: PageFrame should be set before
+    // any property access triggers deserialization.
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        entity.getPageFrame());
+
+    // Individual getProperty() calls trigger partial deserialization, which
+    // keeps the PageFrame for subsequent calls.
     assertEquals("Alice", entity.getProperty("name"));
     assertEquals("Berlin", entity.getProperty("city"));
 
-    // After full property access, PageFrame should be cleared (stamp validated,
-    // speculative results accepted)
+    // PageFrame is still set after partial accesses
+    assertNotNull("PageFrame kept after partial property accesses",
+        entity.getPageFrame());
+
+    // Full deserialization (no args) clears the PageFrame
+    assertTrue("Full deserialization should succeed",
+        entity.checkForProperties());
+
     assertNull("PageFrame should be cleared after full deserialization",
         entity.getPageFrame());
     session.rollback();
   }
 
-  // --- Test 2: Stamp invalidation triggers fallback re-read ---
+  // --- Stamp invalidation triggers fallback re-read ---
 
   /**
    * Loads a record via the zero-copy path, invalidates the PageFrame's stamp
@@ -145,35 +178,33 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testStampInvalidationFallbackEndToEnd() {
     var rid = createRecord("StampInval", "name", "Bob", "score", "42");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
 
     var pageFrame = entity.getPageFrame();
-    if (pageFrame != null) {
-      // Invalidate the stamp by acquiring and releasing an exclusive lock.
-      // After this, any stamp validation against the original stamp will fail.
-      long exclusiveLock = pageFrame.acquireExclusiveLock();
-      pageFrame.releaseExclusiveLock(exclusiveLock);
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        pageFrame);
 
-      // Property access should detect the invalidated stamp and fall back to
-      // a byte[] re-read from storage.
-      assertEquals("Bob", entity.getProperty("name"));
-      assertEquals("42", entity.getProperty("score"));
+    // Invalidate the stamp by acquiring and releasing an exclusive lock.
+    // After this, any stamp validation against the original stamp will fail.
+    long exclusiveLock = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(exclusiveLock);
 
-      // After fallback, PageFrame should be cleared and source populated
-      assertNull("PageFrame should be cleared after fallback re-read",
-          entity.getPageFrame());
-    } else {
-      // Optimistic path fell back to byte[] — still verify correct data
-      assertEquals("Bob", entity.getProperty("name"));
-      assertEquals("42", entity.getProperty("score"));
-    }
+    // Property access should detect the invalidated stamp and fall back to
+    // a byte[] re-read from storage.
+    assertEquals("Bob", entity.getProperty("name"));
+    assertEquals("42", entity.getProperty("score"));
+
+    // After fallback, PageFrame should be cleared and source populated
+    assertNull("PageFrame should be cleared after fallback re-read",
+        entity.getPageFrame());
     session.rollback();
   }
 
-  // --- Test 3: Multiple property accesses after fallback ---
+  // --- Multiple property accesses after fallback ---
 
   /**
    * After stamp invalidation and fallback to byte[], verifies that subsequent
@@ -183,26 +214,29 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testMultiplePropertyAccessesAfterFallback() {
     var rid = createRecord("MultAccess", "a", "one", "b", "two", "c", "three");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
 
     var pageFrame = entity.getPageFrame();
-    if (pageFrame != null) {
-      // Invalidate stamp to force fallback
-      long exclusiveLock = pageFrame.acquireExclusiveLock();
-      pageFrame.releaseExclusiveLock(exclusiveLock);
-    }
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        pageFrame);
 
-    // First property access — may trigger fallback
+    // Invalidate stamp to force fallback
+    long exclusiveLock = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(exclusiveLock);
+
+    // First property access — triggers fallback
     assertEquals("one", entity.getProperty("a"));
     // Subsequent accesses should work from byte[] source
     assertEquals("two", entity.getProperty("b"));
     assertEquals("three", entity.getProperty("c"));
 
-    // Verify all properties are present
+    // Verify all properties are present with exact count
     var names = entity.getPropertyNames();
+    assertEquals("Should have exactly 3 properties", 3, names.size());
     assertTrue("Should have property 'a'", names.contains("a"));
     assertTrue("Should have property 'b'", names.contains("b"));
     assertTrue("Should have property 'c'", names.contains("c"));
@@ -211,7 +245,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 4: Partial then full deserialization from PageFrame ---
+  // --- Partial then full deserialization from PageFrame ---
 
   /**
    * Requests specific properties (partial deserialization) first, then requests
@@ -221,22 +255,26 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testPartialThenFullDeserialization() {
     var rid = createRecord("PartialFull", "x", "10", "y", "20", "z", "30");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
+
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        entity.getPageFrame());
 
     // Partial deserialization: request only "x"
     assertTrue("Partial deserialization should succeed",
         entity.checkForProperties("x"));
     assertEquals("10", entity.getProperty("x"));
 
-    if (entity.getPageFrame() != null) {
-      // PageFrame kept after partial — request another property
-      assertTrue("Second partial deserialization should succeed",
-          entity.checkForProperties("y"));
-      assertEquals("20", entity.getProperty("y"));
-    }
+    // PageFrame kept after partial — request another property
+    assertNotNull("PageFrame should be kept after partial deserialization",
+        entity.getPageFrame());
+    assertTrue("Second partial deserialization should succeed",
+        entity.checkForProperties("y"));
+    assertEquals("20", entity.getProperty("y"));
 
     // Full deserialization: request all properties
     assertTrue("Full deserialization should succeed",
@@ -251,7 +289,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 5: Partial deserialization with stamp invalidation between calls ---
+  // --- Partial deserialization with stamp invalidation between calls ---
 
   /**
    * Requests a specific property (partial), invalidates the stamp, then
@@ -261,91 +299,158 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testPartialDeserializationWithStampInvalidation() {
     var rid = createRecord("PartialStamp", "p", "alpha", "q", "beta");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
 
     var pageFrame = entity.getPageFrame();
-    if (pageFrame != null) {
-      // First partial deserialization succeeds from PageFrame
-      assertTrue(entity.checkForProperties("p"));
-      assertEquals("alpha", entity.getProperty("p"));
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        pageFrame);
 
-      // Invalidate stamp before second partial request
-      var frame = entity.getPageFrame();
-      if (frame != null) {
-        long exclusiveLock = frame.acquireExclusiveLock();
-        frame.releaseExclusiveLock(exclusiveLock);
-      }
+    // First partial deserialization succeeds from PageFrame
+    assertTrue(entity.checkForProperties("p"));
+    assertEquals("alpha", entity.getProperty("p"));
 
-      // Second partial request — stamp invalid, falls back to re-read
-      assertTrue(entity.checkForProperties("q"));
-      assertEquals("beta", entity.getProperty("q"));
+    // Invalidate stamp before second partial request
+    var frame = entity.getPageFrame();
+    assertNotNull("PageFrame should be kept after partial deserialization",
+        frame);
+    long exclusiveLock = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(exclusiveLock);
 
-      // Also verify the first property is still correct after fallback
-      assertEquals("alpha", entity.getProperty("p"));
-    } else {
-      // Fell back to byte[] on load — verify data anyway
-      assertEquals("alpha", entity.getProperty("p"));
-      assertEquals("beta", entity.getProperty("q"));
-    }
+    // Second partial request — stamp invalid, falls back to re-read
+    assertTrue(entity.checkForProperties("q"));
+    assertEquals("beta", entity.getProperty("q"));
+
+    // Also verify the first property is still correct after fallback
+    assertEquals("alpha", entity.getProperty("p"));
     session.rollback();
   }
 
-  // --- Test 6: Concurrent page modification ---
+  // --- Concurrent page modification with temporal overlap ---
 
   /**
-   * Loads a record via the zero-copy path, then uses a background thread to
-   * modify a different record on the same class (likely same page). Verifies
-   * that property access on the main thread returns correct data — either the
-   * PageFrame deserialization succeeds with original data, or the fallback
-   * produces correct data.
+   * Loads records in a reader thread and modifies records in a writer thread,
+   * using a CyclicBarrier to ensure temporal overlap between deserialization
+   * and page writes. Verifies that the reader always sees correct data —
+   * either via successful speculative deserialization or via the fallback path.
    */
   @Test
   public void testConcurrentPageModification() throws Exception {
-    // Create multiple records in the same class (likely same page)
-    var rid1 = createRecord("Concurrent", "key", "original");
-    createRecord("Concurrent", "key", "other");
-    flushToReadCache();
-
+    // Create enough records that they share a page
+    var rids = new ArrayList<RID>();
+    var schema = session.getMetadata().getSchema();
+    if (!schema.existsClass("ConcMod")) {
+      schema.createClass("ConcMod");
+    }
     session.begin();
-    var entity = (EntityImpl) session.load(rid1);
+    for (int i = 0; i < 20; i++) {
+      var entity = (EntityImpl) session.newEntity("ConcMod");
+      entity.setProperty("key", "value-" + i);
+      rids.add(entity.getIdentity());
+    }
+    session.commit();
+    flushToReadCache(rids.toArray(new RID[0]));
 
-    // Background thread: open a separate session and modify a record in the
-    // same class, which may modify the same page.
-    var ready = new CountDownLatch(1);
-    var proceed = new CountDownLatch(1);
-    var error = new AtomicReference<Throwable>();
+    // Run multiple iterations to increase the chance of temporal overlap
+    int iterations = 20;
+    var errors = new AtomicReference<Throwable>();
 
-    var bgThread = new Thread(() -> {
-      try (var bgSession = youTrackDB.open(DB_NAME, "admin", "admin")) {
-        bgSession.begin();
-        var bgEntity = (EntityImpl) bgSession.newEntity("Concurrent");
-        bgEntity.setProperty("key", "background-write");
-        ready.countDown();
-        proceed.await();
-        bgSession.commit();
-      } catch (Throwable t) {
-        error.set(t);
-      }
-    });
-    bgThread.start();
+    for (int iter = 0; iter < iterations && errors.get() == null; iter++) {
+      var ridToRead = rids.get(0);
+      var barrier = new CyclicBarrier(2);
+      var readerDone = new CountDownLatch(1);
+      var writerDone = new CountDownLatch(1);
 
-    // Wait for background thread to be ready, then let it commit
-    ready.await();
-    proceed.countDown();
-    bgThread.join(5000);
+      // Reader thread: loads entity (gets PageFrame), waits at barrier,
+      // then accesses properties (triggers deserializeFromPageFrame)
+      var readerThread = new Thread(() -> {
+        try (var rSession = youTrackDB.open(DB_NAME, "admin", "admin")) {
+          rSession.begin();
+          var entity = (EntityImpl) rSession.load(ridToRead);
+          barrier.await(5, TimeUnit.SECONDS);
+          // Property access triggers speculative deserialization
+          assertEquals("value-0", entity.getProperty("key"));
+          rSession.rollback();
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        } finally {
+          readerDone.countDown();
+        }
+      });
 
-    assertNull("Background thread should complete without error", error.get());
+      // Writer thread: opens session, waits at barrier, then creates a
+      // new record in the same class (likely same page)
+      var writerThread = new Thread(() -> {
+        try (var wSession = youTrackDB.open(DB_NAME, "admin", "admin")) {
+          wSession.begin();
+          var entity = (EntityImpl) wSession.newEntity("ConcMod");
+          entity.setProperty("key", "bg-" + Thread.currentThread().getId());
+          barrier.await(5, TimeUnit.SECONDS);
+          wSession.commit();
+        } catch (Throwable t) {
+          errors.compareAndSet(null, t);
+        } finally {
+          writerDone.countDown();
+        }
+      });
 
-    // Access properties on the main thread — either zero-copy succeeds
-    // (page wasn't modified at our offset) or fallback produces correct data
-    assertEquals("original", entity.getProperty("key"));
-    session.rollback();
+      readerThread.start();
+      writerThread.start();
+
+      assertTrue("Reader should complete within timeout",
+          readerDone.await(10, TimeUnit.SECONDS));
+      assertTrue("Writer should complete within timeout",
+          writerDone.await(10, TimeUnit.SECONDS));
+    }
+
+    assertNull("No thread should fail: "
+        + (errors.get() != null ? errors.get().getMessage() : ""), errors.get());
   }
 
-  // --- Test 7: Record lifecycle operations clear PageFrame ---
+  // --- Concurrent readers on the same record ---
+
+  /**
+   * Multiple threads load the same record simultaneously through the zero-copy
+   * path. Verifies that concurrent PageFrame deserialization (each thread gets
+   * its own ByteBuffer slice) does not interfere across threads.
+   */
+  @Test
+  public void testConcurrentReadersOnSameRecord() throws Exception {
+    var rid = createRecord("ConcRead", "name", "shared", "city", "Tokyo");
+    flushToReadCache(rid);
+
+    int threadCount = 8;
+    var barrier = new CyclicBarrier(threadCount);
+    var errors = new AtomicReference<Throwable>();
+    var latch = new CountDownLatch(threadCount);
+
+    for (int t = 0; t < threadCount; t++) {
+      new Thread(() -> {
+        try (var s = youTrackDB.open(DB_NAME, "admin", "admin")) {
+          s.begin();
+          var entity = (EntityImpl) s.load(rid);
+          barrier.await(5, TimeUnit.SECONDS);
+          assertEquals("shared", entity.getProperty("name"));
+          assertEquals("Tokyo", entity.getProperty("city"));
+          s.rollback();
+        } catch (Throwable e) {
+          errors.compareAndSet(null, e);
+        } finally {
+          latch.countDown();
+        }
+      }).start();
+    }
+
+    assertTrue("All threads should complete",
+        latch.await(15, TimeUnit.SECONDS));
+    assertNull("No thread should fail: "
+        + (errors.get() != null ? errors.get().getMessage() : ""), errors.get());
+  }
+
+  // --- Record lifecycle operations clear PageFrame ---
 
   /**
    * Verifies that unload() properly clears the PageFrame reference after
@@ -354,11 +459,10 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testUnloadClearsPageFrame() {
     var rid = createRecord("Lifecycle", "field", "value");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
-    // Entity is loaded — may have PageFrame set (zero-copy) or byte[] (fallback)
 
     entity.unload();
 
@@ -379,7 +483,7 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testReloadAfterUnload() {
     var rid = createRecord("Reload", "name", "Charlie", "city", "Rome");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
@@ -398,7 +502,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 8: Multiple records loaded via zero-copy path ---
+  // --- Multiple records loaded via zero-copy path ---
 
   /**
    * Creates and loads multiple records, verifying that each is correctly
@@ -421,7 +525,7 @@ public class EntityImplZeroCopyIntegrationTest {
     }
     session.commit();
 
-    flushToReadCache();
+    flushToReadCache(rids.toArray(new RID[0]));
 
     session.begin();
     for (int i = 0; i < rids.size(); i++) {
@@ -434,7 +538,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 9: Record with many properties ---
+  // --- Record with many properties ---
 
   /**
    * Tests that a record with many properties (larger serialized form) is
@@ -454,7 +558,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.commit();
     var rid = entity.getIdentity();
 
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var loaded = (EntityImpl) session.load(rid);
@@ -466,7 +570,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 10: fill() on PageFrame-loaded entity clears PageFrame ---
+  // --- fill() on PageFrame-loaded entity clears PageFrame ---
 
   /**
    * Verifies that calling fill() on a PageFrame-loaded entity clears the
@@ -475,13 +579,18 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testFillClearsPageFrame() {
     var rid = createRecord("FillTest", "name", "Dana");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
 
-    // Manually fill with byte[] — should clear any PageFrame
-    byte[] newContent = new byte[] {0}; // minimal valid content
+    // Verify zero-copy path was taken before testing fill()
+    assertNotNull("Entity should be PageFrame-backed before fill()",
+        entity.getPageFrame());
+
+    // Content doesn't need to be a valid serialized record — we only verify
+    // that fill() clears the PageFrame reference.
+    byte[] newContent = new byte[] {0};
     entity.fill(1L, newContent, false);
 
     assertNull("PageFrame should be cleared after fill()",
@@ -489,7 +598,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 11: fromStream() on PageFrame-loaded entity clears PageFrame ---
+  // --- fromStream() on PageFrame-loaded entity clears PageFrame ---
 
   /**
    * Verifies that calling fromStream() on a PageFrame-loaded entity clears
@@ -498,7 +607,7 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testFromStreamClearsPageFrame() {
     var rid = createRecord("StreamTest", "name", "Eve");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     // First transaction: get serialized bytes
     session.begin();
@@ -511,6 +620,10 @@ public class EntityImplZeroCopyIntegrationTest {
     session.begin();
     entity = (EntityImpl) session.load(rid);
 
+    // Verify zero-copy path was taken before testing fromStream()
+    assertNotNull("Entity should be PageFrame-backed before fromStream()",
+        entity.getPageFrame());
+
     // fromStream should clear PageFrame
     entity.fromStream(bytes);
 
@@ -519,7 +632,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 12: delete() on PageFrame-loaded entity ---
+  // --- delete() on PageFrame-loaded entity ---
 
   /**
    * Verifies that deleting a PageFrame-loaded entity works correctly — the
@@ -528,7 +641,7 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testDeletePageFrameLoadedEntity() {
     var rid = createRecord("DeleteTest", "name", "Frank");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
@@ -541,16 +654,14 @@ public class EntityImplZeroCopyIntegrationTest {
     session.begin();
     try {
       session.load(rid);
-      // If load doesn't throw, the record should be marked as deleted
-    } catch (Exception e) {
-      // Expected: RecordNotFoundException
-      assertTrue("Expected RecordNotFoundException",
-          e.getClass().getSimpleName().contains("RecordNotFound"));
+      fail("Expected RecordNotFoundException when loading deleted record");
+    } catch (RecordNotFoundException e) {
+      // Expected: record was deleted
     }
     session.rollback();
   }
 
-  // --- Test 13: setDirty clears PageFrame ---
+  // --- setDirty clears PageFrame ---
 
   /**
    * Verifies that making a PageFrame-loaded entity dirty (by setting a
@@ -559,7 +670,7 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testSetPropertyClearsPageFrame() {
     var rid = createRecord("DirtyTest", "name", "Grace");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
@@ -577,7 +688,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 14: toStream() on PageFrame-loaded entity ---
+  // --- toStream() on PageFrame-loaded entity ---
 
   /**
    * Verifies that toStream() on a PageFrame-loaded entity correctly
@@ -586,7 +697,7 @@ public class EntityImplZeroCopyIntegrationTest {
   @Test
   public void testToStreamOnPageFrameLoadedEntity() {
     var rid = createRecord("ToStream", "name", "Hank", "age", "25");
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var entity = (EntityImpl) session.load(rid);
@@ -602,11 +713,11 @@ public class EntityImplZeroCopyIntegrationTest {
     session.rollback();
   }
 
-  // --- Test 15: Record with various property types ---
+  // --- Record with various property types ---
 
   /**
    * Tests that records with different property types (string, integer, double,
-   * boolean) are correctly deserialized via the zero-copy path.
+   * boolean, long, short) are correctly deserialized via the zero-copy path.
    */
   @Test
   public void testVariousPropertyTypes() {
@@ -625,7 +736,7 @@ public class EntityImplZeroCopyIntegrationTest {
     session.commit();
     var rid = entity.getIdentity();
 
-    flushToReadCache();
+    flushToReadCache(rid);
 
     session.begin();
     var loaded = (EntityImpl) session.load(rid);
@@ -635,6 +746,94 @@ public class EntityImplZeroCopyIntegrationTest {
     assertEquals(Boolean.TRUE, loaded.getProperty("boolProp"));
     assertEquals(Long.valueOf(123456789L), loaded.getProperty("longProp"));
     assertEquals(Short.valueOf((short) 7), loaded.getProperty("shortProp"));
+    session.rollback();
+  }
+
+  // --- Embedded document through zero-copy path ---
+
+  /**
+   * Verifies that records with embedded documents (the most complex serialized
+   * type, involving recursive nested entity serialization) deserialize
+   * correctly via the zero-copy PageFrame path.
+   */
+  @Test
+  public void testZeroCopyWithEmbeddedDocument() {
+    var schema = session.getMetadata().getSchema();
+    if (!schema.existsClass("EmbedTest")) {
+      schema.createClass("EmbedTest");
+    }
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("EmbedTest");
+    entity.setProperty("name", "parent");
+    var embedded = session.newEmbeddedEntity();
+    embedded.setProperty("street", "123 Main St");
+    embedded.setProperty("zip", 12345);
+    entity.setProperty("address", embedded);
+    session.commit();
+    var rid = entity.getIdentity();
+
+    flushToReadCache(rid);
+
+    session.begin();
+    var loaded = (EntityImpl) session.load(rid);
+
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        loaded.getPageFrame());
+
+    assertEquals("parent", loaded.getProperty("name"));
+    var addr = loaded.getEmbeddedEntity("address");
+    assertNotNull("Embedded entity should not be null", addr);
+    assertEquals("123 Main St", addr.getProperty("street"));
+    assertEquals(Integer.valueOf(12345), addr.getProperty("zip"));
+    session.rollback();
+  }
+
+  // --- Link (RID reference) property through zero-copy path ---
+
+  /**
+   * Verifies that link (RID) properties deserialize correctly via the
+   * zero-copy path. Links are serialized as fixed-width (clusterId,
+   * clusterPosition) pairs — incorrect base offset in the ByteBuffer slice
+   * would produce wrong RIDs silently.
+   */
+  @Test
+  public void testZeroCopyWithLinkProperty() {
+    var schema = session.getMetadata().getSchema();
+    if (!schema.existsClass("LinkSource")) {
+      schema.createClass("LinkSource");
+    }
+    if (!schema.existsClass("LinkTarget")) {
+      schema.createClass("LinkTarget");
+    }
+
+    session.begin();
+    var target = (EntityImpl) session.newEntity("LinkTarget");
+    target.setProperty("label", "target");
+    session.commit();
+    var targetRid = target.getIdentity();
+
+    session.begin();
+    var source = (EntityImpl) session.newEntity("LinkSource");
+    source.setProperty("name", "source");
+    source.setProperty("ref", session.load(targetRid));
+    session.commit();
+    var sourceRid = source.getIdentity();
+
+    flushToReadCache(sourceRid, targetRid);
+
+    session.begin();
+    var loaded = (EntityImpl) session.load(sourceRid);
+
+    assertNotNull(
+        "Entity should be PageFrame-backed after flush-to-read-cache load",
+        loaded.getPageFrame());
+
+    assertEquals("source", loaded.getProperty("name"));
+    var linkedEntity = loaded.getEntity("ref");
+    assertNotNull("Linked entity should not be null", linkedEntity);
+    assertEquals(targetRid, linkedEntity.getIdentity());
+    assertEquals("target", linkedEntity.getProperty("label"));
     session.rollback();
   }
 }
