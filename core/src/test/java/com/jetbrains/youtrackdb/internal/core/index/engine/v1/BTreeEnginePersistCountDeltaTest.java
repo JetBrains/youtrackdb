@@ -61,17 +61,16 @@ public class BTreeEnginePersistCountDeltaTest {
   }
 
   /**
-   * Single-value engine correctly handles zero delta (no net change in a
-   * transaction, e.g. equal additions and removals).
+   * Single-value engine skips page write when totalDelta is zero (no net
+   * change in a transaction, e.g. equal additions and removals).
    */
   @Test
-  public void singleValue_persistCountDelta_handlesZeroDelta() {
+  public void singleValue_persistCountDelta_skipsZeroDelta() {
     var f = new SingleValueFixture();
 
-    // totalDelta=0 forwarded as-is; nullDelta=3 is ignored
+    // totalDelta=0 → no page write; nullDelta=3 is also ignored
     f.engine.persistCountDelta(f.op, 0, 3);
 
-    verify(f.sbTree).addToApproximateEntriesCount(f.op, 0);
     verifyNoMoreInteractions(f.sbTree);
   }
 
@@ -98,7 +97,7 @@ public class BTreeEnginePersistCountDeltaTest {
 
   /**
    * Multi-value engine handles all-null delta (totalDelta equals nullDelta):
-   * svTree gets 0, nullTree gets the full delta.
+   * svTree page write skipped (nonNullDelta=0), nullTree gets the full delta.
    */
   @Test
   public void multiValue_persistCountDelta_allNullEntries() {
@@ -106,14 +105,14 @@ public class BTreeEnginePersistCountDeltaTest {
 
     f.engine.persistCountDelta(f.op, 5, 5);
 
-    verify(f.svTree).addToApproximateEntriesCount(f.op, 0);
+    // nonNullDelta = 5 - 5 = 0 → svTree page write skipped
     verify(f.nullTree).addToApproximateEntriesCount(f.op, 5);
     verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
   /**
    * Multi-value engine handles no-null delta (nullDelta is 0): svTree gets
-   * the full totalDelta, nullTree gets 0.
+   * the full totalDelta, nullTree page write skipped.
    */
   @Test
   public void multiValue_persistCountDelta_noNullEntries() {
@@ -122,7 +121,7 @@ public class BTreeEnginePersistCountDeltaTest {
     f.engine.persistCountDelta(f.op, 8, 0);
 
     verify(f.svTree).addToApproximateEntriesCount(f.op, 8);
-    verify(f.nullTree).addToApproximateEntriesCount(f.op, 0);
+    // nullDelta = 0 → nullTree page write skipped
     verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 
@@ -143,16 +142,15 @@ public class BTreeEnginePersistCountDeltaTest {
   }
 
   /**
-   * Multi-value engine handles zero delta (no net change).
+   * Multi-value engine skips page writes when both deltas are zero.
    */
   @Test
-  public void multiValue_persistCountDelta_handlesZeroDelta() {
+  public void multiValue_persistCountDelta_skipsZeroDeltas() {
     var f = new MultiValueFixture();
 
     f.engine.persistCountDelta(f.op, 0, 0);
 
-    verify(f.svTree).addToApproximateEntriesCount(f.op, 0);
-    verify(f.nullTree).addToApproximateEntriesCount(f.op, 0);
+    // Both nonNullDelta (0-0=0) and nullDelta (0) are zero → no page writes
     verifyNoMoreInteractions(f.svTree, f.nullTree);
   }
 

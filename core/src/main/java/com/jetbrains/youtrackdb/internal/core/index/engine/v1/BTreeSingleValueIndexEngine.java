@@ -593,7 +593,10 @@ public final class BTreeSingleValueIndexEngine
       AtomicOperation atomicOperation, long totalDelta, long nullDelta) {
     // Single-value engine stores all entries (including nulls) in one BTree.
     // The full totalDelta applies to the single tree's persisted count.
-    sbTree.addToApproximateEntriesCount(atomicOperation, totalDelta);
+    // nullDelta intentionally ignored — single tree stores all entries.
+    if (totalDelta != 0) {
+      sbTree.addToApproximateEntriesCount(atomicOperation, totalDelta);
+    }
   }
 
   /**

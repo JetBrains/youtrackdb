@@ -223,6 +223,49 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // Rollback: persisted count unchanged
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Insert entries in TX1 and commit, then begin TX2 with more inserts and
+   * rollback. Restart and verify that the persisted count reflects only TX1
+   * — the rolled-back TX2 must not affect the persisted count.
+   */
+  @Test
+  public void singleValue_rollbackDoesNotAffectPersistedCount()
+      throws Exception {
+    session.createClassIfNotExist("RBTest");
+    var cls = session.getClass("RBTest");
+    cls.createProperty("key", PropertyType.STRING);
+    cls.createIndex("RBTest.key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
+
+    // TX1: insert 3 entries, commit
+    session.begin();
+    for (int i = 0; i < 3; i++) {
+      session.newEntity("RBTest").setProperty("key", "k" + i);
+    }
+    session.commit();
+
+    // TX2: insert 2 more, then rollback
+    session.begin();
+    session.newEntity("RBTest").setProperty("key", "k3");
+    session.newEntity("RBTest").setProperty("key", "k4");
+    session.rollback();
+
+    // Restart and verify count reflects only TX1
+    session.close();
+    session = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, adminUser, adminPassword);
+
+    var engine = getBTreeIndexEngine(session, "RBTest.key");
+    session.getStorage().getAtomicOperationsManager()
+        .executeInsideAtomicOperation(atomicOp -> {
+          assertEquals(
+              "Rolled-back TX must not affect persisted count",
+              3, engine.getTotalCount(atomicOp));
+        });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════════
 

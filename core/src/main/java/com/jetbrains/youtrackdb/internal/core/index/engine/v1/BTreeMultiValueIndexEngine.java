@@ -629,8 +629,13 @@ public final class BTreeMultiValueIndexEngine
     // Multi-value engine splits entries across two trees:
     // svTree holds non-null entries, nullTree holds null entries.
     // totalDelta = nonNullDelta + nullDelta, so nonNullDelta = totalDelta - nullDelta.
-    svTree.addToApproximateEntriesCount(atomicOperation, totalDelta - nullDelta);
-    nullTree.addToApproximateEntriesCount(atomicOperation, nullDelta);
+    long nonNullDelta = totalDelta - nullDelta;
+    if (nonNullDelta != 0) {
+      svTree.addToApproximateEntriesCount(atomicOperation, nonNullDelta);
+    }
+    if (nullDelta != 0) {
+      nullTree.addToApproximateEntriesCount(atomicOperation, nullDelta);
+    }
   }
 
   /**
