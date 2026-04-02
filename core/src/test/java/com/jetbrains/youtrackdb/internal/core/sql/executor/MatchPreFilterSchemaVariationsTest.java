@@ -1216,10 +1216,12 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
         .toList();
     assertEquals(0, result.size());
 
-    // TODO: EmptyE has no typed LINK properties (out LINK / in LINK), so the
-    // planner cannot infer that the target class is EmptyV. Without knowing the
-    // target class, it cannot look up the EmptyV_val index. Adding typed LINK
-    // endpoints to the edge class would enable index intersection here.
+    // No intersection: EmptyE has no typed LINK properties, so the planner
+    // cannot infer that the target class is EmptyV and cannot look up the
+    // EmptyV_val index. This test intentionally uses an untyped edge to verify
+    // correct behavior with empty data and no pre-filter. The same scenario
+    // with typed LINK (where intersection triggers) is covered by
+    // indexFilter_noMatchingRecords_emptyResult in MatchPreFilterComprehensiveTest.
     String plan = explainPlan(
         "MATCH {class: EmptyV, as: a}"
             + ".out('EmptyE'){as: b, where: (val > 10)}"
@@ -1271,10 +1273,10 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     // Only 'c' (val=20) matches val >= 15
     assertEquals(1, result.size());
 
-    // TODO: RPEdge has no typed LINK properties (out LINK / in LINK), so the
-    // planner cannot infer the target class RPNode. Without target class context,
-    // the RPNode_val index cannot be discovered. Adding typed LINK endpoints to
-    // RPEdge would enable index intersection here.
+    // TODO: RPEdge has no typed LINK properties, so the planner cannot infer
+    // the target class RPNode and cannot discover the RPNode_val index. No
+    // other test covers $paths return mode WITH index intersection active —
+    // adding typed LINK here or creating a separate test would fill this gap.
     String plan = explainPlan(
         "MATCH {class: RPNode, as: start, where: (name = 'a')}"
             + ".out('RPEdge'){as: target, where: (val >= 15)}"
@@ -1392,10 +1394,12 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     }
     assertEquals(Set.of("pp3", "pp4"), names);
 
-    // TODO: PPEdge has no typed LINK properties (out LINK / in LINK), so the
-    // planner cannot infer the target class PPNode. Without target class context,
-    // the PPNode_val index cannot be discovered. Adding typed LINK endpoints to
-    // PPEdge would enable index intersection here.
+    // No intersection: PPEdge has no typed LINK properties, so the planner
+    // cannot infer that the target class is PPNode and cannot discover the
+    // PPNode_val index. This test intentionally uses an untyped edge to verify
+    // positional parameter correctness without pre-filter. Index pre-filter
+    // with named parameters is covered by indexFilter_namedParameter in
+    // MatchPreFilterComprehensiveTest.
     String plan = explainPlan(
         "MATCH {class: PPNode, as: root, where: (name = 'root')}"
             + ".out('PPEdge'){as: target, where: (val >= ?)}"

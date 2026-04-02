@@ -2056,7 +2056,10 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // No indexed filter on traversal targets (CForum.title is not indexed) and
     // no back-reference in this query. The where: (title = 'tech') on the forum
     // alias is a post-filter, not an index pre-filter.
-    // TODO: If CForum.title had an index, intersection could trigger here.
+    // No intersection: CForum.title has no index, so no IndexLookup.
+    // This test intentionally omits the index to verify data mutation
+    // visibility without pre-filter. Index pre-filter with indexed
+    // properties is covered by indexFilter_vertexProperty_creationDateRange.
     String plan = explainPlan(
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
             + ".in('CHasCreator'){as: post}"
