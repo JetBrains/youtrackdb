@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -182,47 +183,38 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
    */
   @Nullable private RID resolveBackRefRid(
       Result row, SemiJoinDescriptor desc, CommandContext ctx) {
-    if (desc instanceof SingleEdgeSemiJoin single) {
-      var value = single.backRefExpression().execute(row, ctx);
-      return toRid(value);
-    }
-    if (desc instanceof ChainSemiJoin chain) {
-      var value = chain.backRefExpression().execute(row, ctx);
-      return toRid(value);
-    }
-    if (desc instanceof AntiSemiJoin anti) {
-      // AntiSemiJoin resolves the anchor via $matched context variable
-      // (not via a backRefExpression), because NOT IN conditions reference
-      // $matched.X directly rather than through an @rid equality expression.
-      var matched = ctx.getVariable("$matched");
-      if (matched instanceof Result matchedResult) {
-        var value = matchedResult.getProperty(anti.anchorAlias());
-        return toRid(value);
+    return switch (desc) {
+      case SingleEdgeSemiJoin single ->
+          toRid(single.backRefExpression().execute(row, ctx));
+      case ChainSemiJoin chain ->
+          toRid(chain.backRefExpression().execute(row, ctx));
+      case AntiSemiJoin anti -> {
+        // AntiSemiJoin resolves the anchor via $matched context variable
+        // (not via a backRefExpression), because NOT IN conditions reference
+        // $matched.X directly rather than through an @rid equality expression.
+        var matched = ctx.getVariable("$matched");
+        if (matched instanceof Result matchedResult) {
+          yield toRid(matchedResult.getProperty(anti.anchorAlias()));
+        }
+        yield null;
       }
-      return null;
-    }
-    return null;
+    };
   }
 
   /**
    * Extracts the source alias RID from the upstream row (the probe key).
    */
   @Nullable private RID resolveSourceRid(Result row, SemiJoinDescriptor desc) {
-    if (desc instanceof SingleEdgeSemiJoin single) {
-      var value = row.getProperty(single.sourceAlias());
-      return toRid(value);
-    }
-    if (desc instanceof ChainSemiJoin chain) {
-      var value = row.getProperty(chain.sourceAlias());
-      return toRid(value);
-    }
-    if (desc instanceof AntiSemiJoin anti) {
+    return switch (desc) {
+      case SingleEdgeSemiJoin single ->
+          toRid(row.getProperty(single.sourceAlias()));
+      case ChainSemiJoin chain ->
+          toRid(row.getProperty(chain.sourceAlias()));
       // The probe key is the candidate vertex (target alias) — the vertex
       // just produced by the MatchStep traversal.
-      var value = row.getProperty(anti.targetAlias());
-      return toRid(value);
-    }
-    return null;
+      case AntiSemiJoin anti ->
+          toRid(row.getProperty(anti.targetAlias()));
+    };
   }
 
   /**
@@ -237,16 +229,12 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       RID backRefRid,
       SemiJoinDescriptor desc,
       CommandContext ctx) {
-    if (desc instanceof SingleEdgeSemiJoin single) {
-      return buildSingleEdgeHashTable(backRefRid, single, ctx);
-    }
-    if (desc instanceof ChainSemiJoin chain) {
-      return buildChainHashTable(backRefRid, chain, ctx);
-    }
-    if (desc instanceof AntiSemiJoin anti) {
-      return buildAntiJoinHashTable(backRefRid, anti, ctx);
-    }
-    return null;
+    return switch (desc) {
+      case SingleEdgeSemiJoin single -> buildSingleEdgeHashTable(
+          backRefRid, single, ctx);
+      case ChainSemiJoin chain -> buildChainHashTable(backRefRid, chain, ctx);
+      case AntiSemiJoin anti -> buildAntiJoinHashTable(backRefRid, anti, ctx);
+    };
   }
 
   /**
@@ -313,7 +301,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
           chain.indexFilter(), ctx);
     }
 
-    var result = new HashMap<RID, List<Result>>();
+    var initialCapacity = (int) Math.min(linkBag.size(), maxSize) * 4 / 3 + 1;
+    var result = new HashMap<RID, List<Result>>(initialCapacity);
     long count = 0;
     for (var pair : linkBag) {
       var edgeRid = pair.primaryRid();
@@ -374,7 +363,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null; // too large — fall back
     }
 
-    var result = new HashSet<RID>();
+    var initialCap = (int) Math.min(linkBag.size(), maxSize) * 4 / 3 + 1;
+    var result = new HashSet<RID>(initialCap);
     for (var pair : linkBag) {
       // secondaryRid is the opposite-side vertex RID
       result.add(pair.secondaryRid());
@@ -456,7 +446,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     if (value instanceof RID rid) {
       return rid;
     }
-    if (value instanceof com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable identifiable) {
+    if (value instanceof Identifiable identifiable) {
       return identifiable.getIdentity();
     }
     if (value instanceof Result result && result.isEntity()) {
