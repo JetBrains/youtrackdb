@@ -167,7 +167,15 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       var value = chain.backRefExpression().execute(row, ctx);
       return toRid(value);
     }
-    // AntiSemiJoin will be handled in Track 3
+    if (desc instanceof AntiSemiJoin anti) {
+      // Resolve $matched.X — the anchor alias vertex RID
+      var matched = ctx.getVariable("$matched");
+      if (matched instanceof Result matchedResult) {
+        var value = matchedResult.getProperty(anti.anchorAlias());
+        return toRid(value);
+      }
+      return null;
+    }
     return null;
   }
 
@@ -181,6 +189,12 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
     if (desc instanceof ChainSemiJoin chain) {
       var value = row.getProperty(chain.sourceAlias());
+      return toRid(value);
+    }
+    if (desc instanceof AntiSemiJoin anti) {
+      // The probe key is the candidate vertex (target alias) — the vertex
+      // just produced by the MatchStep traversal.
+      var value = row.getProperty(anti.targetAlias());
       return toRid(value);
     }
     return null;
@@ -225,7 +239,9 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     if (desc instanceof ChainSemiJoin chain) {
       return buildChainHashTable(backRefRid, chain, ctx);
     }
-    // AntiSemiJoin will be handled in Track 3
+    if (desc instanceof AntiSemiJoin anti) {
+      return buildAntiJoinHashTable(backRefRid, anti, ctx);
+    }
     return null;
   }
 
@@ -320,6 +336,50 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
         }
       } catch (RecordNotFoundException e) {
         // Edge record missing — skip
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Pattern D build: reads the forward link bag of the anchor vertex
+   * ({@code X.out('E')}) and collects opposite-side vertex RIDs into a
+   * {@code HashSet<RID>} — the exclusion set. The probe discards upstream
+   * rows whose candidate RID appears in this set.
+   */
+  @Nullable private Set<RID> buildAntiJoinHashTable(
+      RID anchorRid, AntiSemiJoin anti, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    EntityImpl anchorEntity;
+    try {
+      var rec = session.getActiveTransaction().load(anchorRid);
+      if (!(rec instanceof EntityImpl entity)) {
+        return null;
+      }
+      anchorEntity = entity;
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+
+    // Forward link bag: out_E or in_E depending on traversal direction
+    var prefix = "out".equals(anti.traversalDirection()) ? "out_" : "in_";
+    var fieldName = prefix + anti.traversalEdgeClass();
+    var fieldValue = anchorEntity.getPropertyInternal(fieldName);
+    if (!(fieldValue instanceof LinkBag linkBag)) {
+      return null;
+    }
+
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
+    if (linkBag.size() > maxSize) {
+      return null; // too large — fall back
+    }
+
+    var result = new HashSet<RID>();
+    for (var pair : linkBag) {
+      // secondaryRid is the opposite-side vertex RID
+      result.add(pair.secondaryRid());
+      if (maxSize > 0 && result.size() > maxSize) {
+        return null;
       }
     }
     return result;
@@ -432,6 +492,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
           + " via " + chain.direction() + "E('" + chain.edgeClass() + "').inV()"
           + " aliases: " + chain.intermediateAlias() + ", " + chain.targetAlias()
           + ")";
+    }
+    if (descriptor instanceof AntiSemiJoin anti) {
+      return spaces
+          + "+ BACK-REF HASH JOIN ANTI (NOT IN $matched."
+          + anti.anchorAlias()
+          + "." + anti.traversalDirection() + "('" + anti.traversalEdgeClass()
+          + "'))";
     }
     return spaces + "+ BACK-REF HASH JOIN (" + descriptor.joinMode() + ")";
   }
