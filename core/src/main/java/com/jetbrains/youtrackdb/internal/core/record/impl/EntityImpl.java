@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -137,6 +138,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private boolean propertyConversionInProgress = false;
 
+  // Zero-copy PageFrame fields (set by fillFromPage, cleared by clearPageFrame)
+  @Nullable private PageFrame pageFrame;
+  private long pageStamp;
+  private int pageContentOffset;
+  private int pageContentLength;
+
   /**
    * Internal constructor used on unmarshalling.
    */
@@ -207,6 +214,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   public boolean sourceIsParsedByProperties() {
+    // A PageFrame-loaded record has source == null but is NOT yet parsed —
+    // it needs deserialization at property-access time.
+    if (pageFrame != null) {
+      return false;
+    }
     return super.sourceIsParsedByProperties() || (properties != null && !properties.isEmpty());
   }
 
@@ -2347,6 +2359,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public byte[] toStream() {
     checkForBinding();
 
+    // If loaded from PageFrame but not yet deserialized, trigger deserialization
+    // so the serializer can produce bytes from the parsed properties.
+    if (source == null && pageFrame != null) {
+      checkForProperties();
+    }
+
     var prev = status;
     status = STATUS.MARSHALLING;
     try {
@@ -3155,6 +3173,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     status = STATUS.UNMARSHALLING;
     try {
+      clearPageFrame();
       removeAllCollectionChangeListeners();
 
       properties = null;
@@ -3372,7 +3391,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     List<String> additional = null;
-    if (source == null)
+    if (source == null && pageFrame == null)
     // ALREADY UNMARSHALLED OR JUST EMPTY
     {
       return true;
@@ -3677,13 +3696,87 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Cannot call fill() on dirty records");
     }
 
+    clearPageFrame();
     schema = null;
     fetchSchema();
     return super.fill(version, buffer, dirty);
   }
 
+  /**
+   * Fills this entity from a PageFrame reference for zero-copy deserialization.
+   * The PageFrame is kept for lazy deserialization at property-access time.
+   * The stamp is validated after speculative deserialization; if invalid, the entity
+   * falls back to a byte[] re-read from storage.
+   *
+   * @param version      the record version
+   * @param recordType   the record type byte (unused here, but matches fill() signature pattern)
+   * @param pageFrame    the PageFrame containing the record data
+   * @param stamp        the optimistic read stamp from the PageFrame's StampedLock
+   * @param contentOffset the byte offset within the PageFrame buffer where record content starts
+   * @param contentLength the byte length of the record content
+   */
+  public void fillFromPage(long version, byte recordType, PageFrame pageFrame,
+      long stamp, int contentOffset, int contentLength) {
+    assert pageFrame != null : "PageFrame must not be null";
+    assert contentOffset >= 0 : "contentOffset must be non-negative: " + contentOffset;
+    assert contentLength >= 0 : "contentLength must be non-negative: " + contentLength;
+
+    var session = getSession();
+    if (dirty > 0) {
+      throw new DatabaseException(session.getDatabaseName(),
+          "Cannot call fillFromPage() on dirty records");
+    }
+
+    removeAllCollectionChangeListeners();
+    properties = null;
+    propertiesCount = 0;
+    contentChanged = false;
+    schema = null;
+
+    fetchSchema();
+
+    this.pageFrame = pageFrame;
+    this.pageStamp = stamp;
+    this.pageContentOffset = contentOffset;
+    this.pageContentLength = contentLength;
+
+    this.recordVersion = version;
+    this.size = contentLength;
+    this.source = null;
+    this.status = STATUS.LOADED;
+  }
+
+  /**
+   * Clears the PageFrame reference and associated fields, releasing the reference
+   * for GC. Called from lifecycle methods that invalidate the record's data source
+   * (internalReset, fromStream, fill, clearSource).
+   */
+  public void clearPageFrame() {
+    pageFrame = null;
+    pageStamp = 0;
+    pageContentOffset = 0;
+    pageContentLength = 0;
+  }
+
+  @Nullable public PageFrame getPageFrame() {
+    return pageFrame;
+  }
+
+  public long getPageStamp() {
+    return pageStamp;
+  }
+
+  public int getPageContentOffset() {
+    return pageContentOffset;
+  }
+
+  public int getPageContentLength() {
+    return pageContentLength;
+  }
+
   @Override
   public void clearSource() {
+    clearPageFrame();
     super.clearSource();
     schema = null;
   }
@@ -3913,6 +4006,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   protected void internalReset() {
+    clearPageFrame();
     removeAllCollectionChangeListeners();
     if (properties != null) {
       properties.clear();
@@ -3928,7 +4022,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         this.properties = new HashMap<>();
       }
 
-      if (source != null) {
+      if (source != null || pageFrame != null) {
         return deserializeProperties(properties);
       }
 
