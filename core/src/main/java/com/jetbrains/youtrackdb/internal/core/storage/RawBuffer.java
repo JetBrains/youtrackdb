@@ -22,7 +22,13 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import java.util.Arrays;
 import java.util.Objects;
 
-public record RawBuffer(byte[] buffer, long version, byte recordType) {
+public record RawBuffer(byte[] buffer, long version, byte recordType)
+    implements StorageReadResult {
+
+  @Override
+  public long recordVersion() {
+    return version;
+  }
 
   @Override
   public boolean equals(Object o) {
