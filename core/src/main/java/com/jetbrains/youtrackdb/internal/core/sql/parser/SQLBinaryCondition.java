@@ -77,12 +77,11 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
     }
 
     // In-place comparison fast path: avoid deserialization for simple
-    // "property <op> constant" patterns when no collation is involved.
+    // "property <op> constant" patterns.  Collation is checked inside
+    // EntityImpl.deserializeFieldForComparison, so no getCollate guard needed here.
     if (left.isBaseIdentifier()
         && left.mathExpression instanceof SQLBaseExpression baseExpr
         && right.isEarlyCalculated(ctx)
-        && left.getCollate(currentRecord, ctx) == null
-        && right.getCollate(currentRecord, ctx) == null
         && currentRecord instanceof ResultInternal ri
         && ri.asEntityOrNull() instanceof EntityImpl entityImpl) {
       var propName = baseExpr.getIdentifier().getSuffix()

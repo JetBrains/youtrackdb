@@ -624,12 +624,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return null;
     }
 
-    var schemaClass = getImmutableSchemaClass(session);
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = getImmutableSchemaClass(session, immutableSchema);
     var serializer = RecordSerializerBinary.INSTANCE.getSerializer(source[0]);
     var bytes = new BytesContainer(source, 1);
     var field = serializer.deserializeField(
         session, bytes, schemaClass, name, isEmbedded(),
-        session.getMetadata().getImmutableSchemaSnapshot(), propertyEncryption);
+        immutableSchema, propertyEncryption);
 
     if (field == null) {
       return null;
@@ -3684,11 +3685,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nullable public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionEmbedded session) {
+    return getImmutableSchemaClass(session,
+        session.getMetadata().getImmutableSchemaSnapshot());
+  }
+
+  @Nullable private SchemaImmutableClass getImmutableSchemaClass(
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nullable ImmutableSchema immutableSchema) {
     if (this.session != null && this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
-    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     if (immutableClazz == null) {
       if (className == null) {
         fetchClassName(session);
@@ -3704,7 +3711,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     } else if (immutableSchemaVersion != immutableSchema.getVersion()) {
       immutableClazz = null;
-      return getImmutableSchemaClass(session);
+      return getImmutableSchemaClass(session, immutableSchema);
     }
 
     return immutableClazz;
