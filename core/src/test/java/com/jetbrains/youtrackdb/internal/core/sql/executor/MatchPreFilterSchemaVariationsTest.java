@@ -1273,10 +1273,10 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     // Only 'c' (val=20) matches val >= 15
     assertEquals(1, result.size());
 
-    // TODO: RPEdge has no typed LINK properties, so the planner cannot infer
-    // the target class RPNode and cannot discover the RPNode_val index. No
-    // other test covers $paths return mode WITH index intersection active —
-    // adding typed LINK here or creating a separate test would fill this gap.
+    // No intersection: RPEdge has no typed LINK properties, so the planner
+    // cannot infer the target class RPNode and cannot discover the RPNode_val
+    // index. The same scenario WITH intersection active is covered by
+    // returnPaths_withPreFilterAndTypedLink (which uses typed LINK edges).
     String plan = explainPlan(
         "MATCH {class: RPNode, as: start, where: (name = 'a')}"
             + ".out('RPEdge'){as: target, where: (val >= 15)}"
@@ -1284,6 +1284,65 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     assertFalse(
         "No typed LINK on RPEdge prevents target class inference:\n" + plan,
         plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * $paths return mode with index intersection ACTIVE. Uses a typed LINK
+   * edge class so the planner can infer the target class and discover the
+   * index. Verifies that $paths path collection works correctly when the
+   * pre-filter is applied.
+   */
+  @Test
+  public void returnPaths_withPreFilterAndTypedLink() {
+    session.execute("CREATE class RPLNode extends V").close();
+    session.execute("CREATE property RPLNode.name STRING").close();
+    session.execute("CREATE property RPLNode.val INTEGER").close();
+    session.execute(
+        "CREATE index RPLNode_val on RPLNode (val) NOTUNIQUE").close();
+
+    session.execute("CREATE class RPLEdge extends E").close();
+    session.execute("CREATE property RPLEdge.out LINK RPLNode").close();
+    session.execute("CREATE property RPLEdge.in LINK RPLNode").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX RPLNode set name = 'root', val = 0")
+        .close();
+    session.execute("CREATE VERTEX RPLNode set name = 'low', val = 5")
+        .close();
+    session.execute("CREATE VERTEX RPLNode set name = 'mid', val = 15")
+        .close();
+    session.execute("CREATE VERTEX RPLNode set name = 'high', val = 25")
+        .close();
+
+    for (String target : new String[] {"low", "mid", "high"}) {
+      session.execute(
+          "CREATE EDGE RPLEdge FROM (SELECT FROM RPLNode WHERE name = 'root')"
+              + " TO (SELECT FROM RPLNode WHERE name = '" + target + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // $paths with pre-filter: val >= 10 → mid(15), high(25)
+    var result = session.query(
+        "MATCH {class: RPLNode, as: start, where: (name = 'root')}"
+            + ".out('RPLEdge'){as: target, where: (val >= 10)}"
+            + " RETURN $paths")
+        .toList();
+    assertEquals(2, result.size());
+    // Each $paths row should contain start + target (2 aliases)
+    for (var r : result) {
+      assertEquals(2, r.getPropertyNames().size());
+    }
+
+    // Typed LINK enables class inference → index intersection should trigger
+    String plan = explainPlan(
+        "MATCH {class: RPLNode, as: start, where: (name = 'root')}"
+            + ".out('RPLEdge'){as: target, where: (val >= 10)}"
+            + " RETURN target.name");
+    assertTrue("Plan should show index intersection with typed LINK:\n"
+        + plan, plan.contains("intersection: index"));
     session.commit();
   }
 
