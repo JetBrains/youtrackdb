@@ -1541,6 +1541,15 @@ public class CollectionPageTest {
           1L, buildChunk((byte) 'd', 0L, new byte[] {1, 2, 3}), -1, IntSets.emptySet());
       localPage.deleteRecord(0, true);
 
+      // Guard: skip assertion-behavior tests if assertions are disabled
+      try {
+        assert false;
+        // Assertions disabled — cannot test AssertionError behavior
+        return;
+      } catch (AssertionError ignored) {
+        // Assertions enabled — proceed
+      }
+
       boolean offsetAssertionFired = false;
       try {
         localPage.getRecordContentOffset(0);

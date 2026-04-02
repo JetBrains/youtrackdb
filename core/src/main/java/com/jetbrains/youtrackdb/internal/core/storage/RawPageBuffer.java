@@ -54,6 +54,13 @@ public record RawPageBuffer(
     assert pageFrame != null : "PageFrame must not be null";
     assert contentOffset >= 0 : "contentOffset must be non-negative";
     assert contentLength >= 0 : "contentLength must be non-negative";
+    assert contentOffset + contentLength <= pageFrame.getBuffer().capacity()
+        : "content region ["
+            + contentOffset
+            + ", "
+            + (contentOffset + contentLength)
+            + ") exceeds page buffer capacity "
+            + pageFrame.getBuffer().capacity();
   }
 
   /**

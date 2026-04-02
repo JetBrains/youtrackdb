@@ -794,7 +794,11 @@ public final class CollectionPage extends DurablePage {
     final var recordSize = getRecordSize(recordPosition);
     assert recordSize >= RECORD_METADATA_HEADER_SIZE + RECORD_TAIL_SIZE
         : "Record size " + recordSize + " too small for content extraction";
-    return recordSize - RECORD_METADATA_HEADER_SIZE - RECORD_TAIL_SIZE;
+    final var contentLength = recordSize - RECORD_METADATA_HEADER_SIZE - RECORD_TAIL_SIZE;
+    assert contentLength >= 0
+        : "Computed content length " + contentLength + " is negative for record at position "
+            + recordPosition;
+    return contentLength;
   }
 
   private boolean insideRecordBounds(
