@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
@@ -718,9 +719,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 indexManagerRecordId2, storageType1, storageType2)) {
               continue;
             }
-            final var buffer1 = sessionOne.getStorage()
+            final var buffer1 = (RawBuffer) sessionOne.getStorage()
                 .readRecord(rid1, txOne.getAtomicOperation());
-            final var buffer2 = sessionTwo.getStorage()
+            final var buffer2 = (RawBuffer) sessionTwo.getStorage()
                 .readRecord(rid2, txTwo.getAtomicOperation());
 
             if (buffer1.recordType() != buffer2.recordType()) {
@@ -798,9 +799,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   } else {
                     if (buffer1.buffer().length != buffer2.buffer().length) {
                       // CHECK IF THE TRIMMED SIZE IS THE SAME
-                      @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
+                      @SuppressWarnings("ObjectAllocationInLoop")
+                      final var rec1 = new String(
                           buffer1.buffer()).trim();
-                      @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
+                      @SuppressWarnings("ObjectAllocationInLoop")
+                      final var rec2 = new String(
                           buffer2.buffer()).trim();
 
                       if (rec1.length() != rec2.length()) {

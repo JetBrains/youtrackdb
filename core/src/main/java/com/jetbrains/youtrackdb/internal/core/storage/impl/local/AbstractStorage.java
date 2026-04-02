@@ -99,6 +99,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -1723,7 +1724,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public @Nonnull RawBuffer readRecord(final RecordIdInternal rid,
+  public @Nonnull StorageReadResult readRecord(final RecordIdInternal rid,
       @Nonnull AtomicOperation atomicOperation) {
     try {
       return readRecordInternal(rid, atomicOperation);
@@ -4156,7 +4157,7 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private RawBuffer readRecordInternal(@Nonnull final RecordIdInternal rid,
+  private StorageReadResult readRecordInternal(@Nonnull final RecordIdInternal rid,
       @Nonnull AtomicOperation atomicOperation) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
@@ -4470,23 +4471,25 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private RawBuffer doReadRecord(final StorageCollection collection, final RecordIdInternal rid,
-      AtomicOperation atomicOperation) {
+  private StorageReadResult doReadRecord(final StorageCollection collection,
+      final RecordIdInternal rid, AtomicOperation atomicOperation) {
     collection.meters().read().record();
     try {
-      final var buff = collection.readRecord(rid.getCollectionPosition(),
+      final var result = collection.readRecord(rid.getCollectionPosition(),
           atomicOperation);
       if (logger.isDebugEnabled()) {
         LogManager.instance()
             .debug(
                 this,
-                "Read record %s v.%s size=%d bytes",
+                "Read record %s v.%s size=%s bytes",
                 logger, rid,
-                buff.version(),
-                buff.buffer() != null ? buff.buffer().length : 0);
+                result.recordVersion(),
+                result instanceof RawBuffer rb
+                    ? (rb.buffer() != null ? rb.buffer().length : 0)
+                    : "page-ref");
       }
 
-      return buff;
+      return result;
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(name, "Error during read of record with rid = " + rid), e, name);

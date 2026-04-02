@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
@@ -868,7 +869,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   @Nonnull
-  public RawBuffer readRecord(final long collectionPosition,
+  public StorageReadResult readRecord(final long collectionPosition,
       @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return executeOptimisticStorageRead(

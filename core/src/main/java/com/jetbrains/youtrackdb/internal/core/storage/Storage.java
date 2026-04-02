@@ -49,11 +49,7 @@ import javax.annotation.Nullable;
 public interface Storage {
 
   enum STATUS {
-    CLOSED,
-    OPEN,
-    MIGRATION,
-    CLOSING,
-    @Deprecated
+    CLOSED, OPEN, MIGRATION, CLOSING, @Deprecated
     OPENING,
   }
 
@@ -78,7 +74,7 @@ public interface Storage {
   // CRUD OPERATIONS
   @SuppressWarnings("unused")
   @Nonnull
-  RawBuffer readRecord(RecordIdInternal iRid, @Nonnull AtomicOperation atomicOperation);
+  StorageReadResult readRecord(RecordIdInternal iRid, @Nonnull AtomicOperation atomicOperation);
 
   boolean recordExists(DatabaseSessionEmbedded session, RID rid, AtomicOperation atomicOperation);
 
