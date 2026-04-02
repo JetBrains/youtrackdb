@@ -844,4 +844,137 @@ public class EntityImplZeroCopyIntegrationTest {
     assertEquals("target", linkedEntity.getProperty("label"));
     session.rollback();
   }
+
+  // --- Vertex zero-copy path ---
+
+  /**
+   * Verifies that a vertex entity loaded through the zero-copy path correctly
+   * deserializes properties. Vertices use record type 'v' and are dispatched
+   * through VertexEntityImpl — this tests the full chain from
+   * fillFromPage → deserializeFromPageFrame for vertex records.
+   */
+  @Test
+  public void testVertexZeroCopyPropertyAccess() {
+    session.createVertexClass("ZCVertex");
+
+    session.begin();
+    var vertex = session.newVertex("ZCVertex");
+    vertex.setProperty("name", "Alice");
+    vertex.setProperty("age", 30);
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    flushToReadCache(rid);
+
+    session.begin();
+    var loaded = (EntityImpl) session.load(rid);
+
+    // Verify PageFrame-backed load for vertex record type
+    assertNotNull(
+        "Vertex should be PageFrame-backed after flush-to-read-cache load",
+        loaded.getPageFrame());
+
+    // Verify vertex record type is 'v'
+    assertTrue("Loaded record should be a VertexEntityImpl",
+        loaded instanceof VertexEntityImpl);
+
+    // Verify properties deserialize correctly through the zero-copy path
+    assertEquals("Alice", loaded.getProperty("name"));
+    assertEquals(Integer.valueOf(30), loaded.getProperty("age"));
+
+    // Full deserialization clears PageFrame
+    assertTrue("Full deserialization should succeed",
+        loaded.checkForProperties());
+    assertNull("PageFrame should be cleared after full deserialization",
+        loaded.getPageFrame());
+    session.rollback();
+  }
+
+  // --- Edge zero-copy path ---
+
+  /**
+   * Verifies that an edge entity loaded through the zero-copy path correctly
+   * deserializes properties. Edges use record type 'e' and are dispatched
+   * through EdgeEntityImpl — this tests the full chain from
+   * fillFromPage → deserializeFromPageFrame for edge records.
+   */
+  @Test
+  public void testEdgeZeroCopyPropertyAccess() {
+    session.createVertexClass("ZCEdgeV");
+    session.createEdgeClass("ZCEdge");
+
+    session.begin();
+    var v1 = session.newVertex("ZCEdgeV");
+    v1.setProperty("name", "v1");
+    var v2 = session.newVertex("ZCEdgeV");
+    v2.setProperty("name", "v2");
+    var edge = session.newEdge(v1, v2, "ZCEdge");
+    edge.setProperty("weight", 0.75);
+    edge.setProperty("label", "connects");
+    session.commit();
+    var edgeRid = edge.getIdentity();
+    var v1Rid = v1.getIdentity();
+    var v2Rid = v2.getIdentity();
+
+    flushToReadCache(edgeRid, v1Rid, v2Rid);
+
+    session.begin();
+    var loaded = (EntityImpl) session.load(edgeRid);
+
+    // Verify PageFrame-backed load for edge record type
+    assertNotNull(
+        "Edge should be PageFrame-backed after flush-to-read-cache load",
+        loaded.getPageFrame());
+
+    // Verify edge record type is 'e'
+    assertTrue("Loaded record should be an EdgeEntityImpl",
+        loaded instanceof EdgeEntityImpl);
+
+    // Verify properties deserialize correctly through the zero-copy path
+    assertEquals(Double.valueOf(0.75), loaded.getProperty("weight"));
+    assertEquals("connects", loaded.getProperty("label"));
+
+    // PageFrame is still set after partial property accesses
+    assertNotNull("PageFrame kept after partial property accesses",
+        loaded.getPageFrame());
+    session.rollback();
+  }
+
+  // --- Vertex with stamp invalidation fallback ---
+
+  /**
+   * Verifies that vertex entities correctly fall back to the byte[] re-read
+   * path when the PageFrame stamp is invalidated. This tests the
+   * VertexEntityImpl-specific deserialization through the fallback chain.
+   */
+  @Test
+  public void testVertexStampInvalidationFallback() {
+    session.createVertexClass("ZCVertexFB");
+
+    session.begin();
+    var vertex = session.newVertex("ZCVertexFB");
+    vertex.setProperty("city", "Berlin");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    flushToReadCache(rid);
+
+    session.begin();
+    var loaded = (EntityImpl) session.load(rid);
+
+    var pageFrame = loaded.getPageFrame();
+    assertNotNull("Vertex should be PageFrame-backed", pageFrame);
+
+    // Invalidate the stamp
+    long exclusiveLock = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(exclusiveLock);
+
+    // Property access should fall back to byte[] re-read
+    assertEquals("Berlin", loaded.getProperty("city"));
+
+    // After fallback, PageFrame should be cleared
+    assertNull("PageFrame should be cleared after fallback",
+        loaded.getPageFrame());
+    session.rollback();
+  }
 }
