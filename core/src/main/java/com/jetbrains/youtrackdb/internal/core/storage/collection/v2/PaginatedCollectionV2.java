@@ -185,13 +185,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   /**
    * Size of the per-record metadata header that precedes the actual record content.
-   *
-   * <pre>{@code
-   * Layout: [recordType: 1B][contentSize: 4B][collectionPosition: 8B] = 13 bytes
-   * }</pre>
+   * Delegates to {@link CollectionPage#RECORD_METADATA_HEADER_SIZE}.
    */
-  private static final int METADATA_SIZE =
-      ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
+  private static final int METADATA_SIZE = CollectionPage.RECORD_METADATA_HEADER_SIZE;
 
   /**
    * Bit offset used to pack a page index and a record position into a single {@code long}

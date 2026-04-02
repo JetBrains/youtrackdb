@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
@@ -58,7 +60,7 @@ public class CollectionPageTest {
 
     var position =
         localPage.appendRecord(
-            recordVersion, new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1}, -1, IntSets.emptySet());
+            recordVersion, new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1}, -1, IntSets.emptySet());
     Assert.assertEquals(localPage.getRecordsCount(), 1);
     Assert.assertEquals(localPage.getRecordSize(0), 11);
     Assert.assertEquals(position, 0);
@@ -68,7 +70,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordVersion(0), recordVersion);
 
     assertThat(localPage.getRecordBinaryValue(0, 0, 11))
-        .isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1});
+        .isEqualTo(new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1});
   }
 
   @Test
@@ -103,13 +105,13 @@ public class CollectionPageTest {
 
     var positionOne =
         localPage.appendRecord(
-            recordVersion, new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1}, -1, IntSets.emptySet());
+            recordVersion, new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1}, -1, IntSets.emptySet());
     var positionTwo =
         localPage.appendRecord(
-            recordVersion, new byte[]{2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2}, -1, IntSets.emptySet());
+            recordVersion, new byte[] {2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2}, -1, IntSets.emptySet());
     var positionThree =
         localPage.appendRecord(
-            recordVersion, new byte[]{3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3}, -1, IntSets.emptySet());
+            recordVersion, new byte[] {3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3}, -1, IntSets.emptySet());
 
     Assert.assertEquals(localPage.getRecordsCount(), 3);
     Assert.assertEquals(positionOne, 0);
@@ -123,17 +125,17 @@ public class CollectionPageTest {
     Assert.assertFalse(localPage.isDeleted(2));
 
     assertThat(localPage.getRecordBinaryValue(0, 0, 11))
-        .isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1});
+        .isEqualTo(new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1});
     Assert.assertEquals(localPage.getRecordSize(0), 11);
     Assert.assertEquals(localPage.getRecordVersion(0), recordVersion);
 
     assertThat(localPage.getRecordBinaryValue(1, 0, 11))
-        .isEqualTo(new byte[]{2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2});
     Assert.assertEquals(localPage.getRecordSize(0), 11);
     Assert.assertEquals(localPage.getRecordVersion(1), recordVersion);
 
     assertThat(localPage.getRecordBinaryValue(2, 0, 11))
-        .isEqualTo(new byte[]{3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3});
+        .isEqualTo(new byte[] {3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3});
     Assert.assertEquals(localPage.getRecordSize(0), 11);
     Assert.assertEquals(localPage.getRecordVersion(2), recordVersion);
   }
@@ -171,7 +173,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positions.size());
         positions.add(lastPosition);
@@ -188,7 +190,7 @@ public class CollectionPageTest {
     counter = 0;
     for (int position : positions) {
       assertThat(localPage.getRecordBinaryValue(position, 0, 3))
-          .isEqualTo(new byte[]{counter, counter, counter});
+          .isEqualTo(new byte[] {counter, counter, counter});
       Assert.assertEquals(localPage.getRecordSize(position), 3);
       Assert.assertEquals(localPage.getRecordVersion(position), recordVersion);
       counter++;
@@ -220,10 +222,10 @@ public class CollectionPageTest {
   private void addDeleteAddBookedPositionsOne(final CollectionPage collectionPage) {
     final IntSet bookedPositions = new IntOpenHashSet();
 
-    collectionPage.appendRecord(1, new byte[]{1}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{2}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{3}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{4}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {1}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {2}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {3}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {4}, -1, bookedPositions);
 
     collectionPage.deleteRecord(0, true);
     collectionPage.deleteRecord(1, true);
@@ -233,30 +235,30 @@ public class CollectionPageTest {
     bookedPositions.add(1);
     bookedPositions.add(2);
 
-    var position = collectionPage.appendRecord(1, new byte[]{5}, -1, bookedPositions);
+    var position = collectionPage.appendRecord(1, new byte[] {5}, -1, bookedPositions);
     Assert.assertEquals(3, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{6}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {6}, -1, bookedPositions);
     Assert.assertEquals(0, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{7}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {7}, -1, bookedPositions);
     Assert.assertEquals(4, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{8}, 1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {8}, 1, bookedPositions);
     Assert.assertEquals(1, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{9}, 2, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {9}, 2, bookedPositions);
     Assert.assertEquals(2, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{10}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {10}, -1, bookedPositions);
     Assert.assertEquals(5, position);
 
-    Assert.assertArrayEquals(new byte[]{6}, collectionPage.getRecordBinaryValue(0, 0, 1));
-    Assert.assertArrayEquals(new byte[]{8}, collectionPage.getRecordBinaryValue(1, 0, 1));
-    Assert.assertArrayEquals(new byte[]{9}, collectionPage.getRecordBinaryValue(2, 0, 1));
-    Assert.assertArrayEquals(new byte[]{5}, collectionPage.getRecordBinaryValue(3, 0, 1));
-    Assert.assertArrayEquals(new byte[]{7}, collectionPage.getRecordBinaryValue(4, 0, 1));
-    Assert.assertArrayEquals(new byte[]{10}, collectionPage.getRecordBinaryValue(5, 0, 1));
+    Assert.assertArrayEquals(new byte[] {6}, collectionPage.getRecordBinaryValue(0, 0, 1));
+    Assert.assertArrayEquals(new byte[] {8}, collectionPage.getRecordBinaryValue(1, 0, 1));
+    Assert.assertArrayEquals(new byte[] {9}, collectionPage.getRecordBinaryValue(2, 0, 1));
+    Assert.assertArrayEquals(new byte[] {5}, collectionPage.getRecordBinaryValue(3, 0, 1));
+    Assert.assertArrayEquals(new byte[] {7}, collectionPage.getRecordBinaryValue(4, 0, 1));
+    Assert.assertArrayEquals(new byte[] {10}, collectionPage.getRecordBinaryValue(5, 0, 1));
   }
 
   @Test
@@ -284,10 +286,10 @@ public class CollectionPageTest {
   private void addDeleteAddBookedPositionsTwo(final CollectionPage collectionPage) {
     final IntSet bookedPositions = new IntOpenHashSet();
 
-    collectionPage.appendRecord(1, new byte[]{1}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{2}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{3}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{4}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {1}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {2}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {3}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {4}, -1, bookedPositions);
 
     collectionPage.deleteRecord(0, true);
     collectionPage.deleteRecord(1, true);
@@ -297,30 +299,30 @@ public class CollectionPageTest {
     bookedPositions.add(1);
     bookedPositions.add(2);
 
-    var position = collectionPage.appendRecord(1, new byte[]{5}, -1, bookedPositions);
+    var position = collectionPage.appendRecord(1, new byte[] {5}, -1, bookedPositions);
     Assert.assertEquals(3, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{6}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {6}, -1, bookedPositions);
     Assert.assertEquals(0, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{9}, 2, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {9}, 2, bookedPositions);
     Assert.assertEquals(2, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{7}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {7}, -1, bookedPositions);
     Assert.assertEquals(4, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{8}, 1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {8}, 1, bookedPositions);
     Assert.assertEquals(1, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{10}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {10}, -1, bookedPositions);
     Assert.assertEquals(5, position);
 
-    Assert.assertArrayEquals(new byte[]{6}, collectionPage.getRecordBinaryValue(0, 0, 1));
-    Assert.assertArrayEquals(new byte[]{8}, collectionPage.getRecordBinaryValue(1, 0, 1));
-    Assert.assertArrayEquals(new byte[]{9}, collectionPage.getRecordBinaryValue(2, 0, 1));
-    Assert.assertArrayEquals(new byte[]{5}, collectionPage.getRecordBinaryValue(3, 0, 1));
-    Assert.assertArrayEquals(new byte[]{7}, collectionPage.getRecordBinaryValue(4, 0, 1));
-    Assert.assertArrayEquals(new byte[]{10}, collectionPage.getRecordBinaryValue(5, 0, 1));
+    Assert.assertArrayEquals(new byte[] {6}, collectionPage.getRecordBinaryValue(0, 0, 1));
+    Assert.assertArrayEquals(new byte[] {8}, collectionPage.getRecordBinaryValue(1, 0, 1));
+    Assert.assertArrayEquals(new byte[] {9}, collectionPage.getRecordBinaryValue(2, 0, 1));
+    Assert.assertArrayEquals(new byte[] {5}, collectionPage.getRecordBinaryValue(3, 0, 1));
+    Assert.assertArrayEquals(new byte[] {7}, collectionPage.getRecordBinaryValue(4, 0, 1));
+    Assert.assertArrayEquals(new byte[] {10}, collectionPage.getRecordBinaryValue(5, 0, 1));
   }
 
   @Test
@@ -348,10 +350,10 @@ public class CollectionPageTest {
   private void addDeleteAddBookedPositionsThree(final CollectionPage collectionPage) {
     final IntSet bookedPositions = new IntOpenHashSet();
 
-    collectionPage.appendRecord(1, new byte[]{1}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{2}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{3}, -1, bookedPositions);
-    collectionPage.appendRecord(1, new byte[]{4}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {1}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {2}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {3}, -1, bookedPositions);
+    collectionPage.appendRecord(1, new byte[] {4}, -1, bookedPositions);
 
     collectionPage.deleteRecord(0, true);
     collectionPage.deleteRecord(1, true);
@@ -361,30 +363,30 @@ public class CollectionPageTest {
     bookedPositions.add(1);
     bookedPositions.add(2);
 
-    var position = collectionPage.appendRecord(1, new byte[]{9}, 2, bookedPositions);
+    var position = collectionPage.appendRecord(1, new byte[] {9}, 2, bookedPositions);
     Assert.assertEquals(2, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{8}, 1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {8}, 1, bookedPositions);
     Assert.assertEquals(1, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{5}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {5}, -1, bookedPositions);
     Assert.assertEquals(3, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{6}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {6}, -1, bookedPositions);
     Assert.assertEquals(0, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{7}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {7}, -1, bookedPositions);
     Assert.assertEquals(4, position);
 
-    position = collectionPage.appendRecord(1, new byte[]{10}, -1, bookedPositions);
+    position = collectionPage.appendRecord(1, new byte[] {10}, -1, bookedPositions);
     Assert.assertEquals(5, position);
 
-    Assert.assertArrayEquals(new byte[]{6}, collectionPage.getRecordBinaryValue(0, 0, 1));
-    Assert.assertArrayEquals(new byte[]{8}, collectionPage.getRecordBinaryValue(1, 0, 1));
-    Assert.assertArrayEquals(new byte[]{9}, collectionPage.getRecordBinaryValue(2, 0, 1));
-    Assert.assertArrayEquals(new byte[]{5}, collectionPage.getRecordBinaryValue(3, 0, 1));
-    Assert.assertArrayEquals(new byte[]{7}, collectionPage.getRecordBinaryValue(4, 0, 1));
-    Assert.assertArrayEquals(new byte[]{10}, collectionPage.getRecordBinaryValue(5, 0, 1));
+    Assert.assertArrayEquals(new byte[] {6}, collectionPage.getRecordBinaryValue(0, 0, 1));
+    Assert.assertArrayEquals(new byte[] {8}, collectionPage.getRecordBinaryValue(1, 0, 1));
+    Assert.assertArrayEquals(new byte[] {9}, collectionPage.getRecordBinaryValue(2, 0, 1));
+    Assert.assertArrayEquals(new byte[] {5}, collectionPage.getRecordBinaryValue(3, 0, 1));
+    Assert.assertArrayEquals(new byte[] {7}, collectionPage.getRecordBinaryValue(4, 0, 1));
+    Assert.assertArrayEquals(new byte[] {10}, collectionPage.getRecordBinaryValue(5, 0, 1));
   }
 
   @Test
@@ -415,7 +417,7 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, true));
@@ -424,7 +426,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(
         localPage.appendRecord(
-            newRecordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            newRecordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -433,7 +435,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordVersion(position), newRecordVersion);
 
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -464,7 +466,7 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, false));
@@ -473,7 +475,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(
         localPage.appendRecord(
-            newRecordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            newRecordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -482,7 +484,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordVersion(position), newRecordVersion);
 
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -512,7 +514,7 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, true));
@@ -525,7 +527,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(
         localPage.appendRecord(
-            newRecordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            newRecordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -533,7 +535,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(localPage.getRecordVersion(position), newRecordVersion);
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -563,7 +565,7 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, false));
@@ -576,7 +578,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(
         localPage.appendRecord(
-            newRecordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            newRecordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -584,7 +586,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(localPage.getRecordVersion(position), newRecordVersion);
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -614,14 +616,14 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, true));
 
     Assert.assertEquals(
         localPage.appendRecord(
-            recordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            recordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -629,7 +631,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(localPage.getRecordVersion(position), recordVersion);
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -659,14 +661,14 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, false));
 
     Assert.assertEquals(
         localPage.appendRecord(
-            recordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            recordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -674,7 +676,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(localPage.getRecordVersion(position), recordVersion);
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -704,14 +706,14 @@ public class CollectionPageTest {
     recordVersion++;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var position = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
 
     Assert.assertArrayEquals(record, localPage.deleteRecord(position, true));
 
     Assert.assertEquals(
         localPage.appendRecord(
-            recordVersion, new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
+            recordVersion, new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2}, -1, IntSets.emptySet()),
         position);
 
     var recordSize = localPage.getRecordSize(position);
@@ -719,7 +721,7 @@ public class CollectionPageTest {
 
     Assert.assertEquals(localPage.getRecordVersion(position), recordVersion);
     assertThat(localPage.getRecordBinaryValue(position, 0, recordSize))
-        .isEqualTo(new byte[]{2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 2, 4, 5, 6, 5, 4, 2, 2, 2});
   }
 
   @Test
@@ -748,10 +750,10 @@ public class CollectionPageTest {
     var recordVersion = 0;
     recordVersion++;
 
-    final var recordOne = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
-    final var recordTwo = new byte[]{2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2};
-    final var recordThree = new byte[]{3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3};
-    final var recordFour = new byte[]{4, 2, 3, 4, 5, 6, 5, 4, 3, 2, 4};
+    final var recordOne = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var recordTwo = new byte[] {2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2};
+    final var recordThree = new byte[] {3, 2, 3, 4, 5, 6, 5, 4, 3, 2, 3};
+    final var recordFour = new byte[] {4, 2, 3, 4, 5, 6, 5, 4, 3, 2, 4};
 
     var positionOne = localPage.appendRecord(recordVersion, recordOne, -1, IntSets.emptySet());
     var positionTwo = localPage.appendRecord(recordVersion, recordTwo, -1, IntSets.emptySet());
@@ -787,7 +789,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordVersion(0), -1);
 
     assertThat(localPage.getRecordBinaryValue(1, 0, 11))
-        .isEqualTo(new byte[]{2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2});
+        .isEqualTo(new byte[] {2, 2, 3, 4, 5, 6, 5, 4, 3, 2, 2});
     Assert.assertEquals(localPage.getRecordSize(1), 11);
     Assert.assertEquals(localPage.getRecordVersion(1), recordVersion);
 
@@ -796,7 +798,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordVersion(2), -1);
 
     assertThat(localPage.getRecordBinaryValue(3, 0, 11))
-        .isEqualTo(new byte[]{4, 2, 3, 4, 5, 6, 5, 4, 3, 2, 4});
+        .isEqualTo(new byte[] {4, 2, 3, 4, 5, 6, 5, 4, 3, 2, 4});
 
     Assert.assertEquals(localPage.getRecordSize(3), 11);
     Assert.assertEquals(localPage.getRecordVersion(3), recordVersion);
@@ -840,7 +842,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positionCounter.size());
         positionCounter.put(lastPosition, counter);
@@ -865,7 +867,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         positionCounter.put(lastPosition, counter);
         counter++;
@@ -878,7 +880,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordsCount(), filledRecordsCount);
     for (var entry : positionCounter.entrySet()) {
       assertThat(localPage.getRecordBinaryValue(entry.getKey(), 0, 3))
-          .isEqualTo(new byte[]{entry.getValue(), entry.getValue(), entry.getValue()});
+          .isEqualTo(new byte[] {entry.getValue(), entry.getValue(), entry.getValue()});
 
       Assert.assertEquals(localPage.getRecordSize(entry.getKey()), 3);
 
@@ -922,7 +924,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positionCounter.size());
         positionCounter.put(lastPosition, counter);
@@ -946,7 +948,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         positionCounter.put(lastPosition, counter);
         counter++;
@@ -960,7 +962,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordsCount(), filledRecordsCount);
     for (var entry : positionCounter.entrySet()) {
       assertThat(localPage.getRecordBinaryValue(entry.getKey(), 0, 3))
-          .isEqualTo(new byte[]{entry.getValue(), entry.getValue(), entry.getValue()});
+          .isEqualTo(new byte[] {entry.getValue(), entry.getValue(), entry.getValue()});
 
       Assert.assertEquals(localPage.getRecordSize(entry.getKey()), 3);
     }
@@ -1016,7 +1018,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positionCounter.size());
         positionCounter.put(lastPosition, counter);
@@ -1036,7 +1038,7 @@ public class CollectionPageTest {
     Assert.assertEquals(localPage.getRecordsCount(), positionCounter.size());
     for (var entry : positionCounter.entrySet()) {
       assertThat(localPage.getRecordBinaryValue(entry.getKey(), 0, 3))
-          .isEqualTo(new byte[]{entry.getValue(), entry.getValue(), entry.getValue()});
+          .isEqualTo(new byte[] {entry.getValue(), entry.getValue(), entry.getValue()});
       Assert.assertEquals(localPage.getRecordSize(entry.getKey()), 3);
       Assert.assertEquals(localPage.getRecordVersion(entry.getKey()), recordVersion);
     }
@@ -1080,7 +1082,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positions.size());
         positions.add(lastPosition);
@@ -1162,7 +1164,7 @@ public class CollectionPageTest {
     do {
       lastPosition =
           localPage.appendRecord(
-              recordVersion, new byte[]{counter, counter, counter}, -1, IntSets.emptySet());
+              recordVersion, new byte[] {counter, counter, counter}, -1, IntSets.emptySet());
       if (lastPosition >= 0) {
         Assert.assertEquals(lastPosition, positions.size());
         positions.add(lastPosition);
@@ -1284,7 +1286,7 @@ public class CollectionPageTest {
     var recordVersion = 0;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var index = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
     var freeSpace = localPage.getFreeSpace();
 
@@ -1294,14 +1296,14 @@ public class CollectionPageTest {
 
     final var oldRecord =
         localPage.replaceRecord(
-            index, new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, newRecordVersion);
+            index, new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, newRecordVersion);
     Assert.assertEquals(localPage.getFreeSpace(), freeSpace);
     Assert.assertArrayEquals(record, oldRecord);
 
     Assert.assertEquals(localPage.getRecordSize(index), 11);
 
     assertThat(localPage.getRecordBinaryValue(index, 0, 11))
-        .isEqualTo(new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
+        .isEqualTo(new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
     Assert.assertEquals(localPage.getRecordVersion(index), newRecordVersion);
   }
 
@@ -1334,19 +1336,19 @@ public class CollectionPageTest {
     var recordVersion = 0;
     recordVersion++;
 
-    var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var index = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
     var freeSpace = localPage.getFreeSpace();
 
     var oldRecord =
-        localPage.replaceRecord(index, new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, -1);
+        localPage.replaceRecord(index, new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, -1);
     Assert.assertEquals(localPage.getFreeSpace(), freeSpace);
     Assert.assertArrayEquals(record, oldRecord);
 
     Assert.assertEquals(localPage.getRecordSize(index), 11);
 
     assertThat(localPage.getRecordBinaryValue(index, 0, 11))
-        .isEqualTo(new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
+        .isEqualTo(new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
     Assert.assertEquals(localPage.getRecordVersion(index), recordVersion);
   }
 
@@ -1377,7 +1379,7 @@ public class CollectionPageTest {
     var recordVersion = 0;
     recordVersion++;
 
-    final var record = new byte[]{1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
+    final var record = new byte[] {1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1};
     var index = localPage.appendRecord(recordVersion, record, -1, IntSets.emptySet());
     var freeSpace = localPage.getFreeSpace();
 
@@ -1386,14 +1388,160 @@ public class CollectionPageTest {
 
     var oldRecord =
         localPage.replaceRecord(
-            index, new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, newRecordVersion);
+            index, new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1}, newRecordVersion);
     Assert.assertEquals(localPage.getFreeSpace(), freeSpace);
     Assert.assertArrayEquals(record, oldRecord);
 
     Assert.assertEquals(localPage.getRecordSize(index), 11);
 
     assertThat(localPage.getRecordBinaryValue(index, 0, 11))
-        .isEqualTo(new byte[]{5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
+        .isEqualTo(new byte[] {5, 2, 3, 4, 5, 11, 5, 4, 3, 2, 1});
     Assert.assertEquals(localPage.getRecordVersion(index), recordVersion);
+  }
+
+  // --- Tests for getRecordContentOffset and getRecordContentLength ---
+  // These methods assume records are stored with PaginatedCollectionV2's layout:
+  // [metadataHeader: 13B][actualContent: N B][firstRecordFlag: 1B][nextPagePointer: 8B]
+
+  /**
+   * Builds a chunk in PaginatedCollectionV2's format:
+   * [recordType][contentSize][collectionPosition][content][firstRecordFlag][nextPagePointer].
+   */
+  private static byte[] buildChunk(byte recordType, long collectionPosition, byte[] content) {
+    int headerSize = CollectionPage.RECORD_METADATA_HEADER_SIZE;
+    int tailSize = CollectionPage.RECORD_TAIL_SIZE;
+    byte[] chunk = new byte[headerSize + content.length + tailSize];
+    int offset = 0;
+    chunk[offset++] = recordType;
+    IntegerSerializer.serializeNative(content.length, chunk, offset);
+    offset += IntegerSerializer.INT_SIZE;
+    LongSerializer.serializeNative(collectionPosition, chunk, offset);
+    offset += LongSerializer.LONG_SIZE;
+    System.arraycopy(content, 0, chunk, offset, content.length);
+    offset += content.length;
+    chunk[offset++] = 1; // firstRecordFlag
+    LongSerializer.serializeNative(-1L, chunk, offset);
+    return chunk;
+  }
+
+  @Test
+  public void testGetRecordContentOffsetAndLength() {
+    // Verifies that getRecordContentOffset points past the entry header and
+    // metadata header, and getRecordContentLength equals the actual content
+    // size (recordSize - metadata header - tail).
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    try {
+      final var localPage = new CollectionPage(cacheEntry);
+      localPage.init();
+
+      byte[] content = new byte[] {10, 20, 30, 40, 50};
+      byte[] chunk = buildChunk((byte) 'd', 0L, content);
+      localPage.appendRecord(1L, chunk, -1, IntSets.emptySet());
+
+      int contentOffset = localPage.getRecordContentOffset(0);
+      int contentLength = localPage.getRecordContentLength(0);
+
+      // Content length must match the original content length.
+      Assert.assertEquals(content.length, contentLength);
+
+      // Content offset must be positive and within the page.
+      Assert.assertTrue(contentOffset > 0);
+      Assert.assertTrue(contentOffset + contentLength <= CollectionPage.PAGE_SIZE);
+
+      // Reading bytes from the page at the metadata offset must yield content.
+      byte[] actual = localPage.getRecordBinaryValue(
+          0, CollectionPage.RECORD_METADATA_HEADER_SIZE, contentLength);
+      Assert.assertArrayEquals(content, actual);
+
+    } finally {
+      cacheEntry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testGetRecordContentOffsetMultipleRecords() {
+    // Verifies content offset/length for multiple records of different sizes.
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    try {
+      final var localPage = new CollectionPage(cacheEntry);
+      localPage.init();
+
+      byte[] small = new byte[] {1, 2, 3};
+      byte[] large = new byte[200];
+      for (int i = 0; i < large.length; i++) {
+        large[i] = (byte) (i & 0xFF);
+      }
+
+      localPage.appendRecord(
+          1L, buildChunk((byte) 'd', 0L, small), -1, IntSets.emptySet());
+      localPage.appendRecord(
+          2L, buildChunk((byte) 'd', 1L, large), -1, IntSets.emptySet());
+
+      Assert.assertEquals(small.length, localPage.getRecordContentLength(0));
+      byte[] actualSmall = localPage.getRecordBinaryValue(
+          0, CollectionPage.RECORD_METADATA_HEADER_SIZE, small.length);
+      Assert.assertArrayEquals(small, actualSmall);
+
+      Assert.assertEquals(large.length, localPage.getRecordContentLength(1));
+      byte[] actualLarge = localPage.getRecordBinaryValue(
+          1, CollectionPage.RECORD_METADATA_HEADER_SIZE, large.length);
+      Assert.assertArrayEquals(large, actualLarge);
+
+    } finally {
+      cacheEntry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testGetRecordContentOffsetDeletedRecordAssertion() {
+    // Verifies that getRecordContentOffset throws AssertionError for deleted records
+    // when assertions are enabled.
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    try {
+      final var localPage = new CollectionPage(cacheEntry);
+      localPage.init();
+
+      localPage.appendRecord(
+          1L, buildChunk((byte) 'd', 0L, new byte[] {1, 2, 3}), -1, IntSets.emptySet());
+      localPage.deleteRecord(0, true);
+
+      boolean assertionFired = false;
+      try {
+        localPage.getRecordContentOffset(0);
+      } catch (AssertionError e) {
+        assertionFired = true;
+      }
+      Assert.assertTrue("Expected AssertionError for deleted record", assertionFired);
+
+    } finally {
+      cacheEntry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
   }
 }
