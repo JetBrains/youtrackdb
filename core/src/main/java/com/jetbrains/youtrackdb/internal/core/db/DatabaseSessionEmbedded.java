@@ -1171,10 +1171,32 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
         localCache.updateRecord(record, this);
         record.fromStream(recordBuffer.buffer());
-      } else if (readResult instanceof RawPageBuffer) {
-        // Zero-copy PageFrame path — implemented in Track 4.
-        throw new UnsupportedOperationException(
-            "RawPageBuffer dispatch implemented in Track 4");
+      } else if (readResult instanceof RawPageBuffer pageBuffer) {
+        // Zero-copy PageFrame path: store PageFrame reference for lazy
+        // deserialization at property-access time.
+        record =
+            YouTrackDBEnginesManager.instance()
+                .getRecordFactoryManager()
+                .newInstance(pageBuffer.recordType(), rid, this);
+        var rec = record;
+        rec.unsetDirty();
+        record.recordSerializer = serializer;
+
+        if (record instanceof EntityImpl entity) {
+          entity.fillFromPage(
+              pageBuffer.recordVersion(), pageBuffer.recordType(),
+              pageBuffer.pageFrame(), pageBuffer.stamp(),
+              pageBuffer.contentOffset(), pageBuffer.contentLength());
+          entity.checkClass(this);
+        } else {
+          // Non-EntityImpl (e.g., Blob): extract bytes, use standard path
+          var slice = pageBuffer.sliceContent();
+          var bytes = new byte[slice.remaining()];
+          slice.get(bytes);
+          record.fill(pageBuffer.recordVersion(), bytes, false);
+          record.fromStream(bytes);
+        }
+        localCache.updateRecord(record, this);
       } else {
         throw new AssertionError("Unknown StorageReadResult type: " + readResult.getClass());
       }
