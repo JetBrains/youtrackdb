@@ -972,4 +972,72 @@ public class PaginatedCollectionV2OptimisticReadTest {
     });
   }
 
+  // Verifies that CollectionPage content offset/length work for zero-length record content.
+  // This exercises the contentLength == 0 boundary (recordSize == metadata + tail exactly).
+  @Test
+  public void testCollectionPageContentOffsetEmptyRecord() throws IOException {
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[0], (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      Assert.assertEquals(0, rawBuffer.buffer().length);
+
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        Assert.assertEquals(0, page.getRecordContentLength(0));
+
+        var pageFrame = entry.getCachePointer().getPageFrame();
+        long stamp = pageFrame.tryOptimisticRead();
+        var rpb = new RawPageBuffer(pageFrame, stamp,
+            page.getRecordContentOffset(0), 0,
+            rawBuffer.version(), rawBuffer.recordType());
+        ByteBuffer slice = rpb.sliceContent();
+        Assert.assertEquals(0, slice.capacity());
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
+  // Verifies that CollectionPage content offset/length work for a non-first record
+  // (position > 0) on the same page, catching pointer-array indexing bugs.
+  @Test
+  public void testCollectionPageContentOffsetSecondRecord() throws IOException {
+    var data1 = new byte[] {10, 20, 30};
+    var data2 = new byte[] {40, 50, 60, 70, 80};
+    atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data1, (byte) 'd', null, op));
+    var pos2 = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data2, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var rawBuffer = (RawBuffer) collection.readRecord(pos2.collectionPosition, op);
+      byte[] expected = rawBuffer.buffer();
+
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        int offset = page.getRecordContentOffset(1);
+        int length = page.getRecordContentLength(1);
+        Assert.assertEquals(expected.length, length);
+
+        ByteBuffer buf = entry.getCachePointer().getPageFrame().getBuffer();
+        byte[] actual = new byte[length];
+        for (int i = 0; i < length; i++) {
+          actual[i] = buf.get(offset + i);
+        }
+        Assert.assertArrayEquals(expected, actual);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
 }
