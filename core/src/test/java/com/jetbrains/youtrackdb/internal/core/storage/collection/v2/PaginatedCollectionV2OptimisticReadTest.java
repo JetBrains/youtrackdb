@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
@@ -143,8 +142,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     // Read in a separate atomic operation (no pending changes) to hit the optimistic path
-    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
+    var rawResult = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op));
+    Assert.assertTrue("Optimistic path should return RawPageBuffer for single-page record",
+        rawResult instanceof RawPageBuffer);
+    var buffer = rawResult.toRawBuffer();
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer", buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
@@ -198,7 +200,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     // The optimistic path detects the multi-page pointer and falls back to the pinned path
-    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
+    var buffer = atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull(buffer);
@@ -682,7 +684,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     flushToReadCache();
 
-    var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
+    var buffer = atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer for empty record",

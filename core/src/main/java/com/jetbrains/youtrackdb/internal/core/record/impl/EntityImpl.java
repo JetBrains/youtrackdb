@@ -3552,7 +3552,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       speculativeSuccess = true;
     } catch (RuntimeException e) {
       // Treat any exception during speculative deserialization as a torn page
-      // (equivalent to stamp invalidation). Fall through to re-read.
+      // (equivalent to stamp invalidation). Fall through to re-read from storage.
+      // If the data is genuinely corrupt, the byte[]-backed re-read will also
+      // throw and propagate the error. This catch only suppresses transient
+      // exceptions caused by reading from a concurrently modified page.
     }
 
     if (speculativeSuccess) {
@@ -3580,6 +3583,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     // Re-read from storage via the pinned path
     reReadFromStorage();
+
+    assert source != null
+        : "reReadFromStorage must populate byte[] source for fallback deserialization";
+    assert pageFrame == null
+        : "pageFrame must be cleared before fallback deserialization";
 
     // Re-enter deserialization using the byte[] path (source is now set)
     return deserializeProperties(propertyNames);

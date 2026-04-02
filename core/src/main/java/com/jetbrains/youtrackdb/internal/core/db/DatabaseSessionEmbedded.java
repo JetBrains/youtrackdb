@@ -1178,8 +1178,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
             YouTrackDBEnginesManager.instance()
                 .getRecordFactoryManager()
                 .newInstance(pageBuffer.recordType(), rid, this);
-        var rec = record;
-        rec.unsetDirty();
+        record.unsetDirty();
+
+        if (record.getRecordType() != pageBuffer.recordType()) {
+          throw new DatabaseException(getDatabaseName(),
+              "Record type is different from the one in the database");
+        }
+
         record.recordSerializer = serializer;
 
         if (record instanceof EntityImpl entity) {
@@ -1189,12 +1194,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               pageBuffer.contentOffset(), pageBuffer.contentLength());
           entity.checkClass(this);
         } else {
-          // Non-EntityImpl (e.g., Blob): extract bytes, use standard path
-          var slice = pageBuffer.sliceContent();
-          var bytes = new byte[slice.remaining()];
-          slice.get(bytes);
-          record.fill(pageBuffer.recordVersion(), bytes, false);
-          record.fromStream(bytes);
+          // Non-EntityImpl (e.g., Blob): extract bytes from PageFrame.
+          // Validate stamp after byte extraction to ensure consistency —
+          // the page could be modified between scope validation and here.
+          var rawBuffer = pageBuffer.toRawBuffer();
+          record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
+          record.fromStream(rawBuffer.buffer());
         }
         localCache.updateRecord(record, this);
       } else {

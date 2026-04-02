@@ -432,6 +432,7 @@ public class EntityImplZeroCopyIntegrationTest {
         try (var s = youTrackDB.open(DB_NAME, "admin", "admin")) {
           s.begin();
           var entity = (EntityImpl) s.load(rid);
+          assertNotNull("Reader should use zero-copy path", entity.getPageFrame());
           barrier.await(5, TimeUnit.SECONDS);
           assertEquals("shared", entity.getProperty("name"));
           assertEquals("Tokyo", entity.getProperty("city"));
@@ -710,6 +711,13 @@ public class EntityImplZeroCopyIntegrationTest {
     // Verify the entity is still usable after toStream
     assertEquals("Hank", entity.getProperty("name"));
     assertEquals("25", entity.getProperty("age"));
+
+    // Verify round-trip: deserialize the bytes and check properties match
+    var roundTrip = (EntityImpl) session.newEntity();
+    roundTrip.unsetDirty();
+    roundTrip.fromStream(bytes);
+    assertEquals("Hank", roundTrip.getProperty("name"));
+    assertEquals("25", roundTrip.getProperty("age"));
     session.rollback();
   }
 

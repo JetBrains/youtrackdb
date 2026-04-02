@@ -115,35 +115,41 @@ public class EntityImplPageFrameTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testFillFromPageRejectsNullPageFrame() {
     // Verifies runtime validation rejects null PageFrame.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.unsetDirty();
-    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, null, 0, 0, 64);
+    var ex = Assert.assertThrows(IllegalArgumentException.class,
+        () -> entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, null, 0, 0, 64));
+    assertTrue(ex.getMessage().contains("PageFrame must not be null"));
     session.rollback();
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testFillFromPageRejectsNegativeOffset() {
     // Verifies runtime validation rejects negative contentOffset.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.unsetDirty();
     var frame = new PageFrame(pointer);
-    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, 0, -1, 64);
+    var ex = Assert.assertThrows(IllegalArgumentException.class,
+        () -> entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, 0, -1, 64));
+    assertTrue(ex.getMessage().contains("contentOffset"));
     session.rollback();
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testFillFromPageRejectsNegativeLength() {
     // Verifies runtime validation rejects negative contentLength.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.unsetDirty();
     var frame = new PageFrame(pointer);
-    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, 0, 0, -1);
+    var ex = Assert.assertThrows(IllegalArgumentException.class,
+        () -> entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, 0, 0, -1));
+    assertTrue(ex.getMessage().contains("contentLength"));
     session.rollback();
   }
 
