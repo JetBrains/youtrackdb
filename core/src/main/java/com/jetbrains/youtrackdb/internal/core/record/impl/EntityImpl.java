@@ -559,6 +559,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (entry.type == null) {
       return InPlaceResult.FALLBACK;
     }
+    // Non-default collation (e.g. CI) requires collation transforms that
+    // in-place comparison does not apply — fall back to the standard path.
+    if (hasNonDefaultCollation(name)) {
+      return InPlaceResult.FALLBACK;
+    }
 
     // Type-aware comparison using the same conversion logic as InPlaceComparator
     return compareJavaValues(entry.type, entryValue, value);
@@ -579,8 +584,31 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (entry.type == null) {
       return OptionalInt.empty();
     }
+    // Non-default collation (e.g. CI) requires collation transforms that
+    // in-place comparison does not apply — fall back to the standard path.
+    if (hasNonDefaultCollation(name)) {
+      return OptionalInt.empty();
+    }
 
     return compareJavaValuesOrdering(entry.type, entryValue, value);
+  }
+
+  /**
+   * Returns {@code true} if the named property has a non-default collation
+   * (e.g. case-insensitive) in the schema. Properties without a schema definition
+   * or with the default collation return {@code false}.
+   */
+  private boolean hasNonDefaultCollation(String name) {
+    var schemaClass = getImmutableSchemaClass(session);
+    if (schemaClass == null) {
+      return false;
+    }
+    var prop = schemaClass.getPropertyInternal(name);
+    if (prop == null) {
+      return false;
+    }
+    var collate = prop.getCollate();
+    return collate != null && !(collate instanceof DefaultCollate);
   }
 
   /**

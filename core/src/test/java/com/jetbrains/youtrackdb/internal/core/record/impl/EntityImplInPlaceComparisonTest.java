@@ -314,4 +314,62 @@ public class EntityImplInPlaceComparisonTest extends DbTestBase {
     assertEquals(OptionalInt.of(0), loaded.comparePropertyTo("name", "Bob"));
     session.rollback();
   }
+
+  // ===========================================================================
+  // Collation — non-default collation must cause FALLBACK on deserialized path
+  // ===========================================================================
+
+  /**
+   * Regression test: compareDeserialized must return FALLBACK for CI-collated properties
+   * so the caller falls through to the collation-aware standard path. Before the fix,
+   * compareDeserialized did a raw String.compareTo, returning FALSE for "Alice" vs "alice".
+   */
+  @Test
+  public void testDeserializedPathReturnsFallbackForCiCollation() {
+    // Schema changes must happen outside a transaction
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("CiCollateEqTest");
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+
+    // Insert via SQL so the record is properly schema-bound
+    session.begin();
+    session.execute("INSERT INTO CiCollateEqTest SET name = 'Alice'");
+    session.commit();
+
+    // Reload from DB, then force deserialization into properties map
+    session.begin();
+    var loaded = (EntityImpl) session.query("SELECT FROM CiCollateEqTest").next().asEntity();
+    loaded.getProperty("name"); // force deserialized (properties map) path
+    // Must return FALLBACK, not TRUE or FALSE, because CI collation
+    // cannot be applied by in-place comparison
+    assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("name", "alice"));
+    assertEquals(InPlaceResult.FALLBACK, loaded.isPropertyEqualTo("name", "ALICE"));
+    session.rollback();
+  }
+
+  /**
+   * Regression test: compareDeserializedOrdering must return empty for CI-collated properties
+   * so ordering comparisons fall back to the collation-aware standard path.
+   */
+  @Test
+  public void testDeserializedOrderingPathReturnsEmptyForCiCollation() {
+    // Schema changes must happen outside a transaction
+    var schema = session.getMetadata().getSchema();
+    var clazz = schema.createClass("CiCollateOrdTest");
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+
+    // Insert via SQL so the record is properly schema-bound
+    session.begin();
+    session.execute("INSERT INTO CiCollateOrdTest SET name = 'Bob'");
+    session.commit();
+
+    // Reload from DB, then force deserialization into properties map
+    session.begin();
+    var loaded = (EntityImpl) session.query("SELECT FROM CiCollateOrdTest").next().asEntity();
+    loaded.getProperty("name"); // force deserialized (properties map) path
+    // Must return empty so the caller uses the collation-aware comparator
+    assertTrue(loaded.comparePropertyTo("name", "bob").isEmpty());
+    assertTrue(loaded.comparePropertyTo("name", "BOB").isEmpty());
+    session.rollback();
+  }
 }

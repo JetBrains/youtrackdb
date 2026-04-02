@@ -78,7 +78,8 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
 
     // In-place comparison fast path: avoid deserialization for simple
     // "property <op> constant" patterns.  Collation is checked inside
-    // EntityImpl.deserializeFieldForComparison, so no getCollate guard needed here.
+    // EntityImpl (both serialized and deserialized paths return FALLBACK
+    // for non-default collation), so no getCollate guard needed here.
     if (left.isBaseIdentifier()
         && left.mathExpression instanceof SQLBaseExpression baseExpr
         && right.isEarlyCalculated(ctx)
@@ -92,10 +93,7 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       if (inPlaceResult != null) {
         return inPlaceResult;
       }
-
-      // FALLBACK: rightVal already computed, only need leftVal
-      var leftVal = left.execute(currentRecord, ctx);
-      return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
+      // FALLBACK: fall through to standard path which handles collation
     }
 
     var leftVal = left.execute(currentRecord, ctx);
