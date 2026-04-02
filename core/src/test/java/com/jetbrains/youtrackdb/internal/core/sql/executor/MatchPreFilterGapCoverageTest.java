@@ -1067,6 +1067,193 @@ public class MatchPreFilterGapCoverageTest extends DbTestBase {
   }
 
   // ========================================================================
+  // 11b. Composite index (multi-property) pre-filter
+  // ========================================================================
+
+  /**
+   * Composite index on (city, price): the planner should use the composite
+   * index when the WHERE clause matches the leading prefix (city =) and
+   * optionally a range on the next field (price >=).
+   */
+  @Test
+  public void compositeIndex_multiProperty_prefixMatch() {
+    session.execute("CREATE class CXShop extends V").close();
+    session.execute("CREATE property CXShop.name STRING").close();
+
+    session.execute("CREATE class CXProduct extends V").close();
+    session.execute("CREATE property CXProduct.label STRING").close();
+    session.execute("CREATE property CXProduct.city STRING").close();
+    session.execute("CREATE property CXProduct.price INTEGER").close();
+    session.execute(
+        "CREATE index CXProduct_city_price on CXProduct (city, price) NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE class CXSells extends E").close();
+    session.execute("CREATE property CXSells.out LINK CXShop").close();
+    session.execute("CREATE property CXSells.in LINK CXProduct").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CXShop set name = 'megastore'").close();
+    // 12 products: 4 cities × 3 price levels
+    String[] cities = {"NYC", "NYC", "NYC", "LA", "LA", "LA",
+        "CHI", "CHI", "CHI", "SF", "SF", "SF"};
+    int[] prices = {100, 200, 300, 100, 200, 300,
+        100, 200, 300, 100, 200, 300};
+    for (int i = 0; i < 12; i++) {
+      session.execute(
+          "CREATE VERTEX CXProduct set label = 'p" + i + "', city = '"
+              + cities[i] + "', price = " + prices[i])
+          .close();
+      session.execute(
+          "CREATE EDGE CXSells FROM"
+              + " (SELECT FROM CXShop WHERE name = 'megastore')"
+              + " TO (SELECT FROM CXProduct WHERE label = 'p" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Composite index prefix: city = 'NYC' AND price >= 200
+    // NYC products: p0(100), p1(200), p2(300). price >= 200: p1, p2
+    var result = session.query(
+        "MATCH {class: CXShop, as: shop, where: (name = 'megastore')}"
+            + ".out('CXSells'){as: prod,"
+            + "  where: (city = 'NYC' AND price >= 200)}"
+            + " RETURN prod.label as label")
+        .toList();
+
+    Set<String> labels = new HashSet<>();
+    for (var r : result) {
+      labels.add(r.getProperty("label"));
+    }
+    assertEquals(Set.of("p1", "p2"), labels);
+
+    // Composite index should be used for intersection
+    String plan = explainPlan(
+        "MATCH {class: CXShop, as: shop, where: (name = 'megastore')}"
+            + ".out('CXSells'){as: prod,"
+            + "  where: (city = 'NYC' AND price >= 200)}"
+            + " RETURN prod.label as label");
+    assertTrue("Plan should show index intersection for composite index:\n"
+        + plan, plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  /**
+   * Composite index with only the leading field in WHERE. The planner should
+   * still use the composite index for prefix-only queries (equality on first
+   * field).
+   */
+  @Test
+  public void compositeIndex_leadingFieldOnly() {
+    session.execute("CREATE class CX2Hub extends V").close();
+    session.execute("CREATE property CX2Hub.name STRING").close();
+
+    session.execute("CREATE class CX2Item extends V").close();
+    session.execute("CREATE property CX2Item.label STRING").close();
+    session.execute("CREATE property CX2Item.category STRING").close();
+    session.execute("CREATE property CX2Item.weight INTEGER").close();
+    session.execute(
+        "CREATE index CX2Item_cat_weight on CX2Item (category, weight)"
+            + " NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE class CX2Link extends E").close();
+    session.execute("CREATE property CX2Link.out LINK CX2Hub").close();
+    session.execute("CREATE property CX2Link.in LINK CX2Item").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CX2Hub set name = 'warehouse'").close();
+    for (int i = 0; i < 6; i++) {
+      String cat = i < 3 ? "food" : "tools";
+      session.execute(
+          "CREATE VERTEX CX2Item set label = 'i" + i + "', category = '"
+              + cat + "', weight = " + ((i + 1) * 10))
+          .close();
+      session.execute(
+          "CREATE EDGE CX2Link FROM"
+              + " (SELECT FROM CX2Hub WHERE name = 'warehouse')"
+              + " TO (SELECT FROM CX2Item WHERE label = 'i" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Leading field only: category = 'food'
+    var result = session.query(
+        "MATCH {class: CX2Hub, as: hub, where: (name = 'warehouse')}"
+            + ".out('CX2Link'){as: item, where: (category = 'food')}"
+            + " RETURN item.label as label")
+        .toList();
+    assertEquals(3, result.size());
+
+    String plan = explainPlan(
+        "MATCH {class: CX2Hub, as: hub, where: (name = 'warehouse')}"
+            + ".out('CX2Link'){as: item, where: (category = 'food')}"
+            + " RETURN item.label as label");
+    assertTrue("Composite index should be used for leading field:\n" + plan,
+        plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  /**
+   * Composite index where only the NON-leading field is in WHERE. The
+   * composite index cannot be used (no prefix match). No intersection
+   * should appear.
+   */
+  @Test
+  public void compositeIndex_nonLeadingFieldOnly_noIntersection() {
+    session.execute("CREATE class CX3Hub extends V").close();
+    session.execute("CREATE property CX3Hub.name STRING").close();
+
+    session.execute("CREATE class CX3Item extends V").close();
+    session.execute("CREATE property CX3Item.label STRING").close();
+    session.execute("CREATE property CX3Item.color STRING").close();
+    session.execute("CREATE property CX3Item.size INTEGER").close();
+    session.execute(
+        "CREATE index CX3Item_color_size on CX3Item (color, size) NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE class CX3Link extends E").close();
+    session.execute("CREATE property CX3Link.out LINK CX3Hub").close();
+    session.execute("CREATE property CX3Link.in LINK CX3Item").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX CX3Hub set name = 'store'").close();
+    for (int i = 0; i < 4; i++) {
+      session.execute(
+          "CREATE VERTEX CX3Item set label = 'x" + i + "', color = '"
+              + (i < 2 ? "red" : "blue") + "', size = " + ((i + 1) * 10))
+          .close();
+      session.execute(
+          "CREATE EDGE CX3Link FROM"
+              + " (SELECT FROM CX3Hub WHERE name = 'store')"
+              + " TO (SELECT FROM CX3Item WHERE label = 'x" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // Non-leading field only: size >= 30 (skips 'color' leading field)
+    var result = session.query(
+        "MATCH {class: CX3Hub, as: hub, where: (name = 'store')}"
+            + ".out('CX3Link'){as: item, where: (size >= 30)}"
+            + " RETURN item.label as label")
+        .toList();
+    assertEquals(2, result.size()); // x2(30), x3(40)
+
+    // Composite index cannot be used without leading field — no intersection
+    String plan = explainPlan(
+        "MATCH {class: CX3Hub, as: hub, where: (name = 'store')}"
+            + ".out('CX3Link'){as: item, where: (size >= 30)}"
+            + " RETURN item.label as label");
+    assertFalse(
+        "Composite index should NOT be used without leading field:\n" + plan,
+        plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  // ========================================================================
   // 12. $paths with EdgeRidLookup back-reference
   // ========================================================================
 
