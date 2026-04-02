@@ -117,12 +117,19 @@ jobs:
           echo 'Downloaded from S3'
 
           mkdir -p jmh-ldbc/target/ldbc-bench-db
-          cd jmh-ldbc/target/ldbc-bench-db
           zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
-          tar xf /tmp/bench-db.tar
+          tar xf /tmp/bench-db.tar -C jmh-ldbc/target/ldbc-bench-db
           rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
+          # The archive may contain a nested ldbc-bench-db/ directory.
+          # Flatten it so the DB files are directly under target/ldbc-bench-db/.
+          if [ -d jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db ] && \
+             [ ! -f jmh-ldbc/target/ldbc-bench-db/database.ocf ]; then
+            echo "Flattening nested ldbc-bench-db directory"
+            mv jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db/* jmh-ldbc/target/ldbc-bench-db/
+            rmdir jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db
+          fi
           echo "Pre-built database extracted"
-          ls -la
+          ls -la jmh-ldbc/target/ldbc-bench-db/
 
       - name: Compile
         run: |
@@ -148,6 +155,20 @@ jobs:
             -Dspotless.check.skip=true -Dcentral.skip=true \
             -Djmh.args="-rf json -rff ${{ github.workspace }}/results.json" \
             2>&1 | tee bench.log
+
+      - name: Validate benchmark results
+        run: |
+          RESULTS="${{ github.workspace }}/results.json"
+          if [ ! -f "$RESULTS" ]; then
+            echo "::error::results.json not found — benchmarks did not produce output"
+            exit 1
+          fi
+          COUNT=$(jq 'length' "$RESULTS")
+          if [ "$COUNT" -eq 0 ] || [ "$COUNT" = "null" ]; then
+            echo "::error::results.json is empty — all benchmarks failed"
+            exit 1
+          fi
+          echo "Benchmark results contain $COUNT entries"
 
       - name: Upload built database to S3
         if: success() && steps.mode.outputs.load == 'csv'

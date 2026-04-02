@@ -58,7 +58,7 @@ LINE_DATA=$(jq -r --arg branch "$BRANCH_ESC" \
                    --arg sha "$SHA_ESC" \
                    --arg ts "$TIMESTAMP_NS" '
   # Build benchmark lines
-  def esc: gsub("\\\\"; "\\\\") | gsub(" "; "\\ ") | gsub(","; "\\,") | gsub("="; "\\=");
+  def esc: split("\\") | join("\\\\") | split(" ") | join("\\ ") | split(",") | join("\\,") | split("=") | join("\\=");
   [ .[] |
     .benchmark as $bench |
     ($bench | split(".")[-2]) as $class |
@@ -99,6 +99,11 @@ NUM_BENCHMARKS=$(printf "%s\n" "$LINE_DATA" | grep -c '^jmh_benchmark,' || true)
 NUM_SCALABILITY=$(printf "%s\n" "$LINE_DATA" | grep -c '^scalability,' || true)
 echo "Parsed $NUM_BENCHMARKS benchmark results, $NUM_SCALABILITY scalability metrics"
 
+if [[ "$NUM_BENCHMARKS" -eq 0 ]]; then
+  echo "Error: no benchmark results parsed from $INPUT" >&2
+  exit 1
+fi
+
 if [ "$DRY_RUN" = true ]; then
   echo "$LINE_DATA"
   exit 0
@@ -107,17 +112,19 @@ fi
 # Push to InfluxDB
 WRITE_URL="${INFLUXDB_URL%/}/api/v2/write?org=${INFLUXDB_ORG}&bucket=${INFLUXDB_BUCKET}&precision=ns"
 
-HTTP_CODE=$(printf "%s" "$LINE_DATA" | curl -s -o /tmp/influxdb-response-$$.txt -w '%{http_code}' \
+TMPDIR_RESP=$(mktemp -d)
+RESPONSE_FILE="$TMPDIR_RESP/response.txt"
+trap 'rm -rf "$TMPDIR_RESP"' EXIT
+
+HTTP_CODE=$(printf "%s" "$LINE_DATA" | curl -s -o "$RESPONSE_FILE" -w '%{http_code}' \
   -X POST "$WRITE_URL" \
   -H "Authorization: Token ${INFLUXDB_TOKEN}" \
   -H "Content-Type: text/plain; charset=utf-8" \
   --data-binary @-)
 
-if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+if [[ "${HTTP_CODE:-000}" -ge 200 && "${HTTP_CODE:-000}" -lt 300 ]]; then
   echo "InfluxDB write successful: $HTTP_CODE"
 else
-  echo "InfluxDB write failed: $HTTP_CODE - $(cat /tmp/influxdb-response-$$.txt)" >&2
-  rm -f /tmp/influxdb-response-$$.txt
+  echo "InfluxDB write failed: $HTTP_CODE - $(cat "$RESPONSE_FILE" 2>/dev/null || echo "No response body")" >&2
   exit 1
 fi
-rm -f /tmp/influxdb-response-$$.txt
