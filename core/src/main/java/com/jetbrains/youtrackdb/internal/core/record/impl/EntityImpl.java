@@ -3874,10 +3874,18 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   public void fillFromPage(long version, byte recordType, PageFrame pageFrame,
       long stamp, int contentOffset, int contentLength) {
+    // recordType comes from the storage page header. EntityImpl subclasses
+    // (VertexEntityImpl, EdgeEntityImpl) have different RECORD_TYPE values
+    // ('v', 'e'), so we only assert it's a known entity-family type.
     assert recordType == RECORD_TYPE
+        || recordType == VertexEntityImpl.RECORD_TYPE
+        || recordType == EdgeEntityImpl.RECORD_TYPE
         : "Unexpected record type for EntityImpl: " + recordType;
 
-    checkForBinding();
+    // Use getSession() for the session-active assertion, matching fill()'s
+    // pattern. Do NOT call checkForBinding() — it rejects NOT_LOADED status
+    // which is the normal state for freshly factory-created records.
+    var session = getSession();
 
     if (pageFrame == null) {
       throw new IllegalArgumentException("PageFrame must not be null");
@@ -3891,7 +3899,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "contentLength must be non-negative: " + contentLength);
     }
 
-    var session = getSession();
     if (dirty > 0) {
       throw new DatabaseException(session.getDatabaseName(),
           "Cannot call fillFromPage() on dirty records");

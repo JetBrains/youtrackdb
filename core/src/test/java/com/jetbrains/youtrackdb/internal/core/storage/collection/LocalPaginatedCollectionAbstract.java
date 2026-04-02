@@ -113,7 +113,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       Assert.assertEquals(0, paginatedCollection.getEntries(atomicOperation));
       try {
-        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation);
+        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation)
+            .toRawBuffer()
+            .toRawBuffer();
         Assert.fail();
       } catch (RecordNotFoundException ignore) {
         // expected
@@ -155,7 +157,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       Assert.assertEquals(0, paginatedCollection.getEntries(atomicOperation));
       try {
-        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation);
+        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation)
+            .toRawBuffer()
+            .toRawBuffer();
         Assert.fail();
       } catch (RecordNotFoundException recordNotFoundException) {
         // expected
@@ -169,7 +173,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var rawBuffer = (RawBuffer) atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> paginatedCollection.readRecord(physicalPosition[0].collectionPosition,
-            atomicOperation));
+            atomicOperation).toRawBuffer());
     Assert.assertNotNull(rawBuffer);
 
     Assert.assertTrue(rawBuffer.version() > 0);
@@ -199,7 +203,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       Assert.assertEquals(0, paginatedCollection.getEntries(atomicOperation));
       try {
-        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation);
+        paginatedCollection.readRecord(physicalPosition[0].collectionPosition, atomicOperation)
+            .toRawBuffer()
+            .toRawBuffer();
         Assert.fail();
       } catch (RecordNotFoundException recordNotFoundException) {
         // expected
@@ -213,7 +219,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var rawBuffer = (RawBuffer) atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> paginatedCollection.readRecord(physicalPosition[0].collectionPosition,
-            atomicOperation));
+            atomicOperation).toRawBuffer());
     Assert.assertNotNull(rawBuffer);
 
     Assert.assertTrue(rawBuffer.version() > 0);
@@ -268,7 +274,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long collectionPosition : rolledBackRecordSet) {
         try {
-          paginatedCollection.readRecord(collectionPosition, atomicOperation);
+          paginatedCollection.readRecord(collectionPosition, atomicOperation).toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -292,7 +298,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -357,7 +364,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long collectionPosition : rolledBackRecordSet) {
         try {
-          paginatedCollection.readRecord(collectionPosition, atomicOperation);
+          paginatedCollection.readRecord(collectionPosition, atomicOperation).toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -384,7 +391,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -442,7 +450,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long collectionPosition : rolledBackRecordSet) {
         try {
-          paginatedCollection.readRecord(collectionPosition, atomicOperation);
+          paginatedCollection.readRecord(collectionPosition, atomicOperation).toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -467,7 +475,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -495,7 +504,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       Assert.assertTrue(position.collectionPosition >= 0);
       try {
-        paginatedCollection.readRecord(position.collectionPosition, atomicOperation);
+        paginatedCollection.readRecord(position.collectionPosition, atomicOperation).toRawBuffer();
         Assert.fail();
       } catch (RecordNotFoundException recordNotFoundException) {
         // expected
@@ -508,7 +517,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var rec = atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> paginatedCollection.readRecord(position.collectionPosition,
-            atomicOperation));
+            atomicOperation).toRawBuffer());
     Assert.assertNotNull(rec);
   }
 
@@ -524,7 +533,8 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         Assert.assertTrue(position.collectionPosition >= 0);
         try {
-          paginatedCollection.readRecord(position.collectionPosition, atomicOperation);
+          paginatedCollection.readRecord(position.collectionPosition, atomicOperation).toRawBuffer()
+              .toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -541,7 +551,9 @@ public abstract class LocalPaginatedCollectionAbstract {
                   paginatedCollection.allocatePosition((byte) 'd', atomicOperation);
               Assert.assertTrue(position.collectionPosition >= 0);
               try {
-                paginatedCollection.readRecord(position.collectionPosition, atomicOperation);
+                paginatedCollection.readRecord(position.collectionPosition, atomicOperation)
+                    .toRawBuffer()
+                    .toRawBuffer();
                 Assert.fail();
               } catch (RecordNotFoundException recordNotFoundException) {
                 //expected
@@ -560,7 +572,8 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         Assert.assertTrue(position.collectionPosition >= 0);
         try {
-          paginatedCollection.readRecord(position.collectionPosition, atomicOperation);
+          paginatedCollection.readRecord(position.collectionPosition, atomicOperation).toRawBuffer()
+              .toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -629,7 +642,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         for (var entry : positionRecordMap.entrySet()) {
           var rawBuffer =
-              (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+              paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
           Assert.assertNotNull(rawBuffer);
 
           Assert.assertTrue(rawBuffer.version() > 0);
@@ -667,7 +680,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         Assert.assertEquals(paginatedCollection.getEntries(atomicOperation), records - delRecords);
         try {
-          paginatedCollection.readRecord(deletedPosition, atomicOperation);
+          paginatedCollection.readRecord(deletedPosition, atomicOperation).toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException recordNotFoundException) {
           // expected
@@ -681,7 +694,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -745,7 +759,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         for (var entry : positionRecordMap.entrySet()) {
           var rawBuffer =
-              (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+              paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
           Assert.assertNotNull(rawBuffer);
 
           Assert.assertTrue(rawBuffer.version() > 0);
@@ -785,7 +799,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (long deletedPosition : deletedPositions) {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         try {
-          paginatedCollection.readRecord(deletedPosition, atomicOperation);
+          paginatedCollection.readRecord(deletedPosition, atomicOperation).toRawBuffer();
           Assert.fail();
         } catch (RecordNotFoundException ignore) {
           // expected
@@ -799,7 +813,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -857,7 +872,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         for (var entry : positionRecordMap.entrySet()) {
           var rawBuffer =
-              (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+              paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
           Assert.assertNotNull(rawBuffer);
 
           Assert.assertTrue(rawBuffer.version() > 0);
@@ -897,7 +912,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       for (long deletedPosition : deletedPositions) {
         atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
           try {
-            paginatedCollection.readRecord(deletedPosition, atomicOperation);
+            paginatedCollection.readRecord(deletedPosition, atomicOperation).toRawBuffer();
             Assert.fail();
           } catch (RecordNotFoundException ignore) {
           }
@@ -911,7 +926,7 @@ public abstract class LocalPaginatedCollectionAbstract {
       atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
         for (var entry : positionRecordMap.entrySet()) {
           var rawBuffer =
-              (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+              paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
           Assert.assertNotNull(rawBuffer);
 
           Assert.assertTrue(rawBuffer.version() > 0);
@@ -993,7 +1008,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assert.assertTrue(rawBuffer.version() > 0);
@@ -1028,8 +1044,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     Assert.assertNotNull(rawBuffer);
 
     var versionAfterCreate = rawBuffer.version();
@@ -1045,8 +1061,8 @@ public abstract class LocalPaginatedCollectionAbstract {
             atomicOperation));
 
     rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperations -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperations));
+        atomicOperations -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperations).toRawBuffer());
 
     Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedRecord);
@@ -1093,8 +1109,8 @@ public abstract class LocalPaginatedCollectionAbstract {
             (byte) 2,
             atomicOperation));
     rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
 
     Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
 
@@ -1127,8 +1143,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     Assert.assertNotNull(rawBuffer);
 
     var versionAfterCreate = rawBuffer.version();
@@ -1144,8 +1160,8 @@ public abstract class LocalPaginatedCollectionAbstract {
             atomicOperation));
 
     rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
 
     Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(smallRecord);
@@ -1167,8 +1183,8 @@ public abstract class LocalPaginatedCollectionAbstract {
                 bigRecord, (byte) 1, null, atomicOperation));
 
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     Assert.assertNotNull(rawBuffer);
 
     var versionAfterCreate = rawBuffer.version();
@@ -1193,8 +1209,8 @@ public abstract class LocalPaginatedCollectionAbstract {
     }
 
     rawBuffer = atomicOperationsManager
-        .calculateInsideAtomicOperation(atomicOperation -> (RawBuffer) paginatedCollection
-            .readRecord(physicalPosition.collectionPosition, atomicOperation));
+        .calculateInsideAtomicOperation(atomicOperation -> paginatedCollection
+            .readRecord(physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
 
     Assert.assertNotNull(rawBuffer);
 
@@ -1209,8 +1225,8 @@ public abstract class LocalPaginatedCollectionAbstract {
             (byte) 2,
             atomicOperation));
     rawBuffer = atomicOperationsManager
-        .calculateInsideAtomicOperation(atomicOperation -> (RawBuffer) paginatedCollection
-            .readRecord(physicalPosition.collectionPosition, atomicOperation));
+        .calculateInsideAtomicOperation(atomicOperation -> paginatedCollection
+            .readRecord(physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
 
     Assert.assertNotEquals(versionAfterCreate, rawBuffer.version());
     Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedBigRecord);
@@ -1246,7 +1262,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, Long> initialVersions = new HashMap<>();
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long pos : positionRecordMap.keySet()) {
-        var buf = (RawBuffer) paginatedCollection.readRecord(pos, atomicOperation);
+        var buf = paginatedCollection.readRecord(pos, atomicOperation).toRawBuffer();
         initialVersions.put(pos, buf.version());
       }
     });
@@ -1293,7 +1309,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
@@ -1343,7 +1360,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, Long> initialVersions = new HashMap<>();
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long pos : positionRecordMap.keySet()) {
-        var buf = (RawBuffer) paginatedCollection.readRecord(pos, atomicOperation);
+        var buf = paginatedCollection.readRecord(pos, atomicOperation).toRawBuffer();
         initialVersions.put(pos, buf.version());
       }
     });
@@ -1391,7 +1408,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
 
@@ -1435,7 +1453,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     Map<Long, Long> initialVersions = new HashMap<>();
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (long pos : positionRecordMap.keySet()) {
-        var buf = (RawBuffer) paginatedCollection.readRecord(pos, atomicOperation);
+        var buf = paginatedCollection.readRecord(pos, atomicOperation).toRawBuffer();
         initialVersions.put(pos, buf.version());
       }
     });
@@ -1479,7 +1497,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       for (var entry : positionRecordMap.entrySet()) {
-        var rawBuffer = (RawBuffer) paginatedCollection.readRecord(entry.getKey(), atomicOperation);
+        var rawBuffer =
+            paginatedCollection.readRecord(entry.getKey(), atomicOperation).toRawBuffer();
         Assert.assertNotNull(rawBuffer);
 
         Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
@@ -1719,8 +1738,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     // Verify initial version
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     var initialVersion = rawBuffer.version();
 
     // Update version
@@ -1730,8 +1749,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     // Verify version was updated
     rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     Assert.assertNotEquals(initialVersion, rawBuffer.version());
 
     // Content and type should be unchanged
@@ -1776,7 +1795,7 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (var v = 10; v <= 50; v += 10) {
       var previousVersion = ((RawBuffer) atomicOperationsManager.calculateInsideAtomicOperation(
           atomicOperation -> paginatedCollection.readRecord(physicalPosition.collectionPosition,
-              atomicOperation)))
+              atomicOperation).toRawBuffer()))
           .version();
 
       atomicOperationsManager.executeInsideAtomicOperation(
@@ -1785,7 +1804,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
       var rawBuffer = (RawBuffer) atomicOperationsManager.calculateInsideAtomicOperation(
           atomicOperation -> paginatedCollection.readRecord(physicalPosition.collectionPosition,
-              atomicOperation));
+              atomicOperation).toRawBuffer());
       Assert.assertNotEquals(previousVersion, rawBuffer.version());
     }
   }
@@ -1801,7 +1820,7 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var initialVersion = ((RawBuffer) atomicOperationsManager.calculateInsideAtomicOperation(
         atomicOperation -> paginatedCollection.readRecord(physicalPosition.collectionPosition,
-            atomicOperation)))
+            atomicOperation).toRawBuffer()))
         .version();
 
     // Update version inside a rolled-back transaction
@@ -1817,8 +1836,8 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     // Version should still be the initial one
     var rawBuffer = atomicOperationsManager.calculateInsideAtomicOperation(
-        atomicOperation -> (RawBuffer) paginatedCollection.readRecord(
-            physicalPosition.collectionPosition, atomicOperation));
+        atomicOperation -> paginatedCollection.readRecord(
+            physicalPosition.collectionPosition, atomicOperation).toRawBuffer());
     Assert.assertEquals(initialVersion, rawBuffer.version());
   }
 

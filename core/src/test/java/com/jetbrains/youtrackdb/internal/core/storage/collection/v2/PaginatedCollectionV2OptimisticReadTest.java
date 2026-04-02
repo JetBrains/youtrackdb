@@ -122,7 +122,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
         var positions = collection.ceilingPositions(
             new PhysicalPosition(first), Integer.MAX_VALUE, op);
         for (var pos : positions) {
-          collection.readRecord(pos.collectionPosition, op);
+          collection.readRecord(pos.collectionPosition, op).toRawBuffer();
         }
       });
     } catch (IOException e) {
@@ -144,7 +144,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     // Read in a separate atomic operation (no pending changes) to hit the optimistic path
     var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer", buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
@@ -174,7 +174,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = (RawBuffer) collection.readRecord(positions.get(i), op);
+        var buffer = collection.readRecord(positions.get(i), op).toRawBuffer();
         Assertions.assertThat(buffer.buffer())
             .as("Record %d should match inserted data", i)
             .isEqualTo(records.get(i));
@@ -199,7 +199,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     // The optimistic path detects the multi-page pointer and falls back to the pinned path
     var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull(buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(bigData);
@@ -226,7 +226,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     try {
       atomicOps().calculateInsideAtomicOperation(
-          op -> collection.readRecord(nonExistent, op));
+          op -> collection.readRecord(nonExistent, op).toRawBuffer());
       Assert.fail("Should throw RecordNotFoundException for non-existent position");
     } catch (RecordNotFoundException e) {
       // The exception should reference the non-existent position.
@@ -683,7 +683,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     var buffer = (RawBuffer) atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer for empty record",
         buffer);
@@ -709,7 +709,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     atomicOps().executeInsideAtomicOperation(op -> {
       // readRecord
-      var buffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      var buffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
       Assert.assertEquals(5, buffer.recordType());
 
@@ -778,7 +778,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
       Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT, status);
       Assert.assertTrue(collection.exists(pos.collectionPosition, op));
 
-      var buffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      var buffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     });
 
@@ -798,7 +798,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Verify readRecord throws RecordNotFoundException for deleted record
     try {
       atomicOps().calculateInsideAtomicOperation(
-          op -> collection.readRecord(pos.collectionPosition, op));
+          op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
       Assert.fail("Should throw RecordNotFoundException for deleted record");
     } catch (RecordNotFoundException e) {
       // expected
@@ -841,7 +841,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = (RawBuffer) collection.readRecord(positions.get(i), op);
+        var buffer = collection.readRecord(positions.get(i), op).toRawBuffer();
         Assert.assertNotNull("Record " + i + " should be readable", buffer);
         Assertions.assertThat(buffer.buffer())
             .as("Record %d data should match", i)
@@ -887,7 +887,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     atomicOps().executeInsideAtomicOperation(op -> {
       // Read via normal path to get expected content
-      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       byte[] expected = rawBuffer.buffer();
 
       // Load the page directly and check offset/length
@@ -935,7 +935,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     atomicOps().executeInsideAtomicOperation(op -> {
       // Read via normal path to get expected content
-      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       byte[] expected = rawBuffer.buffer();
 
       // Load the page and construct a RawPageBuffer
@@ -982,7 +982,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     atomicOps().executeInsideAtomicOperation(op -> {
-      var rawBuffer = (RawBuffer) collection.readRecord(pos.collectionPosition, op);
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assert.assertEquals(0, rawBuffer.buffer().length);
 
       long fileId = collection.getFileId();
@@ -1018,7 +1018,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     atomicOps().executeInsideAtomicOperation(op -> {
-      var rawBuffer = (RawBuffer) collection.readRecord(pos2.collectionPosition, op);
+      var rawBuffer = collection.readRecord(pos2.collectionPosition, op).toRawBuffer();
       byte[] expected = rawBuffer.buffer();
 
       long fileId = collection.getFileId();

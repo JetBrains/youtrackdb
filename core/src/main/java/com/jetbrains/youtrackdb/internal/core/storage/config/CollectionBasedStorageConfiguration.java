@@ -1162,8 +1162,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   (entry) -> {
                     final RawBuffer buffer;
                     try {
-                      buffer = (RawBuffer) collection.readRecord(
-                          entry.second().getCollectionPosition(), atomicOperation);
+                      buffer = collection.readRecord(
+                          entry.second().getCollectionPosition(), atomicOperation)
+                          .toRawBuffer();
                       return new RawPair<>(
                           entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
                           deserializeStringValue(buffer.buffer(), 0));
@@ -1321,8 +1322,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                 String name = null;
                 try {
                   name = entry.first().substring(ENGINE_PREFIX_PROPERTY.length());
-                  final var buffer = (RawBuffer) collection.readRecord(
-                      entry.second().getCollectionPosition(), atomicOperation);
+                  final var buffer = collection.readRecord(
+                      entry.second().getCollectionPosition(), atomicOperation)
+                      .toRawBuffer();
                   return deserializeIndexEngineProperty(
                       name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId(),
                       atomicOperation);
@@ -1412,8 +1414,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                     Integer.parseInt(entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
 
                 try {
-                  final var buffer = (RawBuffer) collection.readRecord(
-                      entry.second().getCollectionPosition(), atomicOperation);
+                  final var buffer = collection.readRecord(
+                      entry.second().getCollectionPosition(), atomicOperation)
+                      .toRawBuffer();
 
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();
@@ -1852,7 +1855,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       }
 
       final var buffer =
-          (RawBuffer) collection.readRecord(rid.getCollectionPosition(), atomicOperation);
+          collection.readRecord(rid.getCollectionPosition(), atomicOperation)
+              .toRawBuffer();
       return new RawPairObjectInteger<>(buffer.buffer(), rid.getCollectionId());
     } catch (final IOException e) {
       throw BaseException.wrapException(

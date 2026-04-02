@@ -36,4 +36,24 @@ public sealed interface StorageReadResult permits RawBuffer, RawPageBuffer {
 
   /** Record type byte. */
   byte recordType();
+
+  /**
+   * Returns this result as a {@link RawBuffer}. If this is already a {@code RawBuffer},
+   * returns it directly. If this is a {@code RawPageBuffer}, extracts the content bytes
+   * into a new byte[] and wraps them in a {@code RawBuffer}.
+   *
+   * <p>Use this for callers that need a byte[] (e.g., storage configuration reads)
+   * and cannot use the zero-copy PageFrame path.
+   */
+  default RawBuffer toRawBuffer() {
+    return switch (this) {
+      case RawBuffer rb -> rb;
+      case RawPageBuffer pb -> {
+        var slice = pb.sliceContent();
+        var bytes = new byte[slice.remaining()];
+        slice.get(bytes);
+        yield new RawBuffer(bytes, pb.recordVersion(), pb.recordType());
+      }
+    };
+  }
 }
