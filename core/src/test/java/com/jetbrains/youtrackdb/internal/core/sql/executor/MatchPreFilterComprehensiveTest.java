@@ -366,15 +366,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // p0 authored m0, m1, m2; all in 'general' forum
     // general forum contains m0..m5
     // p0's posts in general: m0, m1, m2
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
             + ".in('CHasCreator'){as: post}"
             + ".in('CContainerOf'){as: forum}"
             + ".out('CContainerOf'){as: post2}"
             + ".out('CHasCreator'){as: creator,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN post2.content as content")
-        .toList();
+            + " RETURN post2.content as content";
+    var result = session.query(query).toList();
 
     Set<String> contents = new HashSet<>();
     for (var r : result) {
@@ -386,14 +386,7 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     assertTrue("Should find m2", contents.contains("m2"));
     assertFalse("Should NOT find m3 (by p1)", contents.contains("m3"));
 
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
-            + ".in('CHasCreator'){as: post}"
-            + ".in('CContainerOf'){as: forum}"
-            + ".out('CContainerOf'){as: post2}"
-            + ".out('CHasCreator'){as: creator,"
-            + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN post2.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection for back-ref:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -458,24 +451,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // person → knows → friend → knows → fof
     //   where fof = person (find 2-hop cycles)
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
             + ".out('CKnows'){as: friend}"
             + ".out('CKnows'){as: fof,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN friend.name as friendName")
-        .toList();
+            + " RETURN friend.name as friendName";
+    var result = session.query(query).toList();
 
     // p0→p1, p1→p3; p0→p2, p2→p4. None of p3 or p4 is p0.
     // So no 2-hop cycles from p0 via out edges.
     assertEquals("No 2-hop out-cycles from p0", 0, result.size());
 
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
-            + ".out('CKnows'){as: friend}"
-            + ".out('CKnows'){as: fof,"
-            + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN friend.name as friendName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -488,23 +476,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   @Test
   public void backRef_selfLoop_noResults() {
     session.begin();
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: person}"
             + ".out('CKnows'){as: friend,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN person.name as name")
-        .toList();
+            + " RETURN person.name as name";
+    var result = session.query(query).toList();
     assertEquals("No self-loops exist", 0, result.size());
 
     // The back-ref @rid = $matched.person.@rid is detected by the planner via
     // findRidEquality(), but 'person' is the scan root alias (no producing edge).
     // targetAliasToEdgeIndex.get("person") returns null because the scan root has
     // no link bag to attach an intersection descriptor to.
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: person}"
-            + ".out('CKnows'){as: friend,"
-            + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN person.name as name");
+    String plan = explainPlan(query);
     assertFalse(
         "Scan root has no producing edge, so EdgeRidLookup cannot attach:\n"
             + plan,
@@ -523,25 +507,18 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     //                         post2 → tag → msg → creator=person
     // This tests that two different back-ref edges each get their own
     // intersection descriptor.
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
             + ".in('CHasCreator'){as: post}"
             + ".in('CContainerOf'){as: forum}"
             + ".out('CContainerOf'){as: post2}"
             + ".out('CHasCreator'){as: creator,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN post2.content as content")
-        .toList();
+            + " RETURN post2.content as content";
+    var result = session.query(query).toList();
 
     assertFalse("Should have results", result.isEmpty());
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
-            + ".in('CHasCreator'){as: post}"
-            + ".in('CContainerOf'){as: forum}"
-            + ".out('CContainerOf'){as: post2}"
-            + ".out('CHasCreator'){as: creator,"
-            + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN post2.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -648,20 +625,16 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   @Test
   public void indexFilter_equalityPredicate() {
     session.begin();
-    Set<String> contents = collectProperty(
+    String query =
         "MATCH {class: CForum, as: forum}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate = 1500)}"
-            + " RETURN msg.content as content",
-        "content");
+            + " RETURN msg.content as content";
+    Set<String> contents = collectProperty(query, "content");
     // m5 has creationDate=1500, in 'general' forum
     assertEquals(Set.of("m5"), contents);
 
-    String plan = explainPlan(
-        "MATCH {class: CForum, as: forum}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate = 1500)}"
-            + " RETURN msg.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -764,19 +737,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   @Test
   public void indexFilter_noMatchingRecords_emptyResult() {
     session.begin();
-    var result = session.query(
+    String query =
         "MATCH {class: CForum, as: forum}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate > 99999)}"
-            + " RETURN msg.content as content")
-        .toList();
+            + " RETURN msg.content as content";
+    var result = session.query(query).toList();
     assertEquals(0, result.size());
 
-    String plan = explainPlan(
-        "MATCH {class: CForum, as: forum}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate > 99999)}"
-            + " RETURN msg.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show index intersection:\n" + plan,
         plan.contains("intersection: index"));
     session.commit();
@@ -900,12 +869,12 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   public void edgeMethod_outEInV_indexedEdgeProperty() {
     session.begin();
     // workFrom < 2013: p0(2010), p1(2012), p3(2011) — 3 persons
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: p}"
             + ".outE('CWorksAt'){as: w, where: (workFrom < 2013)}"
             + ".inV(){as: c}"
-            + " RETURN p.name as pName, c.name as cName")
-        .toList();
+            + " RETURN p.name as pName, c.name as cName";
+    var result = session.query(query).toList();
 
     Set<String> pairs = new HashSet<>();
     for (var r : result) {
@@ -913,11 +882,7 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     }
     assertEquals(Set.of("p0->acme", "p1->acme", "p3->globex"), pairs);
 
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: p}"
-            + ".outE('CWorksAt'){as: w, where: (workFrom < 2013)}"
-            + ".inV(){as: c}"
-            + " RETURN p.name as pName, c.name as cName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection for indexed edge property:\n"
         + plan, plan.contains("intersection:"));
     session.commit();
@@ -932,21 +897,17 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // From acme, find workers with workFrom >= 2015
     // acme has p0(2010), p1(2012), p2(2015) → only p2 matches
-    var result = session.query(
+    String query =
         "MATCH {class: CCompany, as: c, where: (name = 'acme')}"
             + ".inE('CWorksAt'){as: w, where: (workFrom >= 2015)}"
             + ".outV(){as: p}"
-            + " RETURN p.name as pName")
-        .toList();
+            + " RETURN p.name as pName";
+    var result = session.query(query).toList();
 
     assertEquals(1, result.size());
     assertEquals("p2", result.get(0).getProperty("pName"));
 
-    String plan = explainPlan(
-        "MATCH {class: CCompany, as: c, where: (name = 'acme')}"
-            + ".inE('CWorksAt'){as: w, where: (workFrom >= 2015)}"
-            + ".outV(){as: p}"
-            + " RETURN p.name as pName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection for inE:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -997,22 +958,18 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   @Test
   public void edgeMethod_outE_equalityFilter() {
     session.begin();
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: p}"
             + ".outE('CWorksAt'){as: w, where: (workFrom = 2020)}"
             + ".inV(){as: c}"
-            + " RETURN p.name as pName, c.name as cName")
-        .toList();
+            + " RETURN p.name as pName, c.name as cName";
+    var result = session.query(query).toList();
 
     assertEquals(1, result.size());
     assertEquals("p7", result.get(0).getProperty("pName"));
     assertEquals("initech", result.get(0).getProperty("cName"));
 
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: p}"
-            + ".outE('CWorksAt'){as: w, where: (workFrom = 2020)}"
-            + ".inV(){as: c}"
-            + " RETURN p.name as pName, c.name as cName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -1027,12 +984,12 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   public void edgeMethod_classInferenceFromEdgeSchema() {
     session.begin();
     // No explicit class: on the company alias
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
             + ".outE('CWorksAt'){where: (workFrom = 2010)}"
             + ".inV(){as: target}"
-            + " RETURN target.name as targetName")
-        .toList();
+            + " RETURN target.name as targetName";
+    var result = session.query(query).toList();
 
     assertEquals(1, result.size());
     assertEquals("acme", result.get(0).getProperty("targetName"));
@@ -1040,11 +997,7 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // The outE('CWorksAt'){where: (workFrom = 2010)} step has an indexed property
     // filter on CWorksAt.workFrom. The planner should attach an IndexLookup
     // intersection descriptor for the CWorksAt_workFrom index.
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
-            + ".outE('CWorksAt'){where: (workFrom = 2010)}"
-            + ".inV(){as: target}"
-            + " RETURN target.name as targetName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection for indexed workFrom:\n" + plan,
         plan.contains("intersection:"));
     session.commit();
@@ -1132,21 +1085,17 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // m0 is liked by p1(5000) and p2(5100)
     // likeDate >= 5050: only p2's like
-    var result = session.query(
+    String query =
         "MATCH {class: CMessage, as: msg, where: (content = 'm0')}"
             + ".inE('CLikes'){as: lk, where: (likeDate >= 5050)}"
             + ".outV(){as: liker}"
-            + " RETURN liker.name as likerName")
-        .toList();
+            + " RETURN liker.name as likerName";
+    var result = session.query(query).toList();
 
     assertEquals(1, result.size());
     assertEquals("p2", result.get(0).getProperty("likerName"));
 
-    String plan = explainPlan(
-        "MATCH {class: CMessage, as: msg, where: (content = 'm0')}"
-            + ".inE('CLikes'){as: lk, where: (likeDate >= 5050)}"
-            + ".outV(){as: liker}"
-            + " RETURN liker.name as likerName");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection for CLikes index:\n" + plan,
         plan.contains("intersection:"));
     session.commit();

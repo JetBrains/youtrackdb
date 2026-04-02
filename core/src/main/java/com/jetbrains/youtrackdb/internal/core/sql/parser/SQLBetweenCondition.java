@@ -292,7 +292,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
    */
   @Override
   public List<SQLAndBlock> flatten(
-      CommandContext ctx, SchemaClassInternal schemaClass) {
+      CommandContext ctx, @Nullable SchemaClassInternal schemaClass) {
     // Only rewrite simple property references (not any()/all() functions)
     if (first.isFunctionAny() || first.isFunctionAll()) {
       return super.flatten(ctx, schemaClass);
