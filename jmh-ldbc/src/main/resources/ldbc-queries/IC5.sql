@@ -2,9 +2,12 @@
    Find Forums joined by friends/friends-of-friends after a given date,
    counting Posts by those friends.
 
-   Extends the MATCH pattern to traverse Forum -> CONTAINER_OF -> Post ->
-   HAS_CREATOR -> Person (matching the friend), avoiding the correlated
-   LET subquery that caused an N+1 scan over all forum posts. */
+   Reverse single-chain traversal: person -> Posts (via HAS_CREATOR) ->
+   Forum (via CONTAINER_OF) -> membership check (back-reference to person).
+   The single chain forces the scheduler to do person->posts FIRST (cheap:
+   ~100 posts per person), then check forum membership with a pre-filtered
+   O(1) EdgeRidLookup on the back-reference. This avoids the forward plan's
+   forum->CONTAINER_OF fan-out (~539 posts per forum x 15 forums/person). */
 SELECT forumTitle, forumId, count(post) as postCount
 FROM (
   SELECT DISTINCT forum.title as forumTitle,
@@ -14,11 +17,10 @@ FROM (
     MATCH {class: Person, as: start, where: (id = :personId)}
       .out('KNOWS'){while: ($depth < 2), as: person,
         where: (@rid <> $matched.start.@rid)}
-      .inE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}
-      .outV(){class: Forum, as: forum}
-      .out('CONTAINER_OF'){as: post}
-      .out('HAS_CREATOR'){as: creator,
-        where: (@rid = $matched.person.@rid)}
+      .in('HAS_CREATOR'){class: Post, as: post}
+      .in('CONTAINER_OF'){class: Forum, as: forum}
+      .outE('HAS_MEMBER'){as: membership, where: (joinDate >= :minDate)}
+      .inV(){as: personCheck, where: (@rid = $matched.person.@rid)}
     RETURN forum, post
   )
 )

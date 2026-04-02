@@ -3412,7 +3412,8 @@ public class SelectExecutionPlanner {
           ridFilter = new RidFilterDescriptor.EdgeRidLookup(
               edgeExtraction.edgeClassName(),
               edgeExtraction.traversalDirection(),
-              edgeExtraction.targetRidExpression());
+              edgeExtraction.targetRidExpression(),
+              false);
           remainingWhere = edgeExtraction.remainingWhere();
         }
       }

@@ -3479,6 +3479,72 @@ public class MatchStatementExecutionTest extends DbTestBase {
   }
 
   /**
+   * Boundary-depth diamond dedup: 0→1→3, 0→2→3. With {@code while: ($depth < 2)},
+   * the while condition fails at depth 2 (the leaf level where vertex 3 lives).
+   * Before the fix, {@code dedupVisited.add()} was inside the expansion block that
+   * only executes when the while condition holds, so leaf-level vertices were never
+   * marked as visited. Vertex 3 would appear twice — once from 1→3 and once from 2→3.
+   * After the fix, visited marking happens before the expansion check, so vertex 3
+   * is correctly deduplicated even at the boundary depth.
+   */
+  @Test
+  public void testWhileDeduplicatesLeafVerticesAtBoundaryDepth() {
+    session.begin();
+
+    // while: ($depth < 2) traverses depths 0, 1 from vertex 0:
+    //   depth 0: vertex 0 (while holds: 0 < 2)
+    //   depth 1: vertices 1, 2 (while holds: 1 < 2)
+    //   depth 2: vertex 3 via both 1 and 2 (while FAILS: 2 < 2 is false)
+    // Vertex 3 must appear exactly once despite being reachable from two parents.
+    var results = session.query(
+        "MATCH {class:DiamondV, as:start, where:(uid = 0)}"
+            + ".out('DiamondE'){as:reached, while:($depth < 2)}"
+            + " RETURN reached.uid as uid")
+        .stream().toList();
+
+    var uids = new ArrayList<Integer>();
+    for (var r : results) {
+      uids.add(((Number) r.getProperty("uid")).intValue());
+    }
+    Collections.sort(uids);
+
+    // Expect exactly 4 unique vertices: 0 (depth 0), 1 and 2 (depth 1), 3 (depth 2)
+    assertEquals(
+        "Boundary-depth diamond: each vertex must appear exactly once",
+        List.of(0, 1, 2, 3),
+        uids);
+    session.commit();
+  }
+
+  /**
+   * Same boundary-depth diamond as above, but with pathAlias declared. When pathAlias
+   * is present, dedup is disabled (dedupVisited is null) to preserve all distinct paths.
+   * Vertex 3 must appear twice — once for path 0→1→3 and once for path 0→2→3.
+   */
+  @Test
+  public void testWhileBoundaryDepthWithPathAliasPreservesAllPaths() {
+    session.begin();
+
+    var results = session.query(
+        "MATCH {class:DiamondV, as:start, where:(uid = 0)}"
+            + ".out('DiamondE'){as:reached, while:($depth < 2),"
+            + " pathAlias: p}"
+            + " RETURN reached.uid as uid, p")
+        .stream().toList();
+
+    // Count how many times vertex 3 appears — should be 2 (one per path)
+    var uid3Count = results.stream()
+        .filter(r -> ((Number) r.getProperty("uid")).intValue() == 3)
+        .count();
+    assertEquals(
+        "Boundary-depth vertex 3 should appear twice (once per path) with pathAlias",
+        2,
+        uid3Count);
+
+    session.commit();
+  }
+
+  /**
    * Verifies that MATCH ... RETURN $elements ORDER BY ... SKIP N LIMIT M uses the
    * bounded-heap optimization with buffer size = SKIP + LIMIT.
    */

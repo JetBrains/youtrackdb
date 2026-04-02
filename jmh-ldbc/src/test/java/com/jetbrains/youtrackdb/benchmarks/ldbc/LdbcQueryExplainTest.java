@@ -89,10 +89,14 @@ public class LdbcQueryExplainTest {
   // ==================== MATCH back-reference intersection ====================
 
   /**
-   * IC5: The MATCH pattern traverses Forum -> CONTAINER_OF -> Post ->
-   * HAS_CREATOR -> Person, filtering {@code creator.@rid = $matched.person.@rid}.
-   * The planner should detect the back-reference and set an intersection
-   * descriptor on the HAS_CREATOR edge traversal step.
+   * IC5: The reverse single-chain MATCH pattern traverses
+   * Person -> HAS_CREATOR -> Post -> CONTAINER_OF -> Forum ->
+   * outE(HAS_MEMBER) -> inV (back-ref to person).
+   *
+   * <p>The planner should detect the {@code .inV()} back-reference
+   * ({@code @rid = $matched.person.@rid}), propagate the edge class
+   * from the preceding {@code .outE('HAS_MEMBER')} step, and set an
+   * intersection descriptor on the HAS_MEMBER edge traversal step.
    */
   @Test
   public void testIC5_backReferenceIntersection() {
@@ -100,8 +104,8 @@ public class LdbcQueryExplainTest {
         "personId", 1L, "minDate", new Date(epochMillis(2010, 1, 1)),
         "limit", 10);
     assertTrue(
-        "IC5 plan should show intersection optimization on the HAS_CREATOR "
-            + "back-reference edge. Plan was:\n" + plan,
+        "IC5 plan should show intersection optimization on the HAS_MEMBER "
+            + "edge traversal step (back-ref from .inV()). Plan was:\n" + plan,
         plan.contains("intersection:"));
   }
 
@@ -133,6 +137,39 @@ public class LdbcQueryExplainTest {
         "IS7 plan should show intersection optimization on the KNOWS "
             + "optional back-reference edge. Plan was:\n" + plan,
         plan.contains("intersection:"));
+  }
+
+  // ==================== Index pre-filter on edge properties ====================
+
+  /**
+   * IC11: The MATCH pattern traverses Person -> KNOWS(depth<2) -> outE(WORK_AT)
+   * -> inV() -> out(IS_LOCATED_IN). The planner should:
+   * <ul>
+   *   <li>Infer class WORK_AT on the workEdge alias (from outE('WORK_AT'))</li>
+   *   <li>Infer class Organisation on the company alias (from WORK_AT.in LINK)</li>
+   *   <li>Infer class Place on the country alias (from IS_LOCATED_IN.in LINK)</li>
+   *   <li>Detect the WORK_AT.workFrom index for the {@code workFrom < :workFromYear}
+   *       condition and attach an IndexLookup pre-filter</li>
+   *   <li>Attach collection ID filters on company and country steps</li>
+   * </ul>
+   */
+  @Test
+  public void testIC11_indexPreFilterOnWorkAt() {
+    String plan = explain(LdbcQuerySql.IC11,
+        "personId", 1L, "countryName", "China",
+        "workFromYear", 2010, "limit", 10);
+
+    // Index pre-filter should detect WORK_AT.workFrom index on the workEdge step
+    assertTrue(
+        "IC11 plan should show index pre-filter on WORK_AT.workFrom. "
+            + "Plan was:\n" + plan,
+        plan.contains("index WORK_AT.workFrom"));
+
+    // Index pre-filter should detect Place.name index on the country step
+    assertTrue(
+        "IC11 plan should show index pre-filter on Place.name for the "
+            + "country filter. Plan was:\n" + plan,
+        plan.contains("index Place.name"));
   }
 
   // ==================== expand() predicate push-down ====================
@@ -297,6 +334,29 @@ public class LdbcQueryExplainTest {
       createEdge(ytg, "HAS_CREATOR", "Comment", 900, "Person", 2);
       createEdge(ytg, "IS_LOCATED_IN", "Comment", 900, "Place", 200);
       createEdge(ytg, "REPLY_OF", "Comment", 900, "Post", 800);
+
+      // ---- Companies (for IC11) ----
+      ytg.yql(
+          "INSERT INTO Company SET id = :id, name = :name, url = :url, type = :type",
+          "id", 1000L, "name", "Acme Corp", "url", "http://acme.com",
+          "type", "company").iterate();
+      ytg.yql(
+          "INSERT INTO Company SET id = :id, name = :name, url = :url, type = :type",
+          "id", 1001L, "name", "Globex Inc", "url", "http://globex.com",
+          "type", "company").iterate();
+      // Companies located in countries
+      createEdge(ytg, "IS_LOCATED_IN", "Company", 1000, "Place", 200); // China
+      createEdge(ytg, "IS_LOCATED_IN", "Company", 1001, "Place", 201); // India
+
+      // ---- WORK_AT edges (for IC11) ----
+      ytg.yql(
+          "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
+              + " TO (SELECT FROM Company WHERE id = :to) SET workFrom = :wf",
+          "from", 2L, "to", 1000L, "wf", 2008).iterate();
+      ytg.yql(
+          "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = :from)"
+              + " TO (SELECT FROM Company WHERE id = :to) SET workFrom = :wf",
+          "from", 3L, "to", 1001L, "wf", 2012).iterate();
 
       // ---- LIKES ----
       ytg.yql(

@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
+import com.jetbrains.youtrackdb.internal.core.record.impl.PreFilterableLinkBagIterable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
@@ -432,19 +432,20 @@ public class MatchEdgeTraverser implements ExecutionStream {
         }
       }
 
+      // Mark the starting point as visited to prevent re-entry from sibling
+      // branches at any depth level. This must be OUTSIDE the expansion block
+      // because leaf-level nodes (where the while condition fails) would
+      // otherwise never be marked, causing O(fan-out) duplication.
+      if (dedupVisited != null && startingPoint != null
+          && startingPoint.getIdentity() != null) {
+        dedupVisited.add(startingPoint.getIdentity());
+      }
+
       // Recurse into neighbors if depth allows and WHILE condition holds
       if (startingPoint != null
           && (maxDepth == null || depth < maxDepth)
           && (whileCondition == null
               || whileCondition.matchesFilters(startingPoint, iCommandContext))) {
-
-        // Mark the starting point as visited before expanding neighbors so
-        // that cycles back to it are detected.
-        if (dedupVisited != null) {
-          assert startingPoint.getIdentity() != null
-              : "graph vertex identity must not be null";
-          dedupVisited.add(startingPoint.getIdentity());
-        }
 
         var queryResult = traversePatternEdge(startingPoint, iCommandContext);
 
@@ -629,13 +630,13 @@ public class MatchEdgeTraverser implements ExecutionStream {
     if (edge == null) {
       return qR;
     }
-    if (!(qR instanceof VertexFromLinkBagIterable vfli)) {
+    if (!(qR instanceof PreFilterableLinkBagIterable pfli)) {
       return qR;
     }
 
     // Apply class filter (zero I/O — collection ID is embedded in the RID)
     if (edge.getAcceptedCollectionIds() != null) {
-      vfli = vfli.withClassFilter(edge.getAcceptedCollectionIds());
+      pfli = pfli.withClassFilter(edge.getAcceptedCollectionIds());
     }
 
     // Apply RidSet intersection filter.
@@ -644,7 +645,7 @@ public class MatchEdgeTraverser implements ExecutionStream {
     // it returns null without materializing. Only the first vertex whose
     // link bag is large enough triggers actual resolution and caching.
     if (edge.getIntersectionDescriptor() != null) {
-      int linkBagSize = vfli.size();
+      int linkBagSize = pfli.size();
       if (linkBagSize >= TraversalPreFilterHelper.minLinkBagSize()) {
         var ridSet = edge.resolveWithCache(ctx, linkBagSize);
         if (ridSet != null
@@ -656,12 +657,12 @@ public class MatchEdgeTraverser implements ExecutionStream {
                 "MATCH pre-filter applied: linkBag={} ridSet={} descriptor={}",
                 linkBagSize, ridSet.size(), edge.getIntersectionDescriptor());
           }
-          vfli = vfli.withRidFilter(ridSet);
+          pfli = pfli.withRidFilter(ridSet);
         }
       }
     }
 
-    return vfli;
+    return pfli;
   }
 
   /**

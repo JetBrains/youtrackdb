@@ -250,7 +250,8 @@ public class MatchStepUnitTest extends DbTestBase {
     var ctx = createCommandContext();
     var edge = createTestEdgeTraversal();
     edge.setIntersectionDescriptor(
-        new RidFilterDescriptor.EdgeRidLookup("Knows", "out", new SQLExpression(-1)));
+        new RidFilterDescriptor.EdgeRidLookup(
+            "Knows", "out", new SQLExpression(-1), false));
 
     var step = new MatchStep(ctx, edge, false);
     var result = step.prettyPrint(0, 2);
@@ -291,7 +292,7 @@ public class MatchStepUnitTest extends DbTestBase {
     var edge = createTestEdgeTraversal();
 
     var edgeDesc = new RidFilterDescriptor.EdgeRidLookup(
-        "Knows", "out", new SQLExpression(-1));
+        "Knows", "out", new SQLExpression(-1), false);
     var directDesc = new RidFilterDescriptor.DirectRid(new SQLExpression(-1));
     edge.setIntersectionDescriptor(
         new RidFilterDescriptor.Composite(java.util.List.of(edgeDesc, directDesc)));
@@ -314,7 +315,7 @@ public class MatchStepUnitTest extends DbTestBase {
     var edge = new EdgeTraversal(patternEdge, true);
     edge.setIntersectionDescriptor(
         new RidFilterDescriptor.EdgeRidLookup("HasCreator", "in",
-            new SQLExpression(-1)));
+            new SQLExpression(-1), false));
 
     var step = new OptionalMatchStep(ctx, edge, false);
     var result = step.prettyPrint(0, 2);

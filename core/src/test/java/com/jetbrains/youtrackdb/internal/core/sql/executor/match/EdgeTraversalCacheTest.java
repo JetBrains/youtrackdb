@@ -289,7 +289,7 @@ public class EdgeTraversalCacheTest {
     var rid = new RecordId(5, 1);
     when(expr.execute(nullable(Result.class), any())).thenReturn(rid);
 
-    var desc = new EdgeRidLookup("KNOWS", "out", expr);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
     var key = desc.cacheKey(new BasicCommandContext());
 
     assertThat(key).isEqualTo(rid);
@@ -304,7 +304,7 @@ public class EdgeTraversalCacheTest {
     var expr = mock(SQLExpression.class);
     when(expr.execute(nullable(Result.class), any())).thenReturn(42);
 
-    var desc = new EdgeRidLookup("KNOWS", "out", expr);
+    var desc = new EdgeRidLookup("KNOWS", "out", expr, false);
     var key = desc.cacheKey(new BasicCommandContext());
 
     assertThat(key).isNull();

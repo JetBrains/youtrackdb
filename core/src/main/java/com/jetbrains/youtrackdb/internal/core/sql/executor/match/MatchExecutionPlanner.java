@@ -302,6 +302,17 @@ public class MatchExecutionPlanner {
   /** Maps each alias to a specific RID if one was provided in the pattern. */
   private Map<String, SQLRid> aliasRids;
 
+  /**
+   * Aliases whose class was inferred from edge LINK schema rather than
+   * explicitly declared. Inferred aliases must NOT outcompete explicit
+   * roots during scheduling — a low-cardinality inferred class can cause
+   * the scheduler to reverse traversal direction across while steps,
+   * producing 0 results. Their estimates are inflated to {@code
+   * Long.MAX_VALUE} so they sort last in root selection while remaining
+   * available for prefetching and collection-ID filtering.
+   */
+  private Set<String> inferredWhileExprAliases = Set.of();
+
   /** Set to `true` if at least one node in the pattern is marked `optional: true`. */
   private boolean foundOptional = false;
 
@@ -429,9 +440,18 @@ public class MatchExecutionPlanner {
 
     var result = new SelectExecutionPlan(context);
 
-    // Phase 3: Estimate how many root records each aliased node will produce
+    // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasRids, aliasFilters, context);
+    // Inflate estimates for inferred-class aliases so they never outcompete
+    // explicitly declared roots. A low-cardinality inferred class can cause
+    // the scheduler to reverse traversal direction across while steps.
+    // The alias stays in the map for prefetching; only root priority changes.
+    for (var alias : inferredWhileExprAliases) {
+      if (estimatedRootEntries.containsKey(alias)) {
+        estimatedRootEntries.put(alias, Long.MAX_VALUE);
+      }
+    }
 
     // Aliases with fewer records than THRESHOLD and no dependency on $matched are prefetched
     var aliasesToPrefetch =
@@ -1734,7 +1754,7 @@ public class MatchExecutionPlanner {
     // throw NPE, ClassCastException, etc. — not just CommandExecutionException.
     try {
       var value = firstParam.execute((Result) null, new BasicCommandContext());
-      if (value instanceof String s) {
+      if (value instanceof String s && !s.isEmpty()) {
         return s;
       }
     } catch (RuntimeException e) {
@@ -1810,6 +1830,25 @@ public class MatchExecutionPlanner {
         if (involvedAliases != null && !involvedAliases.isEmpty()) {
           var edgeClass = getEdgeClassName(edgeJ);
           var edgeDirection = getEdgeDirection(edgeJ);
+          var collectEdgeRids = false;
+
+          // .inV()/.outV() steps have no edge class — propagate from the
+          // preceding .outE('CLASS')/.inE('CLASS') step if present.
+          // The preceding edge iterates edge RIDs, so collectEdgeRids=true.
+          if (edgeClass == null && j > 0) {
+            var prevEdge = schedule.get(j - 1);
+            var prevMethodName = getMethodName(prevEdge);
+            if ("oute".equals(prevMethodName) || "ine".equals(prevMethodName)) {
+              edgeClass = getEdgeClassName(prevEdge);
+              // Normalize direction: "oute" -> "out", "ine" -> "in"
+              edgeDirection = getEdgeDirection(prevEdge);
+              if (edgeDirection != null && edgeDirection.endsWith("e")) {
+                edgeDirection =
+                    edgeDirection.substring(0, edgeDirection.length() - 1);
+              }
+              collectEdgeRids = true;
+            }
+          }
 
           if (edgeClass != null && edgeDirection != null) {
             var sourceAliasJ = edgeJ.out
@@ -1819,11 +1858,12 @@ public class MatchExecutionPlanner {
               var edgeI = schedule.get(producingEdgeIdx);
               edgeI.addIntersectionDescriptor(
                   new RidFilterDescriptor.EdgeRidLookup(
-                      edgeClass, edgeDirection, ridExpr));
+                      edgeClass, edgeDirection, ridExpr, collectEdgeRids));
               logger.debug(
                   "MATCH pre-filter: EdgeRidLookup on edge[{}] "
-                      + "({}({}) back-ref from alias '{}')",
-                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ);
+                      + "({}({}) back-ref from alias '{}', edgeRids={})",
+                  producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
+                  collectEdgeRids);
             }
           }
         }
@@ -1938,6 +1978,19 @@ public class MatchExecutionPlanner {
       case "in" -> "out";
       default -> syntacticDirection;
     };
+  }
+
+  /**
+   * Returns the lowercased method name for the given edge traversal
+   * (e.g. {@code "out"}, {@code "oute"}, {@code "inv"}).
+   */
+  @Nullable static String getMethodName(EdgeTraversal et) {
+    var method = et.edge.item.getMethod();
+    if (method == null) {
+      return null;
+    }
+    var name = method.getMethodNameString();
+    return name != null ? name.toLowerCase(Locale.ROOT) : null;
   }
 
   /**
@@ -2119,21 +2172,23 @@ public class MatchExecutionPlanner {
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
     Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
-    // Collect aliases from patterns that contain a while condition.
-    // Class inference on these (and patterns sharing aliases with them)
+    // Collect aliases that are directly part of a while-condition's recursive
+    // zone (origin + while-item).  Class inference on these specific aliases
     // must be skipped — inferred classes change cost estimates which can
     // reorder the schedule, causing while/where recursive steps to be
-    // traversed in the wrong direction.
+    // traversed in the wrong direction.  Non-recursive aliases in the same
+    // expression (downstream of the while) are safe to infer.
     var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
+    var inferredAliases = new HashSet<String>();
     for (var expr : this.matchExpressions) {
-      boolean skipInference = sharesAliases(expr, whileAliases);
       addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
-          ctx, skipInference);
+          ctx, whileAliases, inferredAliases);
     }
 
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
     this.aliasRids = aliasRids;
+    this.inferredWhileExprAliases = inferredAliases;
 
     rebindFilters(aliasFilters);
   }
@@ -2163,22 +2218,17 @@ public class MatchExecutionPlanner {
       List<SQLMatchExpression> expressions) {
     var result = new HashSet<String>();
     for (var expr : expressions) {
-      boolean hasWhile = false;
       for (var item : expr.getItems()) {
         if (item.getFilter() != null
             && item.getFilter().getWhileCondition() != null) {
-          hasWhile = true;
-          break;
-        }
-      }
-      if (hasWhile) {
-        // Collect origin alias
-        if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
-          result.add(expr.getOrigin().getAlias());
-        }
-        // Collect all item aliases
-        for (var item : expr.getItems()) {
-          if (item.getFilter() != null && item.getFilter().getAlias() != null) {
+          // Only the origin alias and the while-item's own alias are in the
+          // recursive zone.  Downstream items (after the while in the pattern
+          // chain) are not recursive and can safely have class inference —
+          // their inferred classes do not affect while-traversal direction.
+          if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null) {
+            result.add(expr.getOrigin().getAlias());
+          }
+          if (item.getFilter().getAlias() != null) {
             result.add(item.getFilter().getAlias());
           }
         }
@@ -2188,76 +2238,104 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Returns true if the expression shares any alias with the given set.
-   * Used to detect patterns connected to while-containing patterns via
-   * shared aliases (e.g. {@code {as: post}} appearing in both patterns).
-   */
-  private static boolean sharesAliases(
-      SQLMatchExpression expr, Set<String> aliases) {
-    if (aliases.isEmpty()) {
-      return false;
-    }
-    if (expr.getOrigin() != null && expr.getOrigin().getAlias() != null
-        && aliases.contains(expr.getOrigin().getAlias())) {
-      return true;
-    }
-    for (var item : expr.getItems()) {
-      if (item.getFilter() != null && item.getFilter().getAlias() != null
-          && aliases.contains(item.getFilter().getAlias())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
    * Extracts alias metadata (filters, class, collection, RID) from a single match
    * expression and merges them into the accumulation maps.
+   *
+   * <p>Tracks a {@code currentEdgeClass} state across items: {@code outE('X')}/{@code inE('X')}
+   * set it to {@code X}; {@code inV()}/{@code outV()} consume it for vertex class inference
+   * then reset it; all other methods reset it to {@code null}.
    */
-  private static void addAliases(
+  // Visible for testing
+  static void addAliases(
       SQLMatchExpression expr,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
       Map<String, String> aliasCollections,
       Map<String, SQLRid> aliasRids,
       CommandContext context,
-      boolean skipClassInference) {
+      Set<String> whileAliases,
+      Set<String> inferredWhileExprAliases) {
     addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+
+    // Track the edge class set by the most recent outE/inE item, so that a
+    // following inV/outV can look up the linked vertex class from the edge schema.
+    // Reset after inV/outV consumes it, or when a non-edge-method item is seen.
+    @Nullable String currentEdgeClass = null;
 
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
         addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
             context);
-        if (!skipClassInference) {
+
+        // Skip class inference only for aliases in the recursive zone
+        // (origin + while-item).  Downstream aliases are safe to infer.
+        var alias = item.getFilter().getAlias();
+        boolean skipThisItem = alias != null && whileAliases.contains(alias);
+
+        if (!skipThisItem) {
+          // Determine the method name for edge-class state tracking.
+          var method = item.getMethod();
+          var methodName = method != null ? method.getMethodNameString() : null;
+          var methodLower = methodName != null
+              ? methodName.toLowerCase(Locale.ROOT) : null;
+
+          // Update currentEdgeClass state based on the method type.
+          // inV/outV is deferred: it consumes currentEdgeClass after inference below.
+          var isInVOrOutV = "inv".equals(methodLower) || "outv".equals(methodLower);
+          if ("oute".equals(methodLower) || "ine".equals(methodLower)) {
+            currentEdgeClass = extractEdgeClassName(method);
+          } else if (!isInVOrOutV) {
+            // Any other method (out, in, both, bothE, etc.) resets the state.
+            currentEdgeClass = null;
+          }
+
           // Infer target class from edge LINK schema when no explicit class
-          // is set. For out('CONTAINER_OF'), the target vertices are the "in"
-          // endpoint of the CONTAINER_OF edge class; if that endpoint declares
-          // LINK Message, the target class is Message.
-          var alias = item.getFilter().getAlias();
+          // is set. Handles both vertex-to-vertex traversals (out/in) and
+          // edge-method traversals (outE/inE/inV/outV).
           if (alias != null && !aliasClasses.containsKey(alias)) {
-            var inferred = inferClassFromEdgeSchema(item.getMethod(), context);
+            var inferred = inferClassFromEdgeSchema(method, currentEdgeClass, context);
             if (inferred != null) {
               aliasClasses.put(alias, inferred);
+              inferredWhileExprAliases.add(alias);
               logger.debug(
                   "MATCH class inference: alias '{}' -> class '{}' "
                       + "(from edge LINK schema)",
                   alias, inferred);
             }
           }
+
+          // Reset currentEdgeClass after inV/outV consumes it.
+          if (isInVOrOutV) {
+            currentEdgeClass = null;
+          }
+        } else {
+          // While-alias: reset edge class state since we skip inference.
+          currentEdgeClass = null;
         }
       }
     }
   }
 
   /**
-   * Infers the target vertex class from the edge schema LINK declarations.
-   * For {@code out('X')}, the target is the "in" endpoint of edge class X;
-   * for {@code in('X')}, the target is the "out" endpoint.
+   * Infers the alias class from the edge schema LINK declarations.
    *
-   * @return the linked class name, or {@code null} if it cannot be inferred
+   * <p>Handles six method types:
+   * <ul>
+   *   <li>{@code out('X')} / {@code in('X')}: target is the opposite endpoint
+   *       of edge class X (vertex class)</li>
+   *   <li>{@code outE('X')} / {@code inE('X')}: alias class is X itself
+   *       (the edge class)</li>
+   *   <li>{@code inV()} / {@code outV()}: alias class is the linked vertex
+   *       class from the preceding edge's LINK schema ({@code currentEdgeClass})</li>
+   * </ul>
+   *
+   * @param currentEdgeClass the edge class set by a preceding {@code outE}/{@code inE},
+   *     or {@code null} if none
+   * @return the inferred class name, or {@code null} if it cannot be inferred
    */
   @Nullable static String inferClassFromEdgeSchema(
-      @Nullable SQLMethodCall method, CommandContext context) {
+      @Nullable SQLMethodCall method, @Nullable String currentEdgeClass,
+      CommandContext context) {
     if (method == null) {
       return null;
     }
@@ -2266,40 +2344,59 @@ public class MatchExecutionPlanner {
       return null;
     }
     dirName = dirName.toLowerCase(Locale.ROOT);
+
+    // outE('X') / inE('X'): the edge class itself is the alias class
+    if ("oute".equals(dirName) || "ine".equals(dirName)) {
+      return extractEdgeClassName(method);
+    }
+
+    // inV() / outV(): look up the linked vertex class from the preceding edge.
+    // inV() reads the "in" property; outV() reads the "out" property.
+    if ("inv".equals(dirName) || "outv".equals(dirName)) {
+      if (currentEdgeClass == null) {
+        return null;
+      }
+      var prop = "inv".equals(dirName) ? "in" : "out";
+      return lookupLinkedVertexClass(currentEdgeClass, prop, context);
+    }
+
+    // out('X') / in('X'): infer the target vertex class from the edge LINK schema
     if (!"in".equals(dirName) && !"out".equals(dirName)) {
       return null;
     }
 
-    if (method.getParams() == null || method.getParams().isEmpty()) {
-      return null;
-    }
-    String edgeClassName;
-    try {
-      var value = method.getParams().getFirst()
-          .execute((Result) null, new BasicCommandContext());
-      if (!(value instanceof String s) || s.isEmpty()) {
-        return null;
-      }
-      edgeClassName = s;
-    } catch (RuntimeException e) {
+    var edgeClassName = extractEdgeClassName(method);
+    if (edgeClassName == null) {
       return null;
     }
 
+    // out('X') targets the "in" side; in('X') targets the "out" side
+    var targetPropName = "out".equals(dirName) ? "in" : "out";
+    return lookupLinkedVertexClass(edgeClassName, targetPropName, context);
+  }
+
+  /**
+   * Looks up the linked vertex class from an edge class's LINK property.
+   *
+   * @param edgeClassName the edge class to look up
+   * @param propName the property name to read — must be {@code "in"} or {@code "out"}
+   * @return the linked class name, or {@code null} if not found
+   */
+  @Nullable private static String lookupLinkedVertexClass(
+      String edgeClassName, String propName, CommandContext context) {
     var session = context.getDatabaseSession();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var edgeClass = schema.getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    // out('X') targets the "in" side; in('X') targets the "out" side
-    var targetPropName = "out".equals(dirName) ? "in" : "out";
-    var prop = edgeClass.getPropertyInternal(targetPropName);
+    var prop = edgeClass.getPropertyInternal(propName);
     if (prop == null || prop.getLinkedClass() == null) {
       return null;
     }
     assert prop.getLinkedClass().getName() != null
         && !prop.getLinkedClass().getName().isEmpty()
-        : "inferClassFromEdgeSchema: linked class has null/empty name for edge "
+        : "lookupLinkedVertexClass: linked class has null/empty name for edge "
             + edgeClassName;
     return prop.getLinkedClass().getName();
   }
