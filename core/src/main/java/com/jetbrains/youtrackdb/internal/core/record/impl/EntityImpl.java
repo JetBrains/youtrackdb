@@ -3551,7 +3551,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (!isPartial || pageFrame == null) {
           clearPageFrame();
         }
-        return evaluateDeserializationResult(propertyNames);
+        return checkDeserializedProperties(propertyNames);
       }
 
       // Stamp invalid: page was modified during deserialization — fall through to re-read
@@ -3610,15 +3610,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Unexpected StorageReadResult type for " + getIdentity()
               + ": " + readResult.getClass().getSimpleName());
     }
-  }
-
-  /**
-   * Evaluates the result of deserialization for the requested property names.
-   * Used by the PageFrame deserialization path after successful speculative
-   * deserialization.
-   */
-  private boolean evaluateDeserializationResult(String[] propertyNames) {
-    return checkDeserializedProperties(propertyNames);
   }
 
   /**
