@@ -1050,6 +1050,19 @@ public class MatchPreFilterGapCoverageTest extends DbTestBase {
       labels.add(r.getProperty("label"));
     }
     assertEquals(Set.of("or2", "or7"), labels);
+
+    // TODO: OR in WHERE causes flatten() to produce 2 AND blocks (one per OR
+    // branch). findIndexForFilter requires flatWhere.size() == 1 and returns
+    // null when there are multiple blocks. Could be improved by unioning two
+    // separate index lookups, but this is not currently implemented.
+    String plan = explainPlan(
+        "MATCH {class: ORHub, as: hub, where: (name = 'hub')}"
+            + ".out('ORLink'){as: item,"
+            + "  where: (score = 20 OR score = 70)}"
+            + " RETURN item.label as label");
+    assertFalse(
+        "OR prevents single-index intersection (known limitation):\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 

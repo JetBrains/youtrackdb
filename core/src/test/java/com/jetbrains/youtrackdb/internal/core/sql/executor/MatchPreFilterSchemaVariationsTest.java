@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -493,6 +494,20 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     }
     // bob shares DB101, carol shares ML201
     assertEquals(Set.of("bob", "carol"), classmates);
+
+    // findRidEquality() only matches @rid = <expr> (SQLEqualsOperator). The <>
+    // (not-equals) operator does not trigger EdgeRidLookup. The inequality is
+    // evaluated as a standard post-traversal WHERE filter instead.
+    String plan = explainPlan(
+        "MATCH {class: BStu, as: student, where: (name = 'alice')}"
+            + ".out('BTakes'){as: course}"
+            + ".in('BTakes'){as: classmate,"
+            + "  where: (@rid <> $matched.student.@rid)}"
+            + " RETURN classmate.name as name");
+    assertFalse(
+        "Only @rid = ... triggers back-ref intersection, not @rid <>:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -841,6 +856,20 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
       sub1Names.add(r.getProperty("itemName"));
     }
     assertEquals(Set.of("sub1a", "sub1b"), sub1Names);
+
+    // The class filter optimization IS active via setAcceptedCollectionIds() on
+    // EdgeTraversal. It includes cluster IDs for PolyBase and all its subclasses
+    // (PolySub1, PolySub2). This zero-I/O filter is not visible in EXPLAIN
+    // because it uses the acceptedCollectionIds mechanism, not the intersection
+    // descriptor infrastructure.
+    String plan = explainPlan(
+        "MATCH {class: PolyContainer, as: box, where: (name = 'box')}"
+            + ".out('PolyContains'){class: PolyBase, as: item}"
+            + " RETURN item.name as itemName");
+    assertFalse(
+        "Class filter uses acceptedCollectionIds, not intersection descriptor:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1186,6 +1215,18 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
             + " RETURN a.val, b.val")
         .toList();
     assertEquals(0, result.size());
+
+    // TODO: EmptyE has no typed LINK properties (out LINK / in LINK), so the
+    // planner cannot infer that the target class is EmptyV. Without knowing the
+    // target class, it cannot look up the EmptyV_val index. Adding typed LINK
+    // endpoints to the edge class would enable index intersection here.
+    String plan = explainPlan(
+        "MATCH {class: EmptyV, as: a}"
+            + ".out('EmptyE'){as: b, where: (val > 10)}"
+            + " RETURN a.val, b.val");
+    assertFalse(
+        "No typed LINK on EmptyE prevents target class inference:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1230,9 +1271,17 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     // Only 'c' (val=20) matches val >= 15
     assertEquals(1, result.size());
 
-    // Target alias 'target' has no explicit class: in the pattern, so the
-    // planner cannot resolve its schema class and the index pre-filter
-    // is not attached. No intersection expected here.
+    // TODO: RPEdge has no typed LINK properties (out LINK / in LINK), so the
+    // planner cannot infer the target class RPNode. Without target class context,
+    // the RPNode_val index cannot be discovered. Adding typed LINK endpoints to
+    // RPEdge would enable index intersection here.
+    String plan = explainPlan(
+        "MATCH {class: RPNode, as: start, where: (name = 'a')}"
+            + ".out('RPEdge'){as: target, where: (val >= 15)}"
+            + " RETURN target.name as tName");
+    assertFalse(
+        "No typed LINK on RPEdge prevents target class inference:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1279,6 +1328,20 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     for (var r : result) {
       assertEquals("a", r.getProperty("bName"));
     }
+
+    // $currentMatch comparisons are runtime-only values that cannot be resolved
+    // at plan time. No @rid equality, no indexed property filter — just a
+    // post-traversal WHERE filter evaluated during execution.
+    String plan = explainPlan(
+        "MATCH {class: CMNode, as: start, where: (name = 'a')}"
+            + ".out('CMEdge'){as: target}"
+            + ".in('CMEdge'){as: back,"
+            + "  where: ($currentMatch <> $matched.target)}"
+            + " RETURN target.name as tName, back.name as bName");
+    assertFalse(
+        "$currentMatch comparisons are runtime-only, not pre-filterable:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1329,9 +1392,18 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
     }
     assertEquals(Set.of("pp3", "pp4"), names);
 
-    // Target alias 'target' has no explicit class: in the pattern, so the
-    // planner cannot resolve its schema class and the index pre-filter
-    // is not attached. No intersection expected here.
+    // TODO: PPEdge has no typed LINK properties (out LINK / in LINK), so the
+    // planner cannot infer the target class PPNode. Without target class context,
+    // the PPNode_val index cannot be discovered. Adding typed LINK endpoints to
+    // PPEdge would enable index intersection here.
+    String plan = explainPlan(
+        "MATCH {class: PPNode, as: root, where: (name = 'root')}"
+            + ".out('PPEdge'){as: target, where: (val >= ?)}"
+            + " RETURN target.name as name",
+        30);
+    assertFalse(
+        "No typed LINK on PPEdge prevents target class inference:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 

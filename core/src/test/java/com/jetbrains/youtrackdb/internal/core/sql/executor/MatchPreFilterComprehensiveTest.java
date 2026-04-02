@@ -495,6 +495,20 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " RETURN person.name as name")
         .toList();
     assertEquals("No self-loops exist", 0, result.size());
+
+    // The back-ref @rid = $matched.person.@rid is detected by the planner via
+    // findRidEquality(), but 'person' is the scan root alias (no producing edge).
+    // targetAliasToEdgeIndex.get("person") returns null because the scan root has
+    // no link bag to attach an intersection descriptor to.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person}"
+            + ".out('CKnows'){as: friend,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN person.name as name");
+    assertFalse(
+        "Scan root has no producing edge, so EdgeRidLookup cannot attach:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -557,6 +571,31 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
       friends.add(r.getProperty("friendName"));
     }
     assertEquals(Set.of("p1", "p2"), friends);
+
+    // both() returns a ChainedIterable (combining out + in link bags), which does
+    // not implement PreFilterableLinkBagIterable. Even if the planner attached an
+    // intersection descriptor, the runtime would not apply it. This is an
+    // intentional limitation documented in PR #904.
+    // Note: the plan may show "intersection:" on the FIRST edge (out("CKnows") to
+    // friend) because the back-ref attaches there; we verify the both() edge line
+    // specifically does not carry an intersection descriptor.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
+            + ".out('CKnows'){as: friend}"
+            + ".both('CKnows'){as: fof,"
+            + "  where: (@rid = $matched.person.@rid)}"
+            + " RETURN friend.name as friendName");
+    // Extract the line describing the both() edge traversal
+    boolean bothEdgeHasIntersection = false;
+    for (String line : plan.split("\n")) {
+      if (line.contains("both(") && line.contains("fof")) {
+        bothEdgeHasIntersection = line.contains("intersection:");
+        break;
+      }
+    }
+    assertFalse(
+        "both() edge should NOT have intersection descriptor:\n" + plan,
+        bothEdgeHasIntersection);
     session.commit();
   }
 
@@ -781,6 +820,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " RETURN msg.content as content")
         .toList();
     assertEquals(6, result.size());
+
+    // The class filter optimization IS active here via setAcceptedCollectionIds()
+    // on EdgeTraversal. This is a zero-I/O filter applied at the LinkBag iteration
+    // level, not via addIntersectionDescriptor(). It does not appear in EXPLAIN
+    // output because it has negligible cost and does not use the RidSet machinery.
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){class: CMessage, as: msg}"
+            + " RETURN msg.content as content");
+    assertFalse(
+        "Class filter uses acceptedCollectionIds, not intersection descriptor:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -819,6 +871,18 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     }
     assertTrue("Should include the CComment subclass vertex",
         contents.contains("c0"));
+
+    // Same as classFilter_targetClassConstraint: the polymorphic class filter
+    // operates via acceptedCollectionIds (includes CMessage + CComment cluster
+    // IDs). Not visible in EXPLAIN as an intersection descriptor.
+    String plan = explainPlan(
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){class: CMessage, as: msg}"
+            + " RETURN msg.content as content");
+    assertFalse(
+        "Class filter uses acceptedCollectionIds, not intersection descriptor:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.rollback();
   }
 
@@ -972,6 +1036,17 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
 
     assertEquals(1, result.size());
     assertEquals("acme", result.get(0).getProperty("targetName"));
+
+    // The outE('CWorksAt'){where: (workFrom = 2010)} step has an indexed property
+    // filter on CWorksAt.workFrom. The planner should attach an IndexLookup
+    // intersection descriptor for the CWorksAt_workFrom index.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
+            + ".outE('CWorksAt'){where: (workFrom = 2010)}"
+            + ".inV(){as: target}"
+            + " RETURN target.name as targetName");
+    assertTrue("Plan should show intersection for indexed workFrom:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -995,6 +1070,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // Count all outgoing edges from p0
     assertTrue("p0 should have multiple outgoing edges",
         result.size() >= 4);
+
+    // outE() without edge class argument means the planner cannot determine which
+    // edge class or index to use for the workFrom filter. Without an edge class,
+    // there is no schema context to resolve target class or edge index.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
+            + ".outE(){where: (workFrom = 2015)}"
+            + ".inV(){as: target}"
+            + " RETURN target.name as tName");
+    assertFalse(
+        "No edge class argument means no index resolution is possible:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1266,6 +1354,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
         .toList();
 
     assertFalse("Should have results", result.isEmpty());
+
+    // No back-reference (@rid = $matched...) and no indexed property filter on
+    // any traversal target. The shared 'person' alias across patterns is resolved
+    // by the cartesian product step, not by intersection pre-filtering.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
+            + ".out('CKnows'){as: friend},"
+            + " {as: person}.in('CHasCreator'){as: myMsg}"
+            + ".out('CHasTag'){as: tag}"
+            + " RETURN friend.name as friendName, tag.label as tagLabel");
+    assertFalse(
+        "No back-ref or indexed filter on any traversal target:\n" + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1293,8 +1394,20 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     // p0.age=20. friend's messages with creationDate > 20 — all qualify
     assertFalse("Should have results", result.isEmpty());
 
-    // The $matched reference prevents index pre-filter, but should not
-    // prevent correct execution
+    // The WHERE references $matched for a non-RID property comparison.
+    // splitByMatchedReference() splits the filter, but creationDate > $matched...
+    // is in the $matched-referencing part, not the non-matched part that could
+    // be used for IndexLookup. The entire filter depends on runtime $matched state.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
+            + ".out('CKnows'){as: friend}"
+            + ".in('CHasCreator'){as: msg,"
+            + "  where: (creationDate > $matched.person.age)}"
+            + " RETURN msg.content as content");
+    assertFalse(
+        "$matched reference in property comparison prevents IndexLookup:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1323,6 +1436,21 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     assertEquals(1, result.size());
     assertEquals("java", result.get(0).getProperty("tagLabel"));
     assertEquals("Programming", result.get(0).getProperty("className"));
+
+    // WHILE traversals use a completely different execution path (recursive DFS
+    // or InvertedWhileHashJoinStep). The intersection pre-filter infrastructure
+    // is only for non-WHILE edges. WHILE edges are excluded from descriptor
+    // attachment in MatchExecutionPlanner.
+    String plan = explainPlan(
+        "MATCH {class: CTag, as: tag, where: (label = 'java')}"
+            + ".out('CHasType'){as: directClass}"
+            + ".out('CIsSubclassOf'){while: (true),"
+            + "  where: (name = 'Programming'), as: matchedClass}"
+            + " RETURN tag.label as tagLabel, matchedClass.name as className");
+    assertFalse(
+        "WHILE edges use a separate execution path, not intersection:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1343,6 +1471,19 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
         "tagLabel");
 
     assertEquals(Set.of("java", "python", "rust", "go"), tags);
+
+    // Same as whileTraversal_hierarchyWalk_correctResults: WHILE edges are
+    // handled by the recursive traversal path, not the intersection pre-filter.
+    String plan = explainPlan(
+        "MATCH {class: CTag, as: tag}"
+            + ".out('CHasType'){as: directClass}"
+            + ".out('CIsSubclassOf'){while: (true),"
+            + "  where: (name = 'Programming'), as: matchedClass}"
+            + " RETURN tag.label as tagLabel");
+    assertFalse(
+        "WHILE edges use a separate execution path, not intersection:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1436,6 +1577,18 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
             + " RETURN c.name as cName")
         .toList();
     assertEquals(0, result.size());
+
+    // No WHERE clause on the edge step (outE('CWorksAt'){as: w} has no filter),
+    // so there is nothing to create an IndexLookup from. The edge simply
+    // enumerates all CWorksAt edges from the source vertex.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: p, where: (name = 'isolated')}"
+            + ".outE('CWorksAt'){as: w}"
+            + ".inV(){as: c}"
+            + " RETURN c.name as cName");
+    assertFalse(
+        "No WHERE on edge step means no index filter to create:\n" + plan,
+        plan.contains("intersection:"));
     session.rollback();
   }
 
@@ -1839,6 +1992,21 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     assertEquals(
         Set.of("m0:java:ScriptLanguage", "m2:rust:SystemsProgramming"),
         pairs);
+
+    // No WHERE filter on the tag or tagClass traversal targets, and no
+    // back-reference. The out('CHasTag') and out('CHasType') edges simply
+    // enumerate all targets without any pre-filtering opportunity.
+    String plan = explainPlan(
+        "MATCH {class: CMessage, as: msg,"
+            + "  where: (content = 'm0' OR content = 'm2')}"
+            + ".out('CHasTag'){as: tag}"
+            + ".out('CHasType'){as: tagClass}"
+            + " RETURN msg.content as content, tag.label as tagLabel,"
+            + "  tagClass.name as className");
+    assertFalse(
+        "No WHERE filters on traversal targets, so no intersection:\n"
+            + plan,
+        plan.contains("intersection:"));
     session.commit();
   }
 
@@ -1884,6 +2052,20 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     }
     assertTrue("Should find newly created message",
         contents.contains("mNew"));
+
+    // No indexed filter on traversal targets (CForum.title is not indexed) and
+    // no back-reference in this query. The where: (title = 'tech') on the forum
+    // alias is a post-filter, not an index pre-filter.
+    // TODO: If CForum.title had an index, intersection could trigger here.
+    String plan = explainPlan(
+        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
+            + ".in('CHasCreator'){as: post}"
+            + ".in('CContainerOf'){as: forum,"
+            + "  where: (title = 'tech')}"
+            + " RETURN post.content as content");
+    assertFalse(
+        "No index on CForum.title, no back-ref — no intersection:\n" + plan,
+        plan.contains("intersection:"));
     session.rollback();
   }
 }
