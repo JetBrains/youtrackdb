@@ -212,4 +212,4 @@ through `Index → Engine → BTree`, not directly from `AbstractStorage`.*
   > **Step file:** `tracks/track-2.md` (5 steps, 0 failed)
 
 ## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
+- [x] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
