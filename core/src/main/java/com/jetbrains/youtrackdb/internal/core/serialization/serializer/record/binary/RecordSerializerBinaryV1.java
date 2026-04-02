@@ -1562,6 +1562,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     final var field = iFieldName.getBytes();
 
     var headerLength = VarIntSerializer.readAsInteger(bytes);
+    if (headerLength < 0 || headerLength > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Header length exceeds remaining buffer: "
+              + headerLength + " > " + bytes.remaining());
+    }
     var headerStart = bytes.offset();
     var valuesStart = headerStart + headerLength;
     var cumulativeLength = valuesStart;
@@ -1687,6 +1692,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     var cache = resolveStringCache(session);
 
     var headerLength = VarIntSerializer.readAsInteger(bytes);
+    if (headerLength < 0 || headerLength > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Header length exceeds remaining buffer: "
+              + headerLength + " > " + bytes.remaining());
+    }
     var headerStart = bytes.offset();
     var valuesStart = headerStart + headerLength;
     var last = 0;
@@ -1751,6 +1761,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     var unmarshalledFields = 0;
 
     var headerLength = VarIntSerializer.readAsInteger(bytes);
+    if (headerLength < 0 || headerLength > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Header length exceeds remaining buffer: "
+              + headerLength + " > " + bytes.remaining());
+    }
     var headerStart = bytes.offset();
     var valuesStart = headerStart + headerLength;
     var currentValuePos = valuesStart;
