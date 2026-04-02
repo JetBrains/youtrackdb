@@ -930,9 +930,19 @@ public class EntityImplZeroCopyIntegrationTest {
     assertTrue("Loaded record should be an EdgeEntityImpl",
         loaded instanceof EdgeEntityImpl);
 
-    // Verify properties deserialize correctly through the zero-copy path
+    // Verify user-defined properties deserialize correctly
     assertEquals(Double.valueOf(0.75), loaded.getProperty("weight"));
     assertEquals("connects", loaded.getProperty("label"));
+
+    // Verify edge structural properties (out/in vertex links) deserialize
+    // correctly through the zero-copy path. These are RID-typed internal
+    // properties that exercise a different serialization code path than
+    // user-defined string/double properties.
+    var loadedEdge = (EdgeEntityImpl) loaded;
+    assertNotNull("Edge getFrom() should not be null", loadedEdge.getFrom());
+    assertEquals(v1Rid, loadedEdge.getFrom().getIdentity());
+    assertNotNull("Edge getTo() should not be null", loadedEdge.getTo());
+    assertEquals(v2Rid, loadedEdge.getTo().getIdentity());
 
     // PageFrame is still set after partial property accesses
     assertNotNull("PageFrame kept after partial property accesses",
