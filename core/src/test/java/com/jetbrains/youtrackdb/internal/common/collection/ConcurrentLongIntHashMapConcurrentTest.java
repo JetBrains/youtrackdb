@@ -9,7 +9,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 import org.junit.Test;
 
 /**
@@ -116,12 +115,18 @@ public class ConcurrentLongIntHashMapConcurrentTest {
                       }
                       case 11 -> {
                         // ~8% compute (slow — holds write lock to force optimistic-read
-                        // fallback for concurrent readers)
+                        // fallback for concurrent readers).
+                        // Uses busy-wait instead of LockSupport.parkNanos because Windows
+                        // timer granularity rounds parkNanos(100µs) up to ~15ms, causing
+                        // the test to exceed its 60s timeout on Windows CI runners.
                         map.compute(
                             fileId,
                             pageIndex,
                             (fId, pIdx, cur) -> {
-                              LockSupport.parkNanos(100_000); // 100µs
+                              long deadline = System.nanoTime() + 100_000; // 100µs
+                              while (System.nanoTime() < deadline) {
+                                Thread.onSpinWait();
+                              }
                               return value;
                             });
                       }
