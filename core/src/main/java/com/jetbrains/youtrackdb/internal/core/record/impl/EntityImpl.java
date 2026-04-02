@@ -81,6 +81,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.bi
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
@@ -3510,32 +3511,34 @@ public class EntityImpl extends RecordAbstract implements Entity {
     assert pageFrame != null && source == null
         : "deserializeFromPageFrame called without active PageFrame";
 
+    // Empty content: no data to deserialize. Clear PageFrame and return.
+    if (pageContentLength <= 0) {
+      clearPageFrame();
+      return true;
+    }
+
     boolean isPartial = propertyNames != null && propertyNames.length > 0;
 
-    // Capture PageFrame references locally. The serializer's deserialize()
+    // Capture all PageFrame references locally. The serializer's deserialize()
     // calls clearSource() on full deserialization, which triggers
-    // clearPageFrame(). We need the frame and stamp for post-deserialization
-    // validation even after the entity's fields are cleared.
+    // clearPageFrame(). We need frame, stamp, offset, and length for
+    // post-deserialization validation even after the entity's fields are cleared.
     var localFrame = pageFrame;
     var localStamp = pageStamp;
-
-    // Snapshot properties for rollback on stamp invalidation or torn page.
-    // For full deserialization the map is typically empty; for partial it may
-    // contain results from prior partial calls.
-    var propertiesSnapshot = (properties != null && !properties.isEmpty())
-        ? new HashMap<>(properties) : null;
-    var propertiesCountSnapshot = propertiesCount;
+    var localOffset = pageContentOffset;
+    var localLength = pageContentLength;
 
     boolean speculativeSuccess = false;
     try {
-      // Read serializer version byte from absolute position in the PageFrame buffer
-      byte serializerVersion =
-          localFrame.getBuffer().get(pageContentOffset);
+      // Cache the buffer reference to avoid repeated SoftReference lookups
+      var buf = localFrame.getBuffer();
+
+      // Read serializer version byte from absolute position
+      byte serializerVersion = buf.get(localOffset);
 
       // Create ReadBytesContainer from a slice starting after the version byte
       var container = new ReadBytesContainer(
-          localFrame.getBuffer()
-              .slice(pageContentOffset + 1, pageContentLength - 1));
+          buf.slice(localOffset + 1, localLength - 1));
 
       status = RecordElement.STATUS.UNMARSHALLING;
       try {
@@ -3549,8 +3552,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       speculativeSuccess = true;
     } catch (RuntimeException e) {
       // Treat any exception during speculative deserialization as a torn page
-      // (equivalent to stamp invalidation). Restore snapshot and fall through
-      // to re-read.
+      // (equivalent to stamp invalidation). Fall through to re-read.
     }
 
     if (speculativeSuccess) {
@@ -3559,13 +3561,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // cleared by the serializer's clearSource() call during deserialization.
       if (localFrame.validate(localStamp)) {
         // Stamp valid: speculative results are correct.
-        // clearPageFrame() may already have been called by the serializer
-        // (via clearSource) for the full deserialization path.
-        if (isPartial && pageFrame != null) {
-          // Partial path: serializer doesn't call clearSource, PageFrame
-          // is still set — keep it for subsequent partial calls.
-        } else {
-          // Full path or already cleared: ensure clean state
+        // For full deserialization, the serializer already called clearSource()
+        // which cleared the PageFrame fields. For partial, keep PageFrame
+        // for subsequent calls.
+        if (!isPartial || pageFrame == null) {
           clearPageFrame();
         }
         return evaluateDeserializationResult(propertyNames);
@@ -3574,16 +3573,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // Stamp invalid: page was modified during deserialization — fall through to re-read
     }
 
-    // Restore properties snapshot before re-read
-    if (propertiesSnapshot != null) {
-      properties = propertiesSnapshot;
-    } else if (properties != null) {
-      properties.clear();
-    }
-    propertiesCount = propertiesCountSnapshot;
+    // Speculative deserialization failed or stamp invalid. Clear PageFrame and
+    // re-read from storage. The re-read path (fromStream) resets all entity
+    // state including properties, so no snapshot restore is needed here.
     clearPageFrame();
 
-    // Re-read from storage via the pinned path (always returns RawBuffer)
+    // Re-read from storage via the pinned path
     reReadFromStorage();
 
     // Re-enter deserialization using the byte[] path (source is now set)
@@ -3594,6 +3589,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * Re-reads this record from storage using the pinned read path and populates
    * the entity's byte[] source. Called as the fallback when PageFrame stamp
    * validation fails or speculative deserialization throws.
+   *
+   * <p>Note: currently the storage optimistic path may return RawPageBuffer
+   * (after Step 4 wires it up). In the fallback context, we extract bytes
+   * from RawPageBuffer to ensure a byte[]-backed re-read.
    */
   private void reReadFromStorage() {
     var storage = session.getStorage();
@@ -3603,16 +3602,25 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (readResult instanceof RawBuffer rawBuffer) {
       fill(rawBuffer.version(), rawBuffer.buffer(), false);
       fromStream(rawBuffer.buffer());
+    } else if (readResult instanceof RawPageBuffer pageBuffer) {
+      // Storage returned a PageFrame reference — extract bytes for the
+      // fallback path. This avoids infinite recursion through fillFromPage.
+      var slice = pageBuffer.sliceContent();
+      var bytes = new byte[slice.remaining()];
+      slice.get(bytes);
+      fill(pageBuffer.recordVersion(), bytes, false);
+      fromStream(bytes);
     } else {
       throw new DatabaseException(session.getDatabaseName(),
-          "Expected RawBuffer from pinned re-read for " + getIdentity()
-              + " but got " + readResult.getClass().getSimpleName());
+          "Unexpected StorageReadResult type for " + getIdentity()
+              + ": " + readResult.getClass().getSimpleName());
     }
   }
 
   /**
    * Evaluates the result of deserialization for the requested property names.
-   * Shared between the PageFrame and byte[] paths after successful deserialization.
+   * Used by the PageFrame deserialization path after successful speculative
+   * deserialization.
    */
   private boolean evaluateDeserializationResult(String[] propertyNames) {
     if (propertyNames != null && propertyNames.length > 0) {

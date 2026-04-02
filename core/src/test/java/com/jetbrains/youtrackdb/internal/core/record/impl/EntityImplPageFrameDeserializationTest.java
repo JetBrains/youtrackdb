@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -12,6 +13,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.nio.ByteBuffer;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Test;
 
@@ -34,7 +37,7 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
   }
 
   @After
-  public void afterTest() {
+  public void deallocatePageFrameMemory() {
     if (pointer != null && allocator != null) {
       allocator.deallocate(pointer);
     }
@@ -99,7 +102,11 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     // Verify properties were deserialized correctly
     assertEquals("Alice", entity.getString("name"));
     assertEquals(Integer.valueOf(30), entity.getInt("age"));
-    assertEquals(true, entity.getBoolean("active"));
+    assertTrue(entity.getBoolean("active"));
+
+    // Verify exact property set — no phantom properties
+    assertEquals(Set.of("name", "age", "active"),
+        new HashSet<>(entity.getPropertyNames()));
 
     // After full deserialization with valid stamp, PageFrame should be cleared
     assertNull(entity.getPageFrame());
@@ -159,6 +166,7 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     // Full deserialization
     assertTrue(entity.checkForProperties());
     assertEquals("value", entity.getString("key"));
+    assertNull(entity.getPageFrame());
     session.rollback();
   }
 
@@ -253,6 +261,8 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     // Access property — corrupted data triggers exception, falls back to re-read
     assertEquals("valid-data", entity.getString("key"));
     assertNull(entity.getPageFrame());
+    // No phantom properties from corrupted deserialization
+    assertEquals(Set.of("key"), new HashSet<>(entity.getPropertyNames()));
     session.rollback();
   }
 
@@ -323,8 +333,102 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     assertTrue(entity.checkForProperties());
     assertEquals("why", entity.getString("y"));
     assertEquals(Integer.valueOf(99), entity.getInt("z"));
+    // Partial-loaded property "x" survives full deserialization
+    assertEquals("ex", entity.getString("x"));
 
     // After full deserialization, PageFrame should be cleared
+    assertNull(entity.getPageFrame());
+    session.rollback();
+  }
+
+  // --- Snapshot restoration on partial deser + stamp invalidation (TC1) ---
+
+  @Test
+  public void testPartialDeserializationSnapshotRestoredOnStampInvalidation() {
+    // Verifies that when a second partial deserialization attempt fails stamp
+    // validation, the fallback re-read produces correct data for all properties.
+    var rid = saveRecord("SnapshotTest", "a", "alpha", "b", "beta");
+
+    session.begin();
+    var loaded = (EntityImpl) session.getActiveTransaction().load(rid);
+    byte[] serialized = loaded.toStream();
+
+    var frame = new PageFrame(pointer);
+    frame.getBuffer().position(64);
+    frame.getBuffer().put(serialized);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.getActiveTransaction().load(rid);
+    entity.unsetDirty();
+    entity.fillFromPage(
+        loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
+        64, serialized.length);
+
+    // First partial: succeeds with valid stamp
+    assertTrue(entity.checkForProperties("a"));
+    assertEquals("alpha", entity.getString("a"));
+    assertNotNull(entity.getPageFrame());
+
+    // Invalidate stamp before second partial attempt
+    long exStamp = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(exStamp);
+
+    // Second partial triggers fallback — both properties must be correct
+    assertTrue(entity.checkForProperties("b"));
+    assertEquals("beta", entity.getString("b"));
+    assertEquals("alpha", entity.getString("a"));
+    assertNull(entity.getPageFrame());
+    session.rollback();
+  }
+
+  // --- Missing property returns false (TC2) ---
+
+  @Test
+  public void testPartialDeserializationReturnsFalseForMissingProperty() {
+    // Verifies that requesting a property that doesn't exist in the record
+    // returns false from the PageFrame deserialization path.
+    session.begin();
+
+    var source = (EntityImpl) session.newEntity();
+    source.setString("exists", "value");
+
+    var frame = new PageFrame(pointer);
+    int contentLength = writeSerializedRecord(source, frame, 0);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.unsetDirty();
+    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 0, contentLength);
+
+    assertFalse(entity.deserializeProperties("nonExistent"));
+    session.rollback();
+  }
+
+  // --- Record at buffer end boundary (TC4) ---
+
+  @Test
+  public void testDeserializeFromPageFrameAtBufferEnd() {
+    // Verifies deserialization works when record content extends to the exact
+    // end of the PageFrame buffer (offset + length == buffer capacity).
+    session.begin();
+
+    var source = (EntityImpl) session.newEntity();
+    source.setString("key", "boundary");
+    byte[] serialized = source.toStream();
+
+    var frame = new PageFrame(pointer);
+    int offset = 8192 - serialized.length;
+    frame.getBuffer().position(offset);
+    frame.getBuffer().put(serialized);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.unsetDirty();
+    entity.fillFromPage(
+        1L, EntityImpl.RECORD_TYPE, frame, stamp, offset, serialized.length);
+
+    assertTrue(entity.checkForProperties());
+    assertEquals("boundary", entity.getString("key"));
     assertNull(entity.getPageFrame());
     session.rollback();
   }
