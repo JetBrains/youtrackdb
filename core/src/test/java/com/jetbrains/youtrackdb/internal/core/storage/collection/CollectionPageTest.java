@@ -1494,12 +1494,22 @@ public class CollectionPageTest {
       localPage.appendRecord(
           2L, buildChunk((byte) 'd', 1L, large), -1, IntSets.emptySet());
 
+      // Check small record offset and length
+      int offsetSmall = localPage.getRecordContentOffset(0);
       Assert.assertEquals(small.length, localPage.getRecordContentLength(0));
+      Assert.assertTrue(offsetSmall > 0);
+      Assert.assertTrue(offsetSmall + small.length <= CollectionPage.PAGE_SIZE);
       byte[] actualSmall = localPage.getRecordBinaryValue(
           0, CollectionPage.RECORD_METADATA_HEADER_SIZE, small.length);
       Assert.assertArrayEquals(small, actualSmall);
 
+      // Check large record offset and length
+      int offsetLarge = localPage.getRecordContentOffset(1);
       Assert.assertEquals(large.length, localPage.getRecordContentLength(1));
+      Assert.assertTrue(offsetLarge > 0);
+      Assert.assertTrue(offsetLarge + large.length <= CollectionPage.PAGE_SIZE);
+      // Offsets must differ since they are separate records.
+      Assert.assertNotEquals(offsetSmall, offsetLarge);
       byte[] actualLarge = localPage.getRecordBinaryValue(
           1, CollectionPage.RECORD_METADATA_HEADER_SIZE, large.length);
       Assert.assertArrayEquals(large, actualLarge);
@@ -1531,13 +1541,57 @@ public class CollectionPageTest {
           1L, buildChunk((byte) 'd', 0L, new byte[] {1, 2, 3}), -1, IntSets.emptySet());
       localPage.deleteRecord(0, true);
 
-      boolean assertionFired = false;
+      boolean offsetAssertionFired = false;
       try {
         localPage.getRecordContentOffset(0);
       } catch (AssertionError e) {
-        assertionFired = true;
+        offsetAssertionFired = true;
       }
-      Assert.assertTrue("Expected AssertionError for deleted record", assertionFired);
+      Assert.assertTrue(
+          "Expected AssertionError for deleted record on getRecordContentOffset",
+          offsetAssertionFired);
+
+      boolean lengthAssertionFired = false;
+      try {
+        localPage.getRecordContentLength(0);
+      } catch (AssertionError e) {
+        lengthAssertionFired = true;
+      }
+      Assert.assertTrue(
+          "Expected AssertionError for deleted record on getRecordContentLength",
+          lengthAssertionFired);
+
+    } finally {
+      cacheEntry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testGetRecordContentLengthZeroContentChunk() {
+    // Minimum-size chunk: metadata header + tail, zero content bytes.
+    // getRecordContentLength should return 0.
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+
+    CacheEntry cacheEntry = new CacheEntryImpl(0, 0, cachePointer, false, null);
+    cacheEntry.acquireExclusiveLock();
+
+    try {
+      final var localPage = new CollectionPage(cacheEntry);
+      localPage.init();
+
+      byte[] chunk = buildChunk((byte) 'd', 0L, new byte[0]);
+      localPage.appendRecord(1L, chunk, -1, IntSets.emptySet());
+
+      Assert.assertEquals(0, localPage.getRecordContentLength(0));
+
+      int contentOffset = localPage.getRecordContentOffset(0);
+      Assert.assertTrue(contentOffset > 0);
+      Assert.assertTrue(contentOffset <= CollectionPage.PAGE_SIZE);
 
     } finally {
       cacheEntry.releaseExclusiveLock();
