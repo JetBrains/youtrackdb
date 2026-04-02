@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
@@ -905,8 +906,12 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
         Assert.assertEquals("Content length should match record data length",
             expected.length, contentLength);
-        Assert.assertTrue("Content offset should be positive",
-            contentOffset > 0);
+        // Content offset must be at least past the entry header (3 ints)
+        // and metadata header within the page.
+        int minContentOffset =
+            3 * IntegerSerializer.INT_SIZE + CollectionPage.RECORD_METADATA_HEADER_SIZE;
+        Assert.assertTrue("Content offset " + contentOffset + " should be >= "
+            + minContentOffset, contentOffset >= minContentOffset);
         Assert.assertTrue("Content must fit within page",
             contentOffset + contentLength <= CollectionPage.PAGE_SIZE);
 

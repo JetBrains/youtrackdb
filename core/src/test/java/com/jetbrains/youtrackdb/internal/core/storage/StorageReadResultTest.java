@@ -213,6 +213,55 @@ public class StorageReadResultTest {
     assertEquals((byte) 'v', pageBuffer.recordType());
   }
 
+  // --- Boundary version values ---
+
+  @Test
+  public void testRawBufferWithZeroVersion() {
+    // Version 0 is a valid boundary value (e.g., initial record version).
+    var rawBuffer = new RawBuffer(new byte[] {1}, 0L, (byte) 'd');
+    assertEquals(0L, rawBuffer.recordVersion());
+  }
+
+  @Test
+  public void testRawBufferWithNegativeVersion() {
+    // Negative versions may represent special states (-1 = tombstone/unversioned).
+    var rawBuffer = new RawBuffer(new byte[] {1}, -1L, (byte) 'd');
+    assertEquals(-1L, rawBuffer.recordVersion());
+  }
+
+  @Test
+  public void testRawBufferWithMaxVersion() {
+    // Long.MAX_VALUE is the extreme boundary for version values.
+    var rawBuffer = new RawBuffer(new byte[] {1}, Long.MAX_VALUE, (byte) 'd');
+    assertEquals(Long.MAX_VALUE, rawBuffer.recordVersion());
+  }
+
+  @Test
+  public void testRawBufferWithNullBuffer() {
+    // RawBuffer allows null buffer (e.g., deleted record or placeholder).
+    var rawBuffer = new RawBuffer(null, 1L, (byte) 'd');
+    StorageReadResult result = rawBuffer;
+    assertEquals(1L, result.recordVersion());
+    assertEquals((byte) 'd', result.recordType());
+    org.junit.Assert.assertNull(rawBuffer.buffer());
+  }
+
+  @Test
+  public void testRawPageBufferWithZeroVersion() {
+    // Version 0 boundary for PageFrame path.
+    long stamp = pageFrame.tryOptimisticRead();
+    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 10, 0L, (byte) 'd');
+    assertEquals(0L, pageBuffer.recordVersion());
+  }
+
+  @Test
+  public void testRawPageBufferWithMaxVersion() {
+    // Long.MAX_VALUE boundary for PageFrame path.
+    long stamp = pageFrame.tryOptimisticRead();
+    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 10, Long.MAX_VALUE, (byte) 'd');
+    assertEquals(Long.MAX_VALUE, pageBuffer.recordVersion());
+  }
+
   // --- RawPageBuffer runtime bounds validation ---
 
   @Test

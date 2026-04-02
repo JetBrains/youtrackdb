@@ -1452,8 +1452,13 @@ public class CollectionPageTest {
       // Content length must match the original content length.
       Assert.assertEquals(content.length, contentLength);
 
-      // Content offset must be positive and within the page.
-      Assert.assertTrue(contentOffset > 0);
+      // Content offset must be at least past the entry header (3 ints)
+      // and the metadata header within the page.
+      int minContentOffset =
+          3 * IntegerSerializer.INT_SIZE + CollectionPage.RECORD_METADATA_HEADER_SIZE;
+      Assert.assertTrue(
+          "contentOffset " + contentOffset + " should be >= " + minContentOffset,
+          contentOffset >= minContentOffset);
       Assert.assertTrue(contentOffset + contentLength <= CollectionPage.PAGE_SIZE);
 
       // Reading bytes from the page at the metadata offset must yield content.
@@ -1599,7 +1604,12 @@ public class CollectionPageTest {
       Assert.assertEquals(0, localPage.getRecordContentLength(0));
 
       int contentOffset = localPage.getRecordContentOffset(0);
-      Assert.assertTrue(contentOffset > 0);
+      // Content offset must be at least past the entry header and metadata.
+      int minContentOffset =
+          3 * IntegerSerializer.INT_SIZE + CollectionPage.RECORD_METADATA_HEADER_SIZE;
+      Assert.assertTrue(
+          "contentOffset " + contentOffset + " should be >= " + minContentOffset,
+          contentOffset >= minContentOffset);
       Assert.assertTrue(contentOffset <= CollectionPage.PAGE_SIZE);
 
     } finally {
