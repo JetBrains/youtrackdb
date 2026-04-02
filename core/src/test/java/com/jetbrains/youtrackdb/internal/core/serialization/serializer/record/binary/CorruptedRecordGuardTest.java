@@ -121,9 +121,10 @@ public class CorruptedRecordGuardTest {
     var truncated = new byte[3];
     System.arraycopy(serialized, 0, truncated, 0, Math.min(3, serialized.length));
 
-    // This should throw some exception (CorruptedRecordException or BufferUnderflowException)
-    // depending on where the truncation hits
-    assertThrows(Exception.class, () -> deserializeFull(truncated));
+    // A 3-byte truncation leaves only the version byte + partial headerLength varint.
+    // The headerLength varint decodes to a value exceeding remaining bytes,
+    // triggering the header length guard.
+    assertThrows(CorruptedRecordException.class, () -> deserializeFull(truncated));
     session.rollback();
   }
 
@@ -152,7 +153,12 @@ public class CorruptedRecordGuardTest {
 
   @Test
   public void corruptFieldValueSizeThrowsException() {
-    // Serialize an entity with a string value, then corrupt the value area
+    // Safety-net test: corrupt bytes inside a serialized record and verify that
+    // deserialization fails cleanly (no OOM, no silent corruption). The corruption
+    // injection is heuristic — the large varint may land on a guarded size field
+    // (CorruptedRecordException) or on a non-guarded field entry that causes a
+    // BufferUnderflowException. Either way, the deserializer must not allocate
+    // unbounded memory or return silently corrupted data.
     session.begin();
     var serialized = serializeEntity(entity -> {
       entity.setProperty("name", "hello");

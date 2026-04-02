@@ -1353,10 +1353,14 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
         bytes.skip(IntegerSerializer.INT_SIZE); // skip scale
         var unscaledLen = bytes.getInt(); // read unscaledLen
         bytes.setOffset(startPos); // seek back to start
-        if (unscaledLen < 0 || unscaledLen > bytes.remaining()) {
+        // remaining() includes the 8 header bytes (scale + unscaledLen) that will also
+        // be consumed, so subtract them to get the actual payload capacity.
+        if (unscaledLen < 0
+            || unscaledLen > bytes.remaining() - IntegerSerializer.INT_SIZE * 2) {
           throw new CorruptedRecordException(
               "Decimal unscaled length exceeds remaining buffer: "
-                  + unscaledLen + " > " + bytes.remaining());
+                  + unscaledLen + " > "
+                  + (bytes.remaining() - IntegerSerializer.INT_SIZE * 2));
         }
         if (justRunThrough) {
           bytes.skip(IntegerSerializer.INT_SIZE * 2 + unscaledLen);
