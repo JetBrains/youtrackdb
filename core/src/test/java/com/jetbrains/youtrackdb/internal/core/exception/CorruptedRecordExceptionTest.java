@@ -13,7 +13,7 @@ import org.junit.Test;
 public class CorruptedRecordExceptionTest {
 
   @Test
-  public void extendssDatabaseException() {
+  public void extendsDatabaseException() {
     var ex = new CorruptedRecordException("test message");
     assertTrue(ex instanceof DatabaseException);
   }

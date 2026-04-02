@@ -56,6 +56,7 @@ public class HelperClassesGuardTest {
     var bytes = writeContainer.fitBytes();
     var rbc = new ReadBytesContainer(bytes);
     assertArrayEquals(payload, HelperClasses.readBinary(rbc));
+    assertEquals(0, rbc.remaining());
   }
 
   @Test
