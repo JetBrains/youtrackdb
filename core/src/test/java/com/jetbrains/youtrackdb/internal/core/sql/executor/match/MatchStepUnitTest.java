@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -2998,6 +2999,304 @@ public class MatchStepUnitTest extends DbTestBase {
     var step = new HashJoinMatchStep(ctx, createBuildPlan(ctx), List.of("friend"),
         JoinMode.INNER_JOIN, false);
     assertTrue(step.canBeCached());
+  }
+
+  // -- HashJoinMatchStep nested-loop fallback tests --
+
+  /**
+   * When the build-side hash set exceeds the runtime threshold, ANTI_JOIN
+   * falls back to per-row nested-loop evaluation. Build side has 2 entries
+   * but threshold is 1 → nestedLoopProbe is used instead.
+   * Expected: friend=#1:1 is excluded (found in build), friend=#1:2 passes.
+   */
+  @Test
+  public void testHashJoinAntiJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 3)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.ANTI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      assertEquals(new RecordId(1, 3), stream.next(ctx).getProperty("friend"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop fallback for SEMI_JOIN: build side exceeds threshold, so
+   * nestedLoopProbe is used. Only upstream rows with matching build-side
+   * keys are kept.
+   */
+  @Test
+  public void testHashJoinSemiJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 3)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.SEMI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      assertEquals(new RecordId(1, 1), stream.next(ctx).getProperty("friend"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop fallback for INNER_JOIN: build map exceeds threshold, so
+   * nestedLoopInnerJoin is used. Upstream rows with matching keys are merged
+   * with build-side properties.
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNestedLoop() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildRow1 = new ResultInternal(session);
+      buildRow1.setProperty("friend", new RecordId(1, 1));
+      buildRow1.setProperty("extra", "fromBuild");
+      var buildRow2 = new ResultInternal(session);
+      buildRow2.setProperty("friend", new RecordId(1, 2));
+      buildRow2.setProperty("extra", "fromBuild2");
+      var buildPlan = createBuildPlan(ctx, buildRow1, buildRow2);
+
+      var upstreamRow = new ResultInternal(session);
+      upstreamRow.setProperty("friend", new RecordId(1, 1));
+      upstreamRow.setProperty("person", "Alice");
+      var upstream = createUpstreamStep(ctx, upstreamRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      var result = stream.next(ctx);
+      assertEquals(new RecordId(1, 1), result.getProperty("friend"));
+      assertEquals("Alice", result.getProperty("person"));
+      assertEquals("fromBuild", result.getProperty("extra"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop ANTI_JOIN fallback with a null key in the upstream: rows with
+   * null keys are conservatively kept (same as hash path behavior).
+   */
+  @Test
+  public void testHashJoinAntiJoinFallbackNullKeyKeepsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      // Upstream row missing the "friend" property → null key
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.ANTI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertTrue("null key should be kept in ANTI_JOIN fallback",
+          stream.hasNext(ctx));
+      assertEquals("value", stream.next(ctx).getProperty("other"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop SEMI_JOIN fallback with a null key: rows with null keys
+   * are discarded (same as hash path behavior).
+   */
+  @Test
+  public void testHashJoinSemiJoinFallbackNullKeyDiscardsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.SEMI_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("null key should be discarded in SEMI_JOIN fallback",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop INNER_JOIN fallback with a null key: upstream row is
+   * dropped (returns empty stream).
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNullKeyDropsRow() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var nullRow = new ResultInternal(session);
+      nullRow.setProperty("other", "value");
+      var upstream = createUpstreamStep(ctx, nullRow);
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("null key should produce no results in INNER_JOIN fallback",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Nested-loop INNER_JOIN fallback with no match: upstream key doesn't
+   * match any build-side key, so no merged rows are produced.
+   */
+  @Test
+  public void testHashJoinInnerJoinFallbackNoMatch() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+      var ctx = createCommandContext();
+      var buildPlan = createBuildPlan(ctx,
+          createRow("friend", new RecordId(1, 1)),
+          createRow("friend", new RecordId(1, 2)));
+
+      var upstream = createUpstreamStep(ctx,
+          createRow("friend", new RecordId(1, 99)));
+
+      var step = new HashJoinMatchStep(ctx, buildPlan, List.of("friend"),
+          JoinMode.INNER_JOIN, false);
+      step.setPrevious(upstream);
+
+      var stream = step.start(ctx);
+      assertFalse("non-matching key should produce no results",
+          stream.hasNext(ctx));
+      stream.close(ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Multi-alias extractKey: null value in the middle of the array
+   * (second alias of three is null) → key is null, row handled according
+   * to join mode.
+   */
+  @Test
+  public void testHashJoinCompositeKeyNullInMiddle() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", new RecordId(2, 2));
+    buildRow.setProperty("c", new RecordId(3, 3));
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Upstream row has null for middle alias "b"
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("a", new RecordId(1, 1));
+    // "b" is missing → null
+    upstreamRow.setProperty("c", new RecordId(3, 3));
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b", "c"),
+        JoinMode.ANTI_JOIN, false);
+    step.setPrevious(upstream);
+
+    // Null key in ANTI_JOIN → row is kept (conservative)
+    var stream = step.start(ctx);
+    assertTrue(stream.hasNext(ctx));
+    assertEquals(new RecordId(1, 1), stream.next(ctx).getProperty("a"));
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
+  }
+
+  /**
+   * Multi-alias extractKey with non-RID value after a RID: exercises the
+   * Object[] fallback path where the third alias has a null value, causing
+   * extractKey to return null.
+   */
+  @Test
+  public void testHashJoinCompositeKeyNullAfterNonRid() {
+    var ctx = createCommandContext();
+    var buildRow = new ResultInternal(session);
+    buildRow.setProperty("a", new RecordId(1, 1));
+    buildRow.setProperty("b", "text");
+    buildRow.setProperty("c", "value");
+    var buildPlan = createBuildPlan(ctx, buildRow);
+
+    // Upstream: first is RID, second is non-RID, third is null
+    var upstreamRow = new ResultInternal(session);
+    upstreamRow.setProperty("a", new RecordId(1, 1));
+    upstreamRow.setProperty("b", "text");
+    // "c" missing → null → extractKey returns null
+    var upstream = createUpstreamStep(ctx, upstreamRow);
+
+    var step = new HashJoinMatchStep(ctx, buildPlan, List.of("a", "b", "c"),
+        JoinMode.SEMI_JOIN, false);
+    step.setPrevious(upstream);
+
+    // Null key in SEMI_JOIN → row is discarded
+    var stream = step.start(ctx);
+    assertFalse(stream.hasNext(ctx));
+    stream.close(ctx);
   }
 
   // -- JoinKey tests --
