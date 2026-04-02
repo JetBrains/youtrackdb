@@ -190,31 +190,11 @@ public final class BTreeMultiValueIndexEngine
         new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
         new IndexMultiValuKeySerializer(), atomicOperation);
 
-    // Initialize both counters via visibility-filtered scans so they start
-    // accurate (tree.size() includes tombstones and markers).
-    // Non-null entries live in svTree, null entries in nullTree — scan separately.
-    long nonNullCount = 0;
-    var svFirstKey = svTree.firstKey(atomicOperation);
-    if (svFirstKey != null) {
-      try (var svStream = indexesSnapshot.visibilityFilterMapped(atomicOperation,
-          svTree.iterateEntriesMajor(svFirstKey, true, true, atomicOperation),
-          BTreeMultiValueIndexEngine::extractKey)) {
-        nonNullCount = svStream.count();
-      }
-    }
-
-    long nullCount = 0;
-    var nullFirstKey = nullTree.firstKey(atomicOperation);
-    if (nullFirstKey != null) {
-      // Key mapper returns null for all nullTree entries — only count() is used.
-      try (var nullStream = nullIndexesSnapshot.visibilityFilterMapped(atomicOperation,
-          nullTree.iterateEntriesMajor(nullFirstKey, true, true, atomicOperation),
-          k -> null)) {
-        nullCount = nullStream.count();
-      }
-    }
-
-    approximateIndexEntriesCount.set(nonNullCount + nullCount);
+    // Read persisted visible counts from both trees' entry point pages — O(1)
+    // instead of the previous O(n) visibility-filtered scans.
+    long svCount = svTree.getApproximateEntriesCount(atomicOperation);
+    long nullCount = nullTree.getApproximateEntriesCount(atomicOperation);
+    approximateIndexEntriesCount.set(svCount + nullCount);
     approximateNullCount.set(nullCount);
   }
 

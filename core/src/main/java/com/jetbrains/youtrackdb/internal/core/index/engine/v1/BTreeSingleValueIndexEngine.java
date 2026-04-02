@@ -152,26 +152,13 @@ public final class BTreeSingleValueIndexEngine
 
     sbTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
 
-    // Initialize both counters via a visibility-filtered scan so they start
-    // accurate (sbTree.size() includes tombstones and markers).
-    var firstKey = sbTree.firstKey(atomicOperation);
-    if (firstKey == null) {
-      approximateIndexEntriesCount.set(0);
-      approximateNullCount.set(0);
-    } else {
-      // Single streaming pass: partition into null/non-null and count without
-      // materializing entries (unlike buildInitialHistogram which needs the list).
-      try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
-          sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
-          BTreeSingleValueIndexEngine::extractKey)) {
-        var partitioned = allVisible.collect(
-            Collectors.partitioningBy(p -> p.first() != null, Collectors.counting()));
-        long nonNullCount = partitioned.get(true);
-        long nullCount = partitioned.get(false);
-        approximateIndexEntriesCount.set(nonNullCount + nullCount);
-        approximateNullCount.set(nullCount);
-      }
-    }
+    // Read persisted visible count from the BTree entry point page — O(1)
+    // instead of the previous O(n) visibility-filtered scan.
+    approximateIndexEntriesCount.set(
+        sbTree.getApproximateEntriesCount(atomicOperation));
+    // Null count is not separately persisted for single-value indexes (always
+    // 0 or 1). Set to 0; buildInitialHistogram() recalibrates it.
+    approximateNullCount.set(0);
   }
 
   @Override
