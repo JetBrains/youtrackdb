@@ -757,7 +757,10 @@ public final class CollectionPage extends DurablePage {
    * record's actual content, after the per-entry header (3 * INT_SIZE) and the
    * metadata header ({@link #RECORD_METADATA_HEADER_SIZE}).
    *
-   * <p><strong>Precondition:</strong> the record must not be deleted.
+   * <p><strong>Precondition:</strong> the record must not be deleted and must be
+   * an entry-point chunk ({@link #isFirstRecordChunk(int)} returns {@code true}).
+   * Continuation chunks have no metadata header, so this method would return an
+   * incorrect offset.
    *
    * @param recordPosition the pointer-array slot index
    * @return absolute byte offset to record content
@@ -765,6 +768,8 @@ public final class CollectionPage extends DurablePage {
   public int getRecordContentOffset(final int recordPosition) {
     assert !isDeleted(recordPosition)
         : "Record at position " + recordPosition + " is deleted";
+    assert isFirstRecordChunk(recordPosition)
+        : "Record at position " + recordPosition + " is not an entry-point chunk";
     final var entryPosition = getPointerValuePosition(recordPosition);
     return entryPosition + 3 * IntegerSerializer.INT_SIZE + RECORD_METADATA_HEADER_SIZE;
   }
@@ -774,18 +779,21 @@ public final class CollectionPage extends DurablePage {
    * metadata header ({@link #RECORD_METADATA_HEADER_SIZE}) and the chunk tail
    * ({@link #RECORD_TAIL_SIZE}).
    *
-   * <p><strong>Precondition:</strong> the record must not be deleted and must
-   * have a positive record size.
+   * <p><strong>Precondition:</strong> the record must not be deleted and must be
+   * an entry-point chunk. The record size must be at least
+   * {@code RECORD_METADATA_HEADER_SIZE + RECORD_TAIL_SIZE} (22 bytes).
    *
    * @param recordPosition the pointer-array slot index
-   * @return content length in bytes
+   * @return content length in bytes (non-negative)
    */
   public int getRecordContentLength(final int recordPosition) {
     assert !isDeleted(recordPosition)
         : "Record at position " + recordPosition + " is deleted";
+    assert isFirstRecordChunk(recordPosition)
+        : "Record at position " + recordPosition + " is not an entry-point chunk";
     final var recordSize = getRecordSize(recordPosition);
-    assert recordSize > 0
-        : "Record size must be positive, got " + recordSize;
+    assert recordSize >= RECORD_METADATA_HEADER_SIZE + RECORD_TAIL_SIZE
+        : "Record size " + recordSize + " too small for content extraction";
     return recordSize - RECORD_METADATA_HEADER_SIZE - RECORD_TAIL_SIZE;
   }
 
