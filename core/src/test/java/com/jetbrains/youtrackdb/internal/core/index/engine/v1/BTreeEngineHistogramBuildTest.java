@@ -78,6 +78,8 @@ public class BTreeEngineHistogramBuildTest {
     // Counters must be recalibrated from the exact scan
     assertEquals(4, f.engine.getTotalCount(f.op));
     assertEquals(1, f.engine.getNullCount(f.op));
+    // Count must be persisted to the B-tree entry point page
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 4L);
   }
 
   @Test
@@ -101,6 +103,7 @@ public class BTreeEngineHistogramBuildTest {
 
     verify(f.manager).buildHistogram(
         eq(f.op), any(), eq(2L), eq(0L), eq(1));
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 2L);
   }
 
   @Test
@@ -228,6 +231,9 @@ public class BTreeEngineHistogramBuildTest {
     // Counters must be recalibrated from the exact scan
     assertEquals(3, f.engine.getTotalCount(f.op));
     assertEquals(1, f.engine.getNullCount(f.op));
+    // Counts must be persisted to both B-tree entry point pages
+    verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
   }
 
   @Test
@@ -252,6 +258,8 @@ public class BTreeEngineHistogramBuildTest {
     // totalCount = 2, nullCount = 0
     verify(f.manager).buildHistogram(
         eq(f.op), any(), eq(2L), eq(0L), eq(1));
+    verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   @Test
@@ -575,6 +583,8 @@ public class BTreeEngineHistogramBuildTest {
 
     assertEquals(0, f.engine.getTotalCount(f.op));
     assertEquals(0, f.engine.getNullCount(f.op));
+    // Persisted count on entry point page must also be reset
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   @Test
@@ -588,6 +598,9 @@ public class BTreeEngineHistogramBuildTest {
 
     assertEquals(0, f.engine.getTotalCount(f.op));
     assertEquals(0, f.engine.getNullCount(f.op));
+    // Persisted counts on both entry point pages must also be reset
+    verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
