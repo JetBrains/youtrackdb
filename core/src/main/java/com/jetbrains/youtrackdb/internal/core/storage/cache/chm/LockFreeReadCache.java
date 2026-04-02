@@ -354,8 +354,7 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
-    final var pageKey = new PageKey(fileId, (int) pageIndex);
-    final var cacheEntry = data.get(pageKey);
+    final var cacheEntry = data.get(fileId, (int) pageIndex);
 
     if (cacheEntry == null || !cacheEntry.isAlive()) {
       return null;
@@ -371,8 +370,7 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public void recordOptimisticAccess(final long fileId, final long pageIndex) {
-    final var pageKey = new PageKey(fileId, (int) pageIndex);
-    final var cacheEntry = data.get(pageKey);
+    final var cacheEntry = data.get(fileId, (int) pageIndex);
 
     // Entry may have been evicted between stamp validation and this call.
     // One missed frequency bump is harmless — skip silently.
