@@ -47,8 +47,8 @@ Benchmarks are split into 6 tiers based on SF 1 throughput characteristics. With
 |------|-----------|---------|-------|--------|-------------|----------|
 | IS-ultra-fast | `LdbcISUltraFastBenchmarkBase` | IS1, IS3-IS6, IC13 | 5 | 1×5s | 3×10s | >2,700 |
 | IS-noisy | `LdbcISBenchmarkBase` | IS2, IS7, IC8 | 10 | 3×5s | 3×10s | 400-2,700 |
-| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 5 | 3×5s | 5×10s | 17-215 |
-| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 5 | 3×10s | 5×10s | 1-21 |
+| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 3 | 1×10s | 5×20s | 17-215 |
+| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 3 | 1×30s | 5×30s | 1-21 |
 | IC-ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | 5 | 1×60s | 3×120s | <0.2 |
 
 Each tier has single-threaded and multi-threaded concrete classes:
