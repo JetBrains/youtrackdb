@@ -1935,6 +1935,14 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long[] delete() throws IOException {
+    // Stop the periodic flush FIRST so the single-threaded commitExecutor is free
+    // for DeleteFileTask submissions below. Without this, delete() can deadlock:
+    // the main thread holds filesLock write lock and blocks on future.get(), while
+    // a PeriodicFlushTask occupying the same single-threaded executor cannot
+    // complete (e.g., stuck in writePageChunksToFiles retry loop or waiting on a
+    // resource held by the main thread).
+    stopFlush();
+
     final var result = new LongArrayList(1_024);
     filesLock.acquireWriteLock();
     try {
@@ -1982,7 +1990,6 @@ public final class WOWCache extends AbstractWriteCache
       filesLock.releaseWriteLock();
     }
 
-    stopFlush();
     doubleWriteLog.close();
 
     return result.toLongArray();
