@@ -24,8 +24,8 @@ Read the benchmark comparison comment from the PR on the current branch:
 # Find the PR
 gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number,url
 
-# Read the latest benchmark comment
-gh pr view <NUMBER> --json comments --jq '.comments[-1].body'
+# Read the latest benchmark comment (filtering by content to avoid noise)
+gh pr view <NUMBER> --json comments --jq '.comments | map(select(.body | contains("## JMH LDBC Benchmark Comparison"))) | last | .body'
 ```
 
 Parse the markdown table to extract all benchmarks marked with `:red_circle:` (regression). Record for each:
@@ -92,7 +92,7 @@ The async-profiler library path is: `/tmp/async-profiler-3.0-linux-x64/lib/libas
 
 **HEAD** (current worktree):
 ```bash
-rsync -az --exclude='.git' --exclude='target' --exclude='.idea' <worktree-root>/ root@<IP>:/root/ytdb/
+rsync -az --exclude='.git' --exclude='target' --exclude='.idea' "$(git rev-parse --show-toplevel)/" root@<IP>:/root/ytdb/
 ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
   git config --global user.email "bench@test" && \
   git config --global user.name "bench" && \
@@ -102,6 +102,7 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
 **BASE** (fork-point commit): Create a local worktree, rsync to a separate directory:
 ```bash
 BASE_COMMIT=$(git merge-base HEAD origin/develop)
+rm -rf /tmp/ytdb-base-profiling && git worktree prune
 git worktree add /tmp/ytdb-base-profiling $BASE_COMMIT
 
 rsync -az --exclude='.git' --exclude='target' --exclude='.idea' /tmp/ytdb-base-profiling/ root@<IP>:/root/ytdb-base/
@@ -297,7 +298,7 @@ Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getColla
 Extract what a specific method calls (its direct children in the profile):
 
 ```bash
-grep "<parent-method>;" <file-filtered.csv> | sed 's/.*<parent-method>;//' | awk -F"[ ;]" '{sum[$1]+=$NF} END {for (c in sum) print sum[c], c}' | sort -rn | head -15
+grep -E "(^|;)<parent-method>;" <file-filtered.csv> | sed 's/.*<parent-method>;//' | awk -F"[ ;]" '{sum[$1]+=$NF} END {for (c in sum) print sum[c], c}' | sort -rn | head -15
 ```
 
 Compare HEAD vs BASE children. Changes in child method distribution indicate:
@@ -334,7 +335,7 @@ For each regression, report:
 
 ```bash
 # Remove local worktree
-git worktree remove /tmp/ytdb-base-profiling
+git worktree remove --force /tmp/ytdb-base-profiling
 
 # Destroy server
 hcloud server delete "$SERVER_NAME"
