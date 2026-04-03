@@ -10,6 +10,18 @@ Usage:
 
 import argparse
 import json
+import math
+
+
+def _safe_score_error(value):
+    """Return a finite float for scoreError, treating NaN/missing as 0."""
+    if value is None:
+        return 0
+    try:
+        f = float(value)
+        return 0 if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return 0
 
 
 def parse_jmh_results(data):
@@ -31,7 +43,7 @@ def parse_jmh_results(data):
 
         primary = entry.get("primaryMetric", {})
         score = primary.get("score", 0)
-        score_error = primary.get("scoreError", 0)
+        score_error = _safe_score_error(primary.get("scoreError"))
 
         results[(method_name, suite)] = {
             "query": method_name,
