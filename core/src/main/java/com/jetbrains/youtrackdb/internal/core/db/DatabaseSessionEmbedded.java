@@ -1214,7 +1214,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
         localCache.updateRecord(record, this);
       } else {
-        throw new AssertionError("Unknown StorageReadResult type: " + readResult.getClass());
+        throw new IllegalStateException(
+            "Unknown StorageReadResult type: " + readResult.getClass());
       }
 
       if (beforeReadOperations(record)) {
