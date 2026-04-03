@@ -97,39 +97,69 @@ jobs:
       - name: Download LDBC CSV dataset from S3
         if: steps.mode.outputs.load == 'csv'
         run: |
+          set -euo pipefail
+          CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
+          CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
+
           echo 'Downloading SF 1 CSV dataset from S3...'
-          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-composite-merged-fk.tar.zst /tmp/dataset.tar.zst
+          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-composite-merged-fk.tar.zst "${CSV_TAR}.zst"
           echo 'Downloaded from S3'
 
-          mkdir -p jmh-ldbc/target/ldbc-dataset/sf1
-          cd jmh-ldbc/target/ldbc-dataset/sf1
-          zstd -d /tmp/dataset.tar.zst -o /tmp/dataset.tar
-          tar xf /tmp/dataset.tar
-          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar
-          echo "CSV dataset extracted"
-          ls -la static/ dynamic/
+          zstd -d "${CSV_TAR}.zst" -o "$CSV_TAR"
+          rm -f "${CSV_TAR}.zst"
+
+          mkdir -p "$CSV_DIR"
+          tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
+          rm -f "$CSV_TAR"
+
+          echo "=== Extracted CSV contents ==="
+          ls -la "$CSV_DIR/" | head -20
+
+          if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
+            echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
+            echo "Contents of $CSV_DIR:"
+            find "$CSV_DIR" -maxdepth 2 -type d
+            exit 1
+          fi
+          echo "CSV dataset verified: static/ and dynamic/ present"
 
       - name: Download pre-built LDBC database from S3
         if: steps.mode.outputs.load == 'prebuilt'
         run: |
+          set -euo pipefail
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          DB_TAR="/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
+
           echo 'Downloading pre-built SF 1 database from S3...'
-          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst /tmp/bench-db.tar.zst
+          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst "${DB_TAR}.zst"
           echo 'Downloaded from S3'
 
-          mkdir -p jmh-ldbc/target/ldbc-bench-db
-          zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
-          tar xf /tmp/bench-db.tar -C jmh-ldbc/target/ldbc-bench-db
-          rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
-          # The archive may contain a nested ldbc-bench-db/ directory.
-          # Flatten it so the DB files are directly under target/ldbc-bench-db/.
-          if [ -d jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db ] && \
-             [ ! -f jmh-ldbc/target/ldbc-bench-db/database.ocf ]; then
-            echo "Flattening nested ldbc-bench-db directory"
-            mv jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db/* jmh-ldbc/target/ldbc-bench-db/
-            rmdir jmh-ldbc/target/ldbc-bench-db/ldbc-bench-db
+          zstd -d "${DB_TAR}.zst" -o "$DB_TAR"
+          rm -f "${DB_TAR}.zst"
+
+          mkdir -p "$DB_DIR"
+          tar xf "$DB_TAR" -C "$DB_DIR"
+          rm -f "$DB_TAR"
+
+          echo "=== Extracted DB contents (top-level) ==="
+          ls -la "$DB_DIR/"
+
+          if [ -d "$DB_DIR/ldbc_benchmark" ]; then
+            echo "Pre-built database found at expected path"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
+          elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
+            echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
+            tmp_dir="${DB_DIR}_tmp_$$"
+            mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
+            rm -rf "$DB_DIR"
+            mv "$tmp_dir" "$DB_DIR"
+            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
+          else
+            echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
+            find "$DB_DIR" -maxdepth 3 -type d
+            exit 1
           fi
           echo "Pre-built database extracted"
-          ls -la jmh-ldbc/target/ldbc-bench-db/
 
       - name: Compile
         run: |
@@ -139,49 +169,80 @@ jobs:
       - name: Pre-load LDBC database
         if: steps.mode.outputs.load == 'csv'
         run: |
+          set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1"
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
+            2>&1 | tee /tmp/jmh-load-${{ github.run_id }}.txt
+
+          # Verify the database was actually created
+          if [ ! -d "jmh-ldbc/target/ldbc-bench-db/ldbc_benchmark" ]; then
+            echo "::error::Database was not created after CSV load. Check load output above."
+            exit 1
+          fi
+          echo "Database loaded successfully from CSV"
 
       - name: Warm OS page cache
         run: |
+          set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1"
+            -Djmh.args="-f 0 -wi 0 -i 1 -r 5s -t 1" \
+            2>&1 | tee /tmp/jmh-warm-${{ github.run_id }}.txt
+
+          # JMH exits 0 even when all benchmarks fail with -f 0.
+          # Detect this by checking for failures with no successful results.
+          if grep -q '<failure>' /tmp/jmh-warm-${{ github.run_id }}.txt; then
+            if ! grep -qE '^[A-Za-z].*\s+avgt\s+' /tmp/jmh-warm-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+thrpt\s+' /tmp/jmh-warm-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+sample\s+' /tmp/jmh-warm-${{ github.run_id }}.txt && \
+               ! grep -qE '^[A-Za-z].*\s+ss\s+' /tmp/jmh-warm-${{ github.run_id }}.txt; then
+              echo "::error::All warm-up benchmarks failed. Check database setup."
+              grep 'IllegalStateException\|Exception\|Error' /tmp/jmh-warm-${{ github.run_id }}.txt | head -5 || true
+              exit 1
+            fi
+          fi
 
       - name: Run benchmarks
         run: |
+          set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
             -Dspotless.check.skip=true -Dcentral.skip=true \
-            -Djmh.args="-rf json -rff ${{ github.workspace }}/results.json" \
-            2>&1 | tee bench.log
+            -Djmh.args="-rf json -rff /tmp/jmh-results-${{ github.run_id }}.json" \
+            2>&1 | tee /tmp/jmh-bench-log-${{ github.run_id }}.txt
 
       - name: Validate benchmark results
         run: |
-          RESULTS="${{ github.workspace }}/results.json"
-          if [ ! -f "$RESULTS" ]; then
-            echo "::error::results.json not found — benchmarks did not produce output"
+          set -euo pipefail
+          RESULTS="/tmp/jmh-results-${{ github.run_id }}.json"
+          if [ ! -s "$RESULTS" ]; then
+            echo "::error::Benchmark produced no results (empty or missing JSON)."
+            tail -50 /tmp/jmh-bench-log-${{ github.run_id }}.txt || true
             exit 1
           fi
           COUNT=$(jq 'length' "$RESULTS")
           if [ "$COUNT" -eq 0 ] || [ "$COUNT" = "null" ]; then
-            echo "::error::results.json is empty — all benchmarks failed"
+            echo "::error::Benchmark JSON contains zero results."
             exit 1
           fi
           echo "Benchmark results contain $COUNT entries"
+          # Copy to workspace for artifact upload
+          cp "$RESULTS" "${{ github.workspace }}/results.json"
 
       - name: Upload built database to S3
         if: success() && steps.mode.outputs.load == 'csv'
         run: |
           set -euo pipefail
+          DB_TAR="/tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar"
           cd jmh-ldbc/target/ldbc-bench-db
-          tar cf /tmp/bench-db.tar .
-          zstd -9 /tmp/bench-db.tar -o /tmp/bench-db.tar.zst
-          rm -f /tmp/bench-db.tar
-          echo "Database archived: $(du -sh /tmp/bench-db.tar.zst | cut -f1)"
+          tar cf "$DB_TAR" .
+          zstd -9 "$DB_TAR" -o "${DB_TAR}.zst"
+          rm -f "$DB_TAR"
+          echo "Database archived: $(du -sh "${DB_TAR}.zst" | cut -f1)"
 
           echo 'Uploading built database to S3...'
-          mc cp /tmp/bench-db.tar.zst hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst
+          mc cp "${DB_TAR}.zst" hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst
+          rm -f "${DB_TAR}.zst"
           echo 'Uploaded to S3: ldbc/ldbc-sf1-bench-db.tar.zst'
 
       - name: Push results to InfluxDB
@@ -191,7 +252,7 @@ jobs:
           INFLUXDB_TOKEN: ${{ secrets.INFLUXDB_TOKEN }}
         run: |
           bash jmh-ldbc/jmh-to-influxdb.sh \
-            --input results.json \
+            --input "${{ github.workspace }}/results.json" \
             --influxdb-url "$INFLUXDB_URL" \
             --influxdb-token "$INFLUXDB_TOKEN" \
             --influxdb-org youtrackdb \
@@ -205,11 +266,23 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: jmh-results-${{ steps.commit.outputs.short_sha }}-${{ github.run_id }}
-          path: results.json
+          path: |
+            ${{ github.workspace }}/results.json
+            /tmp/jmh-bench-log-${{ github.run_id }}.txt
+            /tmp/jmh-warm-${{ github.run_id }}.txt
+            /tmp/jmh-load-${{ github.run_id }}.txt
           retention-days: 90
 
       - name: Clean up temp files
         if: always()
         run: |
-          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar \
-                /tmp/bench-db.tar.zst /tmp/bench-db.tar
+          rm -f /tmp/ldbc-csv-${{ github.run_id }}.tar \
+                /tmp/ldbc-csv-${{ github.run_id }}.tar.zst \
+                /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
+                /tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst \
+                /tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar \
+                /tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar.zst \
+                /tmp/jmh-results-${{ github.run_id }}.json \
+                /tmp/jmh-bench-log-${{ github.run_id }}.txt \
+                /tmp/jmh-warm-${{ github.run_id }}.txt \
+                /tmp/jmh-load-${{ github.run_id }}.txt
