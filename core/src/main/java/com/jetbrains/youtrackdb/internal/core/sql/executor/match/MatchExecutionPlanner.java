@@ -4557,11 +4557,14 @@ public class MatchExecutionPlanner {
     var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
 
     // 7b. Compute reverse field name (for multi-source reverse edge lookup).
-    //     For vertex traversal (.in/.out): reverse field on vertex is out_/in_ + edgeClassName.
-    //     For edge traversal (.inE/.outE): reverse field on edge record is just "out"/"in".
+    //     For vertex traversal (.in/.out): reverse field on target vertex is the
+    //       opposite direction + edgeClassName (e.g., out_LIKES → in_LIKES).
+    //     For edge traversal (.inE/.outE): reverse field on the edge record is
+    //       the SAME direction as linkBagDirection — because out_X on a vertex
+    //       stores edges whose "out" field points back to that vertex.
     var reverseDirection = "in".equals(linkBagDirection) ? "out" : "in";
     var reverseFieldName = isEdgeTraversal
-        ? reverseDirection
+        ? linkBagDirection
         : reverseDirection + "_" + edgeClassName;
 
     // 8. Look up index on target class for the property.
