@@ -160,10 +160,18 @@ Run a throwaway fork on **each** version to trigger DB open + parameter curation
 # HEAD
 ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
-  --add-opens java.base/java.util=ALL-UNNAMED \
-  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
+  --add-opens java.base/java.io=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
+  --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED \
+  --add-opens java.base/java.net=ALL-UNNAMED \
+  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens java.base/sun.nio.cs=ALL-UNNAMED \
+  --add-opens java.base/sun.security.x509=ALL-UNNAMED \
+  --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED \
   -Xms4096m -Xmx4096m \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
@@ -171,10 +179,18 @@ ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
 # BASE (use -Djmh.ignoreLock=true if HEAD is still running, but prefer sequential)
 ssh root@<IP> 'cd /root/ytdb-base/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
-  --add-opens java.base/java.util=ALL-UNNAMED \
-  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
+  --add-opens java.base/java.io=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
+  --add-opens java.base/java.util=ALL-UNNAMED \
+  --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
+  --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED \
+  --add-opens java.base/java.net=ALL-UNNAMED \
+  --add-opens java.base/sun.nio.ch=ALL-UNNAMED \
+  --add-opens java.base/sun.nio.cs=ALL-UNNAMED \
+  --add-opens java.base/sun.security.x509=ALL-UNNAMED \
+  --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED \
   -Xms4096m -Xmx4096m -Djmh.ignoreLock=true \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
@@ -193,7 +209,7 @@ DIR=$2        # /root/ytdb or /root/ytdb-base
 BENCH=$3      # benchmark regex
 ARGS=$4       # JMH args
 
-JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
+JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
 
 cd $DIR/jmh-ldbc && java $JVM_ARGS \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
@@ -228,7 +244,7 @@ DIR=$2        # /root/ytdb or /root/ytdb-base
 BENCH=$3      # benchmark regex
 ARGS=$4       # JMH args
 
-JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
+JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
 
 mkdir -p /root/profiles/$VERSION
 
