@@ -14,11 +14,6 @@ on:
         description: 'Branch to benchmark'
         required: false
         default: 'develop'
-      use_prebuilt_db:
-        description: 'Use pre-built DB from S3 (skip CSV loading). Nightly always loads fresh.'
-        required: false
-        type: boolean
-        default: true
 
 concurrency:
   group: ldbc-jmh-nightly
@@ -36,8 +31,6 @@ jobs:
       - name: Clean workspace
         run: |
           rm -rf "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.??* || true
-          rm -f /tmp/dataset.tar.zst /tmp/dataset.tar \
-                /tmp/bench-db.tar.zst /tmp/bench-db.tar
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,19 +45,6 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
           echo "timestamp=$(date -u +%s)" >> "$GITHUB_OUTPUT"
-
-      - name: Determine load mode
-        id: mode
-        run: |
-          # Nightly (schedule) always loads fresh from CSV.
-          # Manual (workflow_dispatch) uses pre-built DB by default.
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "load=csv" >> "$GITHUB_OUTPUT"
-          elif [ "${{ inputs.use_prebuilt_db }}" = "true" ]; then
-            echo "load=prebuilt" >> "$GITHUB_OUTPUT"
-          else
-            echo "load=csv" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Install CLI tools (mc, jq)
         run: |
@@ -94,8 +74,17 @@ jobs:
             "${{ secrets.HETZNER_S3_ACCESS_KEY }}" "${{ secrets.HETZNER_S3_SECRET_KEY }}"
           mc ls hetzner/bench-cache/ldbc/ || echo "Warning: could not list S3 bucket"
 
+      - name: Download canonical curated parameters from S3
+        run: |
+          set -euo pipefail
+          echo 'Downloading canonical curated parameters from S3...'
+          mc cp hetzner/bench-cache/ldbc/curated-params-v3.json \
+            "/tmp/curated-params-${{ github.run_id }}.json"
+          mc cp hetzner/bench-cache/ldbc/factor-tables.json \
+            "/tmp/factor-tables-${{ github.run_id }}.json"
+          echo 'Downloaded curated params and factor tables.'
+
       - name: Download LDBC CSV dataset from S3
-        if: steps.mode.outputs.load == 'csv'
         run: |
           set -euo pipefail
           CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
@@ -123,51 +112,26 @@ jobs:
           fi
           echo "CSV dataset verified: static/ and dynamic/ present"
 
-      - name: Download pre-built LDBC database from S3
-        if: steps.mode.outputs.load == 'prebuilt'
-        run: |
-          set -euo pipefail
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          DB_TAR="/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
-
-          echo 'Downloading pre-built SF 1 database from S3...'
-          mc cp hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst "${DB_TAR}.zst"
-          echo 'Downloaded from S3'
-
-          zstd -d "${DB_TAR}.zst" -o "$DB_TAR"
-          rm -f "${DB_TAR}.zst"
-
-          mkdir -p "$DB_DIR"
-          tar xf "$DB_TAR" -C "$DB_DIR"
-          rm -f "$DB_TAR"
-
-          echo "=== Extracted DB contents (top-level) ==="
-          ls -la "$DB_DIR/"
-
-          if [ -d "$DB_DIR/ldbc_benchmark" ]; then
-            echo "Pre-built database found at expected path"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-          elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
-            echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
-            tmp_dir="${DB_DIR}_tmp_$$"
-            mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
-            rm -rf "$DB_DIR"
-            mv "$tmp_dir" "$DB_DIR"
-            ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-          else
-            echo "::error::Pre-built database missing 'ldbc_benchmark' directory."
-            find "$DB_DIR" -maxdepth 3 -type d
-            exit 1
-          fi
-          echo "Pre-built database extracted"
-
       - name: Compile
         run: |
           chmod +x mvnw
           ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
 
+      - name: Install canonical curated parameters
+        run: |
+          # Install canonical curated params before the pre-load so
+          # ParameterCurator finds them and skips regeneration.
+          # Ensures all nightly runs use identical params regardless
+          # of database iteration order.
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          cp "/tmp/factor-tables-${{ github.run_id }}.json" \
+             "$DB_DIR/factor-tables.json"
+          cp "/tmp/curated-params-${{ github.run_id }}.json" \
+             "$DB_DIR/curated-params-v3.json"
+          echo "Canonical curated params installed"
+
       - name: Pre-load LDBC database
-        if: steps.mode.outputs.load == 'csv'
         run: |
           set -euo pipefail
           ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
@@ -229,22 +193,6 @@ jobs:
           # Copy to workspace for artifact upload
           cp "$RESULTS" "${{ github.workspace }}/results.json"
 
-      - name: Upload built database to S3
-        if: success() && steps.mode.outputs.load == 'csv'
-        run: |
-          set -euo pipefail
-          DB_TAR="/tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar"
-          cd jmh-ldbc/target/ldbc-bench-db
-          tar cf "$DB_TAR" .
-          zstd -9 "$DB_TAR" -o "${DB_TAR}.zst"
-          rm -f "$DB_TAR"
-          echo "Database archived: $(du -sh "${DB_TAR}.zst" | cut -f1)"
-
-          echo 'Uploading built database to S3...'
-          mc cp "${DB_TAR}.zst" hetzner/bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst
-          rm -f "${DB_TAR}.zst"
-          echo 'Uploaded to S3: ldbc/ldbc-sf1-bench-db.tar.zst'
-
       - name: Push results to InfluxDB
         if: success()
         env:
@@ -276,12 +224,10 @@ jobs:
       - name: Clean up temp files
         if: always()
         run: |
-          rm -f /tmp/ldbc-csv-${{ github.run_id }}.tar \
+          rm -f /tmp/curated-params-${{ github.run_id }}.json \
+                /tmp/factor-tables-${{ github.run_id }}.json \
+                /tmp/ldbc-csv-${{ github.run_id }}.tar \
                 /tmp/ldbc-csv-${{ github.run_id }}.tar.zst \
-                /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
-                /tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst \
-                /tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar \
-                /tmp/ldbc-bench-db-upload-${{ github.run_id }}.tar.zst \
                 /tmp/jmh-results-${{ github.run_id }}.json \
                 /tmp/jmh-bench-log-${{ github.run_id }}.txt \
                 /tmp/jmh-warm-${{ github.run_id }}.txt \
