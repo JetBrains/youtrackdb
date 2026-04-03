@@ -57,7 +57,7 @@ For multi-thread regressions, use the same warmup/measurement but omit `-t 1` (u
 Use the same naming convention as `run-jmh-benchmarks-hetzner`:
 
 ```bash
-BRANCH=$(git rev-parse --abbrev-ref HEAD | tr '[:upper:]/' '[:lower:]-' | cut -c1-40)
+BRANCH=$(git rev-parse --abbrev-ref HEAD | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | cut -c1-40)
 SERVER_NAME="jmh-prof-${BRANCH}"
 KEY_NAME="jmh-prof-key-${BRANCH}"
 
@@ -102,9 +102,9 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
 **BASE** (fork-point commit): Create a local worktree, rsync to a separate directory:
 ```bash
 BASE_COMMIT=$(git merge-base HEAD origin/develop)
-git worktree add /tmp/ytdb-base-$$ $BASE_COMMIT
+git worktree add /tmp/ytdb-base-profiling $BASE_COMMIT
 
-rsync -az --exclude='.git' --exclude='target' --exclude='.idea' /tmp/ytdb-base-$$/ root@<IP>:/root/ytdb-base/
+rsync -az --exclude='.git' --exclude='target' --exclude='.idea' /tmp/ytdb-base-profiling/ root@<IP>:/root/ytdb-base/
 ssh root@<IP> 'git config --global --add safe.directory /root/ytdb-base && \
   cd /root/ytdb-base && git init && git add -A && git commit -m "base" --quiet'
 ```
@@ -140,10 +140,8 @@ print(url)
 
 # Download and extract to HEAD
 ssh root@<IP> "mkdir -p /root/ytdb/jmh-ldbc/target && \
-  curl -sS -o /tmp/bench-db.tar.zst '$PRESIGNED_URL' && \
   cd /root/ytdb/jmh-ldbc/target && \
-  zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar && \
-  tar xf /tmp/bench-db.tar && rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar"
+  curl -sS '$PRESIGNED_URL' | zstd -dc | tar xf -"
 
 # Clear curation caches
 ssh root@<IP> 'rm -f /root/ytdb/jmh-ldbc/target/ldbc-bench-db/curated-params*.json \
@@ -336,7 +334,7 @@ For each regression, report:
 
 ```bash
 # Remove local worktree
-git worktree remove /tmp/ytdb-base-$$
+git worktree remove /tmp/ytdb-base-profiling
 
 # Destroy server
 hcloud server delete "$SERVER_NAME"
