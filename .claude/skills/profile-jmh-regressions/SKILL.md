@@ -252,6 +252,8 @@ ssh root@<IP> '/root/run-profile.sh <version> /root/ytdb<-base> "<benchmark-rege
 
 ### Step 9: Analyze profiles
 
+All analysis commands in this step run **on the remote server** via SSH (the profile `.csv` files are in `/root/profiles/` on the server). Either wrap each command in `ssh root@<IP> '...'` or open an interactive SSH session.
+
 For each confirmed regression, perform four levels of analysis:
 
 #### 9a. Filter non-measurement stacks
@@ -260,7 +262,7 @@ Async-profiler captures ALL JVM threads across the entire fork lifetime — incl
 
 ```bash
 # Filter out non-measurement stacks
-grep -v 'tearDown\|WALVacuum\|G1Conc\|G1ParScan\|GCThread\|GangWorker\|VMThread\|CompilerThread\|ServiceThread' <file.csv> > <file-filtered.csv>
+grep -vE 'tearDown|WALVacuum|G1Conc|G1ParScan|GCThread|GangWorker|VMThread|CompilerThread|ServiceThread' <file.csv> > <file-filtered.csv>
 ```
 
 Compare total samples before and after filtering for both HEAD and BASE. Large deltas indicate:
@@ -287,7 +289,7 @@ Compare HEAD vs BASE top-30 leaf methods. Look for:
 Sum the sample counts across all stacks containing a given method (measures total time including children):
 
 ```bash
-grep "<method-name>" <file-filtered.csv> | awk '{sum += $NF} END {print sum}'
+grep -E "(^|;)<method-name>(;| )" <file-filtered.csv> | awk '{sum += $NF} END {print sum}'
 ```
 
 Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getCollate`, `tryInPlaceComparison`, `isPropertyEqual`, `comparePropertyTo`, `deserializeFieldForComparison`, `InPlaceCompar`, `EntityImpl.hasProperty`, `EntityImpl.deserializeProperties`, `checkPropertyNameIfValid`, `getFieldSizeAndType`, `executeReadRecord`, `ConcurrentLongIntHashMap`, `ConcurrentHashMap`, `LockFreeReadCache`.
@@ -308,12 +310,13 @@ Compare HEAD vs BASE children. Changes in child method distribution indicate:
 #### 9e. Bytecode size check (if JIT effects suspected)
 
 ```bash
-# Compare method bytecode sizes (use find to locate the class file on the server)
-javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | wc -l
-javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | wc -l
+# Compare method bytecode sizes by checking the last instruction offset (use find to locate the class file on the server)
+# The last offset in javap output is the actual bytecode size — counting lines is NOT a reliable proxy
+javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | tail -5
+javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | tail -5
 ```
 
-HotSpot default inlining threshold is ~325 bytecodes. Methods exceeding this won't be inlined at call sites, causing cascading de-inlining effects.
+The **last instruction's offset** (e.g., `324:` in `javap` output) indicates the bytecode size. HotSpot default inlining threshold is ~325 bytecodes. Methods exceeding this won't be inlined at call sites, causing cascading de-inlining effects.
 
 ### Step 10: Report findings
 
