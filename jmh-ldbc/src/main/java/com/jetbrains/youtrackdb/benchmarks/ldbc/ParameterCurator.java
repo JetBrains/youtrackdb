@@ -44,6 +44,12 @@ final class ParameterCurator {
   // Bump version suffix when curation logic changes to invalidate old caches
   private static final String CURATED_PARAMS_CACHE_FILE = "curated-params-v3.json";
 
+  // System property that must be set to allow regeneration of curated parameters.
+  // Without this flag, missing canonical params cause a hard failure instead of
+  // silently regenerating — preventing accidental parameter desync between runs.
+  // Pass -Dldbc.allow.param.generation=true to enable (e.g. when updating canonical params).
+  static final String ALLOW_PARAM_GENERATION_PROP = "ldbc.allow.param.generation";
+
   // Target number of curated parameter tuples per query
   static final int PARAMS_PER_QUERY = 500;
 
@@ -148,7 +154,7 @@ final class ParameterCurator {
             && Files.getLastModifiedTime(factorCacheFile)
                 .compareTo(Files.getLastModifiedTime(cacheFile)) > 0) {
           log.info("Factor tables newer than curated params cache,"
-              + " recomputing...");
+              + " regeneration required.");
         } else {
           log.info("Loading cached curated params from: {}", cacheFile);
           CuratedParams cached = loadCuratedParamsFromJson(cacheFile);
@@ -157,11 +163,25 @@ final class ParameterCurator {
           return cached;
         }
       } catch (Exception e) {
-        log.warn("Failed to load curated params cache, recomputing: {}",
-            e.getMessage());
+        log.warn("Failed to load curated params cache: {}", e.getMessage());
       }
     }
 
+    // Canonical curated params are missing or stale — regeneration is needed.
+    // Require an explicit flag to prevent accidental parameter desync.
+    boolean allowGeneration =
+        Boolean.getBoolean(ALLOW_PARAM_GENERATION_PROP);
+    if (!allowGeneration) {
+      throw new IllegalStateException(
+          "Curated parameters not found at " + cacheFile + " and regeneration"
+              + " is not allowed. Download canonical curated params from S3"
+              + " (ldbc/curated-params-v3.json, ldbc/factor-tables.json) and"
+              + " install them into the DB directory. To regenerate locally,"
+              + " pass -D" + ALLOW_PARAM_GENERATION_PROP + "=true");
+    }
+
+    log.warn("Regenerating curated parameters ({}=true)",
+        ALLOW_PARAM_GENERATION_PROP);
     FactorTables factors = loadOrComputeFactors(state, dbPath);
     CuratedParams params = generateParams(factors, state);
 
@@ -187,10 +207,12 @@ final class ParameterCurator {
         log.info("Factor tables loaded from cache");
         return cached;
       } catch (Exception e) {
-        log.warn("Failed to load factor cache, recomputing: {}", e.getMessage());
+        log.warn("Failed to load factor cache: {}", e.getMessage());
       }
     }
 
+    // Factor tables are missing — the caller already checked the allow flag,
+    // so we can proceed with computation here.
     log.info("Computing factor tables from database...");
     long start = System.currentTimeMillis();
     FactorTables factors = computeFactorTables(state);

@@ -124,7 +124,7 @@ Both approaches fork a new JVM with all required `--add-opens` flags and 4 GB he
 ### First Run
 
 On the first run, the benchmark setup phase will:
-1. Check for an existing database at `./target/ldbc-bench-db` (or the path specified by `-Dldbc.db.path`). If a pre-built database exists, it is reused directly (skips steps 2-3).
+1. Check for an existing database at `./target/ldbc-bench-db` (or the path specified by `-Dldbc.db.path`). If a database exists, it is reused directly (skips steps 2-3).
 2. Otherwise, look for the LDBC CSV dataset at `./target/ldbc-dataset/sf1` (or the path specified by `-Dldbc.dataset.path`). The dataset must be obtained beforehand — see [Dataset](#dataset).
 3. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~3.6M records for SF 1, ~21 min on CCX33).
 4. Run **parameter curation** — compute factor tables from the loaded data (friend counts, FoF/FoFoF counts, name frequencies, etc.), apply gap-based grouping to select entities with similar query difficulty, and generate 500 per-query parameter tuples. Factor tables are cached to `factor-tables.json` alongside the DB so they are computed only once.
@@ -224,20 +224,23 @@ The `ParameterCurator` class implements a 3-step pipeline:
 
 ### Canonical curated parameters
 
-**Critical**: All benchmark runs — CI comparisons, nightly baselines, and local profiling — **must use the same curated parameters**. The curated parameter files are stored in Hetzner S3 alongside the pre-built database and must never be regenerated independently.
+**Critical**: All benchmark runs — CI comparisons, nightly baselines, and local profiling — **must use the same curated parameters**. The canonical parameter files are the sole source of truth, stored in Hetzner S3 as separate objects and downloaded before each run. They must never be regenerated independently.
 
 - **S3 keys**: `ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`
+- **S3 bucket**: `bench-cache`
 - **Install location**: `jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json` and `factor-tables.json`
+- **Credentials**: stored as GitHub repository secrets `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
 
 **Why this matters**: The `ParameterCurator` samples 200 (person, date) pairs from a `friendsSelected × dates` cross-product using stride-based sampling. The stride depends on iteration order of `friendsSelected`, which comes from database query results. Any code change that affects internal data structure ordering (hash maps, indexes, etc.) changes the iteration order, causing different pairs to be sampled. For IC4 in particular, different pairs can have vastly different "old post counts" (the NOT-pattern cost factor), leading to **up to 7x throughput differences** between runs that should be identical. This was discovered when a cache layer change produced a spurious +586% IC4 "improvement" in CI that did not reproduce with shared parameters.
 
+**Regeneration is blocked by default.** If canonical curated params are missing from the DB directory, the benchmark fails with an `IllegalStateException` directing you to download them from S3. This prevents accidental parameter desync between runs.
+
 **To regenerate canonical parameters** (only when the curation algorithm itself changes):
 1. Build from develop: `./mvnw -pl jmh-ldbc -am package -DskipTests`
-2. Ensure the pre-built DB is extracted at `jmh-ldbc/target/ldbc-bench-db`
+2. Ensure a database exists at `jmh-ldbc/target/ldbc-bench-db` (load from CSV if needed)
 3. Delete existing params: `rm -f jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json jmh-ldbc/target/ldbc-bench-db/factor-tables.json`
-4. Run any benchmark to trigger regeneration: `java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1`
+4. Run with the generation flag enabled: `java -Dldbc.allow.param.generation=true -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1`
 5. Upload the new files to S3: `ldbc/curated-params-v3.json` and `ldbc/factor-tables.json`
-6. Rebuild the pre-built DB tar to include them and upload to `ldbc/ldbc-sf1-bench-db.tar.zst`
 
 ### Per-query parameter access
 
@@ -259,10 +262,11 @@ All settings are passed as JVM system properties. When using Maven, add `-D` fla
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `ldbc.dataset.path` | `./target/ldbc-dataset/sf1` | Path to the LDBC dataset root (must contain `static/` and `dynamic/` subdirectories). Only needed if no pre-built DB exists. |
-| `ldbc.db.path` | `./target/ldbc-bench-db` | Directory where the YouTrackDB database is stored. If a pre-built DB exists here, CSV loading is skipped. |
+| `ldbc.dataset.path` | `./target/ldbc-dataset/sf1` | Path to the LDBC dataset root (must contain `static/` and `dynamic/` subdirectories). Only needed on first run when no database exists yet. |
+| `ldbc.db.path` | `./target/ldbc-bench-db` | Directory where the YouTrackDB database is stored. If a database already exists here, CSV loading is skipped. |
 | `ldbc.scale.factor` | `1` | Scale factor (used in default dataset path). |
 | `ldbc.batch.size` | `1000` | Batch size for CSV data loading. |
+| `ldbc.allow.param.generation` | `false` | When `true`, allows regeneration of curated parameters if cached files are missing. Without this flag, missing params cause a hard failure. Only set when intentionally regenerating canonical parameters. |
 
 Example with a custom dataset path or smaller scale factor:
 
@@ -271,7 +275,7 @@ Example with a custom dataset path or smaller scale factor:
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Dldbc.scale.factor=0.1
 
-# Use a pre-built database from a custom path
+# Use an existing database from a custom path
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Dldbc.db.path=/data/ldbc-bench-db
 
@@ -305,32 +309,11 @@ The dataset is loaded into YouTrackDB with the full LDBC schema: 15 vertex class
 
 ### Obtaining the dataset
 
-There are three ways to set up the benchmark database:
+There are two ways to set up the benchmark database:
 
-#### Option 1: Download pre-built database from S3 (fastest, recommended for manual runs)
+#### Option 1: Download CSV dataset from S3 and load fresh (recommended)
 
-A pre-built YouTrackDB database for SF 1 is maintained in Hetzner Object Storage. This is the fastest option — it skips the ~21-minute CSV loading step entirely. The nightly CI workflow automatically uploads a fresh DB snapshot after each successful run. The pre-built DB includes [canonical curated parameters](#canonical-curated-parameters) — do not delete or regenerate them.
-
-- **Bucket**: `bench-cache`
-- **Key**: `ldbc/ldbc-sf1-bench-db.tar.zst` (~1.3 GB)
-- **Credentials**: stored as GitHub repository secrets `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
-
-```bash
-# Download and extract using the AWS CLI (or any S3-compatible client)
-aws s3 cp s3://bench-cache/ldbc/ldbc-sf1-bench-db.tar.zst /tmp/bench-db.tar.zst \
-    --endpoint-url "$HETZNER_S3_ENDPOINT"
-
-# Extract to the expected DB path
-mkdir -p jmh-ldbc/target/ldbc-bench-db
-cd jmh-ldbc/target/ldbc-bench-db
-zstd -d /tmp/bench-db.tar.zst -o /tmp/bench-db.tar
-tar xf /tmp/bench-db.tar
-rm -f /tmp/bench-db.tar.zst /tmp/bench-db.tar
-```
-
-#### Option 2: Download CSV dataset from S3 and load fresh
-
-Download the raw CSV dataset and let the benchmark load it into a new database. This is what the nightly CI workflow does.
+Download the raw CSV dataset and let the benchmark load it into a new database. This is the standard setup path used by all CI workflows.
 
 - **SF 1 CSV**: `ldbc/ldbc-sf1-composite-merged-fk.tar.zst` (~196 MB, loads in ~21 min on CCX33)
 - **SF 0.1 CSV**: `ldbc/ldbc-sf0.1-composite-merged-fk.tar.zst` (~19 MB, loads in ~30s)
@@ -360,7 +343,7 @@ s3.download_file("bench-cache",
     "/tmp/dataset.tar.zst")
 ```
 
-#### Option 3: Generate using LDBC datagen Docker image
+#### Option 2: Generate using LDBC datagen Docker image
 
 If you don't have access to the Hetzner S3 credentials, generate the dataset locally using the official [LDBC datagen](https://github.com/ldbc/ldbc_snb_datagen_spark) Docker image:
 

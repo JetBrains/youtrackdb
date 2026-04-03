@@ -7,13 +7,6 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      use_prebuilt_db:
-        description: >
-          Use pre-built DB from S3 (fast, ~2 min setup).
-          When false, loads from CSV (~21 min per run).
-        required: false
-        type: boolean
-        default: true
       queries:
         description: >
           Comma-separated query IDs to benchmark (e.g. IS1,IC2,IC13).
@@ -121,33 +114,6 @@ jobs:
             -Dspotless.check.skip=true -q
 
       # ── Download data (once) ─────────────────────────────────────────────
-      # Always download the CSV dataset as a fallback.
-      # Download the pre-built DB too when requested (faster setup).
-      - name: Download pre-built database from S3
-        id: download_prebuilt
-        if: inputs.use_prebuilt_db == true
-        continue-on-error: true
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
-          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
-        run: |
-          set -euo pipefail
-          python3 - << 'PYEOF'
-          import boto3, os
-          s3 = boto3.client('s3',
-              endpoint_url=os.environ['S3_ENDPOINT'],
-              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
-              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
-          print('Downloading pre-built SF 1 database from S3...')
-          s3.download_file('bench-cache', 'ldbc/ldbc-sf1-bench-db.tar.zst',
-              '/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst')
-          print('Downloaded.')
-          PYEOF
-          zstd -d "/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst" \
-               -o "/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
-          rm -f "/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst"
-
       - name: Download canonical curated parameters from S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
@@ -206,70 +172,35 @@ jobs:
           set -euo pipefail
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
           CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
-          PREBUILT_TAR="/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
           CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
-          DB_READY=false
 
-          # ── Try pre-built database first ──
-          if [ -f "$PREBUILT_TAR" ]; then
-            echo "Extracting pre-built database..."
-            mkdir -p "$DB_DIR"
-            tar xf "$PREBUILT_TAR" -C "$DB_DIR"
+          echo "Extracting CSV dataset..."
+          mkdir -p "$CSV_DIR"
+          tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
 
-            echo "=== Extracted DB contents (top-level) ==="
-            ls -la "$DB_DIR/"
+          echo "=== Extracted CSV contents ==="
+          ls -la "$CSV_DIR/" | head -20
 
-            if [ -d "$DB_DIR/ldbc_benchmark" ]; then
-              echo "Pre-built database found at expected path"
-              ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-              DB_READY=true
-            elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
-              echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
-              tmp_dir="${DB_DIR}_tmp_$$"
-              mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
-              rm -rf "$DB_DIR"
-              mv "$tmp_dir" "$DB_DIR"
-              ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-              DB_READY=true
-            else
-              echo "::warning::Pre-built database missing 'ldbc_benchmark' directory, falling back to CSV."
-              find "$DB_DIR" -maxdepth 3 -type d
-              rm -rf "$DB_DIR"
-            fi
-          else
-            echo "Pre-built database tar not available, using CSV dataset."
+          if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
+            echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
+            echo "Contents of $CSV_DIR:"
+            find "$CSV_DIR" -maxdepth 2 -type d
+            exit 1
           fi
+          echo "CSV dataset verified: static/ and dynamic/ present"
 
-          # ── Fall back to CSV dataset if pre-built DB is not ready ──
-          if [ "$DB_READY" = "false" ]; then
-            echo "Extracting CSV dataset..."
-            mkdir -p "$CSV_DIR"
-            tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
+          echo "Loading database from CSV..."
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
+            2>&1 | tee /tmp/jmh-load-base-${{ github.run_id }}.txt
 
-            echo "=== Extracted CSV contents ==="
-            ls -la "$CSV_DIR/" | head -20
-
-            if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
-              echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
-              echo "Contents of $CSV_DIR:"
-              find "$CSV_DIR" -maxdepth 2 -type d
-              exit 1
-            fi
-            echo "CSV dataset verified: static/ and dynamic/ present"
-
-            echo "Loading database from CSV..."
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-              -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
-              2>&1 | tee /tmp/jmh-load-base-${{ github.run_id }}.txt
-
-            # Verify the database was actually created
-            if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
-              echo "::error::Database was not created after CSV load. Check load output above."
-              exit 1
-            fi
-            echo "Database loaded successfully from CSV"
+          # Verify the database was actually created
+          if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
+            echo "::error::Database was not created after CSV load. Check load output above."
+            exit 1
           fi
+          echo "Database loaded successfully from CSV"
 
       - name: 'Base: install canonical curated parameters'
         run: |
@@ -349,70 +280,35 @@ jobs:
           set -euo pipefail
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
           CSV_DIR="jmh-ldbc/target/ldbc-dataset/sf1"
-          PREBUILT_TAR="/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
           CSV_TAR="/tmp/ldbc-csv-${{ github.run_id }}.tar"
-          DB_READY=false
 
-          # ── Try pre-built database first ──
-          if [ -f "$PREBUILT_TAR" ]; then
-            echo "Extracting pre-built database..."
-            mkdir -p "$DB_DIR"
-            tar xf "$PREBUILT_TAR" -C "$DB_DIR"
+          echo "Extracting CSV dataset..."
+          mkdir -p "$CSV_DIR"
+          tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
 
-            echo "=== Extracted DB contents (top-level) ==="
-            ls -la "$DB_DIR/"
+          echo "=== Extracted CSV contents ==="
+          ls -la "$CSV_DIR/" | head -20
 
-            if [ -d "$DB_DIR/ldbc_benchmark" ]; then
-              echo "Pre-built database found at expected path"
-              ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-              DB_READY=true
-            elif [ -d "$DB_DIR/ldbc-bench-db/ldbc_benchmark" ]; then
-              echo "::warning::Tar has nested ldbc-bench-db/ directory — relocating"
-              tmp_dir="${DB_DIR}_tmp_$$"
-              mv "$DB_DIR/ldbc-bench-db" "$tmp_dir"
-              rm -rf "$DB_DIR"
-              mv "$tmp_dir" "$DB_DIR"
-              ls -la "$DB_DIR/ldbc_benchmark/" | head -20 || true
-              DB_READY=true
-            else
-              echo "::warning::Pre-built database missing 'ldbc_benchmark' directory, falling back to CSV."
-              find "$DB_DIR" -maxdepth 3 -type d
-              rm -rf "$DB_DIR"
-            fi
-          else
-            echo "Pre-built database tar not available, using CSV dataset."
+          if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
+            echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
+            echo "Contents of $CSV_DIR:"
+            find "$CSV_DIR" -maxdepth 2 -type d
+            exit 1
           fi
+          echo "CSV dataset verified: static/ and dynamic/ present"
 
-          # ── Fall back to CSV dataset if pre-built DB is not ready ──
-          if [ "$DB_READY" = "false" ]; then
-            echo "Extracting CSV dataset..."
-            mkdir -p "$CSV_DIR"
-            tar xf "$CSV_TAR" --strip-components=1 -C "$CSV_DIR"
+          echo "Loading database from CSV..."
+          ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+            -Dspotless.check.skip=true -Dcentral.skip=true \
+            -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
+            2>&1 | tee /tmp/jmh-load-head-${{ github.run_id }}.txt
 
-            echo "=== Extracted CSV contents ==="
-            ls -la "$CSV_DIR/" | head -20
-
-            if [ ! -d "$CSV_DIR/static" ] || [ ! -d "$CSV_DIR/dynamic" ]; then
-              echo "::error::CSV dataset missing 'static' or 'dynamic' directories."
-              echo "Contents of $CSV_DIR:"
-              find "$CSV_DIR" -maxdepth 2 -type d
-              exit 1
-            fi
-            echo "CSV dataset verified: static/ and dynamic/ present"
-
-            echo "Loading database from CSV..."
-            ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
-              -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="LdbcSingleThreadIC.*ic5_newGroups -f 0 -wi 0 -i 1 -r 1s -t 1" \
-              2>&1 | tee /tmp/jmh-load-head-${{ github.run_id }}.txt
-
-            # Verify the database was actually created
-            if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
-              echo "::error::Database was not created after CSV load. Check load output above."
-              exit 1
-            fi
-            echo "Database loaded successfully from CSV"
+          # Verify the database was actually created
+          if [ ! -d "$DB_DIR/ldbc_benchmark" ]; then
+            echo "::error::Database was not created after CSV load. Check load output above."
+            exit 1
           fi
+          echo "Database loaded successfully from CSV"
 
       - name: 'Head: install canonical curated parameters'
         run: |
@@ -563,7 +459,6 @@ jobs:
         run: |
           rm -f /tmp/curated-params-${{ github.run_id }}.json \
                 /tmp/factor-tables-${{ github.run_id }}.json \
-                /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
                 /tmp/ldbc-csv-${{ github.run_id }}.tar \
                 /tmp/jmh-compare-${{ github.run_id }}.py \
                 /tmp/jmh-base-${{ github.run_id }}.json \
