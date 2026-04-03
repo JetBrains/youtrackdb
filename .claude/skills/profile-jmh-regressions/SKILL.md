@@ -410,6 +410,8 @@ Reflect on the profiling session and identify improvements to the workflow:
 - **New patterns**: Did a new root cause category emerge that isn't listed in Step 10? Were new methods or code paths important that aren't in the Step 9c focus list?
 - **Tooling**: Would a different async-profiler output format (e.g., `jfr`, `tree`) have been more useful? Would differential flamegraphs help?
 
+**Important**: All proposed improvements must be **generally applicable** — they should benefit any future profiling session, not just the specific benchmarks or regressions analyzed in this session. Do not propose narrow fixes that only apply to one query, one benchmark tier, or one particular code path.
+
 #### 12c. Propose updates
 
 If any desynchronizations or improvements were found, **present them to the user** as a numbered list of proposed skill edits. Include:
