@@ -286,9 +286,10 @@ Sum the sample counts across all stacks containing a given method (measures tota
 
 ```bash
 grep -E "(^|;)<method-name>(;| )" <file-filtered.csv> | awk '{sum += $NF} END {print sum}'
+# Note: escape dots in method names for exact matching, e.g. EntityImpl\.hasProperty
 ```
 
-Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getCollate`, `tryInPlaceComparison`, `isPropertyEqual`, `comparePropertyTo`, `deserializeFieldForComparison`, `InPlaceCompar`, `EntityImpl.hasProperty`, `EntityImpl.deserializeProperties`, `checkPropertyNameIfValid`, `getFieldSizeAndType`, `executeReadRecord`, `ConcurrentLongIntHashMap`, `ConcurrentHashMap`, `LockFreeReadCache`.
+Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getCollate`, `tryInPlaceComparison`, `isPropertyEqual`, `comparePropertyTo`, `deserializeFieldForComparison`, `EntityImpl.hasProperty`, `EntityImpl.deserializeProperties`, `checkPropertyNameIfValid`, `getFieldSizeAndType`, `executeReadRecord`, `ConcurrentLongIntHashMap`, `ConcurrentHashMap`, `LockFreeReadCache`.
 
 #### 9d. Children of hot methods
 
@@ -308,8 +309,8 @@ Compare HEAD vs BASE children. Changes in child method distribution indicate:
 ```bash
 # Compare method bytecode sizes by checking the last instruction offset (use find to locate the class file on the server)
 # The last offset in javap output is the actual bytecode size — counting lines is NOT a reliable proxy
-javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | tail -5
-javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | tail -5
+javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
+javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
 ```
 
 The **last instruction's offset** (e.g., `324:` in `javap` output) indicates the bytecode size. HotSpot default inlining threshold is ~325 bytecodes. Methods exceeding this won't be inlined at call sites, causing cascading de-inlining effects.
