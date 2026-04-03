@@ -128,9 +128,8 @@ The CSV dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format. The DB
 **Step 3**: Download canonical curated parameters and install into the DB directory (created here so they are available before the pre-load fork in Step 4b):
 ```bash
 ssh root@<IP> "mkdir -p /root/ytdb/<module>/target/ldbc-bench-db && \
-  curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json '<CURATED_PARAMS_URL>' && \
   curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json '<FACTOR_TABLES_URL>' && \
-  touch /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json && \
+  curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json '<CURATED_PARAMS_URL>' && \
   echo 'Canonical curated params installed'"
 ```
 
