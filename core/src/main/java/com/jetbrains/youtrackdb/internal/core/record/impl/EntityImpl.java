@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -71,11 +72,17 @@ import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.InPlaceComparator;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
+import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.ref.WeakReference;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -88,6 +95,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
@@ -105,6 +113,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public static final byte RECORD_TYPE = 'd';
 
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
+
+  // Precision boundaries for safe integer-to-floating-point conversion (matching InPlaceComparator)
+  private static final int FLOAT_EXACT_INT_MAX = 1 << 24; // 2^24 = 16_777_216
+  private static final long DOUBLE_EXACT_LONG_MAX = 1L << 53; // 2^53
   private int propertiesCount;
 
   private Map<String, EntityEntry> properties;
@@ -469,6 +481,324 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     return returnValue.choose(entry.type, convertToGraphElement(value));
+  }
+
+  /**
+   * Compares a property's value to the given object without triggering full deserialization.
+   * Checks the in-memory properties map first; if the property is not yet deserialized, compares
+   * directly against the serialized bytes in {@code source}.
+   *
+   * @return {@link InPlaceResult#TRUE} if equal, {@link InPlaceResult#FALSE} if not equal,
+   *     {@link InPlaceResult#FALLBACK} if the comparison could not be performed in-place
+   */
+  public InPlaceResult isPropertyEqualTo(String name, Object value) {
+    checkForBinding();
+
+    if (status != STATUS.LOADED) {
+      return InPlaceResult.FALLBACK;
+    }
+    if (propertyAccess != null && !propertyAccess.isReadable(name)) {
+      return InPlaceResult.FALLBACK;
+    }
+
+    // Check the deserialized properties map first (without triggering deserialization)
+    if (properties != null && properties.containsKey(name)) {
+      return compareDeserialized(name, value);
+    }
+
+    // Fall back to serialized comparison via source bytes
+    if (source != null) {
+      return compareFromSource(name, value);
+    }
+
+    return InPlaceResult.FALLBACK;
+  }
+
+  /**
+   * Compares a property's value to the given object, returning ordering information, without
+   * triggering full deserialization. Checks the in-memory properties map first; if the property
+   * is not yet deserialized, compares directly against the serialized bytes in {@code source}.
+   *
+   * @return comparison result (negative, zero, positive) or empty if fallback is needed
+   */
+  public OptionalInt comparePropertyTo(String name, Object value) {
+    checkForBinding();
+
+    if (status != STATUS.LOADED) {
+      return OptionalInt.empty();
+    }
+    if (propertyAccess != null && !propertyAccess.isReadable(name)) {
+      return OptionalInt.empty();
+    }
+
+    // Check the deserialized properties map first (without triggering deserialization)
+    if (properties != null && properties.containsKey(name)) {
+      return compareDeserializedOrdering(name, value);
+    }
+
+    // Fall back to serialized comparison via source bytes
+    if (source != null) {
+      return compareFromSourceOrdering(name, value);
+    }
+
+    return OptionalInt.empty();
+  }
+
+  /**
+   * Compare against the deserialized value in the properties map (equality check).
+   */
+  private InPlaceResult compareDeserialized(String name, Object value) {
+    var entry = properties.get(name);
+    if (entry == null || !entry.exists()) {
+      return InPlaceResult.FALLBACK;
+    }
+    var entryValue = entry.value;
+    if (entryValue == null || value == null) {
+      return InPlaceResult.FALLBACK;
+    }
+    if (entry.type == null) {
+      return InPlaceResult.FALLBACK;
+    }
+    // Non-default collation (e.g. CI) requires collation transforms that
+    // in-place comparison does not apply — fall back to the standard path.
+    if (hasNonDefaultCollation(name)) {
+      return InPlaceResult.FALLBACK;
+    }
+
+    // Type-aware comparison using the same conversion logic as InPlaceComparator
+    return compareJavaValues(entry.type, entryValue, value);
+  }
+
+  /**
+   * Compare against the deserialized value in the properties map (ordering).
+   */
+  private OptionalInt compareDeserializedOrdering(String name, Object value) {
+    var entry = properties.get(name);
+    if (entry == null || !entry.exists()) {
+      return OptionalInt.empty();
+    }
+    var entryValue = entry.value;
+    if (entryValue == null || value == null) {
+      return OptionalInt.empty();
+    }
+    if (entry.type == null) {
+      return OptionalInt.empty();
+    }
+    // Non-default collation (e.g. CI) requires collation transforms that
+    // in-place comparison does not apply — fall back to the standard path.
+    if (hasNonDefaultCollation(name)) {
+      return OptionalInt.empty();
+    }
+
+    return compareJavaValuesOrdering(entry.type, entryValue, value);
+  }
+
+  /**
+   * Returns {@code true} if the named property has a non-default collation
+   * (e.g. case-insensitive) in the schema. Properties without a schema definition
+   * or with the default collation return {@code false}.
+   */
+  private boolean hasNonDefaultCollation(String name) {
+    var schemaClass = getImmutableSchemaClass(session);
+    if (schemaClass == null) {
+      return false;
+    }
+    var prop = schemaClass.getPropertyInternal(name);
+    if (prop == null) {
+      return false;
+    }
+    var collate = prop.getCollate();
+    return collate != null && !(collate instanceof DefaultCollate);
+  }
+
+  /**
+   * Compare against the serialized bytes in source using InPlaceComparator (equality check).
+   */
+  private InPlaceResult compareFromSource(String name, Object value) {
+    var field = deserializeFieldForComparison(name, value);
+    if (field == null) {
+      return InPlaceResult.FALLBACK;
+    }
+    var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+    // InPlaceComparator.isEqual returns 1 for equal, 0 for not equal
+    var result = InPlaceComparator.isEqual(field, value, dbTimeZone);
+    if (result.isEmpty()) {
+      return InPlaceResult.FALLBACK;
+    }
+    return result.getAsInt() == 1 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+  }
+
+  /**
+   * Compare against the serialized bytes in source using InPlaceComparator (ordering).
+   */
+  private OptionalInt compareFromSourceOrdering(String name, Object value) {
+    var field = deserializeFieldForComparison(name, value);
+    if (field == null) {
+      return OptionalInt.empty();
+    }
+    var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+    return InPlaceComparator.compare(field, value, dbTimeZone);
+  }
+
+  /**
+   * Shared setup for source-bytes comparison: validates preconditions, locates the field
+   * in the serialized record, and checks collation. Returns null if any guard fails.
+   */
+  @Nullable private BinaryField deserializeFieldForComparison(String name, Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
+      return null;
+    }
+
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = getImmutableSchemaClass(session, immutableSchema);
+    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(source[0]);
+    var bytes = new BytesContainer(source, 1);
+    var field = serializer.deserializeField(
+        session, bytes, schemaClass, name, isEmbedded(),
+        immutableSchema, propertyEncryption);
+
+    if (field == null) {
+      return null;
+    }
+    if (field.collate != null && !(field.collate instanceof DefaultCollate)) {
+      return null;
+    }
+    return field;
+  }
+
+  /**
+   * Type-aware equality comparison of two Java values. Handles LINK equality directly
+   * (comparing RID components), then delegates to {@link #compareJavaValuesOrdering}
+   * for all other types.
+   */
+  private static InPlaceResult compareJavaValues(
+      PropertyTypeInternal type, Object entryValue, Object value) {
+    // LINK: equality via RID components (ordering is not supported)
+    if (type == PropertyTypeInternal.LINK) {
+      return compareLinkJavaValues(entryValue, value);
+    }
+    var cmp = compareJavaValuesOrdering(type, entryValue, value);
+    if (cmp.isEmpty()) {
+      return InPlaceResult.FALLBACK;
+    }
+    return cmp.getAsInt() == 0 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+  }
+
+  /**
+   * LINK equality: compare cluster ID and cluster position from both Identifiable instances.
+   */
+  private static InPlaceResult compareLinkJavaValues(Object entryValue, Object value) {
+    if (!(entryValue instanceof Identifiable entryId)
+        || !(value instanceof Identifiable valueId)) {
+      return InPlaceResult.FALLBACK;
+    }
+    var entryRid = entryId.getIdentity();
+    var valueRid = valueId.getIdentity();
+    return (entryRid.getCollectionId() == valueRid.getCollectionId()
+        && entryRid.getCollectionPosition() == valueRid.getCollectionPosition())
+            ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+  }
+
+  /**
+   * Type-aware ordering comparison of two Java values, using the same semantics as
+   * InPlaceComparator (Float.compare, BigDecimal.compareTo, etc.). Float/Double values
+   * are rejected for integer types to match InPlaceComparator's fallback behavior.
+   * byte[] uses Arrays.compare since byte[] does not implement Comparable.
+   */
+  @SuppressWarnings("unchecked")
+  private static OptionalInt compareJavaValuesOrdering(
+      PropertyTypeInternal type, Object entryValue, Object value) {
+    try {
+      return switch (type) {
+        case INTEGER, LONG, SHORT, BYTE -> {
+          if (!(entryValue instanceof Number entryNum) || !(value instanceof Number valNum)) {
+            yield OptionalInt.empty();
+          }
+          // Float/Double -> integer: fall back to match InPlaceComparator behavior
+          if (valNum instanceof Float || valNum instanceof Double) {
+            yield OptionalInt.empty();
+          }
+          yield OptionalInt.of(Long.compare(entryNum.longValue(), valNum.longValue()));
+        }
+        case FLOAT -> {
+          if (!(entryValue instanceof Float f) || !(value instanceof Number n)) {
+            yield OptionalInt.empty();
+          }
+          if (value instanceof Double d) {
+            yield OptionalInt.of(Double.compare(f, d));
+          }
+          // Guard: integer values beyond float's exact range must fall back
+          // to match InPlaceComparator.convertToFloat precision boundaries
+          if (!(n instanceof Float)) {
+            long lv = n.longValue();
+            if (lv > FLOAT_EXACT_INT_MAX || lv < -FLOAT_EXACT_INT_MAX) {
+              yield OptionalInt.empty();
+            }
+          }
+          yield OptionalInt.of(Float.compare(f, n.floatValue()));
+        }
+        case DOUBLE -> {
+          if (!(entryValue instanceof Double d) || !(value instanceof Number n)) {
+            yield OptionalInt.empty();
+          }
+          // Guard: long values beyond double's exact range must fall back
+          // to match InPlaceComparator.convertToDouble precision boundaries
+          if (n instanceof Long || n instanceof Integer) {
+            long lv = n.longValue();
+            if (lv > DOUBLE_EXACT_LONG_MAX || lv < -DOUBLE_EXACT_LONG_MAX) {
+              yield OptionalInt.empty();
+            }
+          }
+          yield OptionalInt.of(Double.compare(d, n.doubleValue()));
+        }
+        case DECIMAL -> {
+          if (!(entryValue instanceof BigDecimal bd)) {
+            yield OptionalInt.empty();
+          }
+          BigDecimal converted;
+          if (value instanceof BigDecimal bdv) {
+            converted = bdv;
+          } else if (value instanceof Number n) {
+            if (n instanceof Double || n instanceof Float) {
+              double dv = n.doubleValue();
+              if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+                yield OptionalInt.empty();
+              }
+              converted = BigDecimal.valueOf(dv);
+            } else {
+              converted = BigDecimal.valueOf(n.longValue());
+            }
+          } else {
+            yield OptionalInt.empty();
+          }
+          yield OptionalInt.of(bd.compareTo(converted));
+        }
+        case BINARY -> {
+          // byte[] does not implement Comparable; use Arrays.compare
+          if (entryValue instanceof byte[] entryBytes && value instanceof byte[] valBytes) {
+            yield OptionalInt.of(java.util.Arrays.compare(entryBytes, valBytes));
+          }
+          yield OptionalInt.empty();
+        }
+        case LINK -> OptionalInt.empty(); // ordering not supported for LINKs
+        default -> {
+          if (entryValue instanceof Comparable c) {
+            try {
+              yield OptionalInt.of(c.compareTo(value));
+            } catch (ClassCastException e) {
+              // compareTo type mismatch — fall back
+              yield OptionalInt.empty();
+            }
+          }
+          yield OptionalInt.empty();
+        }
+      };
+    } catch (Exception e) {
+      return OptionalInt.empty();
+    }
   }
 
   @SuppressWarnings("TypeParameterUnusedInFormals")
@@ -3383,11 +3713,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nullable public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionEmbedded session) {
+    return getImmutableSchemaClass(session,
+        session.getMetadata().getImmutableSchemaSnapshot());
+  }
+
+  @Nullable private SchemaImmutableClass getImmutableSchemaClass(
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nullable ImmutableSchema immutableSchema) {
     if (this.session != null && this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
-    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     if (immutableClazz == null) {
       if (className == null) {
         fetchClassName(session);
@@ -3403,7 +3739,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     } else if (immutableSchemaVersion != immutableSchema.getVersion()) {
       immutableClazz = null;
-      return getImmutableSchemaClass(session);
+      return getImmutableSchemaClass(session, immutableSchema);
     }
 
     return immutableClazz;
