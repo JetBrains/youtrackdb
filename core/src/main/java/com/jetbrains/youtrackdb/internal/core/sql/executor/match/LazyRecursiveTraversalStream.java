@@ -174,13 +174,6 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
         frame.neighborsInitialized = true;
 
         if (shouldExpand(frame)) {
-          // Mark visited before expanding
-          if (dedupVisited != null) {
-            assert frame.startingPoint.getIdentity() != null
-                : "graph vertex identity must not be null";
-            dedupVisited.add(frame.startingPoint.getIdentity());
-          }
-
           // Set context for traversePatternEdge
           ctx.setSystemVariable(CommandContext.VAR_DEPTH, frame.depth);
           ctx.setSystemVariable(
@@ -257,6 +250,16 @@ final class LazyRecursiveTraversalStream implements ExecutionStream {
     ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, startingPoint);
     try {
       var frame = new Frame(startingPoint, depth, pathToHere, previousMatch);
+
+      // Mark visited immediately when frame is created — not deferred to
+      // expansion. This ensures boundary-depth vertices (where shouldExpand
+      // returns false) are still deduplicated.
+      if (dedupVisited != null && startingPoint != null) {
+        var rid = startingPoint.getIdentity();
+        if (rid != null) {
+          dedupVisited.add(rid);
+        }
+      }
 
       // Evaluate self against filters
       if (startingPoint != null
