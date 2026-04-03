@@ -40,7 +40,7 @@ git merge-base HEAD origin/develop
 
 ### Step 1: Determine JMH parameters per regression
 
-Each benchmark belongs to a tier with different profiling settings. Benchmarks are assigned to tiers by query name (see `jmh-ldbc/README.md`), not by dynamic ops/s lookup. The ops/s ranges below overlap slightly because they describe observed throughput, not strict boundaries. To determine the tier, check which base class the benchmark extends:
+Each benchmark belongs to a tier with different profiling settings. Benchmarks are assigned to tiers by query name (see `jmh-ldbc/README.md`), not by dynamic ops/s lookup. To determine the tier, check which base class the benchmark extends:
 
 | Tier | Base Class | Queries | Profiling args |
 |------|-----------|---------|----------------|
@@ -104,7 +104,7 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
 BASE_COMMIT=$(git merge-base HEAD origin/develop)
 WORKTREE_DIR="/tmp/ytdb-base-profiling-$$"
 rm -rf "$WORKTREE_DIR" && git worktree prune
-git worktree add "$WORKTREE_DIR" $BASE_COMMIT
+git worktree add "$WORKTREE_DIR" "$BASE_COMMIT"
 
 rsync -az --exclude='.git' --exclude='target' --exclude='.idea' "$WORKTREE_DIR/" root@<IP>:/root/ytdb-base/
 ssh root@<IP> 'cd /root/ytdb-base && git init && git add -A && git commit -m "base" --quiet'
@@ -112,11 +112,11 @@ ssh root@<IP> 'cd /root/ytdb-base && git init && git add -A && git commit -m "ba
 
 ### Step 5: Compile both versions and download LDBC CSV dataset
 
-Compile both in parallel (they use separate directories, run concurrently on the server):
+Compile both in parallel using isolated local repositories to avoid `~/.m2/repository` corruption from concurrent writes:
 ```bash
 ssh root@<IP> '
-  (cd /root/ytdb && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q) &
-  (cd /root/ytdb-base && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q) &
+  (cd /root/ytdb && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q -Dmaven.repo.local=/root/.m2-head) &
+  (cd /root/ytdb-base && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q -Dmaven.repo.local=/root/.m2-base) &
   wait'
 ```
 
@@ -135,7 +135,7 @@ ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh
 
 ### Step 6: Pre-load and curate parameters
 
-Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation:
+Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation. Any benchmark name works here — the goal is just to trigger `@Setup(Level.Trial)` which loads the DB and caches curated parameters:
 
 ```bash
 # HEAD
@@ -257,7 +257,7 @@ Async-profiler captures ALL JVM threads across the entire fork lifetime — incl
 
 ```bash
 # Filter out non-measurement stacks
-grep -vE 'tearDown|WALVacuum|G1Conc|G1ParScan|GCThread|GangWorker|VMThread|CompilerThread|ServiceThread' <file.csv> > <file-filtered.csv>
+grep -vE 'tearDown|WALVacuum|G1Conc|G1ParScan|GCThread|GangWorker|VMThread|CompilerThread|ServiceThread|SafepointSynchronize|SafepointCleanup|MonitorDeflation' <file.csv> > <file-filtered.csv>
 ```
 
 Compare total samples before and after filtering for both HEAD and BASE. Large deltas indicate:
@@ -288,14 +288,18 @@ grep -E "(^|;)<method-name>(;| )" <file-filtered.csv> | awk '{sum += $NF} END {p
 # Note: escape dots in method names for exact matching, e.g. EntityImpl\.hasProperty
 ```
 
-Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getCollate`, `tryInPlaceComparison`, `isPropertyEqual`, `comparePropertyTo`, `deserializeFieldForComparison`, `EntityImpl.hasProperty`, `EntityImpl.deserializeProperties`, `checkPropertyNameIfValid`, `getFieldSizeAndType`, `executeReadRecord`, `ConcurrentLongIntHashMap`, `ConcurrentHashMap`, `LockFreeReadCache`.
+Focus on methods from the current branch's changed code. To identify them, diff HEAD vs BASE:
+```bash
+git diff --name-only $(git merge-base HEAD origin/develop) HEAD -- '*.java' | head -30
+```
+Then grep the profiles for class/method names from those changed files. Common hot-path methods worth checking in any regression: `executeReadRecord`, `EntityImpl.deserializeProperties`, `LockFreeReadCache`, `ConcurrentHashMap`.
 
 #### 9d. Children of hot methods
 
 Extract what a specific method calls (its direct children in the profile):
 
 ```bash
-grep -E "(^|;)<parent-method>;" <file-filtered.csv> | sed 's/.*<parent-method>;//' | awk -F"[ ;]" '{sum[$1]+=$NF} END {for (c in sum) print sum[c], c}' | sort -rn | head -15
+grep -E "(^|;)<parent-method>;" <file-filtered.csv> | sed 's/^[^;]*<parent-method>;//' | awk -F"[ ;]" '{sum[$1]+=$NF} END {for (c in sum) print sum[c], c}' | sort -rn | head -15
 ```
 
 Compare HEAD vs BASE children. Changes in child method distribution indicate:
@@ -306,10 +310,11 @@ Compare HEAD vs BASE children. Changes in child method distribution indicate:
 #### 9e. Bytecode size check (if JIT effects suspected)
 
 ```bash
-# Compare method bytecode sizes by checking the last instruction offset (use find to locate the class file on the server)
+# Compare method bytecode sizes by checking the last instruction offset
 # The last offset in javap output is the actual bytecode size — counting lines is NOT a reliable proxy
-javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
-javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
+# Search in core/target/classes (not jmh-ldbc/target/classes — the shade uber-jar doesn't unpack dependency classes there)
+javap -c $(find /root/ytdb/core/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
+javap -c $(find /root/ytdb-base/core/target/classes -name "SQLBinaryCondition.class" | head -n 1) | awk '/evaluate/,/^$/' | tail -5
 ```
 
 The **last instruction's offset** (e.g., `324:` in `javap` output) indicates the bytecode size. HotSpot default inlining threshold is ~325 bytecodes. Methods exceeding this won't be inlined at call sites, causing cascading de-inlining effects.
@@ -383,7 +388,6 @@ Apply changes only after user approval. If nothing needs updating, explicitly st
 | async-profiler `perf_event_open failed` | Run `echo 1 > /proc/sys/kernel/perf_event_paranoid` |
 | Collapsed output is `.csv` not `.collapsed` | This is normal for async-profiler 3.0 — the format is the same (semicolon-separated stacks, space, count) |
 | Profiling throughput doesn't match benchmark | Expected — profiling adds ~5-15% overhead uniformly. Compare relative differences, not absolutes |
-| High variance in slow benchmarks (IC4, IC3) | These benchmarks are inherently noisy. If profiling shows <5% regression or opposite direction, classify as noise |
 | Profiler produces no output files (empty `/root/profiles/`) | Semicolons in `-prof async:...;...;...` are eaten by the remote shell. Use the wrapper script approach documented in Step 8 |
 
 ## Notes
@@ -392,4 +396,3 @@ Apply changes only after user approval. If nothing needs updating, explicitly st
 - **One fork is sufficient** for profiling. We're looking at CPU distribution, not precise throughput numbers.
 - **Collapsed stacks** are preferred over flamegraph HTML because they can be analyzed programmatically with `awk`/`grep`/`sort`.
 - **JIT warmup matters** — always include at least 1 warmup iteration to avoid profiling the interpreter.
-- **IC4 and IC3** are extremely noisy benchmarks (±10-15% error). Treat regressions in these with skepticism unless profiling clearly confirms.
