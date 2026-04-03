@@ -173,7 +173,7 @@ final class ParameterCurator {
         Boolean.getBoolean(ALLOW_PARAM_GENERATION_PROP);
     if (!allowGeneration) {
       throw new IllegalStateException(
-          "Curated parameters not found at " + cacheFile + " and regeneration"
+          "Curated parameters missing or stale at " + cacheFile + " and regeneration"
               + " is not allowed. Download canonical curated params from S3"
               + " (ldbc/curated-params-v3.json, ldbc/factor-tables.json) and"
               + " install them into the DB directory. To regenerate locally,"

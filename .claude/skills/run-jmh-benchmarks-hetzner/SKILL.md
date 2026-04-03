@@ -131,7 +131,7 @@ ssh root@<IP> "curl -sS -o /tmp/curated-params-v3.json '<CURATED_PARAMS_URL>' &&
   curl -sS -o /tmp/factor-tables.json '<FACTOR_TABLES_URL>'"
 ```
 
-Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`) and `<PRESIGNED_URL>` with the URL from Step 1.
+Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`), `<CSV_PRESIGNED_URL>` with the CSV dataset URL, and `<CURATED_PARAMS_URL>` / `<FACTOR_TABLES_URL>` with the corresponding URLs from Step 1.
 
 **Important**: Use presigned HTTPS URLs + curl for S3 downloads. Do NOT use boto3 or awscli on the server — pip install is slow and boto3 downloads can hang over HTTP (port 80 is often blocked). The presigned URL approach is faster and more reliable.
 
