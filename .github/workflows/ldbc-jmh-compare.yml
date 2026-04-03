@@ -174,11 +174,10 @@ jobs:
           # This ensures BASE and HEAD use identical params.
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
           mkdir -p "$DB_DIR"
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             "$DB_DIR/curated-params-v3.json"
           cp /tmp/factor-tables-${{ github.run_id }}.json \
              "$DB_DIR/factor-tables.json"
-          touch "$DB_DIR/curated-params-v3.json"
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             "$DB_DIR/curated-params-v3.json"
           echo "Canonical curated params installed for base run"
 
       - name: 'Base: setup database'
@@ -285,11 +284,10 @@ jobs:
           # base, ensuring both runs use identical benchmark parameters.
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
           mkdir -p "$DB_DIR"
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             "$DB_DIR/curated-params-v3.json"
           cp /tmp/factor-tables-${{ github.run_id }}.json \
              "$DB_DIR/factor-tables.json"
-          touch "$DB_DIR/curated-params-v3.json"
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             "$DB_DIR/curated-params-v3.json"
           echo "Canonical curated params installed for head run"
 
       - name: 'Head: setup database'

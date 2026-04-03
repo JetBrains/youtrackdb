@@ -125,11 +125,10 @@ jobs:
           # of database iteration order.
           DB_DIR="jmh-ldbc/target/ldbc-bench-db"
           mkdir -p "$DB_DIR"
-          cp "/tmp/curated-params-${{ github.run_id }}.json" \
-             "$DB_DIR/curated-params-v3.json"
           cp "/tmp/factor-tables-${{ github.run_id }}.json" \
              "$DB_DIR/factor-tables.json"
-          touch "$DB_DIR/curated-params-v3.json"
+          cp "/tmp/curated-params-${{ github.run_id }}.json" \
+             "$DB_DIR/curated-params-v3.json"
           echo "Canonical curated params installed"
 
       - name: Pre-load LDBC database
