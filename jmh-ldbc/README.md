@@ -239,7 +239,7 @@ The `ParameterCurator` class implements a 3-step pipeline:
 1. Build from develop: `./mvnw -pl jmh-ldbc -am package -DskipTests`
 2. Ensure a database exists at `jmh-ldbc/target/ldbc-bench-db` (load from CSV if needed)
 3. Delete existing params: `rm -f jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json jmh-ldbc/target/ldbc-bench-db/factor-tables.json`
-4. Run with the generation flag enabled: `java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1 -jvmArgsAppend "-Dldbc.allow.param.generation=true"`
+4. Run with the generation flag enabled: `java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1 -jvmArgsAppend "-Dldbc.allow.param.generation=true"` (note: `-f 1` is required — with `-f 0` JMH runs in-process and `-jvmArgsAppend` is ignored, so the flag never reaches `ParameterCurator`)
 5. Upload the new files to S3: `ldbc/curated-params-v3.json` and `ldbc/factor-tables.json`
 
 ### Per-query parameter access
