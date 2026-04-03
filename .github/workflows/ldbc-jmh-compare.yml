@@ -148,6 +148,27 @@ jobs:
                -o "/tmp/ldbc-bench-db-${{ github.run_id }}.tar"
           rm -f "/tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst"
 
+      - name: Download canonical curated parameters from S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.HETZNER_S3_SECRET_KEY }}
+          S3_ENDPOINT: ${{ secrets.HETZNER_S3_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PYEOF'
+          import boto3, os
+          s3 = boto3.client('s3',
+              endpoint_url=os.environ['S3_ENDPOINT'],
+              aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'])
+          print('Downloading canonical curated parameters from S3...')
+          s3.download_file('bench-cache', 'ldbc/curated-params-v3.json',
+              '/tmp/curated-params-${{ github.run_id }}.json')
+          s3.download_file('bench-cache', 'ldbc/factor-tables.json',
+              '/tmp/factor-tables-${{ github.run_id }}.json')
+          print('Downloaded curated params and factor tables.')
+          PYEOF
+
       - name: Download LDBC CSV dataset from S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.HETZNER_S3_ACCESS_KEY }}
@@ -249,6 +270,16 @@ jobs:
             fi
             echo "Database loaded successfully from CSV"
           fi
+
+      - name: 'Base: install canonical curated parameters'
+        run: |
+          # Install canonical curated params so ParameterCurator skips
+          # regeneration. This ensures BASE and HEAD use identical params.
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json
+          cp /tmp/factor-tables-${{ github.run_id }}.json \
+             jmh-ldbc/target/ldbc-bench-db/factor-tables.json
+          echo "Canonical curated params installed for base run"
 
       - name: 'Base: warm OS page cache'
         env:
@@ -382,6 +413,16 @@ jobs:
             fi
             echo "Database loaded successfully from CSV"
           fi
+
+      - name: 'Head: install canonical curated parameters'
+        run: |
+          # Install canonical curated params — same as base, ensuring
+          # both runs use identical benchmark parameters.
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json
+          cp /tmp/factor-tables-${{ github.run_id }}.json \
+             jmh-ldbc/target/ldbc-bench-db/factor-tables.json
+          echo "Canonical curated params installed for head run"
 
       - name: 'Head: warm OS page cache'
         env:
@@ -520,7 +561,9 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          rm -f /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
+          rm -f /tmp/curated-params-${{ github.run_id }}.json \
+                /tmp/factor-tables-${{ github.run_id }}.json \
+                /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
                 /tmp/ldbc-csv-${{ github.run_id }}.tar \
                 /tmp/jmh-compare-${{ github.run_id }}.py \
                 /tmp/jmh-base-${{ github.run_id }}.json \

@@ -222,6 +222,23 @@ The `ParameterCurator` class implements a 3-step pipeline:
    | IC12 | FoF-selected | tag classes |
    | IS1-7 | friends-selected | messages |
 
+### Canonical curated parameters
+
+**Critical**: All benchmark runs — CI comparisons, nightly baselines, and local profiling — **must use the same curated parameters**. The curated parameter files are stored in Hetzner S3 alongside the pre-built database and must never be regenerated independently.
+
+- **S3 keys**: `ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`
+- **Install location**: `jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json` and `factor-tables.json`
+
+**Why this matters**: The `ParameterCurator` samples 200 (person, date) pairs from a `friendsSelected × dates` cross-product using stride-based sampling. The stride depends on iteration order of `friendsSelected`, which comes from database query results. Any code change that affects internal data structure ordering (hash maps, indexes, etc.) changes the iteration order, causing different pairs to be sampled. For IC4 in particular, different pairs can have vastly different "old post counts" (the NOT-pattern cost factor), leading to **up to 7x throughput differences** between runs that should be identical. This was discovered when a cache layer change produced a spurious +586% IC4 "improvement" in CI that did not reproduce with shared parameters.
+
+**To regenerate canonical parameters** (only when the curation algorithm itself changes):
+1. Build from develop: `./mvnw -pl jmh-ldbc -am package -DskipTests`
+2. Ensure the pre-built DB is extracted at `jmh-ldbc/target/ldbc-bench-db`
+3. Delete existing params: `rm -f jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json jmh-ldbc/target/ldbc-bench-db/factor-tables.json`
+4. Run any benchmark to trigger regeneration: `java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1`
+5. Upload the new files to S3: `ldbc/curated-params-v3.json` and `ldbc/factor-tables.json`
+6. Rebuild the pre-built DB tar to include them and upload to `ldbc/ldbc-sf1-bench-db.tar.zst`
+
 ### Per-query parameter access
 
 Each `@Benchmark` method accesses its own curated parameters via typed accessors on `LdbcBenchmarkState`:
@@ -292,7 +309,7 @@ There are three ways to set up the benchmark database:
 
 #### Option 1: Download pre-built database from S3 (fastest, recommended for manual runs)
 
-A pre-built YouTrackDB database for SF 1 is maintained in Hetzner Object Storage. This is the fastest option — it skips the ~21-minute CSV loading step entirely. The nightly CI workflow automatically uploads a fresh DB snapshot after each successful run.
+A pre-built YouTrackDB database for SF 1 is maintained in Hetzner Object Storage. This is the fastest option — it skips the ~21-minute CSV loading step entirely. The nightly CI workflow automatically uploads a fresh DB snapshot after each successful run. The pre-built DB includes [canonical curated parameters](#canonical-curated-parameters) — do not delete or regenerate them.
 
 - **Bucket**: `bench-cache`
 - **Key**: `ldbc/ldbc-sf1-bench-db.tar.zst` (~1.3 GB)

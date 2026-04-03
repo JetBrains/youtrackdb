@@ -94,6 +94,16 @@ jobs:
             "${{ secrets.HETZNER_S3_ACCESS_KEY }}" "${{ secrets.HETZNER_S3_SECRET_KEY }}"
           mc ls hetzner/bench-cache/ldbc/ || echo "Warning: could not list S3 bucket"
 
+      - name: Download canonical curated parameters from S3
+        run: |
+          set -euo pipefail
+          echo 'Downloading canonical curated parameters from S3...'
+          mc cp hetzner/bench-cache/ldbc/curated-params-v3.json \
+            "/tmp/curated-params-${{ github.run_id }}.json"
+          mc cp hetzner/bench-cache/ldbc/factor-tables.json \
+            "/tmp/factor-tables-${{ github.run_id }}.json"
+          echo 'Downloaded curated params and factor tables.'
+
       - name: Download LDBC CSV dataset from S3
         if: steps.mode.outputs.load == 'csv'
         run: |
@@ -181,6 +191,18 @@ jobs:
             exit 1
           fi
           echo "Database loaded successfully from CSV"
+
+      - name: Install canonical curated parameters
+        run: |
+          # Install canonical curated params so ParameterCurator skips
+          # regeneration. Ensures all nightly runs use identical params
+          # regardless of database iteration order.
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          cp "/tmp/curated-params-${{ github.run_id }}.json" \
+             "$DB_DIR/curated-params-v3.json"
+          cp "/tmp/factor-tables-${{ github.run_id }}.json" \
+             "$DB_DIR/factor-tables.json"
+          echo "Canonical curated params installed"
 
       - name: Warm OS page cache
         run: |
@@ -276,7 +298,9 @@ jobs:
       - name: Clean up temp files
         if: always()
         run: |
-          rm -f /tmp/ldbc-csv-${{ github.run_id }}.tar \
+          rm -f /tmp/curated-params-${{ github.run_id }}.json \
+                /tmp/factor-tables-${{ github.run_id }}.json \
+                /tmp/ldbc-csv-${{ github.run_id }}.tar \
                 /tmp/ldbc-csv-${{ github.run_id }}.tar.zst \
                 /tmp/ldbc-bench-db-${{ github.run_id }}.tar \
                 /tmp/ldbc-bench-db-${{ github.run_id }}.tar.zst \

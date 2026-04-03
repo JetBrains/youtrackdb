@@ -128,10 +128,28 @@ ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
   echo 'DB ready' && du -sh ldbc-bench-db/"
 ```
 
-After extracting, clear any stale curation caches so the current code's curation logic runs fresh:
+The pre-built DB tar includes canonical curated parameters (`curated-params-v3.json` and `factor-tables.json`). **Do NOT delete them.** All runs must use the same canonical parameters to ensure comparable results — see the [jmh-ldbc README](jmh-ldbc/README.md#canonical-curated-parameters) for details.
+
+If the pre-built DB is missing curated params (e.g., old tar), download them separately:
 ```bash
-ssh root@<IP> 'rm -f /root/ytdb/<module>/target/ldbc-bench-db/curated-params*.json \
-  /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json'
+# Generate presigned URLs for canonical params (locally)
+for KEY in curated-params-v3.json factor-tables.json; do
+  python3 -c "
+import boto3, os
+s3 = boto3.client('s3',
+    endpoint_url='https://nbg1.your-objectstorage.com',
+    aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
+    aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
+url = s3.generate_presigned_url('get_object',
+    Params={'Bucket': 'bench-cache', 'Key': 'ldbc/$KEY'},
+    ExpiresIn=7200)
+print(url)
+"
+done
+
+# Download to the DB directory on the server
+ssh root@<IP> "curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json '<CURATED_PARAMS_URL>' && \
+  curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json '<FACTOR_TABLES_URL>'"
 ```
 
 **Step 2b — CSV dataset (only when user asks)**: Download and extract:
@@ -185,13 +203,7 @@ Subsequent forked runs will find the existing DB and load curated parameters fro
 
 **Important**: Use `-f 1` (not `-f 0`). With `-f 0` the benchmark runs in-process and the database may not persist to disk.
 
-**When comparing two code versions (A/B testing)**: After running version A, delete the benchmark database and curation caches before running version B:
-
-```bash
-ssh root@<IP> 'rm -rf /root/ytdb/jmh-ldbc/target/ldbc-bench-db'
-```
-
-The CSV dataset files (`target/ldbc-dataset/`) can be kept — only the DB needs to be recreated.
+**When comparing two code versions (A/B testing)**: Deploy both versions to separate directories (e.g., `/root/ytdb` and `/root/ytdb-base`). Copy the pre-built DB (including canonical curated params) to both. **Both versions must use identical curated parameters** — never let either version regenerate params independently, as internal data structure changes can alter iteration order and produce incomparable parameter sets (see IC4 desync incident in jmh-ldbc README).
 
 ### Step 5: Run benchmarks
 
@@ -293,9 +305,9 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 - **Server type**: CCX33 provides 8 dedicated AMD EPYC vCPUs — dedicated (not shared) cores ensure consistent benchmark results. For heavier benchmarks, consider CCX43 (16 vCPUs) or CCX53 (32 vCPUs).
 - **jmh-ldbc Threads.MAX**: The multi-threaded LDBC benchmark uses `@Threads(Threads.MAX)` — one thread per available processor. On CCX33 this means 8 threads.
 - **jmh-ldbc dataset loading**: By default, use the pre-built SF 1 database from S3 (see Step 3b). Fall back to CSV dataset only when the user explicitly asks (e.g. for storage format testing). Always pre-load with `-f 1` before real benchmarks (see Step 4b). The DB path is `./target/ldbc-bench-db`.
-- **jmh-ldbc curated params caching**: Parameter curation results are cached to a versioned file (`curated-params-v<N>.json`) alongside the DB. The version suffix is bumped in `ParameterCurator.CURATED_PARAMS_CACHE_FILE` when curation logic changes, automatically invalidating old caches. The first fork computes factor tables and curated parameters (~2 min on SF 1), subsequent forks load from cache instantly. To force recomputation: `rm -f target/ldbc-bench-db/curated-params*.json target/ldbc-bench-db/factor-tables.json`
+- **jmh-ldbc curated params**: Canonical curated parameters are stored in S3 (`ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`) and included in the pre-built DB tar. **Never delete or regenerate them** — different code versions produce different iteration orders, which cause the stride-based parameter sampling to select different query parameter sets, making results incomparable. See `jmh-ldbc/README.md` for the regeneration procedure (only needed when curation algorithm changes).
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.
-- **S3 artifacts**: S3 bucket `bench-cache` contains pre-built DB (`ldbc-sf1-bench-db.tar.zst`, ~1.3 GB), SF 1 CSV (`ldbc-sf1-composite-merged-fk.tar.zst`, ~195 MB), and SF 0.1 CSV (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB). Credentials are in env vars `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them.
+- **S3 artifacts**: S3 bucket `bench-cache` contains pre-built DB (`ldbc-sf1-bench-db.tar.zst`, ~930 MB, includes canonical curated params), canonical curated params (`ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`), SF 1 CSV (`ldbc-sf1-composite-merged-fk.tar.zst`, ~195 MB), and SF 0.1 CSV (`ldbc-sf0.1-composite-merged-fk.tar.zst`, ~19 MB). Credentials are in env vars `HETZNER_S3_ACCESS_KEY` / `HETZNER_S3_SECRET_KEY` / `HETZNER_S3_ENDPOINT` — never hardcode them.
 - **Do not use SURF**: The SURF Data Repository (`repository.surfsara.nl`) provides the CsvComposite format (v0.3.5), which is **incompatible** with the benchmark loaders that expect CsvCompositeMergeForeign column layouts.
