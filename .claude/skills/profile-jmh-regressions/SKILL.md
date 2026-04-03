@@ -123,11 +123,11 @@ ssh root@<IP> '
 Download the LDBC SF 1 CSV dataset (see `run-jmh-benchmarks-hetzner` skill for S3 presigned URL generation with `S3_KEY="ldbc/ldbc-sf1-composite-merged-fk.tar.zst"`):
 ```bash
 # Download and extract CSV dataset to HEAD
-ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
+ssh root@<IP> 'apt-get install -y -qq zstd > /dev/null 2>&1 && \
   mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
   cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
-  curl -sS '<PRESIGNED_URL>' | zstd -dc | tar xf - && \
-  echo 'Dataset ready' && ls static/ dynamic/"
+  curl -sS "<PRESIGNED_URL>" | zstd -dc | tar xf - && \
+  echo "Dataset ready" && ls static/ dynamic/'
 
 # Copy CSV dataset to BASE
 ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh-ldbc/target/'
