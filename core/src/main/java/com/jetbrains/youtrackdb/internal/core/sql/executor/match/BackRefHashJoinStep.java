@@ -35,14 +35,14 @@ import javax.annotation.Nullable;
  * <p>The hash table is cached per distinct back-referenced alias binding (RID) in an
  * LRU cache. When the binding changes (e.g., different person in IC5), a new hash
  * table is built. If the build side exceeds the configurable threshold at runtime,
- * the step returns {@code null} from the build method, and the caller (the planner's
- * existing {@link MatchStep} path) handles the edge via nested-loop traversal.
- *
- * <p>Pattern A (single-edge semi-join): builds {@code Set<RID>} from the reverse
- * link bag. Probe: {@code set.contains(source.@rid)} → keep on hit (SEMI_JOIN).
+ * the step falls back to per-row nested-loop traversal via {@link MatchEdgeTraverser}
+ * (Patterns A/B) or evaluates the stored NOT IN condition per row (Pattern D — the
+ * NOT IN is stripped from the MatchStep's WHERE clause at plan time).
  *
  * @see SemiJoinDescriptor
  * @see SingleEdgeSemiJoin
+ * @see ChainSemiJoin
+ * @see AntiSemiJoin
  */
 class BackRefHashJoinStep extends AbstractExecutionStep {
 
@@ -63,6 +63,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   private final SemiJoinDescriptor descriptor;
 
   /**
+   * The edge traversal for runtime fallback when the hash table build fails
+   * (Patterns A/B only). Null for Pattern D where the preceding MatchStep
+   * handles fallback via its intact AST filter.
+   */
+  @Nullable private final EdgeTraversal fallbackEdge;
+
+  /**
    * LRU cache of hash tables keyed by back-referenced alias RID. Values are
    * {@code Set<RID>} for Pattern A/D or {@code Map<RID, List<Result>>} for
    * Pattern B. Access-order {@link LinkedHashMap} with automatic eviction of
@@ -73,10 +80,12 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   BackRefHashJoinStep(
       CommandContext ctx,
       SemiJoinDescriptor descriptor,
+      @Nullable EdgeTraversal fallbackEdge,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     assert MatchAssertions.checkNotNull(descriptor, "semi-join descriptor");
     this.descriptor = descriptor;
+    this.fallbackEdge = fallbackEdge;
   }
 
   @Override
@@ -114,10 +123,53 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
         (row, c) -> probeRow(row, localCache, localDescriptor, session, c));
   }
 
+  // ---- Cache resolution (shared by probeRow and probeChain) ----
+
   /**
-   * Probes the hash table for a single upstream row. Resolves the back-ref
-   * RID from {@code $matched}, looks up or builds the hash table, then probes
-   * with the source alias's RID.
+   * Resolves or builds the cached hash table for the given upstream row.
+   * Returns a {@link CachedBuild} on success, or {@code null} on build failure.
+   */
+  @Nullable private CachedBuild resolveBuild(
+      Result row,
+      LinkedHashMap<RID, Object> lruCache,
+      SemiJoinDescriptor desc,
+      DatabaseSessionEmbedded session,
+      CommandContext ctx) {
+    var backRefRid = resolveBackRefRid(row, desc, ctx);
+    if (backRefRid == null) {
+      return null;
+    }
+
+    var cached = lruCache.get(backRefRid);
+    if (cached == null) {
+      var ht = buildHashTable(backRefRid, desc, ctx);
+      if (ht == null) {
+        lruCache.put(backRefRid, BUILD_FAILED);
+        return null;
+      }
+      Object entity = null;
+      if (desc.joinMode() == JoinMode.SEMI_JOIN) {
+        try {
+          entity = session.getActiveTransaction().load(backRefRid);
+        } catch (RecordNotFoundException e) {
+          // vertex gone
+        }
+      }
+      cached = new CachedBuild(ht, entity);
+      lruCache.put(backRefRid, cached);
+    }
+    if (cached == BUILD_FAILED) {
+      return null;
+    }
+    return (CachedBuild) cached;
+  }
+
+  // ---- Probe methods ----
+
+  /**
+   * Probes the hash table for a single upstream row (Patterns A and D).
+   * On build failure, falls back to nested-loop traversal (Pattern A) or
+   * passes the row through (Pattern D — MatchStep handles the NOT IN).
    */
   @Nullable @SuppressWarnings("unchecked")
   private Result probeRow(
@@ -126,40 +178,11 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       SemiJoinDescriptor desc,
       DatabaseSessionEmbedded session,
       CommandContext probeCtx) {
-    // Resolve back-ref alias RID from $matched
-    var backRefRid = resolveBackRefRid(row, desc, probeCtx);
-    if (backRefRid == null) {
-      return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
+    var build = resolveBuild(row, lruCache, desc, session, probeCtx);
+    if (build == null) {
+      return handleBuildFailure(row, desc, probeCtx);
     }
 
-    // Single lookup: BUILD_FAILED sentinel distinguishes "not cached" from
-    // "cached as failed" without a second containsKey() call.
-    var cached = lruCache.get(backRefRid);
-    if (cached == null) {
-      var ht = buildHashTable(backRefRid, desc, probeCtx);
-      if (ht == null) {
-        lruCache.put(backRefRid, BUILD_FAILED);
-        return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
-      }
-      // Load the back-ref entity once per binding (for SEMI_JOIN target value)
-      Object entity = null;
-      if (desc.joinMode() == JoinMode.SEMI_JOIN) {
-        try {
-          entity = session.getActiveTransaction().load(backRefRid);
-        } catch (RecordNotFoundException e) {
-          // vertex gone — treat as build failure
-        }
-      }
-      cached = new CachedBuild(ht, entity);
-      lruCache.put(backRefRid, cached);
-    }
-    if (cached == BUILD_FAILED) {
-      return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
-    }
-
-    var build = (CachedBuild) cached;
-
-    // Probe: extract source RID from upstream row
     var sourceRid = resolveSourceRid(row, desc);
     if (sourceRid == null) {
       return desc.joinMode() == JoinMode.ANTI_JOIN ? row : null;
@@ -169,7 +192,8 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     var found = set.contains(sourceRid);
     return switch (desc.joinMode()) {
       case SEMI_JOIN -> found
-          ? new MatchResultRow(session, row, desc.targetAlias(), build.backRefEntity())
+          ? new MatchResultRow(
+              session, row, desc.targetAlias(), build.backRefEntity())
           : null;
       case ANTI_JOIN -> found ? null : row;
       case INNER_JOIN -> throw new IllegalStateException(
@@ -178,9 +202,109 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   }
 
   /**
-   * Resolves the back-referenced alias's RID from the upstream row's $matched
-   * context. For SingleEdgeSemiJoin, evaluates the backRefExpression.
+   * Probe for ChainSemiJoin: returns 0..N rows per upstream row (fan-out).
+   * On build failure, falls back to nested-loop traversal via
+   * {@link MatchEdgeTraverser}.
    */
+  @SuppressWarnings("unchecked")
+  private ExecutionStream probeChain(
+      Result row,
+      LinkedHashMap<RID, Object> lruCache,
+      ChainSemiJoin chain,
+      DatabaseSessionEmbedded session,
+      CommandContext probeCtx) {
+    var build = resolveBuild(row, lruCache, chain, session, probeCtx);
+    if (build == null) {
+      return nestedLoopFallback(row, probeCtx);
+    }
+
+    var sourceRid = resolveSourceRid(row, chain);
+    if (sourceRid == null) {
+      return ExecutionStream.empty();
+    }
+
+    var map = (Map<RID, List<Result>>) build.hashTable();
+    var edges = map.get(sourceRid);
+    if (edges == null || edges.isEmpty()) {
+      return ExecutionStream.empty();
+    }
+
+    var results = new ArrayList<Result>(edges.size());
+    for (var edgeResult : edges) {
+      var withIntermediate = new MatchResultRow(
+          session, row, chain.intermediateAlias(), edgeResult);
+      var withTarget = new MatchResultRow(
+          session, withIntermediate, chain.targetAlias(), build.backRefEntity());
+      results.add(withTarget);
+    }
+    return ExecutionStream.resultIterator(results.iterator());
+  }
+
+  // ---- Fallback ----
+
+  /**
+   * Handles build failure for probeRow (single-row context).
+   * Pattern A: falls back to per-row MatchEdgeTraverser.
+   * Pattern D: evaluates the stored NOT IN condition per row (the NOT IN
+   * was stripped from the MatchStep's WHERE clause at plan time, so the
+   * fallback must evaluate it here).
+   */
+  @Nullable private Result handleBuildFailure(
+      Result row, SemiJoinDescriptor desc, CommandContext ctx) {
+    if (desc.joinMode() == JoinMode.ANTI_JOIN) {
+      // Pattern D fallback: evaluate the stored NOT IN condition per row.
+      // The NOT IN was stripped from the MatchStep's filter at plan time,
+      // so BackRefHashJoinStep is the sole evaluator.
+      var anti = (AntiSemiJoin) desc;
+      if (anti.notInCondition() == null) {
+        return row;
+      }
+      // $currentMatch must be set for the NOT IN expression to resolve
+      var candidate = row.getProperty(anti.targetAlias());
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, candidate);
+      boolean passes = anti.notInCondition().evaluate(row, ctx);
+      return passes ? row : null;
+    }
+    // Pattern A: fall back to per-row nested-loop traversal
+    if (fallbackEdge == null) {
+      return null;
+    }
+    var traverser = createFallbackTraverser(row, fallbackEdge);
+    if (traverser.hasNext(ctx)) {
+      return traverser.next(ctx);
+    }
+    return null;
+  }
+
+  /**
+   * Falls back to nested-loop traversal for Pattern B (ChainSemiJoin) when
+   * the hash table build fails. Creates a {@link MatchEdgeTraverser} that
+   * performs the same per-row link bag traversal as {@link MatchStep}.
+   */
+  private ExecutionStream nestedLoopFallback(
+      Result row, CommandContext ctx) {
+    if (fallbackEdge == null) {
+      return ExecutionStream.empty();
+    }
+    var traverser = createFallbackTraverser(row, fallbackEdge);
+    var results = new ArrayList<Result>();
+    while (traverser.hasNext(ctx)) {
+      results.add(traverser.next(ctx));
+    }
+    return results.isEmpty()
+        ? ExecutionStream.empty()
+        : ExecutionStream.resultIterator(results.iterator());
+  }
+
+  private static MatchEdgeTraverser createFallbackTraverser(
+      Result row, EdgeTraversal edge) {
+    return edge.out
+        ? new MatchEdgeTraverser(row, edge)
+        : new MatchReverseEdgeTraverser(row, edge);
+  }
+
+  // ---- Back-ref RID resolution ----
+
   @Nullable private RID resolveBackRefRid(
       Result row, SemiJoinDescriptor desc, CommandContext ctx) {
     return switch (desc) {
@@ -189,9 +313,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       case ChainSemiJoin chain ->
           toRid(chain.backRefExpression().execute(row, ctx));
       case AntiSemiJoin anti -> {
-        // AntiSemiJoin resolves the anchor via $matched context variable
-        // (not via a backRefExpression), because NOT IN conditions reference
-        // $matched.X directly rather than through an @rid equality expression.
         var matched = ctx.getVariable("$matched");
         if (matched instanceof Result matchedResult) {
           yield toRid(matchedResult.getProperty(anti.anchorAlias()));
@@ -201,34 +322,21 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     };
   }
 
-  /**
-   * Extracts the source alias RID from the upstream row (the probe key).
-   */
   @Nullable private RID resolveSourceRid(Result row, SemiJoinDescriptor desc) {
     return switch (desc) {
       case SingleEdgeSemiJoin single ->
           toRid(row.getProperty(single.sourceAlias()));
       case ChainSemiJoin chain ->
           toRid(row.getProperty(chain.sourceAlias()));
-      // The probe key is the candidate vertex (target alias) — the vertex
-      // just produced by the MatchStep traversal.
       case AntiSemiJoin anti ->
           toRid(row.getProperty(anti.targetAlias()));
     };
   }
 
-  /**
-   * Builds the hash table for a given back-ref binding RID. For Pattern A
-   * (SingleEdgeSemiJoin), reads the reverse link bag and materializes a
-   * {@code Set<RID>} of opposite-side vertex RIDs.
-   *
-   * @return the hash table, or {@code null} if the build fails or exceeds
-   *     the threshold
-   */
+  // ---- Build methods ----
+
   @Nullable private Object buildHashTable(
-      RID backRefRid,
-      SemiJoinDescriptor desc,
-      CommandContext ctx) {
+      RID backRefRid, SemiJoinDescriptor desc, CommandContext ctx) {
     return switch (desc) {
       case SingleEdgeSemiJoin single -> buildSingleEdgeHashTable(
           backRefRid, single, ctx);
@@ -237,36 +345,20 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     };
   }
 
-  /**
-   * Pattern A build: reads the reverse link bag of the back-referenced vertex
-   * via {@link TraversalPreFilterHelper}. Returns the bitmap-backed
-   * {@link RidSet} directly — no copy to {@code HashSet} needed since
-   * {@code RidSet} already implements {@code Set<RID>} with O(1)
-   * {@code contains()}.
-   */
   @Nullable private Set<RID> buildSingleEdgeHashTable(
       RID backRefRid, SingleEdgeSemiJoin single, CommandContext ctx) {
     var ridSet = TraversalPreFilterHelper.resolveReverseEdgeLookup(
         backRefRid, single.edgeClass(), single.direction(), ctx);
     if (ridSet == null) {
-      return null; // link bag not found or exceeds cap
+      return null;
     }
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     if (maxSize > 0 && ridSet.size() > maxSize) {
-      return null; // threshold exceeded — fall back
+      return null;
     }
     return ridSet;
   }
 
-  /**
-   * Pattern B build: reads the reverse link bag of the back-referenced vertex,
-   * optionally filters by an index RidSet, loads matching edge records, and
-   * groups them by source vertex RID into a {@code Map<RID, List<Result>>}.
-   *
-   * <p>The map key is the source vertex RID (from where the original outE
-   * traversal starts). The value is a list of edge records that connect that
-   * source to the back-referenced vertex via the given edge class.
-   */
   @Nullable private Map<RID, List<Result>> buildChainHashTable(
       RID backRefRid, ChainSemiJoin chain, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
@@ -281,7 +373,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null;
     }
 
-    // Read the reverse link bag
     var reversePrefix = "out".equals(chain.direction()) ? "in_" : "out_";
     var fieldName = reversePrefix + chain.edgeClass();
     var fieldValue = targetEntity.getPropertyInternal(fieldName);
@@ -290,30 +381,28 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
-    if (linkBag.size() > maxSize) {
-      return null; // too large — fall back
-    }
+    // No early pre-check on linkBag.size() here: when an indexFilter is
+    // present, the effective entry count after filtering may be well below
+    // the threshold. The per-entry count check in the loop below enforces
+    // the threshold on the actual (post-filter) count.
 
-    // Optionally resolve index pre-filter for the intermediate edge
     RidSet indexRidSet = null;
     if (chain.indexFilter() != null) {
       indexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
           chain.indexFilter(), ctx);
     }
 
-    var initialCapacity = (int) Math.min(linkBag.size(), maxSize) * 4 / 3 + 1;
+    var initialCapacity = hashCapacity(linkBag.size(), maxSize);
     var result = new HashMap<RID, List<Result>>(initialCapacity);
     long count = 0;
     for (var pair : linkBag) {
       var edgeRid = pair.primaryRid();
       var sourceVertexRid = pair.secondaryRid();
 
-      // Apply index filter if present (filters edge RIDs)
       if (indexRidSet != null && !indexRidSet.contains(edgeRid)) {
         continue;
       }
 
-      // Load the edge record
       try {
         var edgeRec = session.getActiveTransaction().load(edgeRid);
         var edgeResult = new ResultInternal(session, edgeRec);
@@ -321,7 +410,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
             .add(edgeResult);
         count++;
         if (maxSize > 0 && count > maxSize) {
-          return null; // threshold exceeded
+          return null;
         }
       } catch (RecordNotFoundException e) {
         // Edge record missing — skip
@@ -330,12 +419,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     return result;
   }
 
-  /**
-   * Pattern D build: reads the forward link bag of the anchor vertex
-   * ({@code X.out('E')}) and collects opposite-side vertex RIDs into a
-   * {@code HashSet<RID>} — the exclusion set. The probe discards upstream
-   * rows whose candidate RID appears in this set.
-   */
   @Nullable private Set<RID> buildAntiJoinHashTable(
       RID anchorRid, AntiSemiJoin anti, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
@@ -350,7 +433,6 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
       return null;
     }
 
-    // Forward link bag: out_E or in_E depending on traversal direction
     var prefix = "out".equals(anti.traversalDirection()) ? "out_" : "in_";
     var fieldName = prefix + anti.traversalEdgeClass();
     var fieldValue = anchorEntity.getPropertyInternal(fieldName);
@@ -359,14 +441,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
-    if (linkBag.size() > maxSize) {
-      return null; // too large — fall back
+    if (maxSize > 0 && linkBag.size() > maxSize) {
+      return null;
     }
 
-    var initialCap = (int) Math.min(linkBag.size(), maxSize) * 4 / 3 + 1;
+    var initialCap = hashCapacity(linkBag.size(), maxSize);
     var result = new HashSet<RID>(initialCap);
     for (var pair : linkBag) {
-      // secondaryRid is the opposite-side vertex RID
       result.add(pair.secondaryRid());
       if (maxSize > 0 && result.size() > maxSize) {
         return null;
@@ -375,73 +456,17 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     return result;
   }
 
+  // ---- Utility ----
+
   /**
-   * Probe for ChainSemiJoin: returns 0..N rows per upstream row (fan-out).
-   * For each matching edge record, emits a result with the intermediate alias
-   * bound to the edge and the target alias bound to the back-ref vertex.
+   * Computes a HashMap initial capacity for a load factor of 0.75, clamped
+   * to avoid integer overflow.
    */
-  @SuppressWarnings("unchecked")
-  private ExecutionStream probeChain(
-      Result row,
-      LinkedHashMap<RID, Object> lruCache,
-      ChainSemiJoin chain,
-      DatabaseSessionEmbedded session,
-      CommandContext probeCtx) {
-    var backRefRid = resolveBackRefRid(row, chain, probeCtx);
-    if (backRefRid == null) {
-      return ExecutionStream.empty();
-    }
-
-    var cached = lruCache.get(backRefRid);
-    if (cached == null) {
-      var ht = buildHashTable(backRefRid, chain, probeCtx);
-      if (ht == null) {
-        lruCache.put(backRefRid, BUILD_FAILED);
-        return ExecutionStream.empty();
-      }
-      // Load the back-ref vertex once per binding for the target alias
-      Object entity = null;
-      try {
-        entity = session.getActiveTransaction().load(backRefRid);
-      } catch (RecordNotFoundException e) {
-        // vertex gone
-      }
-      cached = new CachedBuild(ht, entity);
-      lruCache.put(backRefRid, cached);
-    }
-    if (cached == BUILD_FAILED) {
-      return ExecutionStream.empty();
-    }
-
-    var build = (CachedBuild) cached;
-    var sourceRid = resolveSourceRid(row, chain);
-    if (sourceRid == null) {
-      return ExecutionStream.empty();
-    }
-
-    var map = (Map<RID, List<Result>>) build.hashTable();
-    var edges = map.get(sourceRid);
-    if (edges == null || edges.isEmpty()) {
-      return ExecutionStream.empty();
-    }
-
-    // Emit one row per matching edge, adding intermediate and target aliases
-    var results = new ArrayList<Result>(edges.size());
-    for (var edgeResult : edges) {
-      var withIntermediate = new MatchResultRow(
-          session, row, chain.intermediateAlias(), edgeResult);
-      var withTarget = new MatchResultRow(
-          session, withIntermediate, chain.targetAlias(), build.backRefEntity());
-      results.add(withTarget);
-    }
-    return ExecutionStream.resultIterator(results.iterator());
+  private static int hashCapacity(long size, long maxSize) {
+    var effective = Math.min(size, maxSize > 0 ? maxSize : size);
+    return (int) Math.min(effective * 4 / 3 + 1, Integer.MAX_VALUE);
   }
 
-  /**
-   * Converts a value to a {@link RID}, handling both direct RID instances
-   * and {@link com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable}
-   * wrappers.
-   */
   @Nullable static RID toRid(@Nullable Object value) {
     if (value instanceof RID rid) {
       return rid;
@@ -469,30 +494,26 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
-    if (descriptor instanceof SingleEdgeSemiJoin single) {
-      return spaces
+    return switch (descriptor) {
+      case SingleEdgeSemiJoin single -> spaces
           + "+ BACK-REF HASH JOIN ("
           + single.sourceAlias()
           + " ⋈ $matched." + single.backRefAlias()
           + " via " + single.direction() + "('" + single.edgeClass() + "'))";
-    }
-    if (descriptor instanceof ChainSemiJoin chain) {
-      return spaces
+      case ChainSemiJoin chain -> spaces
           + "+ BACK-REF HASH JOIN ("
           + chain.sourceAlias()
           + " ⋈ $matched." + chain.backRefAlias()
-          + " via " + chain.direction() + "E('" + chain.edgeClass() + "').inV()"
-          + " aliases: " + chain.intermediateAlias() + ", " + chain.targetAlias()
-          + ")";
-    }
-    if (descriptor instanceof AntiSemiJoin anti) {
-      return spaces
+          + " via " + chain.direction() + "E('" + chain.edgeClass()
+          + "').inV()"
+          + " aliases: " + chain.intermediateAlias() + ", "
+          + chain.targetAlias() + ")";
+      case AntiSemiJoin anti -> spaces
           + "+ BACK-REF HASH JOIN ANTI (NOT IN $matched."
           + anti.anchorAlias()
-          + "." + anti.traversalDirection() + "('" + anti.traversalEdgeClass()
-          + "'))";
-    }
-    return spaces + "+ BACK-REF HASH JOIN (" + descriptor.joinMode() + ")";
+          + "." + anti.traversalDirection() + "('"
+          + anti.traversalEdgeClass() + "'))";
+    };
   }
 
   @Override
@@ -503,6 +524,7 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new BackRefHashJoinStep(ctx, descriptor, profilingEnabled);
+    return new BackRefHashJoinStep(
+        ctx, descriptor, fallbackEdge, profilingEnabled);
   }
 }

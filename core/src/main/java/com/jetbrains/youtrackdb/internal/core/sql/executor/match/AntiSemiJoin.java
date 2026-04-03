@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import javax.annotation.Nullable;
 
 /**
@@ -9,12 +9,19 @@ import javax.annotation.Nullable;
  * <p>The hash table is built from {@code X.out('E')} (forward link bag) as a set of
  * vertex RIDs. The probe discards upstream rows whose candidate RID appears in the set.
  *
+ * <p>The NOT IN condition is stripped from the target alias's WHERE clause at plan
+ * time so that the preceding {@link MatchStep} does not re-evaluate it per row.
+ * The stripped condition is stored in {@link #notInCondition} for runtime fallback:
+ * if the hash table build fails, {@link BackRefHashJoinStep#handleBuildFailure}
+ * evaluates it per row (the slow but correct path).
+ *
  * @param anchorAlias           the alias X whose forward edges provide the exclusion set
  * @param traversalEdgeClass    the edge class E
  * @param traversalDirection    "out" or "in"
  * @param backRefAlias          same as anchorAlias (the vertex to traverse from)
  * @param targetAlias           the alias of the node whose WHERE clause contained NOT IN
- * @param residualFilter        any remaining WHERE conditions after NOT IN extraction, or null
+ * @param notInCondition        the stripped NOT IN condition for fallback evaluation,
+ *                              or null if the condition could not be preserved
  */
 public record AntiSemiJoin(
     String anchorAlias,
@@ -22,7 +29,7 @@ public record AntiSemiJoin(
     String traversalDirection,
     String backRefAlias,
     String targetAlias,
-    @Nullable SQLWhereClause residualFilter) implements SemiJoinDescriptor {
+    @Nullable SQLBooleanExpression notInCondition) implements SemiJoinDescriptor {
 
   // backRefAlias is always identical to anchorAlias — it exists to satisfy
   // the SemiJoinDescriptor.backRefAlias() interface contract.

@@ -693,6 +693,26 @@ public class SQLWhereClause extends SimpleNode {
    * <p>N.B. the returned clause shares sub-block instances with the
    * source {@code andBlock} — callers must not mutate the result.
    */
+  /**
+   * Builds a new WHERE clause from the AND block with the term at
+   * {@code skipIdx} removed. Public entry point for cross-package callers
+   * (e.g. MATCH planner stripping NOT IN conditions).
+   *
+   * <p>Returns {@code null} when the AND block has only one term (removing
+   * it would leave an empty WHERE clause).
+   *
+   * <p>N.B. the returned clause shares sub-block instances with the
+   * source {@code andBlock} — callers must not mutate the result.
+   */
+  @Nullable
+  public static SQLWhereClause buildWhereWithoutTerm(
+      SQLAndBlock andBlock, int skipIdx) {
+    if (andBlock.subBlocks.size() <= 1) {
+      return null;
+    }
+    return buildWhereWithout(andBlock, skipIdx);
+  }
+
   private static SQLWhereClause buildWhereWithout(
       SQLAndBlock andBlock, int skipIdx) {
     var newAnd = new SQLAndBlock(-1);

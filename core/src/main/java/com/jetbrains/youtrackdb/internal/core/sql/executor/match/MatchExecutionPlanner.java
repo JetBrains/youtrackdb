@@ -406,7 +406,9 @@ public class MatchExecutionPlanner {
 
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
-    this.aliasFilters = aliasFilters;
+    // Defensive copy: aliasFilters may be immutable (e.g. Map.of() from GQL).
+    // detectNotInAntiJoin() mutates this map to strip NOT IN conditions.
+    this.aliasFilters = new HashMap<>(aliasFilters);
     this.aliasRids = Map.of();
   }
 
@@ -3131,7 +3133,7 @@ public class MatchExecutionPlanner {
       // Pattern D detection follows below
       if (edgeJ.getSemiJoinDescriptor() == null) {
         var antiDesc = detectNotInAntiJoin(
-            targetFilter, targetAliasJ, boundAliases, edgeJ);
+            targetFilter, targetAliasJ, boundAliases);
         if (antiDesc != null) {
           edgeJ.setSemiJoinDescriptor(antiDesc);
           logger.debug(
@@ -3224,11 +3226,10 @@ public class MatchExecutionPlanner {
    * @param boundAliases  all aliases bound in the schedule
    * @return an AntiSemiJoin descriptor, or null if the pattern is not found
    */
-  @Nullable private static AntiSemiJoin detectNotInAntiJoin(
+  @Nullable private AntiSemiJoin detectNotInAntiJoin(
       SQLWhereClause targetFilter,
       String targetAlias,
-      Set<String> boundAliases,
-      EdgeTraversal edge) {
+      Set<String> boundAliases) {
     var threshold = getHashJoinThreshold();
     if (threshold <= 0) {
       return null;
@@ -3240,7 +3241,7 @@ public class MatchExecutionPlanner {
     }
 
     // Navigate: SQLOrBlock → single SQLAndBlock → subBlocks list
-    List<SQLBooleanExpression> andSubBlocks;
+    SQLAndBlock andBlock;
     if (baseExpr instanceof SQLOrBlock orBlock) {
       var orSubs = orBlock.getSubBlocks();
       if (orSubs == null || orSubs.size() != 1) {
@@ -3250,13 +3251,14 @@ public class MatchExecutionPlanner {
       if (!(firstOr instanceof SQLAndBlock ab)) {
         return null;
       }
-      andSubBlocks = ab.getSubBlocks();
+      andBlock = ab;
     } else if (baseExpr instanceof SQLAndBlock ab) {
-      andSubBlocks = ab.getSubBlocks();
+      andBlock = ab;
     } else {
       return null;
     }
 
+    var andSubBlocks = andBlock.getSubBlocks();
     if (andSubBlocks == null || andSubBlocks.isEmpty()) {
       return null;
     }
@@ -3291,77 +3293,25 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // Remove the NOT IN condition from BOTH the aliasFilters entry
-      // and the AST filter on the edge's target node. The MatchStep reads
-      // its filter from the AST (item.getFilter().getFilter()), not from
-      // aliasFilters, so we must strip both to prevent double evaluation.
-      andSubBlocks.remove(i);
-      stripNotInFromAstFilter(edge, condStr);
-
-      // Build residual filter (remaining AND conditions, if any)
-      SQLWhereClause residualFilter = null;
-      if (!andSubBlocks.isEmpty()) {
-        residualFilter = targetFilter;
+      // Strip the NOT IN from the target alias's WHERE clause so that the
+      // preceding MatchStep does not re-evaluate it per row (the expensive
+      // O(degree) link bag traversal). The stripped condition is stored in
+      // the AntiSemiJoin descriptor for runtime fallback: if the hash table
+      // build fails, BackRefHashJoinStep evaluates it per row.
+      var strippedFilter =
+          SQLWhereClause.buildWhereWithoutTerm(andBlock, i);
+      if (strippedFilter != null) {
+        aliasFilters.put(targetAlias, strippedFilter);
+      } else {
+        // NOT IN was the only condition — remove the filter entirely
+        aliasFilters.remove(targetAlias);
       }
 
       return new AntiSemiJoin(
           anchorAlias, edgeClass, direction,
-          anchorAlias, targetAlias, residualFilter);
+          anchorAlias, targetAlias, sub);
     }
     return null;
-  }
-
-  /**
-   * Removes a NOT IN condition from the AST filter on the edge's target node.
-   * This is needed because the MatchStep reads its filter from the AST
-   * ({@code item.getFilter().getFilter()}), not from {@code aliasFilters}.
-   * Without this, the MatchStep would re-evaluate the NOT IN per row,
-   * negating the anti-join optimization.
-   */
-  private static void stripNotInFromAstFilter(
-      EdgeTraversal edge, String notInString) {
-    var matchFilter = edge.edge.item.getFilter();
-    if (matchFilter == null) {
-      return;
-    }
-    var astWhere = matchFilter.getFilter();
-    if (astWhere == null) {
-      return;
-    }
-    var astBase = astWhere.getBaseExpression();
-    if (astBase == null) {
-      return;
-    }
-
-    // Walk the AST structure and find the sub-block matching the NOT IN string
-    List<SQLBooleanExpression> targetList = null;
-    int targetIdx = -1;
-
-    if (astBase instanceof SQLAndBlock ab) {
-      targetList = ab.getSubBlocks();
-    } else if (astBase instanceof SQLOrBlock ob) {
-      var orSubs = ob.getSubBlocks();
-      if (orSubs != null && orSubs.size() == 1
-          && orSubs.getFirst() instanceof SQLAndBlock ab) {
-        targetList = ab.getSubBlocks();
-      }
-    }
-
-    if (targetList != null) {
-      for (int k = 0; k < targetList.size(); k++) {
-        if (targetList.get(k).toString().trim().equals(notInString)) {
-          targetIdx = k;
-          break;
-        }
-      }
-      if (targetIdx >= 0) {
-        targetList.remove(targetIdx);
-        // If no conditions remain, clear the WHERE clause entirely
-        if (targetList.isEmpty()) {
-          matchFilter.setFilter(null);
-        }
-      }
-    }
   }
 
   /**
@@ -3831,16 +3781,18 @@ public class MatchExecutionPlanner {
       }
     } else if (edge.getSemiJoinDescriptor() instanceof AntiSemiJoin) {
       // Pattern D: normal traversal + anti-join filter. The NOT IN condition
-      // was removed from the WHERE clause, so the MatchStep traverses without
-      // it. The BackRefHashJoinStep filters results against the exclusion set.
+      // is kept in the WHERE clause on the MatchStep so it serves as a
+      // correctness fallback if the hash table build fails at runtime.
+      // When the hash join succeeds, it short-circuits the per-row NOT IN.
       plan.chain(new MatchStep(context, edge, profilingEnabled));
       plan.chain(new BackRefHashJoinStep(
-          context, edge.getSemiJoinDescriptor(), profilingEnabled));
+          context, edge.getSemiJoinDescriptor(), null, profilingEnabled));
     } else if (edge.getSemiJoinDescriptor() != null) {
       // Back-reference semi-join (Pattern A/B): replace per-row link bag
-      // traversal with a one-time hash table build + O(1) probe.
+      // traversal with a one-time hash table build + O(1) probe. The
+      // EdgeTraversal is passed for runtime fallback if the build fails.
       plan.chain(new BackRefHashJoinStep(
-          context, edge.getSemiJoinDescriptor(), profilingEnabled));
+          context, edge.getSemiJoinDescriptor(), edge, profilingEnabled));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
