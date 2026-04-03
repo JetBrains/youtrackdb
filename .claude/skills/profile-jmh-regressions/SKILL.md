@@ -40,15 +40,19 @@ git merge-base HEAD origin/develop
 
 ### Step 1: Determine JMH parameters per regression
 
-Each benchmark belongs to a tier with different profiling settings. Benchmarks are assigned to tiers by query name (see `jmh-ldbc/README.md`), not by dynamic ops/s lookup. To determine the tier, check which base class the benchmark extends:
+Each benchmark belongs to a tier with different profiling settings. Benchmarks are assigned to tiers by query name (see `jmh-ldbc/README.md`), not by dynamic ops/s lookup. To determine the tier, check which base class the benchmark extends.
 
-| Tier | Base Class | Queries | Profiling args |
-|------|-----------|---------|----------------|
-| IS-ultra-fast | `LdbcISUltraFastBenchmarkBase` | IS1, IS3-IS6, IC13 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
-| IS-noisy | `LdbcISBenchmarkBase` | IS2, IS7, IC8 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
-| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | `-f 1 -wi 1 -w 5s -i 3 -r 15s -t 1` (ST) |
-| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | `-f 1 -wi 2 -w 10s -i 3 -r 30s -t 1` (ST) |
-| IC-ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | `-f 1 -wi 2 -w 10s -i 3 -r 60s -t 1` (ST) |
+**Note**: The profiling args below are intentionally reduced from the production annotations (fewer forks, shorter warmup/measurement). Profiling needs only 1 fork — we're analyzing CPU distribution, not statistical throughput. Warmup is shortened but kept long enough for JIT to stabilize.
+
+| Tier | Base Class | Queries | Production annotations | Profiling args |
+|------|-----------|---------|----------------------|----------------|
+| IS-ultra-fast | `LdbcISUltraFastBenchmarkBase` | IS1, IS3-IS6, IC13 | 5f, 1×5s wi, 3×10s | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
+| IS-noisy | `LdbcISBenchmarkBase` | IS2, IS7, IC8 | 10f, 3×5s wi, 3×10s | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
+| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | 3f, 1×10s wi, 5×20s | `-f 1 -wi 1 -w 10s -i 3 -r 20s -t 1` (ST) |
+| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | 3f, 1×30s wi, 5×30s | `-f 1 -wi 1 -w 30s -i 3 -r 30s -t 1` (ST) |
+| IC-ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | 5f, 1×60s wi, 3×120s | `-f 1 -wi 1 -w 60s -i 3 -r 60s -t 1` (ST) |
+
+**IC4 exception**: `ic4_newTopics` has a method-level override `@Warmup(iterations = 3, time = 30)`. For profiling, use `-wi 2 -w 30s` instead of the IC-slow default.
 
 For multi-thread regressions, use the same warmup/measurement but omit `-t 1` (uses `@Threads(Threads.MAX)` default).
 
@@ -135,7 +139,9 @@ ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh
 
 ### Step 6: Pre-load and curate parameters
 
-Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation. Any benchmark name works here — the goal is just to trigger `@Setup(Level.Trial)` which loads the DB and caches curated parameters:
+Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation. Any benchmark name works here — the goal is just to trigger `@Setup(Level.Trial)` which loads the DB and caches curated parameters.
+
+**Important**: Use `-f 1` (not `-f 0`). With `-f 0` the benchmark runs in-process and JMH exits 0 even when all benchmarks fail — silent failures are hard to diagnose on a remote server.
 
 ```bash
 # HEAD
