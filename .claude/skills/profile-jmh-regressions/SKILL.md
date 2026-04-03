@@ -9,6 +9,7 @@ Profile benchmark regressions found in a PR's JMH comparison comment. Provisions
 ## Prerequisites
 
 - `hcloud` CLI installed and authenticated
+- `boto3` Python library installed locally
 - SSH key pair at `~/.ssh/id_ed25519`
 - A PR with a JMH benchmark comparison comment (posted by `ldbc-jmh-compare.yml` or manually)
 - Environment variables: `HETZNER_S3_ACCESS_KEY`, `HETZNER_S3_SECRET_KEY`, `HETZNER_S3_ENDPOINT`
@@ -165,7 +166,7 @@ ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
   -Xms4096m -Xmx4096m \
-  -jar target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar \
+  -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
 
 # BASE (use -Djmh.ignoreLock=true if HEAD is still running, but prefer sequential)
@@ -176,7 +177,7 @@ ssh root@<IP> 'cd /root/ytdb-base/jmh-ldbc && java \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
   --add-opens java.base/java.nio=ALL-UNNAMED \
   -Xms4096m -Xmx4096m -Djmh.ignoreLock=true \
-  -jar target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar \
+  -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
 ```
 
@@ -196,7 +197,7 @@ ARGS=$4       # JMH args
 JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
 
 cd $DIR/jmh-ldbc && java $JVM_ARGS \
-  -jar target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar \
+  -jar target/youtrackdb-jmh-ldbc-*.jar \
   "$BENCH" $ARGS
 SCRIPT
 chmod +x /root/run-bench.sh'
@@ -233,7 +234,7 @@ JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java
 mkdir -p /root/profiles/$VERSION
 
 cd $DIR/jmh-ldbc && java $JVM_ARGS \
-  -jar target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar \
+  -jar target/youtrackdb-jmh-ldbc-*.jar \
   "$BENCH" $ARGS \
   -prof "async:libPath=/tmp/async-profiler-3.0-linux-x64/lib/libasyncProfiler.so;output=collapsed;dir=/root/profiles/$VERSION;event=cpu"
 SCRIPT
@@ -307,9 +308,9 @@ Compare HEAD vs BASE children. Changes in child method distribution indicate:
 #### 9e. Bytecode size check (if JIT effects suspected)
 
 ```bash
-# Compare evaluate method bytecode sizes
-javap -c <HEAD-class-file> | awk '/<method-signature>/,/^$/' | wc -l
-javap -c <BASE-class-file> | awk '/<method-signature>/,/^$/' | wc -l
+# Compare method bytecode sizes (use find to locate the class file on the server)
+javap -c $(find /root/ytdb/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | wc -l
+javap -c $(find /root/ytdb-base/jmh-ldbc/target/classes -name "SQLBinaryCondition.class") | awk '/evaluate/,/^$/' | wc -l
 ```
 
 HotSpot default inlining threshold is ~325 bytecodes. Methods exceeding this won't be inlined at call sites, causing cascading de-inlining effects.
