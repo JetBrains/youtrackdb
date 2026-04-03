@@ -149,22 +149,24 @@ public class LdbcQueryExplainTest {
    *   <li>Infer class WORK_AT on the workEdge alias (from outE('WORK_AT'))</li>
    *   <li>Infer class Organisation on the company alias (from WORK_AT.in LINK)</li>
    *   <li>Infer class Place on the country alias (from IS_LOCATED_IN.in LINK)</li>
-   *   <li>Detect the WORK_AT.workFrom index for the {@code workFrom < :workFromYear}
-   *       condition and attach an IndexLookup pre-filter</li>
-   *   <li>Attach collection ID filters on company and country steps</li>
+   *   <li>Use the WORK_AT.workFrom index via index-ordered edge traversal
+   *       (ORDER BY workEdge.workFrom + LIMIT triggers this optimization)</li>
+   *   <li>Attach index pre-filter on Place.name for the country step</li>
    * </ul>
    */
   @Test
-  public void testIC11_indexPreFilterOnWorkAt() {
+  public void testIC11_indexOrderedOnWorkAt() {
     String plan = explain(LdbcQuerySql.IC11,
         "personId", 1L, "countryName", "China",
         "workFromYear", 2010, "limit", 10);
 
-    // Index pre-filter should detect WORK_AT.workFrom index on the workEdge step
+    // Index-ordered traversal should replace the normal MATCH step for workEdge,
+    // scanning WORK_AT.workFrom index in ASC order to avoid a downstream sort.
     assertTrue(
-        "IC11 plan should show index pre-filter on WORK_AT.workFrom. "
+        "IC11 plan should use INDEX ORDERED MATCHE for the workEdge step. "
             + "Plan was:\n" + plan,
-        plan.contains("index WORK_AT.workFrom"));
+        plan.contains("INDEX ORDERED MATCHE")
+            && plan.contains("via WORK_AT.workFrom"));
 
     // Index pre-filter should detect Place.name index on the country step
     assertTrue(
