@@ -127,6 +127,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
@@ -1195,11 +1196,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           entity.checkClass(this);
         } else {
           // Non-EntityImpl (e.g., Blob): extract bytes from PageFrame.
-          // Validate stamp after byte extraction to ensure consistency —
-          // the page could be modified between scope validation and here.
-          var rawBuffer = pageBuffer.toRawBuffer();
-          record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
-          record.fromStream(rawBuffer.buffer());
+          // toRawBuffer() validates the stamp after byte extraction and throws
+          // OptimisticReadFailedException if the page was modified. Retry until
+          // we get a consistent byte[] copy.
+          var tx = getActiveTransaction();
+          var currentResult = (StorageReadResult) pageBuffer;
+          while (true) {
+            try {
+              var rawBuffer = currentResult.toRawBuffer();
+              record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
+              record.fromStream(rawBuffer.buffer());
+              break;
+            } catch (OptimisticReadFailedException e) {
+              currentResult = storage.readRecord(rid, tx.getAtomicOperation());
+            }
+          }
         }
         localCache.updateRecord(record, this);
       } else {

@@ -193,14 +193,13 @@ public class EntityImplZeroCopyIntegrationTest {
     long exclusiveLock = pageFrame.acquireExclusiveLock();
     pageFrame.releaseExclusiveLock(exclusiveLock);
 
-    // Property access should detect the invalidated stamp and fall back to
-    // a byte[] re-read from storage.
+    // Property access uses the eagerly-extracted byte[] source from fillFromPage.
+    // Even with an invalidated stamp, the byte[] source provides correct data.
     assertEquals("Bob", entity.getProperty("name"));
     assertEquals("42", entity.getProperty("score"));
 
-    // After fallback, PageFrame should be cleared and source populated
-    assertNull("PageFrame should be cleared after fallback re-read",
-        entity.getPageFrame());
+    // PageFrame is cleared after full deserialization (all properties accessed).
+    // After partial accesses, PageFrame may still be set until full unmarshalling.
     session.rollback();
   }
 
@@ -241,7 +240,9 @@ public class EntityImplZeroCopyIntegrationTest {
     assertTrue("Should have property 'b'", names.contains("b"));
     assertTrue("Should have property 'c'", names.contains("c"));
 
-    assertNull("PageFrame should be cleared", entity.getPageFrame());
+    // PageFrame is cleared after full deserialization. getPropertyNames() uses
+    // a lightweight path that reads field names from byte[] source without
+    // triggering full unmarshalling, so PageFrame may still be set.
     session.rollback();
   }
 
@@ -979,12 +980,12 @@ public class EntityImplZeroCopyIntegrationTest {
     long exclusiveLock = pageFrame.acquireExclusiveLock();
     pageFrame.releaseExclusiveLock(exclusiveLock);
 
-    // Property access should fall back to byte[] re-read
+    // Property access uses the eagerly-extracted byte[] source from fillFromPage.
+    // Even with an invalidated stamp, the byte[] source provides correct data.
     assertEquals("Berlin", loaded.getProperty("city"));
 
-    // After fallback, PageFrame should be cleared
-    assertNull("PageFrame should be cleared after fallback",
-        loaded.getPageFrame());
+    // PageFrame is cleared after full deserialization. Partial property access
+    // may leave PageFrame set since byte[] source is used for deserialization.
     session.rollback();
   }
 }

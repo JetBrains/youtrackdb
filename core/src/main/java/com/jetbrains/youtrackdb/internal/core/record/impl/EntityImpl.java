@@ -82,6 +82,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
@@ -3470,9 +3471,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return false;
     }
 
-    // Full unmarshalling — release the byte[] source
+    // Full unmarshalling — release the byte[] source and PageFrame reference
     if ((propertyNames == null || propertyNames.length == 0) && source != null) {
       source = null;
+      clearPageFrame();
     }
 
     return true;
@@ -3592,23 +3594,23 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void reReadFromStorage() {
     var storage = session.getStorage();
     var atomicOp = session.getActiveTransaction().getAtomicOperation();
-    var readResult = storage.readRecord(getIdentity(), atomicOp);
 
-    if (readResult instanceof RawBuffer rawBuffer) {
-      fill(rawBuffer.version(), rawBuffer.buffer(), false);
-      fromStream(rawBuffer.buffer());
-    } else if (readResult instanceof RawPageBuffer pageBuffer) {
-      // Storage returned a PageFrame reference — extract bytes for the
-      // fallback path. This avoids infinite recursion through fillFromPage.
-      var slice = pageBuffer.sliceContent();
-      var bytes = new byte[slice.remaining()];
-      slice.get(bytes);
-      fill(pageBuffer.recordVersion(), bytes, false);
-      fromStream(bytes);
-    } else {
-      throw new DatabaseException(session.getDatabaseName(),
-          "Unexpected StorageReadResult type for " + getIdentity()
-              + ": " + readResult.getClass().getSimpleName());
+    // Retry loop: storage.readRecord() may return a RawPageBuffer whose stamp
+    // becomes invalid between the optimistic scope close and byte extraction.
+    // toRawBuffer() validates the stamp and throws OptimisticReadFailedException
+    // on mismatch, so we retry until we get a consistent byte[] copy.
+    while (true) {
+      var readResult = storage.readRecord(getIdentity(), atomicOp);
+      try {
+        var rawBuffer = readResult.toRawBuffer();
+        fill(rawBuffer.version(), rawBuffer.buffer(), false);
+        fromStream(rawBuffer.buffer());
+        return;
+      } catch (OptimisticReadFailedException e) {
+        // Stamp was invalidated between readRecord returning and byte extraction.
+        // Retry the full read — the next attempt may return RawBuffer (pinned path)
+        // or another RawPageBuffer with a fresh stamp.
+      }
     }
   }
 
@@ -3919,7 +3921,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     this.recordVersion = version;
     this.size = contentLength;
-    this.source = null;
+
+    // Eagerly extract bytes into source as a fallback. This ensures that
+    // deserializeProperties can use the byte[]-backed path if the PageFrame
+    // stamp becomes invalid, without needing reReadFromStorage() which adds
+    // latency and changes concurrency dynamics under high contention.
+    if (contentLength > 0) {
+      var buf = pageFrame.getBuffer();
+      var bytes = new byte[contentLength];
+      buf.get(contentOffset, bytes);
+      this.source = bytes;
+    } else {
+      this.source = null;
+    }
+
     this.status = STATUS.LOADED;
   }
 

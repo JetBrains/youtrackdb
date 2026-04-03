@@ -199,9 +199,11 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
   // --- Stamp invalidation fallback ---
 
   @Test
-  public void testStampInvalidationFallsBackToReRead() {
-    // Verifies that when the PageFrame stamp is invalidated, the entity
-    // falls back to a byte[] re-read from storage.
+  public void testStampInvalidationIrrelevantWithEagerByteExtraction() {
+    // fillFromPage eagerly extracts bytes into source, so deserialization
+    // uses the byte[] path regardless of stamp validity. Stamp invalidation
+    // does not affect property access. After partial deserialization,
+    // pageFrame is retained (only cleared after full deserialization).
     var rid = saveRecord("StampTest", "name", "Carol", "city", "Paris");
 
     session.begin();
@@ -223,20 +225,22 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     long exclusiveStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exclusiveStamp);
 
-    // Access properties — stamp validation fails, triggers re-read
+    // Access properties — uses eagerly extracted byte[] source, stamp irrelevant
     assertEquals("Carol", entity.getString("name"));
     assertEquals("Paris", entity.getString("city"));
-    assertNull(entity.getPageFrame());
+    // PageFrame is retained after partial deserialization (individual property access)
+    assertNotNull(entity.getPageFrame());
     session.rollback();
   }
 
   // --- RuntimeException during speculative deserialization ---
 
   @Test
-  public void testCorruptedDataFallsBackToReRead() {
-    // Verifies that corrupted data in the PageFrame triggers a RuntimeException
-    // during speculative deserialization, which is caught, and the entity
-    // falls back to a byte[] re-read from storage.
+  public void testCorruptedDataInPageFrameThrowsOnDeserialize() {
+    // fillFromPage eagerly extracts bytes into source. When the PageFrame
+    // contains corrupted data, the extracted byte[] source is also corrupt.
+    // Deserialization via the byte[] path throws an exception — there is no
+    // fallback since the corrupt bytes are the entity's source.
     var rid = saveRecord("CorruptTest", "key", "valid-data");
 
     session.begin();
@@ -258,20 +262,26 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         100, 51);
 
-    // Access property — corrupted data triggers exception, falls back to re-read
-    assertEquals("valid-data", entity.getString("key"));
-    assertNull(entity.getPageFrame());
-    // No phantom properties from corrupted deserialization
-    assertEquals(Set.of("key"), new HashSet<>(entity.getPropertyNames()));
+    // Corrupt source bytes cause deserialization to throw
+    try {
+      entity.getString("key");
+      org.junit.Assert.fail(
+          "Expected exception from deserializing corrupt byte[] source");
+    } catch (IllegalArgumentException e) {
+      // Expected — corrupt data cannot be deserialized
+      assertTrue(e.getMessage().contains("Variable length quantity"));
+    }
     session.rollback();
   }
 
   // --- Multiple property accesses after fallback ---
 
   @Test
-  public void testMultiplePropertyAccessesAfterFallback() {
-    // After stamp invalidation and fallback to byte[], subsequent property
-    // accesses should work correctly from the byte[] source.
+  public void testMultiplePropertyAccessesAfterStampInvalidation() {
+    // fillFromPage eagerly extracts bytes into source, so all property
+    // accesses use the byte[] path. Stamp invalidation does not affect
+    // correctness. After individual (partial) property accesses, pageFrame
+    // is retained.
     var rid = saveRecord("MultiTest", "a", "alpha", "b", "beta", "c", "gamma");
 
     session.begin();
@@ -289,15 +299,15 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         0, serialized.length);
 
-    // Invalidate stamp
+    // Invalidate stamp — irrelevant since byte[] source is used
     long exStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exStamp);
 
-    // First access triggers fallback
+    // All accesses use eagerly extracted byte[] source
     assertEquals("alpha", entity.getString("a"));
-    assertNull(entity.getPageFrame());
+    // PageFrame retained after partial deserialization
+    assertNotNull(entity.getPageFrame());
 
-    // Subsequent accesses use byte[] source
     assertEquals("beta", entity.getString("b"));
     assertEquals("gamma", entity.getString("c"));
     session.rollback();
@@ -344,9 +354,10 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
   // --- Snapshot restoration on partial deser + stamp invalidation (TC1) ---
 
   @Test
-  public void testPartialDeserializationSnapshotRestoredOnStampInvalidation() {
-    // Verifies that when a second partial deserialization attempt fails stamp
-    // validation, the fallback re-read produces correct data for all properties.
+  public void testPartialDeserializationUnaffectedByStampInvalidation() {
+    // fillFromPage eagerly extracts bytes into source. Both partial
+    // deserialization calls use the byte[] path, so stamp invalidation
+    // between them has no effect. PageFrame is retained after partial access.
     var rid = saveRecord("SnapshotTest", "a", "alpha", "b", "beta");
 
     session.begin();
@@ -364,20 +375,21 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         64, serialized.length);
 
-    // First partial: succeeds with valid stamp
+    // First partial deserialization from byte[] source
     assertTrue(entity.checkForProperties("a"));
     assertEquals("alpha", entity.getString("a"));
     assertNotNull(entity.getPageFrame());
 
-    // Invalidate stamp before second partial attempt
+    // Invalidate stamp — irrelevant since byte[] source is used
     long exStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exStamp);
 
-    // Second partial triggers fallback — both properties must be correct
+    // Second partial also uses byte[] source — both properties correct
     assertTrue(entity.checkForProperties("b"));
     assertEquals("beta", entity.getString("b"));
     assertEquals("alpha", entity.getString("a"));
-    assertNull(entity.getPageFrame());
+    // PageFrame retained after partial deserialization
+    assertNotNull(entity.getPageFrame());
     session.rollback();
   }
 

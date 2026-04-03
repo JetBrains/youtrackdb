@@ -289,9 +289,10 @@ public class EntityImplPageFrameTest extends DbTestBase {
   }
 
   @Test
-  public void testSourceIsParsedByPropertiesTrueAfterClearPageFrame() {
-    // After clearing the PageFrame (and having no source or properties),
-    // the record reports sourceIsParsedByProperties=true (nothing left to parse).
+  public void testSourceIsParsedByPropertiesFalseAfterClearPageFrame() {
+    // fillFromPage eagerly extracts bytes into source. After clearing the
+    // PageFrame, source is still set and needs parsing, so
+    // sourceIsParsedByProperties returns false.
     session.begin();
     var entity = (EntityImpl) session.newEntity();
     entity.unsetDirty();
@@ -302,7 +303,7 @@ public class EntityImplPageFrameTest extends DbTestBase {
 
     entity.clearPageFrame();
 
-    assertTrue(entity.sourceIsParsedByProperties());
+    assertFalse(entity.sourceIsParsedByProperties());
     session.rollback();
   }
 
