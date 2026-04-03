@@ -1869,12 +1869,15 @@ public class MatchExecutionPlanner {
           }
         } else {
           // Literal or parameter RID: @rid = #12:0 or @rid = :param
-          // → DirectRid singleton set for zero-waste link bag filtering
+          // → DirectRid singleton set for zero-waste link bag filtering.
+          // A singleton RID cannot benefit from further index intersection,
+          // so skip the index detection below.
           edgeJ.addIntersectionDescriptor(
               new RidFilterDescriptor.DirectRid(ridExpr));
           logger.debug(
               "MATCH pre-filter: DirectRid on edge[{}] for alias '{}'",
               j, targetAliasJ);
+          continue;
         }
       }
 

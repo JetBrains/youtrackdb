@@ -5,10 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.Test;
 
 /**
@@ -57,7 +57,7 @@ import org.junit.Test;
  *     CPerson.name (UNIQUE)
  * </pre>
  */
-public class MatchPreFilterComprehensiveTest extends DbTestBase {
+public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
 
   @Override
   public void beforeTest() throws Exception {
@@ -322,35 +322,6 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   }
 
   // ========================================================================
-  // Helper methods
-  // ========================================================================
-
-  /** Runs EXPLAIN and returns the executionPlanAsString. */
-  private String explainPlan(String query) {
-    var result = session.query("EXPLAIN " + query).toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    return plan;
-  }
-
-  /** Runs EXPLAIN with parameters and returns the executionPlanAsString. */
-  private String explainPlan(String query, Object... args) {
-    var result = session.query("EXPLAIN " + query, args).toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    return plan;
-  }
-
-  /** Collects a single string property from all result rows into a set. */
-  private Set<String> collectProperty(String query, String property) {
-    return session.query(query).toList().stream()
-        .map(r -> (String) r.getProperty(property))
-        .collect(Collectors.toSet());
-  }
-
-  // ========================================================================
   // 1. Back-reference intersection (EdgeRidLookup)
   //    Triggers: WHERE @rid = $matched.X.@rid on edge target
   // ========================================================================
@@ -591,28 +562,18 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // creationDate: m0=1000, m1=1100, ..., m8=1800, m9=1900, m10=2000, m11=2100
     // >= 1800: m8, m9, m10, m11
-    var result = session.query(
+    String query =
         "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate >= 1800)}"
-            + " RETURN msg.content as content")
-        .toList();
+            + " RETURN msg.content as content";
 
     // tech forum has m6..m11, of which m8(1800), m9(1900), m10(2000), m11(2100)
     // have creationDate >= 1800
-    Set<String> contents = collectProperty(
-        "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate >= 1800)}"
-            + " RETURN msg.content as content",
-        "content");
+    Set<String> contents = collectProperty(query, "content");
     assertEquals(Set.of("m8", "m9", "m10", "m11"), contents);
 
-    String plan = explainPlan(
-        "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate >= 1800)}"
-            + " RETURN msg.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show index intersection:\n" + plan,
         plan.contains("intersection: index"));
     session.commit();
@@ -646,13 +607,14 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
   @Test
   public void indexFilter_namedParameter() {
     session.begin();
-    var result = session.query(
+    String query =
         "MATCH {class: CForum, as: forum, where: (title = 'general')}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate < :maxDate)}"
-            + " RETURN msg.content as content",
-        new java.util.HashMap<>(java.util.Map.of("maxDate", 1200L)))
-        .toList();
+            + " RETURN msg.content as content";
+    var params = new HashMap<>(Map.of("maxDate", 1200L));
+
+    var result = session.query(query, params).toList();
 
     // general has m0..m5 (creationDate 1000..1500)
     // < 1200: m0(1000), m1(1100)
@@ -662,12 +624,7 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     }
     assertEquals(Set.of("m0", "m1"), contents);
 
-    String plan = explainPlan(
-        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate < :maxDate)}"
-            + " RETURN msg.content as content",
-        new java.util.HashMap<>(java.util.Map.of("maxDate", 1200L)));
+    String plan = explainPlan(query, params);
     assertTrue("Plan should show index intersection:\n" + plan,
         plan.contains("intersection: index"));
     session.commit();
@@ -683,19 +640,15 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // creationDate >= 1800 AND content LIKE 'm1%'
     // m8(1800), m9(1900), m10(2000), m11(2100) — of these, m10 matches 'm1%'
-    Set<String> contents = collectProperty(
+    String query =
         "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate >= 1800 AND content LIKE 'm1%')}"
-            + " RETURN msg.content as content",
-        "content");
+            + " RETURN msg.content as content";
+    Set<String> contents = collectProperty(query, "content");
     assertEquals(Set.of("m10", "m11"), contents);
 
-    String plan = explainPlan(
-        "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
-            + ".out('CContainerOf'){as: msg,"
-            + "  where: (creationDate >= 1800 AND content LIKE 'm1%')}"
-            + " RETURN msg.content as content");
+    String plan = explainPlan(query);
     assertTrue("Plan should show index intersection:\n" + plan,
         plan.contains("intersection: index"));
     session.commit();
@@ -923,13 +876,13 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     session.begin();
     // Person → outE(CWorksAt){workFrom < 2013} → inV(company) → in(CWorksAt)(person)
     // Find all coworkers of people who started before 2013
-    var result = session.query(
+    String query =
         "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
             + ".outE('CWorksAt'){where: (workFrom < 2013)}"
             + ".inV(){as: company}"
             + ".in('CWorksAt'){as: coworker}"
-            + " RETURN coworker.name as name")
-        .toList();
+            + " RETURN coworker.name as name";
+    var result = session.query(query).toList();
 
     // p0 works at acme (workFrom=2010 < 2013).
     // acme has p0, p1, p2 as workers → coworkers are p0, p1, p2
@@ -941,12 +894,7 @@ public class MatchPreFilterComprehensiveTest extends DbTestBase {
     assertTrue("Should find p1", names.contains("p1"));
     assertTrue("Should find p2", names.contains("p2"));
 
-    String plan = explainPlan(
-        "MATCH {class: CPerson, as: p, where: (name = 'p0')}"
-            + ".outE('CWorksAt'){where: (workFrom < 2013)}"
-            + ".inV(){as: company}"
-            + ".in('CWorksAt'){as: coworker}"
-            + " RETURN coworker.name as name");
+    String plan = explainPlan(query);
     assertTrue("Plan should show intersection:\n" + plan,
         plan.contains("intersection:"));
     session.commit();

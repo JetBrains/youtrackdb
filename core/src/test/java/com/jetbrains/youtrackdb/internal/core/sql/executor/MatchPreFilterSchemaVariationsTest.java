@@ -2,16 +2,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.Test;
 
 /**
@@ -50,40 +47,7 @@ import org.junit.Test;
  *   <li>Larger dataset (500+ edges)</li>
  * </ul>
  */
-public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
-
-  /** Runs EXPLAIN and returns the executionPlanAsString. */
-  private String explainPlan(String query) {
-    var result = session.query("EXPLAIN " + query).toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    return plan;
-  }
-
-  /** Runs EXPLAIN with positional parameters and returns the plan. */
-  private String explainPlan(String query, Object... args) {
-    var result = session.query("EXPLAIN " + query, args).toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    return plan;
-  }
-
-  /** Runs EXPLAIN with named parameters and returns the plan. */
-  private String explainPlan(String query, Map<String, Object> params) {
-    var result = session.query("EXPLAIN " + query, params).toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull("EXPLAIN should produce executionPlanAsString", plan);
-    return plan;
-  }
-
-  private Set<String> collectProperty(String query, String property) {
-    return session.query(query).toList().stream()
-        .map(r -> (String) r.getProperty(property))
-        .collect(Collectors.toSet());
-  }
+public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
   // ========================================================================
   // 1. Star topology — hub vertex with many typed edge classes
@@ -3722,6 +3686,863 @@ public class MatchPreFilterSchemaVariationsTest extends DbTestBase {
             + " RETURN item.val");
     assertTrue("Plan should show index intersection for <= :\n" + plan,
         plan.contains("intersection: index"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 18. While-loop dedup regression (PR #904 fix)
+  // ========================================================================
+
+  /**
+   * Regression test for the while-loop leaf-level dedup fix from PR #904.
+   * Builds a diamond-shaped DAG where the same vertex is reachable via
+   * multiple paths during WHILE traversal. Before the fix, the vertex
+   * appeared once per path; after the fix, it is correctly deduplicated.
+   *
+   * <pre>
+   *   root → mid1 → leaf
+   *   root → mid2 → leaf   (diamond: leaf reachable via 2 paths)
+   *   leaf → bottom
+   * </pre>
+   */
+  @Test
+  public void whileTraversal_diamondDag_deduplicatesLeaf() {
+    session.execute("CREATE class WDNode extends V").close();
+    session.execute("CREATE property WDNode.name STRING").close();
+    session.execute("CREATE class WDEdge extends E").close();
+    session.execute("CREATE property WDEdge.out LINK WDNode").close();
+    session.execute("CREATE property WDEdge.in LINK WDNode").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX WDNode set name = 'root'").close();
+    session.execute("CREATE VERTEX WDNode set name = 'mid1'").close();
+    session.execute("CREATE VERTEX WDNode set name = 'mid2'").close();
+    session.execute("CREATE VERTEX WDNode set name = 'leaf'").close();
+    session.execute("CREATE VERTEX WDNode set name = 'bottom'").close();
+
+    // Diamond: root → mid1 → leaf, root → mid2 → leaf
+    session.execute(
+        "CREATE EDGE WDEdge FROM (SELECT FROM WDNode WHERE name = 'root')"
+            + " TO (SELECT FROM WDNode WHERE name = 'mid1')")
+        .close();
+    session.execute(
+        "CREATE EDGE WDEdge FROM (SELECT FROM WDNode WHERE name = 'root')"
+            + " TO (SELECT FROM WDNode WHERE name = 'mid2')")
+        .close();
+    session.execute(
+        "CREATE EDGE WDEdge FROM (SELECT FROM WDNode WHERE name = 'mid1')"
+            + " TO (SELECT FROM WDNode WHERE name = 'leaf')")
+        .close();
+    session.execute(
+        "CREATE EDGE WDEdge FROM (SELECT FROM WDNode WHERE name = 'mid2')"
+            + " TO (SELECT FROM WDNode WHERE name = 'leaf')")
+        .close();
+    // Additional depth beyond the diamond
+    session.execute(
+        "CREATE EDGE WDEdge FROM (SELECT FROM WDNode WHERE name = 'leaf')"
+            + " TO (SELECT FROM WDNode WHERE name = 'bottom')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // WHILE traversal from root should visit mid1, mid2, leaf, bottom.
+    // 'leaf' is reachable via both mid1 and mid2; it must appear exactly once.
+    String query =
+        "MATCH {class: WDNode, as: start, where: (name = 'root')}"
+            + ".out('WDEdge'){while: (true), as: descendant}"
+            + " RETURN descendant.name as dName";
+    var result = session.query(query).toList();
+
+    // Collect all descendant names
+    var names = new HashSet<String>();
+    for (var r : result) {
+      names.add(r.getProperty("dName"));
+    }
+    // WHILE(true) emits the start node (root) plus all reachable descendants.
+    assertEquals("Should reach root + all 4 descendants",
+        Set.of("root", "mid1", "mid2", "leaf", "bottom"), names);
+
+    // Verify no duplicates: each node should appear exactly once.
+    // Before the PR #904 dedup fix, 'leaf' would appear twice (once per path).
+    assertEquals("No duplicates — each node appears once",
+        5, result.size());
+
+    // WHILE edges use recursive DFS, not intersection pre-filter
+    String plan = explainPlan(query);
+    assertFalse(
+        "WHILE edges use a separate execution path, not intersection:\n"
+            + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * Diamond DAG with WHILE traversal + an index pre-filter on the hop
+   * BEFORE the WHILE step. Tests that dedup and pre-filter coexist
+   * correctly.
+   */
+  @Test
+  public void whileTraversal_diamondDag_withPreFilterBeforeWhile() {
+    session.execute("CREATE class WPNode extends V").close();
+    session.execute("CREATE property WPNode.name STRING").close();
+    session.execute("CREATE property WPNode.priority INTEGER").close();
+    session.execute(
+        "CREATE index WPNode_priority on WPNode (priority) NOTUNIQUE").close();
+
+    session.execute("CREATE class WPChild extends E").close();
+    session.execute("CREATE property WPChild.out LINK WPNode").close();
+    session.execute("CREATE property WPChild.in LINK WPNode").close();
+
+    session.begin();
+    // root → a(priority=5), b(priority=15)
+    // a → shared(priority=20)
+    // b → shared(priority=20)   (diamond: shared reachable via a and b)
+    // shared → deep(priority=30)
+    session.execute("CREATE VERTEX WPNode set name = 'root', priority = 0")
+        .close();
+    session.execute("CREATE VERTEX WPNode set name = 'a', priority = 5")
+        .close();
+    session.execute("CREATE VERTEX WPNode set name = 'b', priority = 15")
+        .close();
+    session.execute("CREATE VERTEX WPNode set name = 'shared', priority = 20")
+        .close();
+    session.execute("CREATE VERTEX WPNode set name = 'deep', priority = 30")
+        .close();
+
+    session.execute(
+        "CREATE EDGE WPChild FROM (SELECT FROM WPNode WHERE name = 'root')"
+            + " TO (SELECT FROM WPNode WHERE name = 'a')")
+        .close();
+    session.execute(
+        "CREATE EDGE WPChild FROM (SELECT FROM WPNode WHERE name = 'root')"
+            + " TO (SELECT FROM WPNode WHERE name = 'b')")
+        .close();
+    session.execute(
+        "CREATE EDGE WPChild FROM (SELECT FROM WPNode WHERE name = 'a')"
+            + " TO (SELECT FROM WPNode WHERE name = 'shared')")
+        .close();
+    session.execute(
+        "CREATE EDGE WPChild FROM (SELECT FROM WPNode WHERE name = 'b')"
+            + " TO (SELECT FROM WPNode WHERE name = 'shared')")
+        .close();
+    session.execute(
+        "CREATE EDGE WPChild FROM (SELECT FROM WPNode WHERE name = 'shared')"
+            + " TO (SELECT FROM WPNode WHERE name = 'deep')")
+        .close();
+    session.commit();
+
+    session.begin();
+    // root → child{priority >= 10} → WHILE(out(WPChild)) → descendants
+    // priority >= 10: only 'b'(15). WHILE from b: shared(20), deep(30).
+    String query =
+        "MATCH {class: WPNode, as: start, where: (name = 'root')}"
+            + ".out('WPChild'){as: child, where: (priority >= 10)}"
+            + ".out('WPChild'){while: (true), as: descendant}"
+            + " RETURN child.name as cName, descendant.name as dName";
+    var result = session.query(query).toList();
+
+    var descNames = new HashSet<String>();
+    for (var r : result) {
+      descNames.add(r.getProperty("dName"));
+    }
+    // WHILE from b: emits b itself, then shared(20), deep(30)
+    assertTrue("Should find shared", descNames.contains("shared"));
+    assertTrue("Should find deep", descNames.contains("deep"));
+
+    String plan = explainPlan(query);
+    // Pre-filter should activate on the first hop (priority >= 10)
+    assertTrue("Plan should show intersection for indexed priority:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 19. Edge-method composite: outE+index + back-reference on inV
+  // ========================================================================
+
+  /**
+   * Edge-method pattern combining an indexed edge property filter on outE()
+   * with a back-reference on the inV() target. This exercises the Composite
+   * descriptor path for edge-method chains (IndexLookup on the edge +
+   * EdgeRidLookup on the vertex).
+   */
+  @Test
+  public void edgeMethod_outEIndex_plusBackRefOnInV() {
+    session.execute("CREATE class ECPerson extends V").close();
+    session.execute("CREATE property ECPerson.name STRING").close();
+
+    session.execute("CREATE class ECPost extends V").close();
+    session.execute("CREATE property ECPost.title STRING").close();
+
+    session.execute("CREATE class ECWrote extends E").close();
+    session.execute("CREATE property ECWrote.out LINK ECPerson").close();
+    session.execute("CREATE property ECWrote.in LINK ECPost").close();
+    session.execute("CREATE property ECWrote.ts LONG").close();
+    session.execute(
+        "CREATE index ECWrote_ts on ECWrote (ts) NOTUNIQUE").close();
+
+    session.execute("CREATE class ECKnows extends E").close();
+    session.execute("CREATE property ECKnows.out LINK ECPerson").close();
+    session.execute("CREATE property ECKnows.in LINK ECPerson").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX ECPerson set name = 'alice'").close();
+    session.execute("CREATE VERTEX ECPerson set name = 'bob'").close();
+    session.execute("CREATE EDGE ECKnows FROM"
+        + " (SELECT FROM ECPerson WHERE name = 'alice')"
+        + " TO (SELECT FROM ECPerson WHERE name = 'bob')").close();
+
+    // alice wrote posts at ts=100,200,300; bob wrote at ts=200,400
+    for (int i = 1; i <= 3; i++) {
+      session.execute(
+          "CREATE VERTEX ECPost set title = 'alice_p" + i + "'").close();
+      session.execute(
+          "CREATE EDGE ECWrote FROM"
+              + " (SELECT FROM ECPerson WHERE name = 'alice')"
+              + " TO (SELECT FROM ECPost WHERE title = 'alice_p" + i + "')"
+              + " SET ts = " + (i * 100))
+          .close();
+    }
+    for (int i = 1; i <= 2; i++) {
+      session.execute(
+          "CREATE VERTEX ECPost set title = 'bob_p" + i + "'").close();
+      session.execute(
+          "CREATE EDGE ECWrote FROM"
+              + " (SELECT FROM ECPerson WHERE name = 'bob')"
+              + " TO (SELECT FROM ECPost WHERE title = 'bob_p" + i + "')"
+              + " SET ts = " + (i * 200))
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // alice → knows → friend → outE(ECWrote){ts >= 200}.inV(){@rid=$matched.post.@rid}
+    // This tests: IndexLookup on ECWrote.ts + EdgeRidLookup on inV back-ref
+    String query =
+        "MATCH {class: ECPerson, as: author, where: (name = 'alice')}"
+            + ".outE('ECWrote'){as: writeEdge}"
+            + ".inV(){as: post}"
+            + ".in('ECWrote'){as: anyAuthor}"
+            + ".outE('ECWrote'){as: w2, where: (ts >= 200)}"
+            + ".inV(){as: post2,"
+            + "  where: (@rid = $matched.post.@rid)}"
+            + " RETURN post.title as postTitle, w2.ts as ts";
+    var result = session.query(query).toList();
+
+    // alice's posts: alice_p1(100), alice_p2(200), alice_p3(300)
+    // For each post, traverse back to author(alice), then outE(ECWrote){ts>=200}
+    //   → posts with ts>=200: alice_p2(200), alice_p3(300)
+    //   → inV where @rid = $matched.post → only the post itself if ts>=200
+    // So: alice_p2(200) and alice_p3(300) match
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("postTitle"));
+    }
+    assertTrue("Should find alice_p2", titles.contains("alice_p2"));
+    assertTrue("Should find alice_p3", titles.contains("alice_p3"));
+    assertFalse("Should NOT find alice_p1 (ts=100 < 200)",
+        titles.contains("alice_p1"));
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection (index + backref):\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 20. inE().outV() with back-reference
+  // ========================================================================
+
+  /**
+   * Reversed edge-method direction: inE().outV() with a back-reference on
+   * the outV() target. Tests that EdgeRidLookup works correctly when the
+   * edge traversal direction is reversed (in→out).
+   */
+  @Test
+  public void edgeMethod_inEOutV_withBackRef() {
+    session.execute("CREATE class IRPerson extends V").close();
+    session.execute("CREATE property IRPerson.name STRING").close();
+
+    session.execute("CREATE class IRMsg extends V").close();
+    session.execute("CREATE property IRMsg.text STRING").close();
+
+    session.execute("CREATE class IRWrote extends E").close();
+    session.execute("CREATE property IRWrote.out LINK IRPerson").close();
+    session.execute("CREATE property IRWrote.in LINK IRMsg").close();
+    session.execute("CREATE property IRWrote.ts LONG").close();
+    session.execute(
+        "CREATE index IRWrote_ts on IRWrote (ts) NOTUNIQUE").close();
+
+    session.execute("CREATE class IRForum extends V").close();
+    session.execute("CREATE class IRContains extends E").close();
+    session.execute("CREATE property IRContains.out LINK IRForum").close();
+    session.execute("CREATE property IRContains.in LINK IRMsg").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX IRPerson set name = 'alice'").close();
+    session.execute("CREATE VERTEX IRPerson set name = 'bob'").close();
+    session.execute("CREATE VERTEX IRForum set title = 'main'").close();
+
+    // alice wrote m1(ts=100), m2(ts=200); bob wrote m3(ts=300), m4(ts=400)
+    // all in 'main' forum
+    for (int i = 1; i <= 2; i++) {
+      session.execute(
+          "CREATE VERTEX IRMsg set text = 'am" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IRWrote FROM"
+              + " (SELECT FROM IRPerson WHERE name = 'alice')"
+              + " TO (SELECT FROM IRMsg WHERE text = 'am" + i + "')"
+              + " SET ts = " + (i * 100))
+          .close();
+      session.execute(
+          "CREATE EDGE IRContains FROM"
+              + " (SELECT FROM IRForum WHERE title = 'main')"
+              + " TO (SELECT FROM IRMsg WHERE text = 'am" + i + "')")
+          .close();
+    }
+    for (int i = 1; i <= 2; i++) {
+      session.execute(
+          "CREATE VERTEX IRMsg set text = 'bm" + i + "'").close();
+      session.execute(
+          "CREATE EDGE IRWrote FROM"
+              + " (SELECT FROM IRPerson WHERE name = 'bob')"
+              + " TO (SELECT FROM IRMsg WHERE text = 'bm" + i + "')"
+              + " SET ts = " + ((i + 2) * 100))
+          .close();
+      session.execute(
+          "CREATE EDGE IRContains FROM"
+              + " (SELECT FROM IRForum WHERE title = 'main')"
+              + " TO (SELECT FROM IRMsg WHERE text = 'bm" + i + "')")
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // alice → wrote → msg → inContains → forum → outContains → forumMsg
+    //   → inE(IRWrote){ts >= 200}.outV(){@rid = $matched.author}
+    // This uses inE().outV() with a back-reference to verify alice authored
+    // the forum message.
+    String query =
+        "MATCH {class: IRPerson, as: author, where: (name = 'alice')}"
+            + ".out('IRWrote'){as: myMsg}"
+            + ".in('IRContains'){as: forum}"
+            + ".out('IRContains'){as: forumMsg}"
+            + ".inE('IRWrote'){as: writeEdge, where: (ts >= 200)}"
+            + ".outV(){as: writer,"
+            + "  where: (@rid = $matched.author.@rid)}"
+            + " RETURN forumMsg.text as text, writeEdge.ts as ts";
+    var result = session.query(query).toList();
+
+    // alice's msgs in main: am1(100), am2(200)
+    // forum main has: am1, am2, bm1, bm2
+    // For each forumMsg, inE(IRWrote){ts>=200}.outV(){=alice}:
+    //   am2(ts=200 >= 200, author=alice) → match
+    //   am1(ts=100 < 200) → no match on ts
+    //   bm1/bm2 → author=bob, not alice
+    Set<String> texts = new HashSet<>();
+    for (var r : result) {
+      texts.add(r.getProperty("text"));
+    }
+    assertTrue("Should find am2", texts.contains("am2"));
+    assertFalse("Should NOT find am1 (ts < 200)", texts.contains("am1"));
+    assertFalse("Should NOT find bm1 (by bob)", texts.contains("bm1"));
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 21. Edge-method with polymorphic class hierarchy
+  // ========================================================================
+
+  /**
+   * outE().inV() where the target vertex class has subclasses. Tests that
+   * class inference from edge LINK schema works correctly with polymorphism:
+   * the pre-filter should accept both base class and subclass vertices.
+   */
+  @Test
+  public void edgeMethod_outEInV_polymorphicTarget() {
+    session.execute("CREATE class EPHub extends V").close();
+    session.execute("CREATE property EPHub.name STRING").close();
+
+    // Base class + 2 subclasses
+    session.execute("CREATE class EPItem extends V").close();
+    session.execute("CREATE property EPItem.label STRING").close();
+    session.execute("CREATE class EPBook extends EPItem").close();
+    session.execute("CREATE class EPArticle extends EPItem").close();
+
+    session.execute("CREATE class EPHasItem extends E").close();
+    session.execute("CREATE property EPHasItem.out LINK EPHub").close();
+    session.execute("CREATE property EPHasItem.in LINK EPItem").close();
+    session.execute("CREATE property EPHasItem.rating INTEGER").close();
+    session.execute(
+        "CREATE index EPHasItem_rating on EPHasItem (rating) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EPHub set name = 'library'").close();
+
+    // Mix of base and sub-class instances
+    session.execute("CREATE VERTEX EPBook set label = 'book1'").close();
+    session.execute("CREATE VERTEX EPBook set label = 'book2'").close();
+    session.execute("CREATE VERTEX EPArticle set label = 'art1'").close();
+    session.execute("CREATE VERTEX EPArticle set label = 'art2'").close();
+    session.execute("CREATE VERTEX EPItem set label = 'generic1'").close();
+
+    // Hub → items with different ratings
+    String[] items = {"book1", "book2", "art1", "art2", "generic1"};
+    int[] ratings = {10, 30, 20, 40, 15};
+    for (int i = 0; i < items.length; i++) {
+      session.execute(
+          "CREATE EDGE EPHasItem FROM"
+              + " (SELECT FROM EPHub WHERE name = 'library')"
+              + " TO (SELECT FROM EPItem WHERE label = '" + items[i] + "')"
+              + " SET rating = " + ratings[i])
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // outE(EPHasItem){rating >= 25}.inV() — should find book2(30), art2(40)
+    // inV targets are polymorphic (EPBook, EPArticle, EPItem)
+    String query =
+        "MATCH {class: EPHub, as: hub, where: (name = 'library')}"
+            + ".outE('EPHasItem'){as: e, where: (rating >= 25)}"
+            + ".inV(){as: item}"
+            + " RETURN item.label as label";
+    var result = session.query(query).toList();
+
+    Set<String> labels = new HashSet<>();
+    for (var r : result) {
+      labels.add(r.getProperty("label"));
+    }
+    assertEquals("Should find book2 and art2 (both subclasses of EPItem)",
+        Set.of("book2", "art2"), labels);
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection for indexed rating:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  /**
+   * inE().outV() with polymorphic source: the edge's out LINK points to a
+   * base class, but actual sources are subclass instances. Tests that class
+   * inference handles the reverse direction correctly.
+   */
+  @Test
+  public void edgeMethod_inEOutV_polymorphicSource() {
+    session.execute("CREATE class EPTarget extends V").close();
+    session.execute("CREATE property EPTarget.name STRING").close();
+
+    // Base class + subclass for edge sources
+    session.execute("CREATE class EPSource extends V").close();
+    session.execute("CREATE property EPSource.tag STRING").close();
+    session.execute("CREATE class EPSpecialSource extends EPSource").close();
+
+    session.execute("CREATE class EPLink extends E").close();
+    session.execute("CREATE property EPLink.out LINK EPSource").close();
+    session.execute("CREATE property EPLink.in LINK EPTarget").close();
+    session.execute("CREATE property EPLink.weight INTEGER").close();
+    session.execute(
+        "CREATE index EPLink_weight on EPLink (weight) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EPTarget set name = 'target1'").close();
+
+    // Mix of base and subclass sources
+    session.execute("CREATE VERTEX EPSource set tag = 'base1'").close();
+    session.execute("CREATE VERTEX EPSpecialSource set tag = 'special1'")
+        .close();
+    session.execute("CREATE VERTEX EPSpecialSource set tag = 'special2'")
+        .close();
+
+    session.execute(
+        "CREATE EDGE EPLink FROM (SELECT FROM EPSource WHERE tag = 'base1')"
+            + " TO (SELECT FROM EPTarget WHERE name = 'target1')"
+            + " SET weight = 10")
+        .close();
+    session.execute(
+        "CREATE EDGE EPLink FROM"
+            + " (SELECT FROM EPSpecialSource WHERE tag = 'special1')"
+            + " TO (SELECT FROM EPTarget WHERE name = 'target1')"
+            + " SET weight = 30")
+        .close();
+    session.execute(
+        "CREATE EDGE EPLink FROM"
+            + " (SELECT FROM EPSpecialSource WHERE tag = 'special2')"
+            + " TO (SELECT FROM EPTarget WHERE name = 'target1')"
+            + " SET weight = 50")
+        .close();
+    session.commit();
+
+    session.begin();
+    // target1 ← inE(EPLink){weight >= 25}.outV() → sources with weight >= 25
+    // Should find special1(30) and special2(50), not base1(10)
+    String query =
+        "MATCH {class: EPTarget, as: tgt, where: (name = 'target1')}"
+            + ".inE('EPLink'){as: e, where: (weight >= 25)}"
+            + ".outV(){as: src}"
+            + " RETURN src.tag as tag";
+    var result = session.query(query).toList();
+
+    Set<String> tags = new HashSet<>();
+    for (var r : result) {
+      tags.add(r.getProperty("tag"));
+    }
+    assertEquals(Set.of("special1", "special2"), tags);
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 22. Edge-method: multi-hop outE().inV() chain with filter on EACH hop
+  // ========================================================================
+
+  /**
+   * 3-hop edge-method chain where each hop has an indexed edge property
+   * filter. Tests that the planner attaches independent IndexLookup
+   * descriptors to each edge step in the chain.
+   */
+  @Test
+  public void edgeMethod_threeHopChain_filterOnEachHop() {
+    session.execute("CREATE class THNode extends V").close();
+    session.execute("CREATE property THNode.name STRING").close();
+
+    session.execute("CREATE class THEdge extends E").close();
+    session.execute("CREATE property THEdge.out LINK THNode").close();
+    session.execute("CREATE property THEdge.in LINK THNode").close();
+    session.execute("CREATE property THEdge.cost INTEGER").close();
+    session.execute(
+        "CREATE index THEdge_cost on THEdge (cost) NOTUNIQUE").close();
+
+    session.begin();
+    // Chain: a → b → c → d, with branching at b (b → c2)
+    for (String n : new String[] {"a", "b", "c", "c2", "d"}) {
+      session.execute(
+          "CREATE VERTEX THNode set name = '" + n + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE THEdge FROM (SELECT FROM THNode WHERE name = 'a')"
+            + " TO (SELECT FROM THNode WHERE name = 'b') SET cost = 10")
+        .close();
+    session.execute(
+        "CREATE EDGE THEdge FROM (SELECT FROM THNode WHERE name = 'b')"
+            + " TO (SELECT FROM THNode WHERE name = 'c') SET cost = 20")
+        .close();
+    session.execute(
+        "CREATE EDGE THEdge FROM (SELECT FROM THNode WHERE name = 'b')"
+            + " TO (SELECT FROM THNode WHERE name = 'c2') SET cost = 5")
+        .close();
+    session.execute(
+        "CREATE EDGE THEdge FROM (SELECT FROM THNode WHERE name = 'c')"
+            + " TO (SELECT FROM THNode WHERE name = 'd') SET cost = 30")
+        .close();
+    session.commit();
+
+    session.begin();
+    // a → outE{cost>=5}.inV → outE{cost>=15}.inV → outE{cost>=25}.inV
+    // Hop 1 (cost>=5): both edges from a qualify (cost=10) → b
+    // Hop 2 (cost>=15): b→c(20) qualifies, b→c2(5) does not → c
+    // Hop 3 (cost>=25): c→d(30) qualifies → d
+    String query =
+        "MATCH {class: THNode, as: start, where: (name = 'a')}"
+            + ".outE('THEdge'){as: e1, where: (cost >= 5)}"
+            + ".inV(){as: n1}"
+            + ".outE('THEdge'){as: e2, where: (cost >= 15)}"
+            + ".inV(){as: n2}"
+            + ".outE('THEdge'){as: e3, where: (cost >= 25)}"
+            + ".inV(){as: n3}"
+            + " RETURN n1.name as hop1, n2.name as hop2, n3.name as hop3";
+    var result = session.query(query).toList();
+
+    assertEquals(1, result.size());
+    assertEquals("b", result.get(0).getProperty("hop1"));
+    assertEquals("c", result.get(0).getProperty("hop2"));
+    assertEquals("d", result.get(0).getProperty("hop3"));
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 23. Edge-method with BETWEEN on edge property
+  // ========================================================================
+
+  /**
+   * BETWEEN operator on an indexed edge property via outE(). Tests that
+   * the BETWEEN→range rewrite (SQLBetweenCondition.flatten()) works for
+   * edge properties, not just vertex properties.
+   */
+  @Test
+  public void edgeMethod_outE_betweenOnEdgeProperty() {
+    session.execute("CREATE class EBHub extends V").close();
+    session.execute("CREATE property EBHub.name STRING").close();
+
+    session.execute("CREATE class EBTarget extends V").close();
+    session.execute("CREATE property EBTarget.label STRING").close();
+
+    session.execute("CREATE class EBLink extends E").close();
+    session.execute("CREATE property EBLink.out LINK EBHub").close();
+    session.execute("CREATE property EBLink.in LINK EBTarget").close();
+    session.execute("CREATE property EBLink.score INTEGER").close();
+    session.execute(
+        "CREATE index EBLink_score on EBLink (score) NOTUNIQUE").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EBHub set name = 'hub'").close();
+    for (int i = 1; i <= 6; i++) {
+      session.execute(
+          "CREATE VERTEX EBTarget set label = 't" + i + "'").close();
+      session.execute(
+          "CREATE EDGE EBLink FROM (SELECT FROM EBHub WHERE name = 'hub')"
+              + " TO (SELECT FROM EBTarget WHERE label = 't" + i + "')"
+              + " SET score = " + (i * 10))
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // score BETWEEN 20 AND 40 → t2(20), t3(30), t4(40)
+    String query =
+        "MATCH {class: EBHub, as: hub, where: (name = 'hub')}"
+            + ".outE('EBLink'){as: e, where: (score BETWEEN 20 AND 40)}"
+            + ".inV(){as: target}"
+            + " RETURN target.label as label";
+    var result = session.query(query).toList();
+
+    Set<String> labels = new HashSet<>();
+    for (var r : result) {
+      labels.add(r.getProperty("label"));
+    }
+    assertEquals(Set.of("t2", "t3", "t4"), labels);
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection for BETWEEN on edge:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 24. Edge-method + NOT pattern
+  // ========================================================================
+
+  /**
+   * outE().inV() inside a NOT sub-pattern. The positive branch uses an
+   * index-filtered vertex method; the NOT branch uses an edge-method with
+   * an indexed edge property. Tests that the NOT semantics exclude the
+   * correct rows while the positive branch's pre-filter activates.
+   */
+  @Test
+  public void edgeMethod_inNotPattern() {
+    session.execute("CREATE class ENPerson extends V").close();
+    session.execute("CREATE property ENPerson.name STRING").close();
+
+    session.execute("CREATE class ENPost extends V").close();
+    session.execute("CREATE property ENPost.title STRING").close();
+
+    session.execute("CREATE class ENWrote extends E").close();
+    session.execute("CREATE property ENWrote.out LINK ENPerson").close();
+    session.execute("CREATE property ENWrote.in LINK ENPost").close();
+
+    session.execute("CREATE class ENFlagged extends E").close();
+    session.execute("CREATE property ENFlagged.out LINK ENPerson").close();
+    session.execute("CREATE property ENFlagged.in LINK ENPost").close();
+    session.execute("CREATE property ENFlagged.severity INTEGER").close();
+    session.execute(
+        "CREATE index ENFlagged_severity on ENFlagged (severity) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX ENPerson set name = 'mod'").close();
+    for (int i = 1; i <= 4; i++) {
+      session.execute(
+          "CREATE VERTEX ENPost set title = 'post" + i + "'").close();
+      session.execute(
+          "CREATE EDGE ENWrote FROM"
+              + " (SELECT FROM ENPerson WHERE name = 'mod')"
+              + " TO (SELECT FROM ENPost WHERE title = 'post" + i + "')")
+          .close();
+    }
+    // Flag post2 (severity=5) and post3 (severity=3) via outE
+    session.execute(
+        "CREATE EDGE ENFlagged FROM"
+            + " (SELECT FROM ENPerson WHERE name = 'mod')"
+            + " TO (SELECT FROM ENPost WHERE title = 'post2')"
+            + " SET severity = 5")
+        .close();
+    session.execute(
+        "CREATE EDGE ENFlagged FROM"
+            + " (SELECT FROM ENPerson WHERE name = 'mod')"
+            + " TO (SELECT FROM ENPost WHERE title = 'post3')"
+            + " SET severity = 3")
+        .close();
+    session.commit();
+
+    session.begin();
+    // mod's posts NOT flagged with severity >= 4
+    // mod wrote post1-4. Flagged with sev>=4: post2(5). NOT removes post2.
+    String query =
+        "MATCH {class: ENPerson, as: person, where: (name = 'mod')}"
+            + ".out('ENWrote'){as: post},"
+            + " NOT {as: person}"
+            + ".outE('ENFlagged'){as: flag, where: (severity >= 4)}"
+            + ".inV(){as: post}"
+            + " RETURN post.title as title";
+    var result = session.query(query).toList();
+
+    Set<String> titles = new HashSet<>();
+    for (var r : result) {
+      titles.add(r.getProperty("title"));
+    }
+    assertTrue("Should find post1", titles.contains("post1"));
+    assertTrue("Should find post3", titles.contains("post3"));
+    assertTrue("Should find post4", titles.contains("post4"));
+    assertFalse("Should NOT find post2 (flagged sev=5)",
+        titles.contains("post2"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 25. Edge-method + LIMIT/ORDER BY
+  // ========================================================================
+
+  /**
+   * outE().inV() with an index filter combined with ORDER BY and LIMIT.
+   * Tests that the pre-filter activates and the query correctly applies
+   * ordering and row limiting on the filtered result set.
+   */
+  @Test
+  public void edgeMethod_outE_withOrderByAndLimit() {
+    session.execute("CREATE class EOLHub extends V").close();
+    session.execute("CREATE property EOLHub.name STRING").close();
+
+    session.execute("CREATE class EOLItem extends V").close();
+    session.execute("CREATE property EOLItem.label STRING").close();
+
+    session.execute("CREATE class EOLLink extends E").close();
+    session.execute("CREATE property EOLLink.out LINK EOLHub").close();
+    session.execute("CREATE property EOLLink.in LINK EOLItem").close();
+    session.execute("CREATE property EOLLink.priority INTEGER").close();
+    session.execute(
+        "CREATE index EOLLink_priority on EOLLink (priority) NOTUNIQUE")
+        .close();
+
+    session.begin();
+    session.execute("CREATE VERTEX EOLHub set name = 'hub'").close();
+    for (int i = 1; i <= 8; i++) {
+      session.execute(
+          "CREATE VERTEX EOLItem set label = 'item" + i + "'").close();
+      session.execute(
+          "CREATE EDGE EOLLink FROM (SELECT FROM EOLHub WHERE name = 'hub')"
+              + " TO (SELECT FROM EOLItem WHERE label = 'item" + i + "')"
+              + " SET priority = " + (i * 10))
+          .close();
+    }
+    session.commit();
+
+    session.begin();
+    // priority >= 30: item3(30)..item8(80) → 6 items. LIMIT 3, ORDER BY priority
+    String query =
+        "MATCH {class: EOLHub, as: hub, where: (name = 'hub')}"
+            + ".outE('EOLLink'){as: e, where: (priority >= 30)}"
+            + ".inV(){as: item}"
+            + " RETURN item.label as label, e.priority as p"
+            + " ORDER BY p LIMIT 3";
+    var result = session.query(query).toList();
+
+    assertEquals(3, result.size());
+    // Ordered by priority ascending: item3(30), item4(40), item5(50)
+    assertEquals("item3", result.get(0).getProperty("label"));
+    assertEquals("item4", result.get(1).getProperty("label"));
+    assertEquals("item5", result.get(2).getProperty("label"));
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection:\n" + plan,
+        plan.contains("intersection:"));
+    session.commit();
+  }
+
+  // ========================================================================
+  // 26. outE().inV() with non-adjacent back-reference
+  // ========================================================================
+
+  /**
+   * outE().inV() where the back-reference points to an alias 2 hops
+   * upstream (not the immediate predecessor). Tests that EdgeRidLookup
+   * resolves non-adjacent $matched references through edge-method chains.
+   */
+  @Test
+  public void edgeMethod_outEInV_nonAdjacentBackRef() {
+    session.execute("CREATE class NANode extends V").close();
+    session.execute("CREATE property NANode.name STRING").close();
+
+    session.execute("CREATE class NAEdge extends E").close();
+    session.execute("CREATE property NAEdge.out LINK NANode").close();
+    session.execute("CREATE property NAEdge.in LINK NANode").close();
+    session.execute("CREATE property NAEdge.weight INTEGER").close();
+    session.execute(
+        "CREATE index NAEdge_weight on NAEdge (weight) NOTUNIQUE").close();
+
+    session.begin();
+    // a → b → c → d, a → c (shortcut), a → d (shortcut)
+    for (String n : new String[] {"a", "b", "c", "d"}) {
+      session.execute(
+          "CREATE VERTEX NANode set name = '" + n + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE NAEdge FROM (SELECT FROM NANode WHERE name = 'a')"
+            + " TO (SELECT FROM NANode WHERE name = 'b') SET weight = 10")
+        .close();
+    session.execute(
+        "CREATE EDGE NAEdge FROM (SELECT FROM NANode WHERE name = 'b')"
+            + " TO (SELECT FROM NANode WHERE name = 'c') SET weight = 20")
+        .close();
+    session.execute(
+        "CREATE EDGE NAEdge FROM (SELECT FROM NANode WHERE name = 'c')"
+            + " TO (SELECT FROM NANode WHERE name = 'd') SET weight = 30")
+        .close();
+    // Shortcuts from a
+    session.execute(
+        "CREATE EDGE NAEdge FROM (SELECT FROM NANode WHERE name = 'a')"
+            + " TO (SELECT FROM NANode WHERE name = 'c') SET weight = 15")
+        .close();
+    session.execute(
+        "CREATE EDGE NAEdge FROM (SELECT FROM NANode WHERE name = 'a')"
+            + " TO (SELECT FROM NANode WHERE name = 'd') SET weight = 25")
+        .close();
+    session.commit();
+
+    session.begin();
+    // a → out(NAEdge) → mid → out(NAEdge) → hop2
+    //   → outE(NAEdge){weight >= 20}.inV(){@rid = $matched.start.@rid}
+    // Back-ref to 'start' (= a) is 3 hops upstream.
+    // Only path that circles back to 'a' would require an edge TO 'a',
+    // which doesn't exist → empty result is expected.
+    // The key assertion is that the planner attaches the intersection
+    // descriptor (testing the non-adjacent back-ref through edge-method).
+    String query =
+        "MATCH {class: NANode, as: start, where: (name = 'a')}"
+            + ".out('NAEdge'){as: mid}"
+            + ".out('NAEdge'){as: hop2}"
+            + ".outE('NAEdge'){as: e, where: (weight >= 20)}"
+            + ".inV(){as: backToStart,"
+            + "  where: (@rid = $matched.start.@rid)}"
+            + " RETURN mid.name as midName";
+    var result = session.query(query).toList();
+    // No edges point back to 'a', so no results expected
+    assertEquals(0, result.size());
+
+    String plan = explainPlan(query);
+    assertTrue("Plan should show intersection for non-adjacent back-ref:\n"
+        + plan, plan.contains("intersection:"));
     session.commit();
   }
 }
