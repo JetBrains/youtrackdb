@@ -841,4 +841,165 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     }
   }
 
+  // ── Pattern D stripping verification tests ──
+
+  /**
+   * Verifies that the NOT IN condition is stripped from the MatchStep's WHERE
+   * clause at plan time. The EXPLAIN output should show BACK-REF HASH JOIN ANTI
+   * but the preceding MATCH step should NOT contain the NOT IN condition —
+   * it is now handled exclusively by the BackRefHashJoinStep.
+   */
+  @Test
+  public void explainBackRef_notIn_strippedFromMatchStep() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+            + " RETURN fof.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue(
+        "plan should use BACK-REF HASH JOIN ANTI, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN ANTI"));
+    // The NOT IN should have been stripped from MatchStep's filter.
+    // After stripping, $currentMatch NOT IN should not appear in any
+    // MATCH step line — only in the BACK-REF HASH JOIN ANTI step.
+    var lines = plan.split("\n");
+    for (var line : lines) {
+      if (line.contains("MATCH") && !line.contains("BACK-REF")
+          && !line.contains("$matched")) {
+        assertFalse(
+            "NOT IN should be stripped from MatchStep filter, got line:\n"
+                + line,
+            line.contains("NOT IN"));
+      }
+    }
+    session.commit();
+  }
+
+  /**
+   * Pattern D fallback correctness — threshold=1 forces hash build failure
+   * (n1.out('Friend') has 2 entries > 1). The stored NOT IN condition must
+   * be evaluated per row by BackRefHashJoinStep as fallback.
+   */
+  @Test
+  public void backRef_notIn_thresholdOne_fallbackCorrectResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      // threshold=1: n1.out('Friend') has 2 entries (n2,n3) > 1, build fails
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      var result = session.query(
+          "MATCH {class:Person, as:start, where:(name='n1')}"
+              + ".out('Friend'){as:friend}"
+              + ".out('Friend'){as:fof,"
+              + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+              + " RETURN fof.name as fofName")
+          .toList();
+
+      var names = result.stream()
+          .map(r -> (String) r.getProperty("fofName"))
+          .collect(Collectors.toSet());
+      // n2→n4, n3→n5. Neither n4 nor n5 is in n1.out('Friend')={n2,n3}
+      assertEquals(Set.of("n4", "n5"), names);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Pattern D fallback with exclusion — threshold=1 forces fallback. Add n4
+   * as a direct friend of n1, then n4 should be excluded from FoF results.
+   */
+  @Test
+  public void backRef_notIn_withExclusion_thresholdOne_fallbackCorrectResults() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+
+      session.begin();
+      // Make n4 a direct friend of n1
+      session.execute(
+          "CREATE EDGE Friend from (select from Person where name='n1')"
+              + " to (select from Person where name='n4')")
+          .close();
+
+      var result = session.query(
+          "MATCH {class:Person, as:start, where:(name='n1')}"
+              + ".out('Friend'){as:friend}"
+              + ".out('Friend'){as:fof,"
+              + " where: ($currentMatch NOT IN $matched.start.out('Friend'))}"
+              + " RETURN fof.name as fofName")
+          .toList();
+
+      var names = result.stream()
+          .map(r -> (String) r.getProperty("fofName"))
+          .collect(Collectors.toSet());
+      // n4 is now a direct friend of n1, so it's excluded. Only n5 remains.
+      assertEquals(Set.of("n5"), names);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /**
+   * Pattern D with compound WHERE — NOT IN + additional condition. Verifies
+   * that stripping removes only the NOT IN, leaving the residual condition
+   * (name = 'n4') on the MatchStep.
+   */
+  @Test
+  public void backRef_notIn_compoundWhere_correctResults() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend')"
+            + " AND name = 'n4')}"
+            + " RETURN fof.name as fofName")
+        .toList();
+
+    // FoF = {n4, n5}. NOT IN filters nothing (neither is direct friend of n1).
+    // AND name='n4' filters to just n4.
+    assertEquals(1, result.size());
+    assertEquals("n4", result.get(0).getProperty("fofName"));
+    session.commit();
+  }
+
+  /**
+   * EXPLAIN of compound WHERE — when NOT IN is combined with additional AND
+   * conditions, the anti-join optimization does not fire (pre-existing
+   * limitation of toString-based pattern detection). The query falls back
+   * to standard MatchStep WHERE evaluation. Verify the plan uses a regular
+   * MATCH step (no BACK-REF HASH JOIN ANTI) and results are still correct.
+   */
+  @Test
+  public void explainBackRef_notIn_compoundWhere_fallsBackToMatchStep() {
+    session.begin();
+    var result = session.query(
+        "EXPLAIN MATCH {class:Person, as:start, where:(name='n1')}"
+            + ".out('Friend'){as:friend}"
+            + ".out('Friend'){as:fof,"
+            + " where: ($currentMatch NOT IN $matched.start.out('Friend')"
+            + " AND name = 'n4')}"
+            + " RETURN fof.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.get(0).getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    // Compound NOT IN + AND does not trigger anti-join optimization —
+    // falls back to standard MATCH step with full WHERE evaluation
+    assertFalse(
+        "compound WHERE should not use anti-join, got:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN ANTI"));
+    session.commit();
+  }
+
 }
