@@ -124,22 +124,57 @@ ssh root@<IP> '
   wait'
 ```
 
-Download the LDBC SF 1 CSV dataset (see `run-jmh-benchmarks-hetzner` skill for S3 presigned URL generation with `S3_KEY="ldbc/ldbc-sf1-composite-merged-fk.tar.zst"`):
+Download the LDBC SF 1 CSV dataset and canonical curated parameters from Hetzner S3. Generate presigned URLs locally (see `run-jmh-benchmarks-hetzner` skill Step 3b for the boto3 presigned URL generation):
+
+```bash
+# Generate presigned URLs locally (boto3 required)
+python3 -c "
+import boto3, os
+s3 = boto3.client('s3',
+    endpoint_url=os.environ['HETZNER_S3_ENDPOINT'],
+    aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
+    aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
+for key in ['ldbc/ldbc-sf1-composite-merged-fk.tar.zst', 'ldbc/curated-params-v3.json', 'ldbc/factor-tables.json']:
+    url = s3.generate_presigned_url('get_object',
+        Params={'Bucket': 'bench-cache', 'Key': key},
+        ExpiresIn=7200)
+    print(f'{key}: {url}')
+"
+```
+
+Download and extract CSV dataset:
 ```bash
 # Download and extract CSV dataset to HEAD
 ssh root@<IP> 'apt-get install -y -qq zstd > /dev/null 2>&1 && \
   mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
   cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
-  curl -sS "<PRESIGNED_URL>" | zstd -dc | tar xf - && \
+  curl -sS "<CSV_PRESIGNED_URL>" | zstd -dc | tar xf - && \
   echo "Dataset ready" && ls static/ dynamic/'
 
 # Copy CSV dataset to BASE
 ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh-ldbc/target/'
 ```
 
-### Step 6: Pre-load and curate parameters
+Download canonical curated parameters for both HEAD and BASE:
+```bash
+# Install canonical curated params into HEAD DB directory
+ssh root@<IP> 'mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-bench-db && \
+  curl -sS -o /root/ytdb/jmh-ldbc/target/ldbc-bench-db/factor-tables.json "<FACTOR_TABLES_URL>" && \
+  curl -sS -o /root/ytdb/jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json "<CURATED_PARAMS_URL>" && \
+  echo "HEAD curated params installed"'
 
-Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation. Any benchmark name works here — the goal is just to trigger `@Setup(Level.Trial)` which loads the DB and caches curated parameters.
+# Install canonical curated params into BASE DB directory
+ssh root@<IP> 'mkdir -p /root/ytdb-base/jmh-ldbc/target/ldbc-bench-db && \
+  curl -sS -o /root/ytdb-base/jmh-ldbc/target/ldbc-bench-db/factor-tables.json "<FACTOR_TABLES_URL>" && \
+  curl -sS -o /root/ytdb-base/jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json "<CURATED_PARAMS_URL>" && \
+  echo "BASE curated params installed"'
+```
+
+**Critical**: Both HEAD and BASE must use the same canonical curated parameters downloaded from S3. Never let either version regenerate params independently — internal data structure changes can alter iteration order and produce incomparable parameter sets (see IC4 desync incident in `jmh-ldbc/README.md`).
+
+### Step 6: Pre-load database
+
+Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and load canonical curated parameters. Any benchmark name works here — the goal is just to trigger `@Setup(Level.Trial)` which creates the DB from CSV and loads the pre-downloaded curated parameters from the JSON cache files installed in Step 5.
 
 **Important**: Use `-f 1` (not `-f 0`). With `-f 0` the benchmark runs in-process and JMH exits 0 even when all benchmarks fail — silent failures are hard to diagnose on a remote server.
 
