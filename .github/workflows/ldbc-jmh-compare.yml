@@ -167,6 +167,20 @@ jobs:
           ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
             -Dspotless.check.skip=true -q
 
+      - name: 'Base: install canonical curated parameters'
+        run: |
+          # Install canonical curated params before DB load so
+          # ParameterCurator finds them and skips regeneration.
+          # This ensures BASE and HEAD use identical params.
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             "$DB_DIR/curated-params-v3.json"
+          cp /tmp/factor-tables-${{ github.run_id }}.json \
+             "$DB_DIR/factor-tables.json"
+          touch "$DB_DIR/curated-params-v3.json"
+          echo "Canonical curated params installed for base run"
+
       - name: 'Base: setup database'
         run: |
           set -euo pipefail
@@ -201,16 +215,6 @@ jobs:
             exit 1
           fi
           echo "Database loaded successfully from CSV"
-
-      - name: 'Base: install canonical curated parameters'
-        run: |
-          # Install canonical curated params so ParameterCurator skips
-          # regeneration. This ensures BASE and HEAD use identical params.
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json
-          cp /tmp/factor-tables-${{ github.run_id }}.json \
-             jmh-ldbc/target/ldbc-bench-db/factor-tables.json
-          echo "Canonical curated params installed for base run"
 
       - name: 'Base: warm OS page cache'
         env:
@@ -275,6 +279,19 @@ jobs:
           ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
             -Dspotless.check.skip=true -q
 
+      - name: 'Head: install canonical curated parameters'
+        run: |
+          # Install canonical curated params before DB load — same as
+          # base, ensuring both runs use identical benchmark parameters.
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          cp /tmp/curated-params-${{ github.run_id }}.json \
+             "$DB_DIR/curated-params-v3.json"
+          cp /tmp/factor-tables-${{ github.run_id }}.json \
+             "$DB_DIR/factor-tables.json"
+          touch "$DB_DIR/curated-params-v3.json"
+          echo "Canonical curated params installed for head run"
+
       - name: 'Head: setup database'
         run: |
           set -euo pipefail
@@ -309,16 +326,6 @@ jobs:
             exit 1
           fi
           echo "Database loaded successfully from CSV"
-
-      - name: 'Head: install canonical curated parameters'
-        run: |
-          # Install canonical curated params — same as base, ensuring
-          # both runs use identical benchmark parameters.
-          cp /tmp/curated-params-${{ github.run_id }}.json \
-             jmh-ldbc/target/ldbc-bench-db/curated-params-v3.json
-          cp /tmp/factor-tables-${{ github.run_id }}.json \
-             jmh-ldbc/target/ldbc-bench-db/factor-tables.json
-          echo "Canonical curated params installed for head run"
 
       - name: 'Head: warm OS page cache'
         env:

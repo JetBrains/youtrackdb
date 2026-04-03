@@ -125,10 +125,13 @@ ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
 
 The CSV dataset uses LDBC datagen v1.0.0 CsvCompositeMergeForeign format. The DB will be created from CSVs during the pre-load step (Step 4b), which takes ~21 minutes for SF 1.
 
-**Step 3**: Download canonical curated parameters (install after DB is created in Step 4b):
+**Step 3**: Download canonical curated parameters and install into the DB directory (created here so they are available before the pre-load fork in Step 4b):
 ```bash
-ssh root@<IP> "curl -sS -o /tmp/curated-params-v3.json '<CURATED_PARAMS_URL>' && \
-  curl -sS -o /tmp/factor-tables.json '<FACTOR_TABLES_URL>'"
+ssh root@<IP> "mkdir -p /root/ytdb/<module>/target/ldbc-bench-db && \
+  curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json '<CURATED_PARAMS_URL>' && \
+  curl -sS -o /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json '<FACTOR_TABLES_URL>' && \
+  touch /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json && \
+  echo 'Canonical curated params installed'"
 ```
 
 Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`), `<CSV_PRESIGNED_URL>` with the CSV dataset URL, and `<CURATED_PARAMS_URL>` / `<FACTOR_TABLES_URL>` with the corresponding URLs from Step 1.
@@ -148,9 +151,9 @@ Replace `<module>` with the target benchmark module (e.g. `jmh-ldbc`).
 
 Wait for BUILD SUCCESS (typically ~60-90 seconds on CCX33).
 
-### Step 4b: Pre-load and curate parameters (jmh-ldbc only)
+### Step 4b: Pre-load database (jmh-ldbc only)
 
-**Critical for jmh-ldbc**: The first JMH fork triggers DB loading (if using CSV) and parameter curation inside `@Setup(Level.Trial)`. For multi-threaded benchmarks, threads start executing queries on a partially-loaded database, producing wildly inaccurate results.
+**Critical for jmh-ldbc**: The first JMH fork triggers DB loading (if using CSV) and parameter loading inside `@Setup(Level.Trial)`. For multi-threaded benchmarks, threads start executing queries on a partially-loaded database, producing wildly inaccurate results.
 
 **Always run a pre-load fork** before the real benchmarks to ensure the DB is ready and curated parameters are cached:
 
@@ -161,15 +164,7 @@ ssh root@<IP> 'cd /root/ytdb && ./mvnw -pl <module> -am verify -P bench -DskipTe
 
 This runs a single fork (`-f 1`) that triggers:
 1. DB creation from CSV files — ~21 min for SF 1
-2. Factor table computation and caching to `factor-tables.json`
-3. Parameter curation (including IC4 oldPost-count difficulty sampling) and caching to `curated-params-v<N>.json` (versioned filename — bumped when curation logic changes)
-
-After the pre-load completes, install canonical curated parameters to override any locally-generated ones:
-```bash
-ssh root@<IP> "cp /tmp/curated-params-v3.json /root/ytdb/<module>/target/ldbc-bench-db/curated-params-v3.json && \
-  cp /tmp/factor-tables.json /root/ytdb/<module>/target/ldbc-bench-db/factor-tables.json && \
-  echo 'Canonical curated params installed'"
-```
+2. Loading canonical curated parameters and factor tables from the cache files installed in Step 3 (no regeneration needed)
 
 Subsequent forked runs will find the existing DB and load curated parameters from the JSON cache — zero SQL queries needed.
 
@@ -276,8 +271,8 @@ Changes within ~5-7% are typically measurement noise for multi-threaded benchmar
 
 - **Server type**: CCX33 provides 8 dedicated AMD EPYC vCPUs — dedicated (not shared) cores ensure consistent benchmark results. For heavier benchmarks, consider CCX43 (16 vCPUs) or CCX53 (32 vCPUs).
 - **jmh-ldbc Threads.MAX**: The multi-threaded LDBC benchmark uses `@Threads(Threads.MAX)` — one thread per available processor. On CCX33 this means 8 threads.
-- **jmh-ldbc dataset loading**: Always load from the CSV dataset (see Step 3b). Pre-load with `-f 1` before real benchmarks (see Step 4b), then install canonical curated params. The DB path is `./target/ldbc-bench-db`.
-- **jmh-ldbc curated params**: Canonical curated parameters are stored in S3 as separate objects (`ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`). **Always download and install them after DB creation** — never let the benchmark regenerate params independently, as different code versions produce different iteration orders, which cause the stride-based parameter sampling to select different query parameter sets, making results incomparable. See `jmh-ldbc/README.md` for the regeneration procedure (only needed when curation algorithm changes).
+- **jmh-ldbc dataset loading**: Always load from the CSV dataset (see Step 3b). Install canonical curated params into the DB directory (Step 3b, Step 3), then pre-load with `-f 1` (Step 4b). The DB path is `./target/ldbc-bench-db`.
+- **jmh-ldbc curated params**: Canonical curated parameters are stored in S3 as separate objects (`ldbc/curated-params-v3.json`, `ldbc/factor-tables.json`). **Always download and install them before the pre-load fork** — never let the benchmark regenerate params independently, as different code versions produce different iteration orders, which cause the stride-based parameter sampling to select different query parameter sets, making results incomparable. See `jmh-ldbc/README.md` for the regeneration procedure (only needed when curation algorithm changes).
 - **Never run benchmarks concurrently**: Multiple JMH processes on the same server will contend for CPU and produce unreliable numbers. Always run one at a time.
 - **Ubuntu apt lock on fresh servers**: Newly provisioned Ubuntu 24.04 servers run `unattended-upgrades` on first boot. If `apt-get install` fails with "Could not get lock", wait 30 seconds and retry.
 - **Memory file**: For LDBC benchmarks, update `ldbc-jmh-benchmarks.md` in the auto-memory directory with new results after each run.

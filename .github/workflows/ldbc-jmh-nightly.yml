@@ -117,6 +117,21 @@ jobs:
           chmod +x mvnw
           ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
 
+      - name: Install canonical curated parameters
+        run: |
+          # Install canonical curated params before the pre-load so
+          # ParameterCurator finds them and skips regeneration.
+          # Ensures all nightly runs use identical params regardless
+          # of database iteration order.
+          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
+          mkdir -p "$DB_DIR"
+          cp "/tmp/curated-params-${{ github.run_id }}.json" \
+             "$DB_DIR/curated-params-v3.json"
+          cp "/tmp/factor-tables-${{ github.run_id }}.json" \
+             "$DB_DIR/factor-tables.json"
+          touch "$DB_DIR/curated-params-v3.json"
+          echo "Canonical curated params installed"
+
       - name: Pre-load LDBC database
         run: |
           set -euo pipefail
@@ -131,18 +146,6 @@ jobs:
             exit 1
           fi
           echo "Database loaded successfully from CSV"
-
-      - name: Install canonical curated parameters
-        run: |
-          # Install canonical curated params so ParameterCurator skips
-          # regeneration. Ensures all nightly runs use identical params
-          # regardless of database iteration order.
-          DB_DIR="jmh-ldbc/target/ldbc-bench-db"
-          cp "/tmp/curated-params-${{ github.run_id }}.json" \
-             "$DB_DIR/curated-params-v3.json"
-          cp "/tmp/factor-tables-${{ github.run_id }}.json" \
-             "$DB_DIR/factor-tables.json"
-          echo "Canonical curated params installed"
 
       - name: Warm OS page cache
         run: |

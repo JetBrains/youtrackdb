@@ -266,7 +266,7 @@ All settings are passed as JVM system properties. When using Maven, add `-D` fla
 | `ldbc.db.path` | `./target/ldbc-bench-db` | Directory where the YouTrackDB database is stored. If a database already exists here, CSV loading is skipped. |
 | `ldbc.scale.factor` | `1` | Scale factor (used in default dataset path). |
 | `ldbc.batch.size` | `1000` | Batch size for CSV data loading. |
-| `ldbc.allow.param.generation` | `false` | When `true`, allows regeneration of curated parameters if cached files are missing. Without this flag, missing params cause a hard failure. Only set when intentionally regenerating canonical parameters. |
+| `ldbc.allow.param.generation` | `false` | When `true`, allows regeneration of curated parameters if cached files are missing or stale (factor tables newer than curated params). Without this flag, missing/stale params cause a hard failure. Only set when intentionally regenerating canonical parameters. |
 
 Example with a custom dataset path or smaller scale factor:
 

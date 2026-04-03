@@ -174,7 +174,9 @@ final class ParameterCurator {
     if (!allowGeneration) {
       throw new IllegalStateException(
           "Curated parameters missing or stale at " + cacheFile + " and regeneration"
-              + " is not allowed. Download canonical curated params from S3"
+              + " is not allowed. If you downloaded canonical params from S3,"
+              + " ensure curated-params was installed after factor-tables so its"
+              + " mtime is not older. Otherwise, download canonical curated params"
               + " (ldbc/curated-params-v3.json, ldbc/factor-tables.json) and"
               + " install them into the DB directory. To regenerate locally,"
               + " pass -D" + ALLOW_PARAM_GENERATION_PROP + "=true");
