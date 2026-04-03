@@ -112,15 +112,12 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb-base && \
 
 ### Step 5: Compile both versions and download LDBC data
 
-Compile both in parallel (they use separate directories):
+Compile both in parallel (they use separate directories, run concurrently on the server):
 ```bash
-# HEAD
-ssh root@<IP> 'cd /root/ytdb && chmod +x mvnw && \
-  ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q'
-
-# BASE
-ssh root@<IP> 'cd /root/ytdb-base && chmod +x mvnw && \
-  ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q'
+ssh root@<IP> '
+  (cd /root/ytdb && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q) &
+  (cd /root/ytdb-base && chmod +x mvnw && ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q) &
+  wait'
 ```
 
 Download pre-built LDBC database (see `run-jmh-benchmarks-hetzner` skill for S3 presigned URL generation):
