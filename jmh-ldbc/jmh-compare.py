@@ -84,14 +84,31 @@ def fmt_delta(base_val, head_val):
     return f"{sign}{delta:.1f}%"
 
 
-def delta_icon(base_val, head_val, threshold_pct=5.0):
-    """Return an icon indicating regression/improvement/neutral."""
+def errors_overlap(base_score, base_error, head_score, head_error):
+    """Return True if the confidence intervals [score ± error] overlap."""
+    base_lo = base_score - base_error
+    base_hi = base_score + base_error
+    head_lo = head_score - head_error
+    head_hi = head_score + head_error
+    return base_lo <= head_hi and head_lo <= base_hi
+
+
+def delta_icon(base_val, head_val, threshold_pct=5.0,
+               base_error=0, head_error=0):
+    """Return an icon indicating regression/improvement/neutral.
+
+    A change is only flagged when BOTH conditions hold:
+    1. The percentage change exceeds ±threshold_pct.
+    2. The error bars (score ± scoreError) do not overlap.
+    """
     if base_val == 0:
         return ""
     delta = (head_val - base_val) / base_val * 100
-    if delta <= -threshold_pct:
+    if delta <= -threshold_pct and not errors_overlap(
+            base_val, base_error, head_val, head_error):
         return " :red_circle:"
-    elif delta >= threshold_pct:
+    elif delta >= threshold_pct and not errors_overlap(
+            base_val, base_error, head_val, head_error):
         return " :green_circle:"
     return ""
 
@@ -111,7 +128,9 @@ def build_suite_table(base, head, suite):
 
         if b and h:
             delta = fmt_delta(b["score"], h["score"])
-            icon = delta_icon(b["score"], h["score"])
+            icon = delta_icon(b["score"], h["score"],
+                              base_error=b["score_error"],
+                              head_error=h["score_error"])
             rows.append(
                 f"| {query} "
                 f"| {fmt_score(b['score'])} "
@@ -139,7 +158,11 @@ def build_suite_table(base, head, suite):
 
 
 def count_changes(base, head, threshold_pct=5.0):
-    """Count regressions and improvements across all suites."""
+    """Count regressions and improvements across all suites.
+
+    A change is counted only when the percentage exceeds the threshold
+    AND the error bars do not overlap.
+    """
     regressions = 0
     improvements = 0
     for key in base.keys() | head.keys():
@@ -147,9 +170,12 @@ def count_changes(base, head, threshold_pct=5.0):
         h = head.get(key)
         if b and h and b["score"] > 0:
             delta = (h["score"] - b["score"]) / b["score"] * 100
-            if delta <= -threshold_pct:
+            overlap = errors_overlap(
+                b["score"], b["score_error"],
+                h["score"], h["score_error"])
+            if delta <= -threshold_pct and not overlap:
                 regressions += 1
-            elif delta >= threshold_pct:
+            elif delta >= threshold_pct and not overlap:
                 improvements += 1
     return regressions, improvements
 
@@ -189,7 +215,10 @@ def main():
             parts.append(f":red_circle: {regressions} regression(s)")
         if improvements > 0:
             parts.append(f":green_circle: {improvements} improvement(s)")
-        lines.append(f"**Summary:** {', '.join(parts)} (>\u00b15% threshold)")
+        lines.append(
+            f"**Summary:** {', '.join(parts)} "
+            f"(>\u00b15% threshold, non-overlapping error bars)"
+        )
     lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
