@@ -110,7 +110,7 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb-base && \
   cd /root/ytdb-base && git init && git add -A && git commit -m "base" --quiet'
 ```
 
-### Step 5: Compile both versions and download LDBC data
+### Step 5: Compile both versions and download LDBC CSV dataset
 
 Compile both in parallel (they use separate directories, run concurrently on the server):
 ```bash
@@ -120,38 +120,22 @@ ssh root@<IP> '
   wait'
 ```
 
-Download pre-built LDBC database (see `run-jmh-benchmarks-hetzner` skill for S3 presigned URL generation):
+Download the LDBC SF 1 CSV dataset (see `run-jmh-benchmarks-hetzner` skill for S3 presigned URL generation with `S3_KEY="ldbc/ldbc-sf1-composite-merged-fk.tar.zst"`):
 ```bash
-# Generate presigned URL locally
-S3_KEY="ldbc/ldbc-sf1-bench-db.tar.zst"
-PRESIGNED_URL=$(python3 -c "
-import boto3, os
-s3 = boto3.client('s3',
-    endpoint_url='https://nbg1.your-objectstorage.com',
-    aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
-    aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
-url = s3.generate_presigned_url('get_object',
-    Params={'Bucket': 'bench-cache', 'Key': '$S3_KEY'},
-    ExpiresIn=7200)
-print(url)
-")
+# Download and extract CSV dataset to HEAD
+ssh root@<IP> "apt-get install -y -qq zstd > /dev/null 2>&1 && \
+  mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
+  cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
+  curl -sS '<PRESIGNED_URL>' | zstd -dc | tar xf - && \
+  echo 'Dataset ready' && ls static/ dynamic/"
 
-# Download and extract to HEAD
-ssh root@<IP> "mkdir -p /root/ytdb/jmh-ldbc/target && \
-  cd /root/ytdb/jmh-ldbc/target && \
-  curl -sS '$PRESIGNED_URL' | zstd -dc | tar xf -"
-
-# Clear curation caches
-ssh root@<IP> 'rm -f /root/ytdb/jmh-ldbc/target/ldbc-bench-db/curated-params*.json \
-  /root/ytdb/jmh-ldbc/target/ldbc-bench-db/factor-tables.json'
-
-# Copy to BASE
-ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-bench-db /root/ytdb-base/jmh-ldbc/target/'
+# Copy CSV dataset to BASE
+ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh-ldbc/target/'
 ```
 
 ### Step 6: Pre-load and curate parameters
 
-Run a throwaway fork on **each** version to trigger DB open + parameter curation:
+Run a throwaway fork on **each** version to trigger DB creation from CSV files (~21 min for SF 1) and parameter curation:
 
 ```bash
 # HEAD
