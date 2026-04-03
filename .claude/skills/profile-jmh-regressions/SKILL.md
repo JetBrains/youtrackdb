@@ -283,10 +283,10 @@ Compare HEAD vs BASE top-30 leaf methods. Look for:
 
 #### 9c. Inclusive method time
 
-Count how many stacks contain a given method (measures total time including children):
+Sum the sample counts across all stacks containing a given method (measures total time including children):
 
 ```bash
-grep -c "<method-name>" <file-filtered.csv>
+grep "<method-name>" <file-filtered.csv> | awk '{sum += $NF} END {print sum}'
 ```
 
 Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getCollate`, `tryInPlaceComparison`, `isPropertyEqual`, `comparePropertyTo`, `deserializeFieldForComparison`, `InPlaceCompar`, `EntityImpl.hasProperty`, `EntityImpl.deserializeProperties`, `checkPropertyNameIfValid`, `getFieldSizeAndType`, `executeReadRecord`, `ConcurrentLongIntHashMap`, `ConcurrentHashMap`, `LockFreeReadCache`.
@@ -296,7 +296,7 @@ Focus on methods from the changed code: `SQLBinaryCondition.evaluate`, `getColla
 Extract what a specific method calls (its direct children in the profile):
 
 ```bash
-grep "<parent-method>;" <file-filtered.csv> | sed 's/.*<parent-method>;//' | awk -F";" '{print $1}' | sort | uniq -c | sort -rn | head -15
+grep "<parent-method>;" <file-filtered.csv> | sed 's/.*<parent-method>;//' | awk -F"[ ;]" '{sum[$1]+=$NF} END {for (c in sum) print sum[c], c}' | sort -rn | head -15
 ```
 
 Compare HEAD vs BASE children. Changes in child method distribution indicate:
