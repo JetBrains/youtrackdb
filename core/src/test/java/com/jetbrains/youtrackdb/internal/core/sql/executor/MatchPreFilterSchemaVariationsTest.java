@@ -129,13 +129,12 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(1, phoneResult.size());
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: SHub, as: hub, where: (name = 'hub1')}"
             + ".outE('SHasEmail'){as: he, where: (priority >= 3)}"
             + ".inV(){as: email}"
-            + " RETURN email.addr as addr");
-    assertTrue("Plan should show intersection for SHasEmail index:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN email.addr as addr",
+        "Plan should show intersection for SHasEmail index");
     session.commit();
   }
 
@@ -206,16 +205,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // Cartesian: 2 × 2 = 4
     assertEquals(4, result.size());
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MHub, as: h, where: (name = 'center')}"
             + ".outE('MEdgeA'){as: ea, where: (score >= 20)}"
             + ".inV(){as: itemA},"
             + " {as: h}"
             + ".outE('MEdgeB'){as: eb, where: (rank >= 2)}"
             + ".inV(){as: itemB}"
-            + " RETURN itemA.label as aLabel, itemB.label as bLabel");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN itemA.label as aLabel, itemB.label as bLabel",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -276,15 +274,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("n3", result.get(0).getProperty("dN"));
     assertEquals("n4", result.get(0).getProperty("eN"));
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: ChNode, as: a, where: (name = 'n0')}"
             + ".out('ChLink'){as: b, where: (value >= 15)}"
             + ".out('ChLink'){as: c, where: (value >= 25)}"
             + ".out('ChLink'){as: d, where: (value >= 35)}"
             + ".out('ChLink'){as: e, where: (value >= 45)}"
-            + " RETURN b.name, c.name, d.name, e.name");
-    assertTrue("Plan should show index intersection:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN b.name, c.name, d.name, e.name",
+        "Plan should show index intersection");
     session.commit();
   }
 
@@ -341,16 +338,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals(1, result.size());
     assertEquals("pn3", result.get(0).getProperty("finishName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: PNode, as: start, where: (name = 'pn0')}"
             + ".outE('PLinkA'){as: ea1, where: (weight >= 5)}"
             + ".inV(){as: mid1}"
             + ".out('PLinkB'){as: mid2}"
             + ".outE('PLinkA'){as: ea2, where: (weight >= 15)}"
             + ".inV(){as: finish}"
-            + " RETURN finish.name as finishName");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN finish.name as finishName",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -413,19 +409,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     // s0(Physics,90), s1(CS,95), s4(Math,92)
-    Set<String> students = new HashSet<>();
-    for (var r : result) {
-      students.add(r.getProperty("sName"));
-    }
-    assertEquals(Set.of("s0", "s1", "s4"), students);
+    assertEquals(Set.of("s0", "s1", "s4"), collectProperty(result, "sName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: BStudent, as: s}"
             + ".outE('BEnrolled'){as: enr, where: (grade >= 90)}"
             + ".inV(){as: course}"
-            + " RETURN s.name, course.title, enr.grade");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN s.name, course.title, enr.grade",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -481,26 +472,19 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN classmate.name as name")
         .toList();
 
-    Set<String> classmates = new HashSet<>();
-    for (var r : result) {
-      classmates.add(r.getProperty("name"));
-    }
     // bob shares DB101, carol shares ML201
-    assertEquals(Set.of("bob", "carol"), classmates);
+    assertEquals(Set.of("bob", "carol"), collectProperty(result, "name"));
 
     // findRidEquality() only matches @rid = <expr> (SQLEqualsOperator). The <>
     // (not-equals) operator does not trigger EdgeRidLookup. The inequality is
     // evaluated as a standard post-traversal WHERE filter instead.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: BStu, as: student, where: (name = 'alice')}"
             + ".out('BTakes'){as: course}"
             + ".in('BTakes'){as: classmate,"
             + "  where: (@rid <> $matched.student.@rid)}"
-            + " RETURN classmate.name as name");
-    assertFalse(
-        "Only @rid = ... triggers back-ref intersection, not @rid <>:\n"
-            + plan,
-        plan.contains("intersection:"));
+            + " RETURN classmate.name as name",
+        "Only @rid = ... triggers back-ref intersection, not @rid <>");
     session.commit();
   }
 
@@ -565,19 +549,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     assertEquals(4, result.size());
-    Set<String> grandchildren = new HashSet<>();
-    for (var r : result) {
-      grandchildren.add(r.getProperty("gcName"));
-    }
-    assertEquals(Set.of("c00", "c01", "c10", "c11"), grandchildren);
+    assertEquals(Set.of("c00", "c01", "c10", "c11"),
+        collectProperty(result, "gcName"));
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: TNode, as: root, where: (name = 'root')}"
             + ".out('TChild'){as: child}"
             + ".out('TChild'){as: grandchild, where: (level >= 2)}"
-            + " RETURN child.name, grandchild.name");
-    assertTrue("Plan should show index intersection:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN child.name, grandchild.name",
+        "Plan should show index intersection");
     session.commit();
   }
 
@@ -634,15 +614,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("B", result.get(0).getProperty("f1Name"));
     assertEquals("C", result.get(0).getProperty("f2Name"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: TriPerson, as: person, where: (name = 'A')}"
             + ".out('TriFriend'){as: f1}"
             + ".out('TriFriend'){as: f2}"
             + ".out('TriFriend'){as: back,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN f1.name, f2.name");
-    assertTrue("Plan should show intersection for cycle back-ref:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN f1.name, f2.name",
+        "Plan should show intersection for cycle back-ref");
     session.commit();
   }
 
@@ -693,14 +672,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals(1, result.size());
     assertEquals("Y", result.get(0).getProperty("friendName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MutNode, as: origin, where: (name = 'X')}"
             + ".out('MutEdge'){as: friend}"
             + ".out('MutEdge'){as: backToOrigin,"
             + "  where: (@rid = $matched.origin.@rid)}"
-            + " RETURN friend.name as friendName");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN friend.name as friendName",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -771,18 +749,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN prod.name as name")
         .toList();
     // prod7(700,2), prod8(800,3), prod9(900,4) → price>=700 AND rating>=3: prod8, prod9
-    Set<String> names = new HashSet<>();
-    for (var r : bothResult) {
-      names.add(r.getProperty("name"));
-    }
-    assertEquals(Set.of("prod8", "prod9"), names);
+    assertEquals(Set.of("prod8", "prod9"), collectProperty(bothResult, "name"));
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: MICategory, as: cat, where: (name = 'electronics')}"
             + ".in('MIBelongsTo'){as: prod, where: (price >= 700)}"
-            + " RETURN prod.name");
-    assertTrue("Plan should show index intersection for price:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN prod.name",
+        "Plan should show index intersection for price");
     session.commit();
   }
 
@@ -844,25 +817,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.name as itemName")
         .toList();
     assertEquals(2, sub1Result.size());
-    Set<String> sub1Names = new HashSet<>();
-    for (var r : sub1Result) {
-      sub1Names.add(r.getProperty("itemName"));
-    }
-    assertEquals(Set.of("sub1a", "sub1b"), sub1Names);
+    assertEquals(Set.of("sub1a", "sub1b"), collectProperty(sub1Result, "itemName"));
 
     // The class filter optimization IS active via setAcceptedCollectionIds() on
     // EdgeTraversal. It includes cluster IDs for PolyBase and all its subclasses
     // (PolySub1, PolySub2). This zero-I/O filter is not visible in EXPLAIN
     // because it uses the acceptedCollectionIds mechanism, not the intersection
     // descriptor infrastructure.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: PolyContainer, as: box, where: (name = 'box')}"
             + ".out('PolyContains'){class: PolyBase, as: item}"
-            + " RETURN item.name as itemName");
-    assertFalse(
-        "Class filter uses acceptedCollectionIds, not intersection descriptor:\n"
-            + plan,
-        plan.contains("intersection:"));
+            + " RETURN item.name as itemName",
+        "Class filter uses acceptedCollectionIds, not intersection descriptor");
     session.commit();
   }
 
@@ -912,18 +878,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN target.label as label")
         .toList();
     assertEquals(3, result.size());
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("t97", "t98", "t99"), labels);
+    assertEquals(Set.of("t97", "t98", "t99"), collectProperty(result, "label"));
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: WideHub, as: hub, where: (name = 'hub')}"
             + ".out('WideLink'){as: target, where: (score >= 97)}"
-            + " RETURN target.label");
-    assertTrue("Plan should show index intersection:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN target.label",
+        "Plan should show index intersection");
     session.commit();
   }
 
@@ -983,21 +944,16 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     // All 3 bridged sources connect to target; co = bridged (self-match)
-    Set<String> bridgedNames = new HashSet<>();
-    for (var r : result) {
-      bridgedNames.add(r.getProperty("bName"));
-    }
-    assertEquals(Set.of("src10", "src25", "src42"), bridgedNames);
+    assertEquals(Set.of("src10", "src25", "src42"), collectProperty(result, "bName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: FISource, as: anchor, where: (name = 'anchor')}"
             + ".out('FIBridge'){as: bridged}"
             + ".out('FIEdge'){as: target}"
             + ".in('FIEdge'){as: co,"
             + "  where: (@rid = $matched.bridged.@rid)}"
-            + " RETURN bridged.name as bName");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN bridged.name as bName",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -1075,14 +1031,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     // bob's messages with ts >= 1300: msg3(1300), msg4(1400)
-    Set<String> texts = new HashSet<>();
-    for (var r : result) {
-      texts.add(r.getProperty("text"));
-    }
+    Set<String> texts = collectProperty(result, "text");
     assertTrue("Should find msg3", texts.contains("msg3"));
     assertTrue("Should find msg4", texts.contains("msg4"));
 
-    String plan = explainPlan(
+    // Should see both index intersection (ts on bobMsg) and
+    // EdgeRidLookup intersection (back-ref on alice2)
+    assertPlanHasIntersection(
         "MATCH {class: MxPerson, as: alice, where: (name = 'alice')}"
             + ".out('MxWrote'){as: aliceMsg}"
             + ".in('MxWrote'){as: alice2,"
@@ -1090,11 +1045,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " {as: alice}.out('MxKnows'){as: bob}"
             + ".out('MxWrote'){as: bobMsg,"
             + "  where: (ts >= 1300)}"
-            + " RETURN bobMsg.text");
-    // Should see both index intersection (ts on bobMsg) and
-    // EdgeRidLookup intersection (back-ref on alice2)
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN bobMsg.text",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -1174,14 +1126,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("CS", result.get(0).getProperty("dName"));
     assertEquals("MIT", result.get(0).getProperty("uName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: ICStudent, as: student}"
             + ".outE('ICStudiesAt'){as: sa, where: (year >= 2021)}"
             + ".inV(){as: dept}"
             + ".out('ICPartOf'){as: univ}"
-            + " RETURN student.name, dept.name, univ.name");
-    assertTrue("Plan should show intersection for ICStudiesAt:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN student.name, dept.name, univ.name",
+        "Plan should show intersection for ICStudiesAt");
     session.commit();
   }
 
@@ -1215,13 +1166,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // correct behavior with empty data and no pre-filter. The same scenario
     // with typed LINK (where intersection triggers) is covered by
     // indexFilter_noMatchingRecords_emptyResult in MatchPreFilterComprehensiveTest.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: EmptyV, as: a}"
             + ".out('EmptyE'){as: b, where: (val > 10)}"
-            + " RETURN a.val, b.val");
-    assertFalse(
-        "No typed LINK on EmptyE prevents target class inference:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN a.val, b.val",
+        "No typed LINK on EmptyE prevents target class inference");
     session.commit();
   }
 
@@ -1270,13 +1219,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // cannot infer the target class RPNode and cannot discover the RPNode_val
     // index. The same scenario WITH intersection active is covered by
     // returnPaths_withPreFilterAndTypedLink (which uses typed LINK edges).
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: RPNode, as: start, where: (name = 'a')}"
             + ".out('RPEdge'){as: target, where: (val >= 15)}"
-            + " RETURN target.name as tName");
-    assertFalse(
-        "No typed LINK on RPEdge prevents target class inference:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN target.name as tName",
+        "No typed LINK on RPEdge prevents target class inference");
     session.commit();
   }
 
@@ -1330,12 +1277,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     }
 
     // Typed LINK enables class inference → index intersection should trigger
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: RPLNode, as: start, where: (name = 'root')}"
             + ".out('RPLEdge'){as: target, where: (val >= 10)}"
-            + " RETURN target.name");
-    assertTrue("Plan should show index intersection with typed LINK:\n"
-        + plan, plan.contains("intersection: index"));
+            + " RETURN target.name",
+        "Plan should show index intersection with typed LINK");
     session.commit();
   }
 
@@ -1386,16 +1332,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // $currentMatch comparisons are runtime-only values that cannot be resolved
     // at plan time. No @rid equality, no indexed property filter — just a
     // post-traversal WHERE filter evaluated during execution.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: CMNode, as: start, where: (name = 'a')}"
             + ".out('CMEdge'){as: target}"
             + ".in('CMEdge'){as: back,"
             + "  where: ($currentMatch <> $matched.target)}"
-            + " RETURN target.name as tName, back.name as bName");
-    assertFalse(
-        "$currentMatch comparisons are runtime-only, not pre-filterable:\n"
-            + plan,
-        plan.contains("intersection:"));
+            + " RETURN target.name as tName, back.name as bName",
+        "$currentMatch comparisons are runtime-only, not pre-filterable");
     session.commit();
   }
 
@@ -1440,11 +1383,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     // val >= 30: pp3(30), pp4(40)
     assertEquals(2, result.size());
-    Set<String> names = new HashSet<>();
-    for (var r : result) {
-      names.add(r.getProperty("name"));
-    }
-    assertEquals(Set.of("pp3", "pp4"), names);
+    assertEquals(Set.of("pp3", "pp4"), collectProperty(result, "name"));
 
     // No intersection: PPEdge has no typed LINK properties, so the planner
     // cannot infer that the target class is PPNode and cannot discover the
@@ -1511,12 +1450,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(2, result.size()); // rs8, rs9
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: RvTarget, as: t, where: (name = 'center')}"
             + ".in('RvLink'){as: src, where: (priority >= 8)}"
-            + " RETURN src.name");
-    assertTrue("Plan should show index intersection:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN src.name",
+        "Plan should show index intersection");
     session.commit();
   }
 
@@ -1567,12 +1505,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("bob", result.get(0).getProperty("friendName"));
 
     // Verify EXPLAIN shows DirectRid intersection
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: DRPerson, as: p, where: (name = 'alice')}"
             + ".out('DRKnows'){as: friend, where: (@rid = " + bobRid + ")}"
-            + " RETURN friend.name as friendName");
-    assertTrue("Plan should show direct-rid intersection:\n" + plan,
-        plan.contains("intersection: direct-rid"));
+            + " RETURN friend.name as friendName",
+        "Plan should show direct-rid intersection");
     session.commit();
   }
 
@@ -1616,14 +1553,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals(1, result.size());
     assertEquals("y", result.get(0).getProperty("friendName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: DR2Person, as: p, where: (name = 'x')}"
             + ".out('DR2Knows'){as: friend,"
             + "  where: (@rid = :targetRid)}"
             + " RETURN friend.name as friendName",
-        new HashMap<>(Map.of("targetRid", yRid)));
-    assertTrue("Plan should show direct-rid intersection:\n" + plan,
-        plan.contains("intersection: direct-rid"));
+        new HashMap<>(Map.of("targetRid", yRid)),
+        "Plan should show direct-rid intersection");
     session.commit();
   }
 
@@ -1684,12 +1620,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("fr", result.get(1).getProperty("lang"));
     assertEquals(3L, (long) result.get(1).getProperty("cnt"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: GBForum, as: f, where: (title = 'main')}"
             + ".out('GBContains'){as: msg, where: (ts >= 400)}"
-            + " RETURN msg.lang as lang");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN msg.lang as lang",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -1750,19 +1685,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN msg.text as text")
         .toList();
 
-    Set<String> texts = new HashSet<>();
-    for (var r : result) {
-      texts.add(r.getProperty("text"));
-    }
-    assertEquals(Set.of("msg2", "msg5"), texts);
+    assertEquals(Set.of("msg2", "msg5"), collectProperty(result, "text"));
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: NPPerson, as: p, where: (name = 'alice')}"
             + ".out('NPWrote'){as: msg, where: (ts >= 200)},"
             + " NOT {as: p}.out('NPFlagged'){as: msg}"
-            + " RETURN msg.text as text");
-    assertTrue("Plan should show index intersection on msg:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN msg.text as text",
+        "Plan should show index intersection on msg");
     session.commit();
   }
 
@@ -1821,27 +1751,21 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.label as label")
         .toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("item0", "item1", "item2"), labels);
+    assertEquals(Set.of("item0", "item1", "item2"), collectProperty(result, "label"));
 
     // The positive branch out('NP2Owns'){as: item} has no WHERE filter on
     // the target alias, so no IndexLookup can be attached there. The indexed
     // filter (score >= 30) lives on the NOT sub-pattern's target, which is
     // evaluated as a separate anti-join — not through the intersection
     // descriptor infrastructure on the positive branch edge.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: NP2Person, as: p, where: (name = 'p1')}"
             + ".out('NP2Owns'){as: item},"
             + " NOT {as: p}.out('NP2Banned'){as: item,"
             + "  where: (score >= 30)}"
-            + " RETURN item.label as label");
-    assertFalse(
+            + " RETURN item.label as label",
         "Positive branch has no WHERE filter, NOT branch index does not"
-            + " propagate to positive branch edge:\n" + plan,
-        plan.contains("intersection:"));
+            + " propagate to positive branch edge");
     session.commit();
   }
 
@@ -1917,12 +1841,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertTrue("ann should have high post", foundAnnHigh);
     assertTrue("ben should have null (optional, no posts)", foundBenNull);
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: OPAuthor, as: author}"
             + ".out('OPWrote'){as: post, where: (views >= 50), optional: true}"
-            + " RETURN author.name as aName, post.title as pTitle");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN author.name as aName, post.title as pTitle",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -1994,16 +1917,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertFalse("Should find bob in forum1", result.isEmpty());
     assertEquals("bob", result.get(0).getProperty("fName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: EBPerson, as: person, where: (name = 'alice')}"
             + ".out('EBKnows'){as: friend}"
             + ".in('EBMember'){as: forum}"
             + ".outE('EBMember'){as: membership, where: (joinYear >= 2021)}"
             + ".inV(){as: member,"
             + "  where: (@rid = $matched.friend.@rid)}"
-            + " RETURN friend.name, forum.title");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN friend.name, forum.title",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2069,16 +1991,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("c", result.get(0).getProperty("h2"));
     assertEquals("d", result.get(0).getProperty("h3"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: DBNode, as: start, where: (name = 'a')}"
             + ".out('DBEdge'){as: hop1}"
             + ".out('DBEdge'){as: hop2}"
             + ".out('DBEdge'){as: hop3}"
             + ".out('DBEdge'){as: backToStart,"
             + "  where: (@rid = $matched.start.@rid)}"
-            + " RETURN hop1.name as h1, hop2.name as h2, hop3.name as h3");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN hop1.name as h1, hop2.name as h2, hop3.name as h3",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2143,13 +2064,10 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // A→B→D and A→C→D: target=D, left∈{B,C}, right∈{B,C} where right.out→D
     // Rows: (left=B, right=C, target=D) and (left=C, right=B, target=D)
     // Also B→E is target but C has no edge to E, and C→D is target but B→D matches
-    Set<String> targets = new HashSet<>();
-    for (var r : result) {
-      targets.add(r.getProperty("targetN"));
-    }
+    Set<String> targets = collectProperty(result, "targetN");
     assertTrue("D should be a convergence point", targets.contains("D"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: DiNode, as: root, where: (name = 'A')}"
             + ".out('DiEdge'){as: left}"
             + ".out('DiEdge'){as: target},"
@@ -2157,9 +2075,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".out('DiEdge'){as: converge,"
             + "  where: (@rid = $matched.target.@rid)}"
             + " RETURN left.name as leftN, right.name as rightN,"
-            + "  target.name as targetN");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + "  target.name as targetN",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2217,19 +2134,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN prod.label as label")
         .toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("prod4", "prod8", "prod9"), labels);
+    assertEquals(Set.of("prod4", "prod8", "prod9"), collectProperty(result, "label"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: CIHub, as: hub, where: (name = 'shop')}"
             + ".out('CILink'){as: prod,"
             + "  where: (price >= 50 AND rating >= 4)}"
-            + " RETURN prod.label as label");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN prod.label as label",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2322,22 +2234,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN child.name as cName, descendant.name as dName")
         .toList();
 
-    Set<String> descendants = new HashSet<>();
-    for (var r : result2) {
-      descendants.add(r.getProperty("dName"));
-    }
+    Set<String> descendants = collectProperty(result2, "dName");
     // c1's descendants via PWChild: gc1(30), ggc(40) — both >= 25
     assertTrue("Should find gc1", descendants.contains("gc1"));
     assertTrue("Should find ggc", descendants.contains("ggc"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: PWNode, as: start, where: (name = 'root')}"
             + ".out('PWChild'){as: child, where: (val >= 5)}"
             + ".out('PWChild'){while: (true), as: descendant,"
             + "  where: (val >= 25)}"
-            + " RETURN child.name as cName, descendant.name as dName");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN child.name as cName, descendant.name as dName",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2397,19 +2305,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // WHILE from root: mid, leaf. Only leaf has PAHas items.
     // weight >= 20: w25
-    Set<String> items = new HashSet<>();
-    for (var r : result) {
-      items.add(r.getProperty("iLabel"));
-    }
-    assertEquals(Set.of("w25"), items);
+    assertEquals(Set.of("w25"), collectProperty(result, "iLabel"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: PANode, as: start, where: (name = 'root')}"
             + ".out('PAChild'){while: (true), as: node}"
             + ".out('PAHas'){as: item, where: (weight >= 20)}"
-            + " RETURN node.name as nName, item.label as iLabel");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN node.name as nName, item.label as iLabel",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2457,19 +2360,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.label as label")
         .toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("b3", "b4", "b5", "b6"), labels);
+    assertEquals(Set.of("b3", "b4", "b5", "b6"), collectProperty(result, "label"));
 
     // BETWEEN should be flattened to >= AND <= and use the index
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: BTHub, as: hub, where: (name = 'center')}"
             + ".out('BTLink'){as: item, where: (val BETWEEN 30 AND 60)}"
-            + " RETURN item.label as label");
-    assertTrue("BETWEEN should trigger index intersection:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN item.label as label",
+        "BETWEEN should trigger index intersection");
     session.commit();
   }
 
@@ -2518,24 +2416,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.label as label")
         .toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("or2", "or7"), labels);
+    assertEquals(Set.of("or2", "or7"), collectProperty(result, "label"));
 
     // TODO: OR in WHERE causes flatten() to produce 2 AND blocks (one per OR
     // branch). findIndexForFilter requires flatWhere.size() == 1 and returns
     // null when there are multiple blocks. Could be improved by unioning two
     // separate index lookups, but this is not currently implemented.
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: ORHub, as: hub, where: (name = 'hub')}"
             + ".out('ORLink'){as: item,"
             + "  where: (score = 20 OR score = 70)}"
-            + " RETURN item.label as label");
-    assertFalse(
-        "OR prevents single-index intersection (known limitation):\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN item.label as label",
+        "OR prevents single-index intersection (known limitation)");
     session.commit();
   }
 
@@ -2595,20 +2487,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN prod.label as label")
         .toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("p1", "p2"), labels);
+    assertEquals(Set.of("p1", "p2"), collectProperty(result, "label"));
 
     // Composite index should be used for intersection
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: CXShop, as: shop, where: (name = 'megastore')}"
             + ".out('CXSells'){as: prod,"
             + "  where: (city = 'NYC' AND price >= 200)}"
-            + " RETURN prod.label as label");
-    assertTrue("Plan should show index intersection for composite index:\n"
-        + plan, plan.contains("intersection: index"));
+            + " RETURN prod.label as label",
+        "Plan should show index intersection for composite index");
     session.commit();
   }
 
@@ -2660,12 +2547,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(3, result.size());
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: CX2Hub, as: hub, where: (name = 'warehouse')}"
             + ".out('CX2Link'){as: item, where: (category = 'food')}"
-            + " RETURN item.label as label");
-    assertTrue("Composite index should be used for leading field:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN item.label as label",
+        "Composite index should be used for leading field");
     session.commit();
   }
 
@@ -2716,13 +2602,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals(2, result.size()); // x2(30), x3(40)
 
     // Composite index cannot be used without leading field — no intersection
-    String plan = explainPlan(
+    assertPlanHasNoIntersection(
         "MATCH {class: CX3Hub, as: hub, where: (name = 'store')}"
             + ".out('CX3Link'){as: item, where: (size >= 30)}"
-            + " RETURN item.label as label");
-    assertFalse(
-        "Composite index should NOT be used without leading field:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN item.label as label",
+        "Composite index should NOT be used without leading field");
     session.commit();
   }
 
@@ -2777,15 +2661,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     var row = result.get(0);
     assertEquals(4, row.getPropertyNames().size());
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: PRNode, as: start, where: (name = 'A')}"
             + ".out('PREdge'){as: hop1}"
             + ".out('PREdge'){as: hop2}"
             + ".out('PREdge'){as: back,"
             + "  where: (@rid = $matched.start.@rid)}"
-            + " RETURN $paths");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN $paths",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2850,12 +2733,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
       assertTrue("Should contain idx " + i, indices.contains(i));
     }
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: LDHub, as: hub, where: (name = 'bigHub')}"
             + ".out('LDLink'){as: target, where: (idx >= 490)}"
-            + " RETURN target.idx as idx, target.category as cat");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN target.idx as idx, target.category as cat",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2908,22 +2790,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN bridged.name as bName")
         .toList();
 
-    Set<String> bridged = new HashSet<>();
-    for (var r : result) {
-      bridged.add(r.getProperty("bName"));
-    }
     assertEquals(
-        Set.of("s10", "s50", "s100", "s150", "s199"), bridged);
+        Set.of("s10", "s50", "s100", "s150", "s199"),
+        collectProperty(result, "bName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: LBSrc, as: anchor, where: (name = 'anchor')}"
             + ".out('LBBridge'){as: bridged}"
             + ".out('LBLink'){as: target}"
             + ".in('LBLink'){as: verify,"
             + "  where: (@rid = $matched.bridged.@rid)}"
-            + " RETURN bridged.name as bName");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN bridged.name as bName",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -2982,18 +2860,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.color as color)")
         .toList();
 
-    Set<String> colors = new HashSet<>();
-    for (var r : result) {
-      colors.add(r.getProperty("color"));
-    }
-    assertEquals(Set.of("red", "blue"), colors);
+    assertEquals(Set.of("red", "blue"), collectProperty(result, "color"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: DSHub, as: hub}"
             + ".out('DSLink'){as: item, where: (val >= 20)}"
-            + " RETURN item.color as color");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN item.color as color",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -3077,15 +2950,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("corp", bothResult.get(0).getProperty("wc"));
     assertEquals("corp", bothResult.get(0).getProperty("ic"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MEPerson, as: p, where: (name = 'pat')}"
             + ".outE('MEWorksAt'){as: w, where: (salary >= 4000)}"
             + ".inV(){as: workCompany},"
             + " {as: p}.outE('MEInvests'){as: inv, where: (amount >= 8000)}"
             + ".inV(){as: investCompany}"
-            + " RETURN workCompany.name as wc, investCompany.name as ic");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN workCompany.name as wc, investCompany.name as ic",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -3142,21 +3014,16 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // writer wrote p1(1000), p2(2000), p3(3000)
     // ts >= 2000: p2, p3. post2 = post → only rows where post IS p2 or p3
-    Set<String> titles = new HashSet<>();
-    for (var r : result) {
-      titles.add(r.getProperty("pTitle"));
-    }
-    assertEquals(Set.of("p2", "p3"), titles);
+    assertEquals(Set.of("p2", "p3"), collectProperty(result, "pTitle"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MDPost, as: post}"
             + ".in('MDWrote'){as: author}"
             + ".outE('MDWrote'){as: writeEdge, where: (ts >= 2000)}"
             + ".inV(){as: post2,"
             + "  where: (@rid = $matched.post.@rid)}"
-            + " RETURN post.title, writeEdge.ts");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN post.title, writeEdge.ts",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -3223,15 +3090,12 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN forumMsg.text as text")
         .toList();
 
-    Set<String> texts = new HashSet<>();
-    for (var r : result) {
-      texts.add(r.getProperty("text"));
-    }
+    Set<String> texts = collectProperty(result, "text");
     assertTrue("Should find m2", texts.contains("m2"));
     assertTrue("Should find m3", texts.contains("m3"));
     assertFalse("Should NOT find m4 (not by alice)", texts.contains("m4"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: CBPerson, as: person, where: (name = 'alice')}"
             + ".out('CBWrote'){as: myMsg}"
             + ".in('CBContains'){as: forum}"
@@ -3239,9 +3103,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + "  where: (ts BETWEEN 200 AND 400)}"
             + ".in('CBWrote'){as: author,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN forumMsg.text");
-    assertTrue("Plan should show intersection (index + backref):\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN forumMsg.text",
+        "Plan should show intersection (index + backref)");
     session.commit();
   }
 
@@ -3300,13 +3163,12 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
           ((Number) r.getProperty("msgTs")).longValue() >= 200);
     }
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: MPPerson, as: person, where: (name = 'alice')}"
             + ".out('MPKnows'){as: friend},"
             + " {as: person}.out('MPWrote'){as: msg, where: (ts >= 200)}"
-            + " RETURN friend.name, msg.ts");
-    assertTrue("Plan should show index intersection on msg:\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN friend.name, msg.ts",
+        "Plan should show index intersection on msg");
     session.commit();
   }
 
@@ -3381,15 +3243,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
       }
     }
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: OBPerson, as: author, where: (name = 'alice')}"
             + ".out('OBWrote'){as: msg}"
             + ".in('OBLiked'){as: liker}"
             + ".out('OBKnows'){as: knowsAuthor,"
             + "  where: (@rid = $matched.author.@rid), optional: true}"
-            + " RETURN liker.name, knowsAuthor.name");
-    assertTrue("Plan should show intersection for optional back-ref:\n"
-        + plan, plan.contains("intersection:"));
+            + " RETURN liker.name, knowsAuthor.name",
+        "Plan should show intersection for optional back-ref");
     session.commit();
   }
 
@@ -3451,16 +3312,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN forumMsg.text as text")
         .toList();
 
-    Set<String> texts = new HashSet<>();
-    for (var r : result) {
-      texts.add(r.getProperty("text"));
-    }
+    Set<String> texts = collectProperty(result, "text");
     assertTrue("Should find n1", texts.contains("n1"));
     assertTrue("Should find n3", texts.contains("n3"));
     assertFalse("Should NOT find n2 (flagged)", texts.contains("n2"));
     assertFalse("Should NOT find n4 (not by alice)", texts.contains("n4"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: NBPerson, as: person, where: (name = 'alice')}"
             + ".out('NBWrote'){as: myMsg}"
             + ".in('NBContains'){as: forum}"
@@ -3468,9 +3326,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".in('NBWrote'){as: author,"
             + "  where: (@rid = $matched.person.@rid)},"
             + " NOT {as: person}.out('NBFlagged'){as: forumMsg}"
-            + " RETURN forumMsg.text");
-    assertTrue("Plan should show intersection for back-ref:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN forumMsg.text",
+        "Plan should show intersection for back-ref");
     session.commit();
   }
 
@@ -3528,22 +3385,17 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // Each person should find their own 2 messages
     assertFalse("Should have results", result.isEmpty());
-    Set<String> persons = new HashSet<>();
-    for (var r : result) {
-      persons.add(r.getProperty("pName"));
-    }
-    assertEquals(Set.of("u0", "u1", "u2"), persons);
+    assertEquals(Set.of("u0", "u1", "u2"), collectProperty(result, "pName"));
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MSBPerson, as: person}"
             + ".out('MSBWrote'){as: myMsg}"
             + ".in('MSBContains'){as: forum}"
             + ".out('MSBContains'){as: forumMsg}"
             + ".in('MSBWrote'){as: author,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN person.name, forumMsg.text");
-    assertTrue("Plan should show intersection for back-ref:\n" + plan,
-        plan.contains("intersection:"));
+            + " RETURN person.name, forumMsg.text",
+        "Plan should show intersection for back-ref");
     session.commit();
   }
 
@@ -3587,12 +3439,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(5, result.size());
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: AEPerson, as: p, where: (name = 'pat')}"
             + ".outE('AEWorksAt'){as: w, where: (year >= 2020)}"
-            + ".inV(){as: c} RETURN c.name");
-    assertTrue("Plan should show intersection even when all match:\n" + plan,
-        plan.contains("intersection:"));
+            + ".inV(){as: c} RETURN c.name",
+        "Plan should show intersection even when all match");
     session.commit();
   }
 
@@ -3635,12 +3486,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(2, result.size());
 
-    String plan = explainPlan(
+    assertPlanHasIntersection(
         "MATCH {class: MEPNode, as: src, where: (name = 'a')}"
             + ".outE('MEPEdge'){as: e, where: (weight >= 15)}"
-            + ".inV(){as: tgt} RETURN e.weight");
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+            + ".inV(){as: tgt} RETURN e.weight",
+        "Plan should show intersection");
     session.commit();
   }
 
@@ -3680,12 +3530,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals(3, result.size());
 
-    String plan = explainPlan(
+    assertPlanHasIndexIntersection(
         "MATCH {class: LEHub, as: hub, where: (name = 'h')}"
             + ".out('LELink'){as: item, where: (val <= 20)}"
-            + " RETURN item.val");
-    assertTrue("Plan should show index intersection for <= :\n" + plan,
-        plan.contains("intersection: index"));
+            + " RETURN item.val",
+        "Plan should show index intersection for <=");
     session.commit();
   }
 
@@ -3753,14 +3602,10 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN descendant.name as dName";
     var result = session.query(query).toList();
 
-    // Collect all descendant names
-    var names = new HashSet<String>();
-    for (var r : result) {
-      names.add(r.getProperty("dName"));
-    }
     // WHILE(true) emits the start node (root) plus all reachable descendants.
     assertEquals("Should reach root + all 4 descendants",
-        Set.of("root", "mid1", "mid2", "leaf", "bottom"), names);
+        Set.of("root", "mid1", "mid2", "leaf", "bottom"),
+        collectProperty(result, "dName"));
 
     // Verify no duplicates: each node should appear exactly once.
     // Before the PR #904 dedup fix, 'leaf' would appear twice (once per path).
@@ -3768,11 +3613,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         5, result.size());
 
     // WHILE edges use recursive DFS, not intersection pre-filter
-    String plan = explainPlan(query);
-    assertFalse(
-        "WHILE edges use a separate execution path, not intersection:\n"
-            + plan,
-        plan.contains("intersection:"));
+    assertPlanHasNoIntersection(query,
+        "WHILE edges use a separate execution path, not intersection");
     session.commit();
   }
 
@@ -3841,18 +3683,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN child.name as cName, descendant.name as dName";
     var result = session.query(query).toList();
 
-    var descNames = new HashSet<String>();
-    for (var r : result) {
-      descNames.add(r.getProperty("dName"));
-    }
+    Set<String> descNames = collectProperty(result, "dName");
     // WHILE from b: emits b itself, then shared(20), deep(30)
     assertTrue("Should find shared", descNames.contains("shared"));
     assertTrue("Should find deep", descNames.contains("deep"));
 
-    String plan = explainPlan(query);
     // Pre-filter should activate on the first hop (priority >= 10)
-    assertTrue("Plan should show intersection for indexed priority:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection for indexed priority");
     session.commit();
   }
 
@@ -3934,18 +3771,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     //   → posts with ts>=200: alice_p2(200), alice_p3(300)
     //   → inV where @rid = $matched.post → only the post itself if ts>=200
     // So: alice_p2(200) and alice_p3(300) match
-    Set<String> titles = new HashSet<>();
-    for (var r : result) {
-      titles.add(r.getProperty("postTitle"));
-    }
+    Set<String> titles = collectProperty(result, "postTitle");
     assertTrue("Should find alice_p2", titles.contains("alice_p2"));
     assertTrue("Should find alice_p3", titles.contains("alice_p3"));
     assertFalse("Should NOT find alice_p1 (ts=100 < 200)",
         titles.contains("alice_p1"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection (index + backref):\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection (index + backref)");
     session.commit();
   }
 
@@ -4039,17 +3871,12 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     //   am2(ts=200 >= 200, author=alice) → match
     //   am1(ts=100 < 200) → no match on ts
     //   bm1/bm2 → author=bob, not alice
-    Set<String> texts = new HashSet<>();
-    for (var r : result) {
-      texts.add(r.getProperty("text"));
-    }
+    Set<String> texts = collectProperty(result, "text");
     assertTrue("Should find am2", texts.contains("am2"));
     assertFalse("Should NOT find am1 (ts < 200)", texts.contains("am1"));
     assertFalse("Should NOT find bm1 (by bob)", texts.contains("bm1"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
   }
 
@@ -4114,16 +3941,10 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN item.label as label";
     var result = session.query(query).toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
     assertEquals("Should find book2 and art2 (both subclasses of EPItem)",
-        Set.of("book2", "art2"), labels);
+        Set.of("book2", "art2"), collectProperty(result, "label"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection for indexed rating:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection for indexed rating");
     session.commit();
   }
 
@@ -4188,15 +4009,9 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN src.tag as tag";
     var result = session.query(query).toList();
 
-    Set<String> tags = new HashSet<>();
-    for (var r : result) {
-      tags.add(r.getProperty("tag"));
-    }
-    assertEquals(Set.of("special1", "special2"), tags);
+    assertEquals(Set.of("special1", "special2"), collectProperty(result, "tag"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
   }
 
@@ -4266,9 +4081,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("c", result.get(0).getProperty("hop2"));
     assertEquals("d", result.get(0).getProperty("hop3"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
   }
 
@@ -4318,15 +4131,9 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN target.label as label";
     var result = session.query(query).toList();
 
-    Set<String> labels = new HashSet<>();
-    for (var r : result) {
-      labels.add(r.getProperty("label"));
-    }
-    assertEquals(Set.of("t2", "t3", "t4"), labels);
+    assertEquals(Set.of("t2", "t3", "t4"), collectProperty(result, "label"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection for BETWEEN on edge:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection for BETWEEN on edge");
     session.commit();
   }
 
@@ -4398,10 +4205,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN post.title as title";
     var result = session.query(query).toList();
 
-    Set<String> titles = new HashSet<>();
-    for (var r : result) {
-      titles.add(r.getProperty("title"));
-    }
+    Set<String> titles = collectProperty(result, "title");
     assertTrue("Should find post1", titles.contains("post1"));
     assertTrue("Should find post3", titles.contains("post3"));
     assertTrue("Should find post4", titles.contains("post4"));
@@ -4464,9 +4268,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("item4", result.get(1).getProperty("label"));
     assertEquals("item5", result.get(2).getProperty("label"));
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection:\n" + plan,
-        plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
   }
 
@@ -4540,9 +4342,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // No edges point back to 'a', so no results expected
     assertEquals(0, result.size());
 
-    String plan = explainPlan(query);
-    assertTrue("Plan should show intersection for non-adjacent back-ref:\n"
-        + plan, plan.contains("intersection:"));
+    assertPlanHasIntersection(query, "Plan should show intersection for non-adjacent back-ref");
     session.commit();
   }
 }
