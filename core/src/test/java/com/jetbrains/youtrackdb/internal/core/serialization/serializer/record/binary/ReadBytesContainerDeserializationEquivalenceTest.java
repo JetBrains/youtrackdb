@@ -25,12 +25,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -57,7 +59,9 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
 
   @Before
   public void setUp() {
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance("memory:");
+    youTrackDB =
+        (YouTrackDBImpl) YourTracks.instance(
+            DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDB.create(
         "readBytesEquiv",
         DatabaseType.MEMORY,
@@ -113,7 +117,7 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     assertTrue(rbcResult.getProperty("boolTrue"));
     assertFalse(rbcResult.getProperty("boolFalse"));
     assertEquals("Hello World", rbcResult.getProperty("stringField"));
-    assertNotNull(rbcResult.getProperty("dateField"));
+    assertEquals(new Date(1000000000000L), rbcResult.getProperty("dateField"));
     assertEquals(new Date(1617235200000L), rbcResult.getProperty("dateTimeField"));
     session.rollback();
   }
@@ -203,7 +207,7 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     var rbcResult = deserializeViaReadBytesContainer(serialized);
     Set<?> set = rbcResult.getProperty("set");
     assertNotNull(set);
-    assertEquals(3, set.size());
+    assertEquals(Set.of(1, 2, 3), set);
     session.rollback();
   }
 
@@ -220,6 +224,7 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     var rbcResult = deserializeViaReadBytesContainer(serialized);
     Map<?, ?> map = rbcResult.getProperty("map");
     assertNotNull(map);
+    assertEquals(2, map.size());
     assertEquals("val1", map.get("key1"));
     assertEquals(42, map.get("key2"));
     session.rollback();
@@ -340,6 +345,223 @@ public class ReadBytesContainerDeserializationEquivalenceTest {
     var embeddedRbc = (EntityImpl) rbcResult.getProperty("embedded");
     assertEquals("innerValue", embeddedRbc.getProperty("innerField"));
     assertEquals(99, (int) embeddedRbc.getProperty("innerInt"));
+    session.rollback();
+  }
+
+  // --- deserializeFieldTypedLoopAndReturn via ReadBytesContainer ---
+
+  @Test
+  public void testDeserializeFieldTypedLoopReturnsMatchingField() {
+    // Exercise the ReadBytesContainer overload of deserializeFieldTypedLoopAndReturn
+    // with a matching field name. This covers the normal successful lookup path.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("alpha", "one");
+      entity.setProperty("beta", 42);
+      entity.setProperty("gamma", "three");
+    });
+
+    // Skip version byte, pass the record body to ReadBytesContainer
+    var rbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+
+    // Look up the second field "beta" — exercises header iteration with non-matching
+    // field names (different lengths and byte-level comparison) before finding the match
+    Object result = serializer.deserializeFieldTypedLoopAndReturn(
+        session, rbc, "beta", null, null);
+    assertEquals(42, result);
+    session.rollback();
+  }
+
+  @Test
+  public void testDeserializeFieldTypedLoopReturnsNullForMissingField() {
+    // Exercise the ReadBytesContainer overload when the requested field does
+    // not exist — should return null after iterating the entire header.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("x", 1);
+      entity.setProperty("y", 2);
+    });
+
+    var rbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+    Object result = serializer.deserializeFieldTypedLoopAndReturn(
+        session, rbc, "nonExistent", null, null);
+    assertNull(result);
+    session.rollback();
+  }
+
+  @Test
+  public void testDeserializeFieldTypedLoopReturnsNullForNullValuedField() {
+    // Exercise the null-value path: field exists in header but has zero-length
+    // value, so the method returns null.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("present", "value");
+      entity.setProperty("nullField", (String) null);
+    });
+
+    var rbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+    Object result = serializer.deserializeFieldTypedLoopAndReturn(
+        session, rbc, "nullField", null, null);
+    assertNull(result);
+    session.rollback();
+  }
+
+  @Test
+  public void testDeserializeFieldTypedLoopWithDifferentLengthFieldNames() {
+    // Ensure the length-based short-circuit in checkMatchForLargerThenZero
+    // works correctly when field name lengths differ.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("a", 1);
+      entity.setProperty("longFieldName", 2);
+      entity.setProperty("z", 3);
+    });
+
+    var rbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+    // Look up "longFieldName" — "a" has length 1 (mismatch), triggers early return in
+    // checkMatchForLargerThenZero
+    Object result = serializer.deserializeFieldTypedLoopAndReturn(
+        session, rbc, "longFieldName", null, null);
+    assertEquals(2, result);
+    session.rollback();
+  }
+
+  // --- getPositionsFromEmbeddedMap via ReadBytesContainer ---
+
+  @Test
+  public void testGetPositionsFromEmbeddedMapViaReadBytesContainer() {
+    // Exercise the ReadBytesContainer overload of getPositionsFromEmbeddedMap
+    // which is used for map field position scanning (e.g., map key iteration).
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      Map<String, Object> map = session.newEmbeddedMap();
+      map.put("key1", "val1");
+      map.put("key2", 42);
+      map.put("key3", true);
+      entity.setProperty("myMap", map);
+    });
+
+    // Deserialize to find the map field's serialized bytes, then parse positions
+    var fullRbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+    // Use deserializeFieldTypedLoopAndReturn to extract the map value
+    // This indirectly exercises the map deserialization path
+    Object mapValue = serializer.deserializeFieldTypedLoopAndReturn(
+        session, fullRbc, "myMap", null, null);
+    assertNotNull(mapValue);
+    assertTrue(mapValue instanceof Map);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> resultMap = (Map<String, Object>) mapValue;
+    assertEquals("val1", resultMap.get("key1"));
+    assertEquals(42, resultMap.get("key2"));
+    assertEquals(true, resultMap.get("key3"));
+    session.rollback();
+  }
+
+  // --- deserializeEmbeddedAsDocument via ReadBytesContainer ---
+
+  @Test
+  public void testDeserializeEmbeddedEntityViaFieldTypedLoop() {
+    // Exercise the ReadBytesContainer overload of deserializeEmbeddedAsDocument
+    // by looking up an embedded entity field through deserializeFieldTypedLoopAndReturn.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      var embedded = session.newEmbeddedEntity();
+      ((EntityImpl) embedded).setProperty("innerKey", "innerVal");
+      ((EntityImpl) embedded).setProperty("innerNum", 77);
+      entity.setProperty("embed", embedded);
+      entity.setProperty("after", "check");
+    });
+
+    var rbc = new ReadBytesContainer(serialized, 1);
+    var serializer = new RecordSerializerBinaryV1();
+    Object result = serializer.deserializeFieldTypedLoopAndReturn(
+        session, rbc, "embed", null, null);
+    assertNotNull(result);
+    assertTrue(result instanceof EntityImpl);
+    var embeddedEntity = (EntityImpl) result;
+    assertEquals("innerVal", embeddedEntity.getProperty("innerKey"));
+    assertEquals(77, (int) embeddedEntity.getProperty("innerNum"));
+    session.rollback();
+  }
+
+  // --- RecordSerializerBinary.fromStream via serializerVersion + ReadBytesContainer ---
+
+  @Test
+  public void testFromStreamWithVersionAndReadBytesContainer() {
+    // Exercise RecordSerializerBinary.fromStream(session, version, container, record, fields)
+    // which is the entry point for the PageFrame zero-copy path.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("field1", "hello");
+      entity.setProperty("field2", 99);
+    });
+
+    byte serializerVersion = serialized[0];
+    var container = new ReadBytesContainer(serialized, 1);
+    var entity = (EntityImpl) session.newEntity();
+    // Full deserialization (no field filter)
+    RecordSerializerBinary.INSTANCE.fromStream(
+        session, serializerVersion, container, entity, null);
+    assertEquals("hello", entity.getProperty("field1"));
+    assertEquals(99, (int) entity.getProperty("field2"));
+    session.rollback();
+  }
+
+  @Test
+  public void testFromStreamWithVersionAndReadBytesContainerPartial() {
+    // Exercise RecordSerializerBinary.fromStream partial deserialization path.
+    session.begin();
+    var serialized = serializeEntity(entity -> {
+      entity.setProperty("a", "alpha");
+      entity.setProperty("b", "beta");
+      entity.setProperty("c", "gamma");
+    });
+
+    byte serializerVersion = serialized[0];
+    var container = new ReadBytesContainer(serialized, 1);
+    var entity = (EntityImpl) session.newEntity();
+    RecordSerializerBinary.INSTANCE.fromStream(
+        session, serializerVersion, container, entity, new String[] {"b"});
+    assertEquals("beta", entity.getProperty("b"));
+    assertFalse(entity.hasProperty("a"));
+    assertFalse(entity.hasProperty("c"));
+    session.rollback();
+  }
+
+  @Test
+  public void testFromStreamWithNegativeVersionThrows() {
+    // Exercise the error path for negative serializer version.
+    session.begin();
+    var serialized = serializeEntity(entity -> entity.setProperty("x", 1));
+
+    var container = new ReadBytesContainer(serialized, 1);
+    var entity = (EntityImpl) session.newEntity();
+    var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> RecordSerializerBinary.INSTANCE.fromStream(
+            session, (byte) -1, container, entity, null));
+    assertTrue(ex.getMessage().contains("Unsupported serializer version"));
+    session.rollback();
+  }
+
+  @Test
+  public void testFromStreamWithTooHighVersionThrows() {
+    // Exercise the error path for a serializer version beyond the supported range.
+    session.begin();
+    var serialized = serializeEntity(entity -> entity.setProperty("x", 1));
+
+    var container = new ReadBytesContainer(serialized, 1);
+    var entity = (EntityImpl) session.newEntity();
+    var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> RecordSerializerBinary.INSTANCE.fromStream(
+            session, (byte) 127, container, entity, null));
+    assertTrue(ex.getMessage().contains("Unsupported serializer version"));
     session.rollback();
   }
 

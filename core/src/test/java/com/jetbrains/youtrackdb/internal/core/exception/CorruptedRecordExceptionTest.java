@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import org.junit.Test;
 
 /**
@@ -37,5 +38,15 @@ public class CorruptedRecordExceptionTest {
     var copy = new CorruptedRecordException(original);
     assertNotNull(copy.getMessage());
     assertTrue(copy.getMessage().contains("original message"));
+  }
+
+  @Test
+  public void sessionConstructorPreservesMessage() {
+    // Exercises the CorruptedRecordException(DatabaseSessionEmbedded, String) constructor.
+    // Pass null session — the superclass stores it but doesn't dereference at construction time.
+    var ex = new CorruptedRecordException(
+        (DatabaseSessionEmbedded) null, "corrupt record data");
+    assertNotNull(ex.getMessage());
+    assertTrue(ex.getMessage().contains("corrupt record data"));
   }
 }

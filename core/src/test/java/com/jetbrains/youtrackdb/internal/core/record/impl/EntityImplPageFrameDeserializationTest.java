@@ -444,4 +444,131 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     assertNull(entity.getPageFrame());
     session.rollback();
   }
+
+  // --- Speculative PageFrame deserialization (lazy-extraction simulation) ---
+
+  @Test
+  public void testSpeculativeDeserializationFromPageFrameFullPath() {
+    // Simulates lazy extraction: fillFromPage sets source, then
+    // clearSourceKeepPageFrame() clears source while keeping PageFrame.
+    // This forces deserializeProperties to use the speculative
+    // deserializeFromPageFrame() path with stamp validation.
+    session.begin();
+
+    var source = (EntityImpl) session.newEntity();
+    source.setString("name", "speculative");
+    source.setInt("count", 7);
+
+    var frame = new PageFrame(pointer);
+    int contentLength = writeSerializedRecord(source, frame, 100);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.unsetDirty();
+    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 100, contentLength);
+
+    // Clear source while keeping PageFrame — forces speculative path
+    entity.clearSourceKeepPageFrame();
+    assertNotNull(entity.getPageFrame());
+
+    // Full deserialization via the speculative PageFrame path
+    assertTrue(entity.checkForProperties());
+    assertEquals("speculative", entity.getString("name"));
+    assertEquals(Integer.valueOf(7), entity.getInt("count"));
+
+    // After successful speculative full deserialization, PageFrame is cleared
+    assertNull(entity.getPageFrame());
+    session.rollback();
+  }
+
+  @Test
+  public void testSpeculativeDeserializationPartialPath() {
+    // Exercises the speculative PageFrame partial deserialization path.
+    // After partial deserialization with valid stamp, PageFrame is kept.
+    session.begin();
+
+    var source = (EntityImpl) session.newEntity();
+    source.setString("x", "ex");
+    source.setString("y", "why");
+    source.setInt("z", 42);
+
+    var frame = new PageFrame(pointer);
+    int contentLength = writeSerializedRecord(source, frame, 200);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.unsetDirty();
+    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 200, contentLength);
+
+    // Clear source to activate speculative path
+    entity.clearSourceKeepPageFrame();
+
+    // Partial deserialization: request only "y"
+    assertTrue(entity.checkForProperties("y"));
+    assertEquals("why", entity.getString("y"));
+
+    session.rollback();
+  }
+
+  @Test
+  public void testSpeculativeDeserializationWithInvalidStampFallsBack() {
+    // Exercises the fallback path when stamp becomes invalid after
+    // speculative deserialization. The entity must re-read from storage.
+    var rid = saveRecord("SpecFallback", "key", "fallback-value");
+
+    session.begin();
+    var loaded = (EntityImpl) session.getActiveTransaction().load(rid);
+    byte[] serialized = loaded.toStream();
+
+    var frame = new PageFrame(pointer);
+    frame.getBuffer().position(64);
+    frame.getBuffer().put(serialized);
+    long stamp = frame.tryOptimisticRead();
+
+    // Load a fresh entity with the same RID so the fallback re-read works
+    var entity = (EntityImpl) session.getActiveTransaction().load(rid);
+    entity.unsetDirty();
+    entity.fillFromPage(
+        loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
+        64, serialized.length);
+
+    // Clear source to force speculative path
+    entity.clearSourceKeepPageFrame();
+
+    // Invalidate stamp — this causes speculative deserialization to succeed
+    // but stamp validation to fail, triggering the fallback re-read
+    long exStamp = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(exStamp);
+
+    // Property access triggers speculative deser → stamp invalid → fallback re-read
+    assertEquals("fallback-value", entity.getString("key"));
+    // After fallback, PageFrame is cleared
+    assertNull(entity.getPageFrame());
+    session.rollback();
+  }
+
+  @Test
+  public void testSpeculativeDeserializationEmptyContentClearsPageFrame() {
+    // When pageContentLength <= 0, deserializeFromPageFrame should just
+    // clear PageFrame and return true without attempting deserialization.
+    session.begin();
+
+    var frame = new PageFrame(pointer);
+    long stamp = frame.tryOptimisticRead();
+
+    var entity = (EntityImpl) session.newEntity();
+    entity.unsetDirty();
+    // Fill with zero-length content
+    entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 0, 0);
+
+    // Clear source to force speculative path with empty content
+    entity.clearSourceKeepPageFrame();
+    assertNotNull(entity.getPageFrame());
+
+    // Should succeed immediately and clear PageFrame
+    assertTrue(entity.checkForProperties());
+    assertNull(entity.getPageFrame());
+    session.rollback();
+  }
+
 }

@@ -3966,6 +3966,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return pageContentLength;
   }
 
+  /**
+   * Clears the byte[] source while retaining the PageFrame reference, forcing
+   * subsequent deserialization to use the speculative PageFrame zero-copy path
+   * ({@link #deserializeFromPageFrame}). This simulates a lazy-extraction
+   * scenario where fillFromPage defers byte extraction until property access.
+   *
+   * <p>Package-private: intended for tests that verify the PageFrame
+   * deserialization + stamp validation + fallback re-read paths.
+   */
+  void clearSourceKeepPageFrame() {
+    assert pageFrame != null : "clearSourceKeepPageFrame called without PageFrame";
+    this.source = null;
+  }
+
   @Override
   public void clearSource() {
     clearPageFrame();

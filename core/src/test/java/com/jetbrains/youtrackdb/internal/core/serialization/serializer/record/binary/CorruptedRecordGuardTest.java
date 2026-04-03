@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
@@ -29,7 +30,7 @@ public class CorruptedRecordGuardTest {
   public void setUp() {
     youTrackDB =
         (YouTrackDBImpl) YourTracks.instance(
-            "memory:corruptedRecGuardT" + System.nanoTime());
+            DbTestBase.getBaseDirectoryPathStr(getClass()));
     youTrackDB.create(
         "corruptedRecGuardT",
         DatabaseType.MEMORY,

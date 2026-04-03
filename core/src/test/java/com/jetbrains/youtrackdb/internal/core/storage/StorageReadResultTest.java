@@ -22,12 +22,14 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import java.nio.ByteBuffer;
 import org.junit.After;
 import org.junit.Before;
@@ -400,5 +402,57 @@ public class StorageReadResultTest {
     assertEquals(
         "contentLength must be non-negative: " + Integer.MIN_VALUE,
         ex.getMessage());
+  }
+
+  // --- toRawBuffer() ---
+
+  @Test
+  public void testToRawBufferExtractsCorrectBytes() {
+    // Verifies that toRawBuffer() on a RawPageBuffer with a valid stamp
+    // extracts the correct bytes, version, and record type.
+    ByteBuffer buf = pageFrame.getBuffer();
+    byte[] expected = {10, 20, 30, 40, 50};
+    buf.position(100);
+    buf.put(expected);
+    long stamp = pageFrame.tryOptimisticRead();
+    var rpb = new RawPageBuffer(pageFrame, stamp, 100, 5, 1L, (byte) 'd');
+    RawBuffer result = rpb.toRawBuffer();
+    assertArrayEquals(expected, result.buffer());
+    assertEquals(1L, result.version());
+    assertEquals((byte) 'd', result.recordType());
+  }
+
+  @Test
+  public void testToRawBufferThrowsOnInvalidStamp() {
+    // Verifies that toRawBuffer() throws OptimisticReadFailedException
+    // when the stamp is invalidated between byte extraction and validation.
+    byte[] data = {1, 2, 3};
+    pageFrame.getBuffer().put(200, data[0]);
+    pageFrame.getBuffer().put(201, data[1]);
+    pageFrame.getBuffer().put(202, data[2]);
+    long stamp = pageFrame.tryOptimisticRead();
+    var rpb = new RawPageBuffer(pageFrame, stamp, 200, 3, 1L, (byte) 'd');
+    // Invalidate stamp via exclusive lock acquire/release
+    long exStamp = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(exStamp);
+    assertThrows(OptimisticReadFailedException.class, rpb::toRawBuffer);
+  }
+
+  @Test
+  public void testToRawBufferOnRawBufferReturnsItself() {
+    // RawBuffer.toRawBuffer() returns 'this' — no copy or transformation.
+    var rb = new RawBuffer(new byte[] {1, 2}, 5L, (byte) 'v');
+    assertSame(rb, rb.toRawBuffer());
+  }
+
+  @Test
+  public void testToRawBufferWithZeroLengthContent() {
+    // toRawBuffer() on a zero-length RawPageBuffer produces an empty byte[].
+    long stamp = pageFrame.tryOptimisticRead();
+    var rpb = new RawPageBuffer(pageFrame, stamp, 0, 0, 1L, (byte) 'd');
+    RawBuffer result = rpb.toRawBuffer();
+    assertEquals(0, result.buffer().length);
+    assertEquals(1L, result.version());
+    assertEquals((byte) 'd', result.recordType());
   }
 }
