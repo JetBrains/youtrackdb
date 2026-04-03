@@ -40,15 +40,15 @@ git merge-base HEAD origin/develop
 
 ### Step 1: Determine JMH parameters per regression
 
-Each benchmark belongs to a tier with different profiling settings. Choose parameters based on the base ops/s from the PR comment:
+Each benchmark belongs to a tier with different profiling settings. Benchmarks are assigned to tiers by query name (see `jmh-ldbc/README.md`), not by dynamic ops/s lookup. The ops/s ranges below overlap slightly because they describe observed throughput, not strict boundaries. To determine the tier, check which base class the benchmark extends:
 
-| Tier | Base ops/s | Profiling args |
-|------|-----------|----------------|
-| IS-ultra-fast | >2,700 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
-| IS-noisy | 400–2,700 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
-| IC | 17–215 | `-f 1 -wi 1 -w 5s -i 3 -r 15s -t 1` (ST) |
-| IC-slow | 1–21 | `-f 1 -wi 2 -w 10s -i 3 -r 30s -t 1` (ST) |
-| IC-ultra-slow | <0.2 | `-f 1 -wi 2 -w 10s -i 3 -r 60s -t 1` (ST) |
+| Tier | Base Class | Queries | Profiling args |
+|------|-----------|---------|----------------|
+| IS-ultra-fast | `LdbcISUltraFastBenchmarkBase` | IS1, IS3-IS6, IC13 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
+| IS-noisy | `LdbcISBenchmarkBase` | IS2, IS7, IC8 | `-f 1 -wi 1 -w 5s -i 3 -r 10s -t 1` (ST) |
+| IC | `LdbcICBenchmarkBase` | IC2, IC7, IC11 | `-f 1 -wi 1 -w 5s -i 3 -r 15s -t 1` (ST) |
+| IC-slow | `LdbcICSlowBenchmarkBase` | IC1, IC4, IC6, IC9, IC12 | `-f 1 -wi 2 -w 10s -i 3 -r 30s -t 1` (ST) |
+| IC-ultra-slow | `LdbcICUltraSlowBenchmarkBase` | IC3, IC5, IC10 | `-f 1 -wi 2 -w 10s -i 3 -r 60s -t 1` (ST) |
 
 For multi-thread regressions, use the same warmup/measurement but omit `-t 1` (uses `@Threads(Threads.MAX)` default).
 
@@ -74,7 +74,7 @@ ssh-keygen -f ~/.ssh/known_hosts -R <IP>
 
 ```bash
 ssh -o StrictHostKeyChecking=no root@<IP> \
-  'apt-get update -qq && apt-get install -y -qq openjdk-21-jdk-headless git tmux zstd > /dev/null 2>&1 && java -version'
+  'apt-get update -qq && apt-get install -y -qq openjdk-21-jdk-headless git tmux > /dev/null 2>&1 && java -version'
 ```
 
 Install async-profiler:
@@ -102,12 +102,12 @@ ssh root@<IP> 'git config --global --add safe.directory /root/ytdb && \
 **BASE** (fork-point commit): Create a local worktree, rsync to a separate directory:
 ```bash
 BASE_COMMIT=$(git merge-base HEAD origin/develop)
-rm -rf /tmp/ytdb-base-profiling && git worktree prune
-git worktree add /tmp/ytdb-base-profiling $BASE_COMMIT
+WORKTREE_DIR="/tmp/ytdb-base-profiling-$$"
+rm -rf "$WORKTREE_DIR" && git worktree prune
+git worktree add "$WORKTREE_DIR" $BASE_COMMIT
 
-rsync -az --exclude='.git' --exclude='target' --exclude='.idea' /tmp/ytdb-base-profiling/ root@<IP>:/root/ytdb-base/
-ssh root@<IP> 'git config --global --add safe.directory /root/ytdb-base && \
-  cd /root/ytdb-base && git init && git add -A && git commit -m "base" --quiet'
+rsync -az --exclude='.git' --exclude='target' --exclude='.idea' "$WORKTREE_DIR/" root@<IP>:/root/ytdb-base/
+ssh root@<IP> 'cd /root/ytdb-base && git init && git add -A && git commit -m "base" --quiet'
 ```
 
 ### Step 5: Compile both versions and download LDBC CSV dataset
@@ -157,7 +157,7 @@ ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
 
-# BASE (use -Djmh.ignoreLock=true if HEAD is still running, but prefer sequential)
+# BASE (separate directory — no JMH lock conflict with HEAD)
 ssh root@<IP> 'cd /root/ytdb-base/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
   --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
@@ -172,7 +172,7 @@ ssh root@<IP> 'cd /root/ytdb-base/jmh-ldbc && java \
   --add-opens java.base/sun.nio.cs=ALL-UNNAMED \
   --add-opens java.base/sun.security.x509=ALL-UNNAMED \
   --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED \
-  -Xms4096m -Xmx4096m -Djmh.ignoreLock=true \
+  -Xms4096m -Xmx4096m \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
 ```
@@ -185,12 +185,11 @@ Use the wrapper script (without `-prof`):
 ```bash
 ssh root@<IP> 'cat > /root/run-bench.sh << '\''SCRIPT'\''
 #!/bin/bash
-VERSION=$1    # head or base
-DIR=$2        # /root/ytdb or /root/ytdb-base
-BENCH=$3      # benchmark regex
-ARGS=$4       # JMH args
+DIR=$1        # /root/ytdb or /root/ytdb-base
+BENCH=$2      # benchmark regex
+ARGS=$3       # JMH args
 
-JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
+JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m"
 
 cd $DIR/jmh-ldbc && java $JVM_ARGS \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
@@ -201,8 +200,8 @@ chmod +x /root/run-bench.sh'
 
 For each regression, run HEAD then BASE sequentially:
 ```bash
-ssh root@<IP> '/root/run-bench.sh head /root/ytdb "<benchmark-regex>" "<jmh-args>"'
-ssh root@<IP> '/root/run-bench.sh base /root/ytdb-base "<benchmark-regex>" "<jmh-args>"'
+ssh root@<IP> '/root/run-bench.sh /root/ytdb "<benchmark-regex>" "<jmh-args>"'
+ssh root@<IP> '/root/run-bench.sh /root/ytdb-base "<benchmark-regex>" "<jmh-args>"'
 ```
 
 **Decision rule**: Compare HEAD vs BASE ops/s from the triage run. If the delta is **<3%** or in the **opposite direction** (HEAD faster), classify as **measurement noise** and skip profiling. Only proceed to Step 8 for benchmarks that reproduce a **≥3% regression** in the triage run.
@@ -225,7 +224,7 @@ DIR=$2        # /root/ytdb or /root/ytdb-base
 BENCH=$3      # benchmark regex
 ARGS=$4       # JMH args
 
-JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m -Djmh.ignoreLock=true"
+JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m"
 
 mkdir -p /root/profiles/$VERSION
 
@@ -250,7 +249,7 @@ ssh root@<IP> '/root/run-profile.sh <version> /root/ytdb<-base> "<benchmark-rege
 
 All analysis commands in this step run **on the remote server** via SSH (the profile `.csv` files are in `/root/profiles/` on the server). Either wrap each command in `ssh root@<IP> '...'` or open an interactive SSH session.
 
-For each confirmed regression, perform four levels of analysis:
+For each confirmed regression, perform five levels of analysis:
 
 #### 9a. Filter non-measurement stacks
 
@@ -332,8 +331,8 @@ For each regression, report:
 ### Step 11: Cleanup
 
 ```bash
-# Remove local worktree
-git worktree remove --force /tmp/ytdb-base-profiling
+# Remove local worktree (use the same $WORKTREE_DIR from Step 4)
+git worktree remove --force "$WORKTREE_DIR"
 
 # Destroy server
 hcloud server delete "$SERVER_NAME"
@@ -379,7 +378,7 @@ Apply changes only after user approval. If nothing needs updating, explicitly st
 
 | Problem | Solution |
 |---------|----------|
-| `Another JMH instance might be running` | Add `-Djmh.ignoreLock=true` to JVM_ARGS |
+| `Another JMH instance might be running` | A prior run left a stale lock file. Delete `/tmp/jmh-*.lock` in the benchmark directory, or add `-Djmh.ignoreLock=true` to JVM_ARGS |
 | `No matching benchmarks` | List benchmarks with `-l` flag; use `LdbcSingleThread*` / `LdbcMultiThread*` prefix |
 | async-profiler `perf_event_open failed` | Run `echo 1 > /proc/sys/kernel/perf_event_paranoid` |
 | Collapsed output is `.csv` not `.collapsed` | This is normal for async-profiler 3.0 — the format is the same (semicolon-separated stacks, space, count) |
