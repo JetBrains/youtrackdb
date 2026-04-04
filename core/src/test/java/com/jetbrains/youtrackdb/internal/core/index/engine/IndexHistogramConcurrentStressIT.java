@@ -369,10 +369,10 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       long incrNnc = histogramIncremental.nonNullCount();
       long analyzeNnc = histogramAnalyzed.nonNullCount();
       double nncRelDev = Math.abs((double) incrNnc - analyzeNnc)
+          / Math.max(analyzeNnc, 1);
       assertTrue("nonNullCount drift too large: incremental="
           + incrNnc + " ANALYZE=" + analyzeNnc
-          + " relDev=" + nncRelDev,
-          nncRelDev <= 0.01);
+          + " relDev=" + String.format(Locale.US, "%.4f", nncRelDev),
           nncRelDev <= 0.01);
 
       // Sum of bucket frequencies should equal nonNullCount
