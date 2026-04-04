@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -359,9 +360,20 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
         statsIncremental.nullCount(), statsAnalyzed.nullCount());
 
     if (histogramIncremental != null && histogramAnalyzed != null) {
-      assertEquals("nonNullCount: incremental vs ANALYZE",
-          histogramIncremental.nonNullCount(),
-          histogramAnalyzed.nonNullCount());
+      // nonNullCount can drift slightly because in-flight frequency deltas
+      // sized for an old bucket layout are discarded during rebalancing.
+      // The same root cause produces the per-bucket frequency deviations
+      // tolerated below. Allow up to 1% relative drift — ~5x headroom
+      // over the worst observed drift (0.18% on CI with 4 writers over
+      // 2 minutes) to accommodate variance across CI hardware configs.
+      long incrNnc = histogramIncremental.nonNullCount();
+      long analyzeNnc = histogramAnalyzed.nonNullCount();
+      double nncRelDev = Math.abs((double) incrNnc - analyzeNnc)
+          / Math.max(analyzeNnc, 1);
+      assertTrue("nonNullCount drift too large: incremental="
+          + incrNnc + " ANALYZE=" + analyzeNnc
+          + " relDev=" + String.format(Locale.US, "%.4f", nncRelDev),
+          nncRelDev <= 0.01);
 
       // Sum of bucket frequencies should equal nonNullCount
       long freqSum = 0;

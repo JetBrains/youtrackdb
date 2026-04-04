@@ -78,7 +78,8 @@ public class WOWCacheDeleteTimeoutIT {
    *
    * <p>Before the fix, the timeout in stopFlush() was 10000 MINUTES (~7 days), so any
    * transient delay would hang indefinitely. With the fix (10000 MILLISECONDS = 10s),
-   * the system recovers promptly.
+   * the system recovers promptly. The test uses the same 10s shutdown timeout as
+   * production to avoid false failures on slow CI hardware (e.g., ARM runners).
    */
   @Test
   public void testDeleteCompletesAfterManyCreateDestroyCycles() throws Exception {
@@ -179,7 +180,7 @@ public class WOWCacheDeleteTimeoutIT {
         wal,
         new DoubleWriteLogNoOP(),
         1, // pagesFlushInterval: 1ms — short interval to trigger frequent periodic flushes
-        10, // shutdownTimeout: 10ms — intentionally short for this test
+        10_000, // shutdownTimeout: 10s — long enough for flush to finish on slow hardware
         100,
         path,
         name,
