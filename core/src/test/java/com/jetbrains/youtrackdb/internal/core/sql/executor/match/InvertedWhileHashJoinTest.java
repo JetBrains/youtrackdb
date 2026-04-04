@@ -36,7 +36,11 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
     session.execute("CREATE class TagClass extends V").close();
     session.execute("CREATE class Tag extends V").close();
     session.execute("CREATE class IS_SUBCLASS_OF extends E").close();
+    session.execute("CREATE PROPERTY IS_SUBCLASS_OF.out LINK TagClass").close();
+    session.execute("CREATE PROPERTY IS_SUBCLASS_OF.in LINK TagClass").close();
     session.execute("CREATE class HAS_TYPE extends E").close();
+    session.execute("CREATE PROPERTY HAS_TYPE.out LINK Tag").close();
+    session.execute("CREATE PROPERTY HAS_TYPE.in LINK TagClass").close();
 
     session.begin();
     // Class hierarchy: LeafClass -> MiddleClass -> RootClass, OtherClass -> RootClass
@@ -94,7 +98,7 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
             + " RETURN tag.name as tagName, matchedClass.name as className")
         .toList();
     assertEquals(1, result.size());
-    String plan = (String) result.get(0).getProperty("executionPlanAsString");
+    String plan = (String) result.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertTrue("plan should use INVERTED WHILE HASH JOIN, got:\n" + plan,
         plan.contains("INVERTED WHILE HASH JOIN"));
@@ -146,7 +150,7 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
         .toList();
 
     assertEquals(1, result.size());
-    assertEquals("tag1", result.get(0).getProperty("tagName"));
+    assertEquals("tag1", result.getFirst().getProperty("tagName"));
     session.commit();
   }
 
@@ -185,7 +189,7 @@ public class InvertedWhileHashJoinTest extends DbTestBase {
 
     // tag1's directClass IS LeafClass → it IS the anchor itself
     assertEquals(1, result.size());
-    assertEquals("tag1", result.get(0).getProperty("tagName"));
+    assertEquals("tag1", result.getFirst().getProperty("tagName"));
     session.commit();
   }
 

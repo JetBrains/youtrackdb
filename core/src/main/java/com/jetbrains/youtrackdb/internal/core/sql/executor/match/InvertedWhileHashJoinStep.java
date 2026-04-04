@@ -62,7 +62,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       String targetAlias,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
-    // anchorClass may be null if neither alias has an explicit class constraint
+    assert MatchAssertions.checkNotNull(anchorClass, "anchor class");
     assert MatchAssertions.checkNotNull(edgeLabel, "edge label");
     assert MatchAssertions.checkNotNull(probeAlias, "probe alias");
     assert MatchAssertions.checkNotNull(targetAlias, "target alias");
@@ -133,12 +133,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     var select = new SQLSelectStatement(-1);
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
-    if (anchorClass != null) {
-      fromItem.setIdentifier(new SQLIdentifier(anchorClass));
-    } else {
-      // No class constraint — scan all vertices matching the WHERE filter
-      fromItem.setIdentifier(new SQLIdentifier("V"));
-    }
+    fromItem.setIdentifier(new SQLIdentifier(anchorClass));
     from.setItem(fromItem);
     select.setTarget(from);
     select.setWhereClause(anchorFilter != null ? anchorFilter.copy() : null);
