@@ -416,26 +416,52 @@ jobs:
           echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
 
       - name: Run Fix Agent
+        id: run-agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
         run: |
-          OUTPUT_FILE="/tmp/fix-agent-output-$$.txt"
+          JSON_LOG="/tmp/fix-agent-json-log-$$.jsonl"
 
-          # Run agent with verbose streaming output tee'd to both the
-          # CI build log and a file. stream-json emits every event
-          # (tool calls, results, thinking) so the full session is
-          # visible in the GitHub Actions log in real time.
+          # stream-json puts ALL output (including --verbose) on stdout
+          # as JSON — there is no separate stderr stream.
+          # tee saves the full JSON to a file (uploaded as artifact),
+          # jq extracts text tokens in real time for the CI build log.
           claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
             --dangerously-skip-permissions \
             --model opus \
             --output-format stream-json \
             --verbose \
-            2>&1 | tee "$OUTPUT_FILE" || true
+            2>&1 | tee "$JSON_LOG" | \
+            jq -rj --unbuffered '
+              if .type == "content_block_delta" and .delta.text then
+                .delta.text
+              elif .type == "content_block_start" then
+                if .content_block.type == "tool_use" then
+                  "\n\n--- Tool: \(.content_block.name // "unknown") ---\n"
+                else ""
+                end
+              elif .type == "message_start" then
+                "\n=== \(.message.role // "message") ===\n\n"
+              elif .type == "result" then
+                "\n=== Final Result ===\n" + (.result // "(no text)") + "\n"
+              else ""
+              end
+            ' || true
 
-          echo "Agent finished. Output length: $(wc -c < "$OUTPUT_FILE") bytes"
+          echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
+          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG") bytes"
+
+      - name: Upload agent JSON log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-agent-json-log
+          path: ${{ steps.run-agent.outputs.json_log }}
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Prepare Zulip summary
         id: summary
