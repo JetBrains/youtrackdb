@@ -3277,12 +3277,24 @@ public class MatchExecutionPlanner {
       var targetFilter = rawFilter != null ? rawFilter.copy() : null;
       var edgeLabel = getEdgeClassName(edge);
       var edgeDirection = "out".equals(getEdgeDirection(edge));
-      // Anchor class from target alias only — the WHERE filter applies to the
-      // target, not the probe. If null, the step falls back to SELECT FROM V.
+      // Anchor class from target alias — the WHERE filter applies to the target,
+      // not the probe. If the alias has no explicit class (common for WHILE
+      // targets where class inference is skipped), infer from edge LINK schema.
+      // For out('IS_SUBCLASS_OF') this infers TagClass from the edge's "in" LINK.
       var anchorClass = aliasClasses.get(targetAlias);
-      plan.chain(new InvertedWhileHashJoinStep(
-          context, anchorClass, targetFilter, edgeLabel, edgeDirection,
-          probeAlias, targetAlias, profilingEnabled));
+      if (anchorClass == null) {
+        anchorClass = inferClassFromEdgeSchema(
+            edge.edge.item.getMethod(), null, context);
+      }
+      if (anchorClass != null) {
+        plan.chain(new InvertedWhileHashJoinStep(
+            context, anchorClass, targetFilter, edgeLabel, edgeDirection,
+            probeAlias, targetAlias, profilingEnabled));
+      } else {
+        // Cannot determine anchor class — fall back to standard WHILE traversal
+        // to avoid catastrophic full V scan
+        plan.chain(new MatchStep(context, edge, profilingEnabled));
+      }
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
