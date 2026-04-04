@@ -363,8 +363,9 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // nonNullCount can drift slightly because in-flight frequency deltas
       // sized for an old bucket layout are discarded during rebalancing.
       // The same root cause produces the per-bucket frequency deviations
-      // tolerated below. Allow up to 1% relative drift (observed ~0.18%
-      // on CI with 4 writers over 2 minutes).
+      // tolerated below. Allow up to 1% relative drift — ~5x headroom
+      // over the worst observed drift (0.18% on CI with 4 writers over
+      // 2 minutes) to accommodate variance across CI hardware configs.
       long incrNnc = histogramIncremental.nonNullCount();
       long analyzeNnc = histogramAnalyzed.nonNullCount();
       double nncRelDev = Math.abs((double) incrNnc - analyzeNnc)
