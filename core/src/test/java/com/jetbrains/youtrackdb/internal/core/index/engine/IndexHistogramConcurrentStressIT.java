@@ -367,8 +367,8 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // on CI with 4 writers over 2 minutes).
       long incrNnc = histogramIncremental.nonNullCount();
       long analyzeNnc = histogramAnalyzed.nonNullCount();
-      double nncRelDev = Math.abs(incrNnc - analyzeNnc)
-          / (double) Math.max(analyzeNnc, 1);
+      double nncRelDev = Math.abs((double) incrNnc - analyzeNnc)
+          / Math.max(analyzeNnc, 1);
       assertTrue("nonNullCount drift too large: incremental="
           + incrNnc + " ANALYZE=" + analyzeNnc
           + " relDev=" + String.format(Locale.US, "%.4f", nncRelDev),
