@@ -332,27 +332,38 @@ public class ConcurrentLongIntHashMap<V> {
     return Integer.highestOneBit(n - 1) << 1;
   }
 
+  // ---- Entry record ----
+
+  /**
+   * A single entry in the hash table. Packs key fields and value onto one cache line (~36 bytes
+   * with compressed oops: 12-byte header + 8 long + 4 int + 4 padding + 8 reference), so each
+   * linear probe requires only one array access + one object dereference instead of three separate
+   * array accesses across three cache lines.
+   *
+   * <p>Immutable — mutations (value replacement, removal) write a new Entry or null to the slot.
+   * Entries are only created under the section's write lock, so the small allocation is never on
+   * the hot read path.
+   */
+  record Entry<V>(long fileId, int pageIndex, V value) {
+  }
+
   // ---- Section (inner class) ----
 
   /**
-   * A single segment of the hash map. Holds parallel arrays for keys and values, guarded by a
+   * A single segment of the hash map. Holds an array of {@link Entry} records, guarded by a
    * {@link StampedLock}. Uses open addressing with linear probing.
    *
-   * <p><b>Note on write ordering:</b> within {@code insertAt}, the value is written before key
-   * fields. The write order does not matter for correctness — all writes happen under the write
-   * lock, and any concurrent optimistic reader will fail stamp validation if a write occurred,
-   * falling back to the read lock.
+   * <p>An empty slot has {@code entries[i] == null}. All mutations happen under the write lock;
+   * optimistic readers snapshot the array reference and capacity, then validate the stamp after
+   * probing.
    */
   private static final class Section<V> {
     private static final float FILL_FACTOR = 0.66f;
 
     private final StampedLock lock = new StampedLock();
 
-    // Parallel arrays — same index across all three stores one logical entry.
-    // An empty slot has values[i] == null (fileIds and pageIndices content is undefined).
-    private long[] fileIds;
-    private int[] pageIndices;
-    private V[] values;
+    // Single array — each slot holds a complete Entry or null (empty).
+    private Entry<V>[] entries;
 
     /** Number of logically present entries. Volatile for lock-free reads in the outer size(). */
     private volatile int size;
@@ -369,39 +380,36 @@ public class ConcurrentLongIntHashMap<V> {
     @SuppressWarnings("unchecked")
     Section(int capacity) {
       this.capacity = alignToPowerOfTwo(Math.max(2, capacity));
-      this.fileIds = new long[this.capacity];
-      this.pageIndices = new int[this.capacity];
-      this.values = (V[]) new Object[this.capacity];
+      this.entries = new Entry[this.capacity];
       this.size = 0;
       this.usedBuckets = 0;
       this.resizeThreshold = (int) (this.capacity * FILL_FACTOR);
     }
 
     V get(long fileId, int pageIndex, int hashMix) {
-      // Optimistic read — acquire stamp first, then snapshot all mutable fields to locals.
-      // If a concurrent resize replaces the arrays between stamp and validate, the stamp
+      // Optimistic read — acquire stamp first, then snapshot mutable fields to locals.
+      // If a concurrent resize replaces the array between stamp and validate, the stamp
       // validation will fail and we fall back to the read lock.
       long stamp = lock.tryOptimisticRead();
 
       // Snapshot mutable fields to locals under the optimistic stamp
       int cap = capacity;
-      long[] fIds = fileIds;
-      int[] pIdxs = pageIndices;
-      V[] vals = values;
+      Entry<V>[] tbl = entries;
 
       int bucketMask = cap - 1;
       int bucket = hashMix & bucketMask;
 
-      // Probe loop using local snapshots only
+      // Probe loop using local snapshots only — one array access + one object
+      // dereference per probe, all fields on the same cache line.
       V foundValue = null;
       for (int i = 0; i < cap; i++) {
         int idx = (bucket + i) & bucketMask;
-        V val = vals[idx];
-        if (val == null) {
+        Entry<V> e = tbl[idx];
+        if (e == null) {
           break;
         }
-        if (fIds[idx] == fileId && pIdxs[idx] == pageIndex) {
-          foundValue = val;
+        if (e.fileId == fileId && e.pageIndex == pageIndex) {
+          foundValue = e.value;
           break;
         }
       }
@@ -426,12 +434,12 @@ public class ConcurrentLongIntHashMap<V> {
 
       for (int i = 0; i < capacity; i++) {
         int idx = (bucket + i) & bucketMask;
-        V val = values[idx];
-        if (val == null) {
+        Entry<V> e = entries[idx];
+        if (e == null) {
           return null;
         }
-        if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
-          return val;
+        if (e.fileId == fileId && e.pageIndex == pageIndex) {
+          return e.value;
         }
       }
       return null;
@@ -449,14 +457,14 @@ public class ConcurrentLongIntHashMap<V> {
 
       for (int i = 0; i < capacity; i++) {
         int idx = (bucket + i) & bucketMask;
-        V val = values[idx];
-        if (val == null) {
+        Entry<V> e = entries[idx];
+        if (e == null) {
           if (firstEmpty == -1) {
             firstEmpty = idx;
           }
           break;
         }
-        if (fileIds[idx] == fileId && pageIndices[idx] == pageIndex) {
+        if (e.fileId == fileId && e.pageIndex == pageIndex) {
           return idx;
         }
       }
@@ -470,9 +478,9 @@ public class ConcurrentLongIntHashMap<V> {
       try {
         int probeResult = probeForKey(fileId, pageIndex, hashMix);
         if (probeResult >= 0) {
-          // Key found — replace value only (key fields are already correct)
-          V prev = values[probeResult];
-          values[probeResult] = value;
+          // Key found — replace with new entry (records are immutable)
+          V prev = entries[probeResult].value;
+          entries[probeResult] = new Entry<>(fileId, pageIndex, value);
           return prev;
         }
 
@@ -488,7 +496,7 @@ public class ConcurrentLongIntHashMap<V> {
       try {
         int probeResult = probeForKey(fileId, pageIndex, hashMix);
         if (probeResult >= 0) {
-          return values[probeResult];
+          return entries[probeResult].value;
         }
 
         insertAt(~probeResult, fileId, pageIndex, value, hashMix);
@@ -504,7 +512,7 @@ public class ConcurrentLongIntHashMap<V> {
       try {
         int probeResult = probeForKey(fileId, pageIndex, hashMix);
         if (probeResult >= 0) {
-          return values[probeResult];
+          return entries[probeResult].value;
         }
 
         V newValue = mappingFunction.apply(fileId, pageIndex);
@@ -528,9 +536,9 @@ public class ConcurrentLongIntHashMap<V> {
 
         if (probeResult >= 0) {
           // Key present — call function with current value
-          V newValue = remappingFunction.apply(fileId, pageIndex, values[probeResult]);
+          V newValue = remappingFunction.apply(fileId, pageIndex, entries[probeResult].value);
           if (newValue != null) {
-            values[probeResult] = newValue;
+            entries[probeResult] = new Entry<>(fileId, pageIndex, newValue);
             return newValue;
           }
           // Function returned null on present key → removal
@@ -558,7 +566,7 @@ public class ConcurrentLongIntHashMap<V> {
         if (probeResult < 0) {
           return null;
         }
-        V prev = values[probeResult];
+        V prev = entries[probeResult].value;
         removeAt(probeResult);
         return prev;
       } finally {
@@ -574,7 +582,7 @@ public class ConcurrentLongIntHashMap<V> {
           return false;
         }
         // Reference equality, not equals() (T7 review decision)
-        if (values[probeResult] != expected) {
+        if (entries[probeResult].value != expected) {
           return false;
         }
         removeAt(probeResult);
@@ -594,10 +602,10 @@ public class ConcurrentLongIntHashMap<V> {
       try {
         int removed = 0;
         for (int i = 0; i < capacity; i++) {
-          V val = values[i];
-          if (val != null && fileIds[i] == fileId) {
-            removedEntries.add(val);
-            values[i] = null;
+          Entry<V> e = entries[i];
+          if (e != null && e.fileId == fileId) {
+            removedEntries.add(e.value);
+            entries[i] = null;
             removed++;
           }
         }
@@ -632,7 +640,7 @@ public class ConcurrentLongIntHashMap<V> {
      * with {@code size}. Must be called under write lock.
      */
     private void removeAt(int slotIdx) {
-      values[slotIdx] = null;
+      entries[slotIdx] = null;
       size--;
       assert size >= 0 : "size went negative: " + size;
 
@@ -640,18 +648,17 @@ public class ConcurrentLongIntHashMap<V> {
       // back toward their ideal bucket position.
       int bucketMask = capacity - 1;
       int nextIdx = (slotIdx + 1) & bucketMask;
-      while (values[nextIdx] != null) {
-        int idealBucket = (int) hash(fileIds[nextIdx], pageIndices[nextIdx]) & bucketMask;
+      while (entries[nextIdx] != null) {
+        Entry<V> e = entries[nextIdx];
+        int idealBucket = (int) hash(e.fileId, e.pageIndex) & bucketMask;
 
         // Check if the entry at nextIdx belongs in the gap we created.
         // It needs to be moved if its ideal bucket is at or before the empty slot
         // (accounting for wrap-around).
         if (isBetween(idealBucket, slotIdx, nextIdx, bucketMask)) {
-          // Move the entry to the empty slot
-          fileIds[slotIdx] = fileIds[nextIdx];
-          pageIndices[slotIdx] = pageIndices[nextIdx];
-          values[slotIdx] = values[nextIdx];
-          values[nextIdx] = null;
+          // Move the entry to the empty slot — just a reference copy, no new allocation
+          entries[slotIdx] = e;
+          entries[nextIdx] = null;
           slotIdx = nextIdx;
         }
         nextIdx = (nextIdx + 1) & bucketMask;
@@ -679,16 +686,13 @@ public class ConcurrentLongIntHashMap<V> {
     private void insertAt(int slotIdx, long fileId, int pageIndex, V value, int hashMix) {
       if (usedBuckets >= resizeThreshold) {
         rehash();
-        // Recalculate slot after resize — arrays have changed
+        // Recalculate slot after resize — array has changed
         slotIdx = findEmptySlot(hashMix);
       }
 
-      assert values[slotIdx] == null : "insertAt called on non-empty slot " + slotIdx;
+      assert entries[slotIdx] == null : "insertAt called on non-empty slot " + slotIdx;
 
-      // Write order does not matter — all under write lock (see Section Javadoc)
-      values[slotIdx] = value;
-      fileIds[slotIdx] = fileId;
-      pageIndices[slotIdx] = pageIndex;
+      entries[slotIdx] = new Entry<>(fileId, pageIndex, value);
 
       usedBuckets++;
       size++;
@@ -703,7 +707,7 @@ public class ConcurrentLongIntHashMap<V> {
 
       for (int i = 0; i < capacity; i++) {
         int idx = (bucket + i) & bucketMask;
-        if (values[idx] == null) {
+        if (entries[idx] == null) {
           return idx;
         }
       }
@@ -720,50 +724,44 @@ public class ConcurrentLongIntHashMap<V> {
     }
 
     /**
-     * Re-insert all live entries into fresh arrays of the given capacity. Updates capacity,
+     * Re-insert all live entries into a fresh array of the given capacity. Updates capacity,
      * resizeThreshold, and usedBuckets. Must be called under write lock.
+     *
+     * <p>Existing Entry records are reused (just reference-copied into the new array) — no new
+     * Entry allocations during rehash.
      */
     @SuppressWarnings("unchecked")
     private void rehashTo(int newCapacity) {
       assert newCapacity > 0 && (newCapacity & (newCapacity - 1)) == 0
           : "newCapacity must be a power of two: " + newCapacity;
 
-      long[] oldFileIds = fileIds;
-      int[] oldPageIndices = pageIndices;
-      V[] oldValues = values;
+      Entry<V>[] oldEntries = entries;
       int oldCapacity = capacity;
 
-      // Allocate all new arrays FIRST — if OOM occurs, old state is untouched
-      long[] newFileIds = new long[newCapacity];
-      int[] newPageIndices = new int[newCapacity];
-      V[] newValues = (V[]) new Object[newCapacity];
+      // Allocate new array FIRST — if OOM occurs, old state is untouched
+      Entry<V>[] newEntries = new Entry[newCapacity];
 
       int bucketMask = newCapacity - 1;
       for (int i = 0; i < oldCapacity; i++) {
-        V val = oldValues[i];
-        if (val != null) {
-          long fId = oldFileIds[i];
-          int pIdx = oldPageIndices[i];
-          int bucket = (int) hash(fId, pIdx) & bucketMask;
+        Entry<V> e = oldEntries[i];
+        if (e != null) {
+          int bucket = (int) hash(e.fileId, e.pageIndex) & bucketMask;
 
-          while (newValues[bucket] != null) {
+          while (newEntries[bucket] != null) {
             bucket = (bucket + 1) & bucketMask;
           }
 
-          newValues[bucket] = val;
-          newFileIds[bucket] = fId;
-          newPageIndices[bucket] = pIdx;
+          // Reuse existing Entry record — just a reference copy
+          newEntries[bucket] = e;
         }
       }
 
-      // Swap arrays BEFORE capacity — an optimistic reader that snapshots the new capacity
-      // but old arrays would use a mask larger than the array length, causing AIOOBE.
-      // By writing arrays first, a reader that sees the old capacity uses a smaller mask
-      // against larger arrays (safe), while a reader that sees the new capacity uses the
-      // correct mask against the new arrays (also safe).
-      fileIds = newFileIds;
-      pageIndices = newPageIndices;
-      values = newValues;
+      // Swap array BEFORE capacity — an optimistic reader that snapshots the new capacity
+      // but old array would use a mask larger than the array length, causing AIOOBE.
+      // By writing the array first, a reader that sees the old capacity uses a smaller mask
+      // against a larger array (safe), while a reader that sees the new capacity uses the
+      // correct mask against the new array (also safe).
+      entries = newEntries;
       capacity = newCapacity;
       resizeThreshold = (int) (newCapacity * FILL_FACTOR);
       usedBuckets = size;
@@ -776,9 +774,7 @@ public class ConcurrentLongIntHashMap<V> {
     void clear() {
       long stamp = lock.writeLock();
       try {
-        fileIds = new long[capacity];
-        pageIndices = new int[capacity];
-        values = (V[]) new Object[capacity];
+        entries = new Entry[capacity];
         size = 0;
         usedBuckets = 0;
       } finally {
@@ -790,9 +786,9 @@ public class ConcurrentLongIntHashMap<V> {
       long stamp = lock.readLock();
       try {
         for (int i = 0; i < capacity; i++) {
-          V val = values[i];
-          if (val != null) {
-            consumer.accept(fileIds[i], pageIndices[i], val);
+          Entry<V> e = entries[i];
+          if (e != null) {
+            consumer.accept(e.fileId, e.pageIndex, e.value);
           }
         }
       } finally {
@@ -804,9 +800,9 @@ public class ConcurrentLongIntHashMap<V> {
       long stamp = lock.readLock();
       try {
         for (int i = 0; i < capacity; i++) {
-          V val = values[i];
-          if (val != null) {
-            consumer.accept(val);
+          Entry<V> e = entries[i];
+          if (e != null) {
+            consumer.accept(e.value);
           }
         }
       } finally {
