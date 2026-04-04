@@ -128,10 +128,13 @@ Download the LDBC SF 1 CSV dataset and canonical curated parameters from Hetzner
 
 ```bash
 # Generate presigned URLs locally (boto3 required)
+# IMPORTANT: Force HTTPS — the HETZNER_S3_ENDPOINT env var may contain http://
+# but Hetzner servers cannot reach the S3 endpoint over plain HTTP (connection timeout).
 python3 -c "
 import boto3, os
+endpoint = os.environ['HETZNER_S3_ENDPOINT'].replace('http://', 'https://')
 s3 = boto3.client('s3',
-    endpoint_url=os.environ['HETZNER_S3_ENDPOINT'],
+    endpoint_url=endpoint,
     aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
     aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
 for key in ['ldbc/ldbc-sf1-composite-merged-fk.tar.zst', 'ldbc/curated-params-v3.json', 'ldbc/factor-tables.json']:
@@ -145,11 +148,13 @@ for key in ['ldbc/ldbc-sf1-composite-merged-fk.tar.zst', 'ldbc/curated-params-v3
 Download and extract CSV dataset:
 ```bash
 # Download and extract CSV dataset to HEAD
+# Note: the tar archive contains a top-level sf1/ directory, so extract into ldbc-dataset/
+# to get the expected ldbc-dataset/sf1/static/ and ldbc-dataset/sf1/dynamic/ layout.
 ssh root@<IP> 'apt-get install -y -qq zstd > /dev/null 2>&1 && \
-  mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
-  cd /root/ytdb/jmh-ldbc/target/ldbc-dataset/sf1 && \
+  mkdir -p /root/ytdb/jmh-ldbc/target/ldbc-dataset && \
+  cd /root/ytdb/jmh-ldbc/target/ldbc-dataset && \
   curl -sS "<CSV_PRESIGNED_URL>" | zstd -dc | tar xf - && \
-  echo "Dataset ready" && ls static/ dynamic/'
+  echo "Dataset ready" && ls sf1/static/ sf1/dynamic/'
 
 # Copy CSV dataset to BASE
 ssh root@<IP> 'cp -r /root/ytdb/jmh-ldbc/target/ldbc-dataset /root/ytdb-base/jmh-ldbc/target/'
@@ -178,9 +183,11 @@ Run a throwaway fork on **each** version to trigger DB creation from CSV files (
 
 **Important**: Use `-f 1` (not `-f 0`). With `-f 0` the benchmark runs in-process and JMH exits 0 even when all benchmarks fail — silent failures are hard to diagnose on a remote server.
 
+**Important**: Run HEAD and BASE pre-loads **sequentially**, not in parallel. JMH uses a global lock file (`/tmp/jmh*.lock`) regardless of the working directory, so concurrent runs will fail with "Another JMH instance might be running". If a prior run left a stale lock, delete it with `rm -f /tmp/jmh*.lock` before starting.
+
 ```bash
-# HEAD
-ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
+# HEAD (run first)
+ssh root@<IP> 'rm -f /tmp/jmh*.lock && cd /root/ytdb/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
   --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
@@ -198,8 +205,8 @@ ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
   -jar target/youtrackdb-jmh-ldbc-*.jar \
   "LdbcSingleThread.*ic5_newGroups" -f 1 -wi 0 -i 1 -r 1s -t 1'
 
-# BASE (separate directory — no JMH lock conflict with HEAD)
-ssh root@<IP> 'cd /root/ytdb-base/jmh-ldbc && java \
+# BASE (run after HEAD completes — JMH global lock prevents parallel runs)
+ssh root@<IP> 'rm -f /tmp/jmh*.lock && cd /root/ytdb-base/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
   --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
