@@ -36,7 +36,7 @@ import javax.annotation.Nullable;
  */
 public final class ReadBytesContainer {
 
-  private final ByteBuffer buffer;
+  private ByteBuffer buffer;
 
   /**
    * Wraps an existing ByteBuffer. The container reads from the buffer's current position to its
@@ -44,6 +44,25 @@ public final class ReadBytesContainer {
    */
   public ReadBytesContainer(ByteBuffer buffer) {
     this.buffer = buffer;
+  }
+
+  /**
+   * Creates an empty container that must be initialized via {@link #reset(ByteBuffer, int, int)}
+   * before use. Useful for pre-allocating a reusable container to avoid per-call allocation.
+   */
+  public ReadBytesContainer() {
+    this.buffer = null;
+  }
+
+  /**
+   * Resets this container to read from the given buffer starting at {@code offset} for
+   * {@code length} bytes. Uses {@link ByteBuffer#duplicate()} to avoid the heavier
+   * {@link ByteBuffer#slice(int, int)} allocation, then sets position and limit directly.
+   */
+  public void reset(ByteBuffer source, int offset, int length) {
+    this.buffer = source.duplicate();
+    this.buffer.position(offset);
+    this.buffer.limit(offset + length);
   }
 
   /**

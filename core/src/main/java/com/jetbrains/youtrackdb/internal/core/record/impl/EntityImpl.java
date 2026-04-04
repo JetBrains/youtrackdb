@@ -46,7 +46,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
@@ -90,7 +89,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.ref.WeakReference;
 import java.math.BigDecimal;
-import java.nio.BufferUnderflowException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -150,6 +148,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private long pageStamp;
   private int pageContentOffset;
   private int pageContentLength;
+
+  // Reusable container for in-place comparison — avoids allocating a new
+  // ReadBytesContainer + ByteBuffer.slice() on every compareFromPageFrame call.
+  private final ReadBytesContainer comparisonRbc = new ReadBytesContainer();
 
   /**
    * Internal constructor used on unmarshalling.
@@ -704,33 +706,35 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * or the field uses a non-default collation.
    *
    * <p>Does not validate the PageFrame stamp — callers must validate after using the result.
+   *
+   * @param localPageFrame the already-captured PageFrame reference from the caller
+   * @param localOffset    the already-captured content offset from the caller
+   * @param localLength    the already-captured content length from the caller
+   * @param fieldNameBytes pre-computed UTF-8 bytes of the field name (avoids per-call allocation)
    */
   @Nullable private ReadBinaryField deserializeFieldForComparisonFromPageFrame(
-      String name, Object value) {
+      String name, Object value,
+      PageFrame localPageFrame, int localOffset, int localLength,
+      byte[] fieldNameBytes) {
     if (value == null) {
       return null;
     }
     if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
       return null;
     }
-
-    var localPageFrame = this.pageFrame;
-    var localOffset = this.pageContentOffset;
-    var localLength = this.pageContentLength;
-    if (localPageFrame == null || localLength <= 0) {
+    if (localLength <= 0) {
       return null;
     }
 
     var buf = localPageFrame.getBuffer();
     var serializerVersion = buf.get(localOffset);
     var serializer = RecordSerializerBinary.INSTANCE.getSerializer(serializerVersion);
-    var rbc = new ReadBytesContainer(
-        buf.slice(localOffset + 1, localLength - 1));
+    comparisonRbc.reset(buf, localOffset + 1, localLength - 1);
 
     var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     var schemaClass = getImmutableSchemaClass(session, immutableSchema);
     var field = serializer.deserializeField(
-        session, rbc, schemaClass, name, isEmbedded(),
+        session, comparisonRbc, schemaClass, name, fieldNameBytes, isEmbedded(),
         immutableSchema, propertyEncryption);
 
     if (field == null) {
@@ -745,17 +749,23 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Compare against the PageFrame's serialized bytes using InPlaceComparator (equality check).
    * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
-   * page modification. Falls back on CorruptedRecordException or BufferUnderflowException.
+   * page modification. Falls back on any RuntimeException because torn reads can
+   * manifest as various exception types (BufferUnderflowException, IllegalArgumentException
+   * from VarInt decoding, NullPointerException from invalid type/property IDs, etc.).
    */
   private InPlaceResult compareFromPageFrame(String name, Object value) {
     var localPageFrame = this.pageFrame;
     var localStamp = this.pageStamp;
+    var localOffset = this.pageContentOffset;
+    var localLength = this.pageContentLength;
     if (localPageFrame == null) {
       return InPlaceResult.FALLBACK;
     }
 
     try {
-      var field = deserializeFieldForComparisonFromPageFrame(name, value);
+      var fieldNameBytes = name.getBytes();
+      var field = deserializeFieldForComparisonFromPageFrame(
+          name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
       if (field == null) {
         return InPlaceResult.FALLBACK;
       }
@@ -771,7 +781,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         return InPlaceResult.FALLBACK;
       }
       return result.getAsInt() == 1 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
-    } catch (CorruptedRecordException | BufferUnderflowException e) {
+    } catch (RuntimeException e) {
       // Torn read from concurrent page modification — fall back
       return InPlaceResult.FALLBACK;
     }
@@ -780,17 +790,23 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Compare against the PageFrame's serialized bytes using InPlaceComparator (ordering).
    * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
-   * page modification. Falls back on CorruptedRecordException or BufferUnderflowException.
+   * page modification. Falls back on any RuntimeException because torn reads can
+   * manifest as various exception types (BufferUnderflowException, IllegalArgumentException
+   * from VarInt decoding, NullPointerException from invalid type/property IDs, etc.).
    */
   private OptionalInt compareFromPageFrameOrdering(String name, Object value) {
     var localPageFrame = this.pageFrame;
     var localStamp = this.pageStamp;
+    var localOffset = this.pageContentOffset;
+    var localLength = this.pageContentLength;
     if (localPageFrame == null) {
       return OptionalInt.empty();
     }
 
     try {
-      var field = deserializeFieldForComparisonFromPageFrame(name, value);
+      var fieldNameBytes = name.getBytes();
+      var field = deserializeFieldForComparisonFromPageFrame(
+          name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
       if (field == null) {
         return OptionalInt.empty();
       }
@@ -803,7 +819,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
 
       return result;
-    } catch (CorruptedRecordException | BufferUnderflowException e) {
+    } catch (RuntimeException e) {
       // Torn read from concurrent page modification — fall back
       return OptionalInt.empty();
     }

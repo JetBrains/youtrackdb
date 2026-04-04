@@ -309,6 +309,8 @@ public final class InPlaceComparator {
 
   // ---------------------------------------------------------------------------
   // DECIMAL (BigDecimal via DecimalSerializer)
+  // See also: compareDecimalRbc() — the ReadBytesContainer counterpart that
+  // reads the same format manually from a ByteBuffer.
   // ---------------------------------------------------------------------------
 
   private static OptionalInt compareDecimal(BytesContainer bytes, Object value) {
@@ -548,7 +550,10 @@ public final class InPlaceComparator {
     return OptionalInt.of(Long.compare(savedTime, valueMillis));
   }
 
-  // DECIMAL: 4-byte scale (big-endian int) + 4-byte unscaled length + unscaled bytes
+  // DECIMAL: 4-byte scale (big-endian int) + 4-byte unscaled length + unscaled bytes.
+  // This manually reads the same binary format as DecimalSerializer.staticDeserialize(),
+  // but from a ReadBytesContainer (ByteBuffer-backed) instead of a byte[]. Changes to
+  // the decimal serialization format in DecimalSerializer must be mirrored here.
   private static OptionalInt compareDecimalRbc(ReadBytesContainer bytes, Object value) {
     BigDecimal decimalValue;
     if (value instanceof BigDecimal bd) {

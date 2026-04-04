@@ -69,10 +69,17 @@ public interface EntitySerializer {
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
+  /**
+   * Locates a field in the serialized record for in-place comparison.
+   *
+   * @param fieldNameBytes pre-computed UTF-8 bytes of iFieldName (avoids per-call allocation
+   *                       when the caller invokes this method repeatedly for the same field)
+   */
   default ReadBinaryField deserializeField(
       DatabaseSessionEmbedded db, ReadBytesContainer bytes,
       SchemaClass iClass,
       String iFieldName,
+      byte[] fieldNameBytes,
       boolean embedded,
       ImmutableSchema schema,
       PropertyEncryption encryption) {

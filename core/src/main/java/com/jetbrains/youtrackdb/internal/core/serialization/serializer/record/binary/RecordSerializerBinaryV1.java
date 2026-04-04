@@ -269,6 +269,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       DatabaseSessionEmbedded session, final ReadBytesContainer bytes,
       final SchemaClass iClass,
       final String iFieldName,
+      final byte[] fieldNameBytes,
       boolean embedded,
       ImmutableSchema schema,
       PropertyEncryption encryption) {
@@ -277,7 +278,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       var classNameLen = VarIntSerializer.readAsInteger(bytes);
       bytes.skip(classNameLen);
     }
-    final var field = iFieldName.getBytes();
 
     var headerLength = VarIntSerializer.readAsInteger(bytes);
     if (headerLength < 0 || headerLength > bytes.remaining()) {
@@ -293,11 +293,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       var len = VarIntSerializer.readAsInteger(bytes);
 
       if (len > 0) {
-        var match = checkMatchForLargerThenZero(bytes, field, len);
+        var match = checkMatchForLargerThenZero(bytes, fieldNameBytes, len);
         bytes.skip(len);
-        var pointerAndType = getFieldSizeAndTypeFromCurrentPosition(bytes);
-        int fieldLength = pointerAndType.getFirstVal();
-        var type = pointerAndType.getSecondVal();
+        // Inline getFieldSizeAndTypeFromCurrentPosition to avoid Tuple allocation
+        var fieldLength = VarIntSerializer.readAsInteger(bytes);
+        var type = readOType(bytes, false);
 
         if (match) {
           if (fieldLength == 0 || !getComparator().isBinaryComparable(type)) {
@@ -318,7 +318,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
             return null;
           }
           bytes.setOffset(currentValuePos);
-          var classProp = iClass.getProperty(iFieldName);
+          var classProp = iClass != null ? iClass.getProperty(iFieldName) : null;
           return new ReadBinaryField(
               iFieldName, type, bytes,
               classProp != null ? classProp.getCollate() : null);
