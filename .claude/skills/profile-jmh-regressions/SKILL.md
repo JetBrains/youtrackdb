@@ -187,7 +187,7 @@ Run a throwaway fork on **each** version to trigger DB creation from CSV files (
 
 ```bash
 # HEAD (run first)
-ssh root@<IP> 'cd /root/ytdb/jmh-ldbc && java \
+ssh root@<IP> 'rm -f /tmp/jmh*.lock && cd /root/ytdb/jmh-ldbc && java \
   --add-opens java.base/java.lang=ALL-UNNAMED \
   --add-opens java.base/java.lang.reflect=ALL-UNNAMED \
   --add-opens java.base/java.lang.invoke=ALL-UNNAMED \
