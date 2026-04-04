@@ -69,6 +69,18 @@ public interface EntitySerializer {
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
+  default ReadBinaryField deserializeField(
+      DatabaseSessionEmbedded db, ReadBytesContainer bytes,
+      SchemaClass iClass,
+      String iFieldName,
+      boolean embedded,
+      ImmutableSchema schema,
+      PropertyEncryption encryption) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserializeField not supported by "
+            + getClass().getSimpleName());
+  }
+
   BinaryComparator getComparator();
 
   /**

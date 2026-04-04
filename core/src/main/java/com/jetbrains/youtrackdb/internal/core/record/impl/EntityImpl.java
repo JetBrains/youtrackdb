@@ -46,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
@@ -76,6 +77,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.InPlaceComparator;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
@@ -88,6 +90,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.ref.WeakReference;
 import java.math.BigDecimal;
+import java.nio.BufferUnderflowException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -527,6 +530,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return compareFromSource(name, value);
     }
 
+    // Fall back to PageFrame zero-copy comparison
+    if (pageFrame != null) {
+      return compareFromPageFrame(name, value);
+    }
+
     return InPlaceResult.FALLBACK;
   }
 
@@ -555,6 +563,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     // Fall back to serialized comparison via source bytes
     if (source != null) {
       return compareFromSourceOrdering(name, value);
+    }
+
+    // Fall back to PageFrame zero-copy comparison
+    if (pageFrame != null) {
+      return compareFromPageFrameOrdering(name, value);
     }
 
     return OptionalInt.empty();
@@ -683,6 +696,117 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return null;
     }
     return field;
+  }
+
+  /**
+   * Locates a field in the PageFrame's serialized record and returns a {@link ReadBinaryField}
+   * for in-place comparison. Returns null if the field is not found, the record is encrypted,
+   * or the field uses a non-default collation.
+   *
+   * <p>Does not validate the PageFrame stamp — callers must validate after using the result.
+   */
+  @Nullable private ReadBinaryField deserializeFieldForComparisonFromPageFrame(
+      String name, Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
+      return null;
+    }
+
+    var localPageFrame = this.pageFrame;
+    var localOffset = this.pageContentOffset;
+    var localLength = this.pageContentLength;
+    if (localPageFrame == null || localLength <= 0) {
+      return null;
+    }
+
+    var buf = localPageFrame.getBuffer();
+    var serializerVersion = buf.get(localOffset);
+    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(serializerVersion);
+    var rbc = new ReadBytesContainer(
+        buf.slice(localOffset + 1, localLength - 1));
+
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = getImmutableSchemaClass(session, immutableSchema);
+    var field = serializer.deserializeField(
+        session, rbc, schemaClass, name, isEmbedded(),
+        immutableSchema, propertyEncryption);
+
+    if (field == null) {
+      return null;
+    }
+    if (field.collate() != null && !(field.collate() instanceof DefaultCollate)) {
+      return null;
+    }
+    return field;
+  }
+
+  /**
+   * Compare against the PageFrame's serialized bytes using InPlaceComparator (equality check).
+   * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
+   * page modification. Falls back on CorruptedRecordException or BufferUnderflowException.
+   */
+  private InPlaceResult compareFromPageFrame(String name, Object value) {
+    var localPageFrame = this.pageFrame;
+    var localStamp = this.pageStamp;
+    if (localPageFrame == null) {
+      return InPlaceResult.FALLBACK;
+    }
+
+    try {
+      var field = deserializeFieldForComparisonFromPageFrame(name, value);
+      if (field == null) {
+        return InPlaceResult.FALLBACK;
+      }
+      var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+      var result = InPlaceComparator.isEqual(field, value, dbTimeZone);
+
+      // Validate stamp after reading — detect torn reads
+      if (!localPageFrame.validate(localStamp)) {
+        return InPlaceResult.FALLBACK;
+      }
+
+      if (result.isEmpty()) {
+        return InPlaceResult.FALLBACK;
+      }
+      return result.getAsInt() == 1 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+    } catch (CorruptedRecordException | BufferUnderflowException e) {
+      // Torn read from concurrent page modification — fall back
+      return InPlaceResult.FALLBACK;
+    }
+  }
+
+  /**
+   * Compare against the PageFrame's serialized bytes using InPlaceComparator (ordering).
+   * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
+   * page modification. Falls back on CorruptedRecordException or BufferUnderflowException.
+   */
+  private OptionalInt compareFromPageFrameOrdering(String name, Object value) {
+    var localPageFrame = this.pageFrame;
+    var localStamp = this.pageStamp;
+    if (localPageFrame == null) {
+      return OptionalInt.empty();
+    }
+
+    try {
+      var field = deserializeFieldForComparisonFromPageFrame(name, value);
+      if (field == null) {
+        return OptionalInt.empty();
+      }
+      var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+      var result = InPlaceComparator.compare(field, value, dbTimeZone);
+
+      // Validate stamp after reading — detect torn reads
+      if (!localPageFrame.validate(localStamp)) {
+        return OptionalInt.empty();
+      }
+
+      return result;
+    } catch (CorruptedRecordException | BufferUnderflowException e) {
+      // Torn read from concurrent page modification — fall back
+      return OptionalInt.empty();
+    }
   }
 
   /**
@@ -3922,18 +4046,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     this.recordVersion = version;
     this.size = contentLength;
 
-    // Eagerly extract bytes into source as a fallback. This ensures that
-    // deserializeProperties can use the byte[]-backed path if the PageFrame
-    // stamp becomes invalid, without needing reReadFromStorage() which adds
-    // latency and changes concurrency dynamics under high contention.
-    if (contentLength > 0) {
-      var buf = pageFrame.getBuffer();
-      var bytes = new byte[contentLength];
-      buf.get(contentOffset, bytes);
-      this.source = bytes;
-    } else {
-      this.source = null;
-    }
+    this.source = null;
 
     this.status = STATUS.LOADED;
   }

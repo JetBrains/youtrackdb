@@ -265,6 +265,71 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   @Override
+  @Nullable public ReadBinaryField deserializeField(
+      DatabaseSessionEmbedded session, final ReadBytesContainer bytes,
+      final SchemaClass iClass,
+      final String iFieldName,
+      boolean embedded,
+      ImmutableSchema schema,
+      PropertyEncryption encryption) {
+
+    if (embedded) {
+      var classNameLen = VarIntSerializer.readAsInteger(bytes);
+      bytes.skip(classNameLen);
+    }
+    final var field = iFieldName.getBytes();
+
+    var headerLength = VarIntSerializer.readAsInteger(bytes);
+    if (headerLength < 0 || headerLength > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Header length exceeds remaining buffer: "
+              + headerLength + " > " + bytes.remaining());
+    }
+    var headerStart = bytes.offset();
+    var valuesStart = headerStart + headerLength;
+    var currentValuePos = valuesStart;
+
+    while (bytes.offset() < valuesStart) {
+      var len = VarIntSerializer.readAsInteger(bytes);
+
+      if (len > 0) {
+        var match = checkMatchForLargerThenZero(bytes, field, len);
+        bytes.skip(len);
+        var pointerAndType = getFieldSizeAndTypeFromCurrentPosition(bytes);
+        int fieldLength = pointerAndType.getFirstVal();
+        var type = pointerAndType.getSecondVal();
+
+        if (match) {
+          if (fieldLength == 0 || !getComparator().isBinaryComparable(type)) {
+            return null;
+          }
+          bytes.setOffset(currentValuePos);
+          return new ReadBinaryField(iFieldName, type, bytes, null);
+        }
+        currentValuePos += fieldLength;
+      } else {
+        final var id = (len * -1) - 1;
+        final var prop = schema.getGlobalPropertyById(id);
+        final var fieldLength = VarIntSerializer.readAsInteger(bytes);
+        var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+
+        if (iFieldName.equals(prop.getName())) {
+          if (fieldLength == 0 || !getComparator().isBinaryComparable(type)) {
+            return null;
+          }
+          bytes.setOffset(currentValuePos);
+          var classProp = iClass.getProperty(iFieldName);
+          return new ReadBinaryField(
+              iFieldName, type, bytes,
+              classProp != null ? classProp.getCollate() : null);
+        }
+        currentValuePos += fieldLength;
+      }
+    }
+    return null;
+  }
+
+  @Override
   public void deserialize(DatabaseSessionEmbedded session, final EntityImpl entity,
       final BytesContainer bytes) {
     var headerLength = VarIntSerializer.readAsInteger(bytes);

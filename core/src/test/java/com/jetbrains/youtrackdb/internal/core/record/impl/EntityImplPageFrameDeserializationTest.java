@@ -199,11 +199,12 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
   // --- Stamp invalidation fallback ---
 
   @Test
-  public void testStampInvalidationIrrelevantWithEagerByteExtraction() {
-    // fillFromPage eagerly extracts bytes into source, so deserialization
-    // uses the byte[] path regardless of stamp validity. Stamp invalidation
-    // does not affect property access. After partial deserialization,
-    // pageFrame is retained (only cleared after full deserialization).
+  public void testStampInvalidationTriggersReReadWithZeroCopy() {
+    // fillFromPage does NOT eagerly extract bytes — source stays null.
+    // When the stamp is invalidated, speculative PageFrame deserialization
+    // detects the invalid stamp and falls back to re-reading from storage.
+    // After the re-read, the entity has correct property values and
+    // the PageFrame is cleared.
     var rid = saveRecord("StampTest", "name", "Carol", "city", "Paris");
 
     session.begin();
@@ -225,22 +226,23 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     long exclusiveStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exclusiveStamp);
 
-    // Access properties — uses eagerly extracted byte[] source, stamp irrelevant
+    // Access properties — stamp invalid → fallback re-read from storage
     assertEquals("Carol", entity.getString("name"));
     assertEquals("Paris", entity.getString("city"));
-    // PageFrame is retained after partial deserialization (individual property access)
-    assertNotNull(entity.getPageFrame());
+    // After fallback re-read, PageFrame is cleared
+    assertNull(entity.getPageFrame());
     session.rollback();
   }
 
   // --- RuntimeException during speculative deserialization ---
 
   @Test
-  public void testCorruptedDataInPageFrameThrowsOnDeserialize() {
-    // fillFromPage eagerly extracts bytes into source. When the PageFrame
-    // contains corrupted data, the extracted byte[] source is also corrupt.
-    // Deserialization via the byte[] path throws an exception — there is no
-    // fallback since the corrupt bytes are the entity's source.
+  public void testCorruptedDataInPageFrameFallsBackToReRead() {
+    // fillFromPage does NOT eagerly extract bytes — source stays null.
+    // When the PageFrame contains corrupted data, the speculative
+    // deserialization catches the exception (CorruptedRecordException or
+    // similar) and falls back to re-reading from storage. Since the entity
+    // has a valid RID, the re-read succeeds and returns the correct value.
     var rid = saveRecord("CorruptTest", "key", "valid-data");
 
     session.begin();
@@ -262,15 +264,11 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         100, 51);
 
-    // Corrupt source bytes cause deserialization to throw
-    try {
-      entity.getString("key");
-      org.junit.Assert.fail(
-          "Expected exception from deserializing corrupt byte[] source");
-    } catch (IllegalArgumentException e) {
-      // Expected — corrupt data cannot be deserialized
-      assertTrue(e.getMessage().contains("Variable length quantity"));
-    }
+    // Corrupt PageFrame data triggers speculative deser failure →
+    // fallback re-read from storage returns correct data
+    assertEquals("valid-data", entity.getString("key"));
+    // After fallback re-read, PageFrame is cleared
+    assertNull(entity.getPageFrame());
     session.rollback();
   }
 
@@ -278,10 +276,10 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
 
   @Test
   public void testMultiplePropertyAccessesAfterStampInvalidation() {
-    // fillFromPage eagerly extracts bytes into source, so all property
-    // accesses use the byte[] path. Stamp invalidation does not affect
-    // correctness. After individual (partial) property accesses, pageFrame
-    // is retained.
+    // fillFromPage does NOT eagerly extract bytes — source stays null.
+    // When the stamp is invalidated, speculative PageFrame deserialization
+    // fails and falls back to re-reading from storage. All properties
+    // return correct values via the re-read path.
     var rid = saveRecord("MultiTest", "a", "alpha", "b", "beta", "c", "gamma");
 
     session.begin();
@@ -299,15 +297,16 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         0, serialized.length);
 
-    // Invalidate stamp — irrelevant since byte[] source is used
+    // Invalidate stamp — triggers re-read on first property access
     long exStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exStamp);
 
-    // All accesses use eagerly extracted byte[] source
+    // First access triggers re-read from storage
     assertEquals("alpha", entity.getString("a"));
-    // PageFrame retained after partial deserialization
-    assertNotNull(entity.getPageFrame());
+    // After fallback re-read, PageFrame is cleared
+    assertNull(entity.getPageFrame());
 
+    // Subsequent accesses use deserialized properties from re-read
     assertEquals("beta", entity.getString("b"));
     assertEquals("gamma", entity.getString("c"));
     session.rollback();
@@ -354,10 +353,12 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
   // --- Snapshot restoration on partial deser + stamp invalidation (TC1) ---
 
   @Test
-  public void testPartialDeserializationUnaffectedByStampInvalidation() {
-    // fillFromPage eagerly extracts bytes into source. Both partial
-    // deserialization calls use the byte[] path, so stamp invalidation
-    // between them has no effect. PageFrame is retained after partial access.
+  public void testPartialDeserializationWithStampInvalidationFallsBack() {
+    // fillFromPage does NOT eagerly extract bytes — source stays null.
+    // First partial deserialization uses the speculative PageFrame path
+    // with a valid stamp. Then stamp is invalidated. The second partial
+    // deserialization detects the invalid stamp and falls back to
+    // re-reading from storage.
     var rid = saveRecord("SnapshotTest", "a", "alpha", "b", "beta");
 
     session.begin();
@@ -375,21 +376,21 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         64, serialized.length);
 
-    // First partial deserialization from byte[] source
+    // First partial deserialization from PageFrame (valid stamp)
     assertTrue(entity.checkForProperties("a"));
     assertEquals("alpha", entity.getString("a"));
     assertNotNull(entity.getPageFrame());
 
-    // Invalidate stamp — irrelevant since byte[] source is used
+    // Invalidate stamp — next partial deserialization will fall back
     long exStamp = frame.acquireExclusiveLock();
     frame.releaseExclusiveLock(exStamp);
 
-    // Second partial also uses byte[] source — both properties correct
+    // Second partial triggers re-read from storage; both properties correct
     assertTrue(entity.checkForProperties("b"));
     assertEquals("beta", entity.getString("b"));
     assertEquals("alpha", entity.getString("a"));
-    // PageFrame retained after partial deserialization
-    assertNotNull(entity.getPageFrame());
+    // After fallback re-read, PageFrame is cleared
+    assertNull(entity.getPageFrame());
     session.rollback();
   }
 
@@ -449,10 +450,8 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
 
   @Test
   public void testSpeculativeDeserializationFromPageFrameFullPath() {
-    // Simulates lazy extraction: fillFromPage sets source, then
-    // clearSourceKeepPageFrame() clears source while keeping PageFrame.
-    // This forces deserializeProperties to use the speculative
-    // deserializeFromPageFrame() path with stamp validation.
+    // fillFromPage leaves source null, so deserializeProperties uses the
+    // speculative deserializeFromPageFrame() path with stamp validation.
     session.begin();
 
     var source = (EntityImpl) session.newEntity();
@@ -467,8 +466,7 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     entity.unsetDirty();
     entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 100, contentLength);
 
-    // Clear source while keeping PageFrame — forces speculative path
-    entity.clearSourceKeepPageFrame();
+    // source is null, PageFrame is set — speculative path is active
     assertNotNull(entity.getPageFrame());
 
     // Full deserialization via the speculative PageFrame path
@@ -483,8 +481,9 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
 
   @Test
   public void testSpeculativeDeserializationPartialPath() {
-    // Exercises the speculative PageFrame partial deserialization path.
-    // After partial deserialization with valid stamp, PageFrame is kept.
+    // fillFromPage leaves source null — speculative PageFrame path is
+    // active by default. After partial deserialization with valid stamp,
+    // PageFrame is kept.
     session.begin();
 
     var source = (EntityImpl) session.newEntity();
@@ -499,9 +498,6 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     var entity = (EntityImpl) session.newEntity();
     entity.unsetDirty();
     entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 200, contentLength);
-
-    // Clear source to activate speculative path
-    entity.clearSourceKeepPageFrame();
 
     // Partial deserialization: request only "y"
     assertTrue(entity.checkForProperties("y"));
@@ -532,9 +528,6 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
         loaded.getVersion(), EntityImpl.RECORD_TYPE, frame, stamp,
         64, serialized.length);
 
-    // Clear source to force speculative path
-    entity.clearSourceKeepPageFrame();
-
     // Invalidate stamp — this causes speculative deserialization to succeed
     // but stamp validation to fail, triggering the fallback re-read
     long exStamp = frame.acquireExclusiveLock();
@@ -561,8 +554,7 @@ public class EntityImplPageFrameDeserializationTest extends DbTestBase {
     // Fill with zero-length content
     entity.fillFromPage(1L, EntityImpl.RECORD_TYPE, frame, stamp, 0, 0);
 
-    // Clear source to force speculative path with empty content
-    entity.clearSourceKeepPageFrame();
+    // source is null, PageFrame is set with empty content
     assertNotNull(entity.getPageFrame());
 
     // Should succeed immediately and clear PageFrame
