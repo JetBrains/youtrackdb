@@ -197,18 +197,29 @@ jobs:
 
           ## Step 6: Verify locally
 
-          1. Run the failing test to confirm the fix:
+          1. Run the failing test first to confirm the fix:
              ```bash
              ./mvnw -pl {module} clean test -Dtest={TestClass} \
                -Dyoutrackdb.test.env=ci
              ```
-          2. For gate failures, run the full module test suite:
-             ```bash
-             ./mvnw -pl {module} clean test -Dyoutrackdb.test.env=ci
-             ```
-          3. If the test requires a suite runner (GremlinProcessRunner, graph
+          2. If the test requires a suite runner (GremlinProcessRunner, graph
              provider), note it cannot run standalone — verify by inspection.
-          4. Run `./mvnw -pl {module} spotless:check` for formatting.
+          3. Run `./mvnw -pl {module} spotless:check` for formatting.
+          4. **Run all project unit tests** to ensure no regressions:
+             ```bash
+             ./mvnw clean package -Dyoutrackdb.test.env=ci
+             ```
+          5. **Run only the specific integration tests you changed**
+             (if any). Use failsafe's `-Dit.test=` to target them:
+             ```bash
+             ./mvnw -pl {module} clean verify \
+               -P ci-integration-tests \
+               -Dit.test={ChangedITClass} \
+               -Dyoutrackdb.test.env=ci
+             ```
+             Skip this step if no integration test files were modified.
+          6. **Do NOT proceed to Step 7 if any test fails.** Fix the
+             failures first and re-run.
 
           ## Step 7: Dimensional review (MANDATORY GATE)
 
@@ -311,6 +322,18 @@ jobs:
           7. **Repeat steps 4-6** until no blocker/should-fix findings remain.
              Maximum 3 iterations. If after 3 rounds there are still critical
              issues, document them in the summary and proceed.
+
+          8. **Final full test run after review loop completes.**
+             After the review loop exits (all findings addressed or max
+             iterations reached), run the full build with all tests
+             (unit + integration) one final time:
+             ```bash
+             ./mvnw clean verify -P ci-integration-tests \
+               -Dyoutrackdb.test.env=ci
+             ```
+             If any test fails, fix the failure, re-run `spotless:apply`,
+             and re-run the suite. Do NOT proceed to Step 8 with
+             failing tests.
 
           ## Step 8: Commit, push, and create PR
 
