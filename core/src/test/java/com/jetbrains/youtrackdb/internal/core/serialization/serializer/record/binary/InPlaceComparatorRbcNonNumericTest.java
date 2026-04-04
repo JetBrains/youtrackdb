@@ -559,6 +559,48 @@ public class InPlaceComparatorRbcNonNumericTest {
     assertEquals(OptionalInt.of(0), result);
   }
 
+  /** isEqual for STRING — empty strings equal (byte-level fast path). */
+  @Test
+  public void testIsEqualStringEmptyEqual() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc(""), "", null);
+    assertEquals(OptionalInt.of(1), result);
+  }
+
+  /** isEqual for STRING — empty vs non-empty (byte-level fast path). */
+  @Test
+  public void testIsEqualStringEmptyVsNonEmpty() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc(""), "abc", null);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** isEqual for STRING — different UTF-8 byte lengths (byte-level fast path). */
+  @Test
+  public void testIsEqualStringDifferentLengths() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc("short"), "a much longer string", null);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** isEqual for STRING — Unicode equality via byte-level fast path. */
+  @Test
+  public void testIsEqualStringUnicode() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc("привет"), "привет", null);
+    assertEquals(OptionalInt.of(1), result);
+  }
+
+  /** isEqual for STRING — Unicode not equal via byte-level fast path. */
+  @Test
+  public void testIsEqualStringUnicodeNotEqual() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc("привет"), "мир", null);
+    assertEquals(OptionalInt.of(0), result);
+  }
+
+  /** isEqual for STRING with non-String value — should fall back. */
+  @Test
+  public void testIsEqualStringWithNonStringFallback() {
+    var result = InPlaceComparator.isEqual(stringFieldRbc("42"), 42, null);
+    assertTrue(result.isEmpty());
+  }
+
   /** isEqual for BOOLEAN — equal. */
   @Test
   public void testIsEqualBooleanTrue() {

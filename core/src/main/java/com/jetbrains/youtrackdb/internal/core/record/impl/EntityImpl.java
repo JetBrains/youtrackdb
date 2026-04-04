@@ -89,6 +89,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.ref.WeakReference;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -763,7 +764,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     try {
-      var fieldNameBytes = name.getBytes();
+      var fieldNameBytes = name.getBytes(StandardCharsets.UTF_8);
       var field = deserializeFieldForComparisonFromPageFrame(
           name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
       if (field == null) {
@@ -804,7 +805,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     try {
-      var fieldNameBytes = name.getBytes();
+      var fieldNameBytes = name.getBytes(StandardCharsets.UTF_8);
       var field = deserializeFieldForComparisonFromPageFrame(
           name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
       if (field == null) {

@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.OptionalInt;
@@ -415,6 +416,11 @@ public final class InPlaceComparator {
     if (field.type() == PropertyTypeInternal.LINK) {
       return compareLinkEqualityRbc(field.bytes(), value);
     }
+    // Fast path for STRING equality: compare UTF-8 bytes directly without
+    // constructing a String object from the serialized data.
+    if (field.type() == PropertyTypeInternal.STRING) {
+      return isStringEqualRbc(field.bytes(), value);
+    }
 
     var cmp = compare(field, value, dbTimeZone);
     if (cmp.isEmpty()) {
@@ -509,6 +515,33 @@ public final class InPlaceComparator {
     }
     var serialized = HelperClasses.readString(bytes);
     return OptionalInt.of(serialized.compareTo(strValue));
+  }
+
+  /**
+   * Byte-level string equality: encodes the comparison value to UTF-8 once, then
+   * compares the length prefix and raw bytes directly from the buffer without
+   * constructing a String from the serialized data. Avoids the {@code new String()}
+   * allocation that {@link #compareStringRbc} requires.
+   */
+  private static OptionalInt isStringEqualRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof String strValue)) {
+      return OptionalInt.empty();
+    }
+    var serializedLen = VarIntSerializer.readAsInteger(bytes);
+    if (serializedLen == 0) {
+      return OptionalInt.of(strValue.isEmpty() ? 1 : 0);
+    }
+    var valueUtf8 = strValue.getBytes(StandardCharsets.UTF_8);
+    if (serializedLen != valueUtf8.length) {
+      return OptionalInt.of(0);
+    }
+    // Compare raw UTF-8 bytes without constructing a String
+    for (int i = 0; i < serializedLen; i++) {
+      if (bytes.peekByte(i) != valueUtf8[i]) {
+        return OptionalInt.of(0);
+      }
+    }
+    return OptionalInt.of(1);
   }
 
   private static OptionalInt compareBooleanRbc(ReadBytesContainer bytes, Object value) {
