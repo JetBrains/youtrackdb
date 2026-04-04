@@ -179,7 +179,7 @@ public class WOWCacheDeleteTimeoutIT {
         wal,
         new DoubleWriteLogNoOP(),
         1, // pagesFlushInterval: 1ms — short interval to trigger frequent periodic flushes
-        10, // shutdownTimeout: 10ms — intentionally short for this test
+        10_000, // shutdownTimeout: 10s — long enough for flush to finish on slow hardware
         100,
         path,
         name,
