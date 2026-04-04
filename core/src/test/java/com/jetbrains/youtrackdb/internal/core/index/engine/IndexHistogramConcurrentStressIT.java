@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -370,7 +371,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
           / (double) Math.max(analyzeNnc, 1);
       assertTrue("nonNullCount drift too large: incremental="
           + incrNnc + " ANALYZE=" + analyzeNnc
-          + " relDev=" + String.format("%.4f", nncRelDev),
+          + " relDev=" + String.format(Locale.US, "%.4f", nncRelDev),
           nncRelDev <= 0.01);
 
       // Sum of bucket frequencies should equal nonNullCount
