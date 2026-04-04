@@ -423,33 +423,47 @@ jobs:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
         run: |
-          JSON_LOG="/tmp/fix-agent-json-log-$$.jsonl"
+          JSON_LOG="/tmp/fix-agent-json-log-$(uuidgen).jsonl"
 
           # stream-json puts ALL output (including --verbose) on stdout
           # as JSON — there is no separate stderr stream.
           # tee saves the full JSON to a file (uploaded as artifact),
-          # jq extracts text tokens in real time for the CI build log.
+          # jq parses each line as raw text, attempts JSON decode, and
+          # extracts human-readable tokens in real time for the CI log.
+          # pipefail is disabled so a jq/tee error or claude crash
+          # does not kill the step before we capture the JSON log path.
+          set +o pipefail
+
           claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
             --dangerously-skip-permissions \
             --model opus \
             --output-format stream-json \
             --verbose \
             2>&1 | tee "$JSON_LOG" | \
-            jq -rj --unbuffered '
-              if .type == "content_block_delta" and .delta.text then
-                .delta.text
-              elif .type == "content_block_start" then
-                if .content_block.type == "tool_use" then
-                  "\n\n--- Tool: \(.content_block.name // "unknown") ---\n"
+            jq -Rrj --unbuffered '
+              try (fromjson |
+                if .type == "content_block_delta" then
+                  if .delta.text then .delta.text
+                  else ""
+                  end
+                elif .type == "content_block_start" then
+                  if .content_block.type == "tool_use" then
+                    "\n\n--- Tool: \(.content_block.name // "unknown") ---\n"
+                  elif .content_block.type == "tool_result" then
+                    "\n--- Tool Result ---\n"
+                  else ""
+                  end
+                elif .type == "content_block_stop" then ""
+                elif .type == "message_start" then
+                  "\n=== \(.message.role // "message") ===\n\n"
+                elif .type == "result" then
+                  "\n=== Final Result ===\n" + (.result // "(no text)") + "\n"
                 else ""
                 end
-              elif .type == "message_start" then
-                "\n=== \(.message.role // "message") ===\n\n"
-              elif .type == "result" then
-                "\n=== Final Result ===\n" + (.result // "(no text)") + "\n"
-              else ""
-              end
+              ) catch empty
             ' || true
+
+          set -o pipefail
 
           echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
           echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG") bytes"
@@ -459,7 +473,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fix-agent-json-log
-          path: ${{ steps.run-agent.outputs.json_log }}
+          path: ${{ steps.run-agent.outputs.json_log || '/dev/null' }}
           retention-days: 30
           if-no-files-found: warn
 
