@@ -434,7 +434,7 @@ jobs:
           # does not kill the step before we capture the JSON log path.
           set +o pipefail
 
-          claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
+          claude -p "$(cat "${{ steps.prompt.outputs.prompt_file }}")" \
             --dangerously-skip-permissions \
             --model opus \
             --output-format stream-json \
@@ -449,11 +449,12 @@ jobs:
                 elif .type == "content_block_start" then
                   if .content_block.type == "tool_use" then
                     "\n\n--- Tool: \(.content_block.name // "unknown") ---\n"
-                  elif .content_block.type == "tool_result" then
-                    "\n--- Tool Result ---\n"
+                    + if .content_block.input then
+                        (.content_block.input | tostring) + "\n"
+                      else ""
+                      end
                   else ""
                   end
-                elif .type == "content_block_stop" then ""
                 elif .type == "message_start" then
                   "\n=== \(.message.role // "message") ===\n\n"
                 elif .type == "result" then
@@ -461,19 +462,19 @@ jobs:
                 else ""
                 end
               ) catch empty
-            ' || true
+            '
 
           set -o pipefail
 
           echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
-          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG") bytes"
+          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
 
       - name: Upload agent JSON log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fix-agent-json-log
-          path: ${{ steps.run-agent.outputs.json_log || '/dev/null' }}
+          path: ${{ steps.run-agent.outputs.json_log }}
           retention-days: 30
           if-no-files-found: warn
 
