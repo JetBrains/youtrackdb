@@ -16,9 +16,40 @@ For each previous finding:
 Then briefly scan for any new issues in the areas that were modified —
 fixes sometimes shift problems rather than solving them.
 
+## Semi-Formal Verification Protocol
+
+For each ACCEPTED finding being verified, produce a **verification
+certificate** that re-checks the specific plan location:
+
+```markdown
+#### Verify S<N>: <finding title>
+- **Original issue**: <what was wrong — from the finding>
+- **Fix applied**: <what changed in the plan text>
+- **Re-check**:
+  - Plan location: <section and line where the fix was applied>
+  - Current state: <what the plan now says>
+  - Criteria met: <which structural criteria from the review checklist
+    are now satisfied>
+- **Regression check**: <did the fix shift the problem elsewhere?
+  E.g., reordering tracks may fix one dependency but create another.
+  Checked [which sections] — [clean / new issue]>
+- **Verdict**: VERIFIED | STILL OPEN (explain) | REGRESSION (new issue)
+```
+
+For REJECTED findings:
+
+```markdown
+#### Verify S<N> (REJECTED): <finding title>
+- **Rejection reason**: <from the previous iteration>
+- **Downstream check**: <does leaving this unfixed cause inconsistency
+  elsewhere? Checked [which sections] — [clean / downstream issue]>
+- **Verdict**: REJECTED (no action needed) | RECONSIDER (downstream issue found)
+```
+
+---
+
 Output:
-- For each previous finding: VERIFIED, STILL OPEN (with explanation),
-  or REJECTED (no action needed)
+- For each previous finding: the verification certificate above
 - New findings (if any) in the same format, with cumulative numbering
   (continue from the highest finding number)
 - Summary: PASS (all verified/rejected, no new blockers) or FAIL (with

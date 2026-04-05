@@ -83,15 +83,85 @@ You will receive:
 - Unnecessary use of reflection in hot paths
 - Thread-local allocation that could cause memory leaks
 
-## Process
+## Reasoning Process — Semi-formal Analysis
 
-1. Read the diff carefully, identifying:
-   - Hot paths (code called frequently — inner loops, per-record processing, per-query execution)
-   - Cold paths (initialization, shutdown, rare error handling) — be lenient here
-   - Data structure choices and their complexity implications
-2. For performance-critical code, read the full file to understand call frequency and data sizes.
-3. Consider the realistic scale: YouTrackDB may have millions of records and thousands of concurrent queries.
-4. Skip generated files and test code (unless tests themselves have performance issues that slow CI).
+Use the following structured reasoning phases internally as you analyze
+the code. Performance claims require evidence — you must trace call
+frequency, data sizes, and actual code paths rather than pattern-matching
+on keywords. An O(n^2) loop on a list of 3 elements is not a finding;
+an O(n) scan on a million-element structure with an available index is.
+You do not need to reproduce the full internal reasoning in your output,
+but your findings must be grounded in evidence gathered through these
+phases.
+
+### Phase 1: Premises — Classify Hot vs Cold Paths
+
+Before analyzing anything, document the call-frequency context:
+
+```
+PREMISE P1: [Method] at [file:line] is on a HOT/COLD path because [evidence —
+  called per-record / per-query / per-page / once at startup / on error only]
+PREMISE P2: Data scale for [collection/structure]: [evidence — unbounded /
+  bounded by page size / bounded by config / known upper limit]
+PREMISE P3: Lock [X] at [file:line] is contended by [N threads doing Y operation]
+```
+
+Read callers to establish frequency — do not assume a method is hot
+because it's in the storage engine. Some storage methods are called once
+per open/close.
+
+### Phase 2: Cost Trace — Quantify the Actual Work
+
+For each changed code path on a hot path, trace the cost:
+
+```
+COST TRACE for [method at file:line]:
+  OPERATION: [what the code does — loop, allocation, I/O, lock acquire]
+  COMPLEXITY: O([complexity]) per [invocation unit — record, query, page]
+  DATA SCALE: [collection/structure] has [estimated size from P2]
+  TOTAL COST: O([total]) per [workload unit]
+  ALLOCATIONS: [N objects per invocation — types and sizes]
+  I/O: [N reads/writes per invocation — sequential or random]
+  LOCK HOLD TIME: [duration — computation-only, includes I/O, includes other locks]
+```
+
+### Phase 3: Comparative Analysis — Is There a Better Alternative?
+
+For each cost trace with non-trivial cost, check for alternatives:
+
+```
+ALTERNATIVE CHECK for [method at file:line]:
+  CURRENT: [approach and its cost from Phase 2]
+  ALTERNATIVE: [better approach — e.g., "use index lookup instead of scan",
+    "cache result instead of recompute", "use batch API instead of one-at-a-time"]
+  EVIDENCE: [does the alternative infrastructure exist in the codebase?
+    Search result at file:line]
+  IMPROVEMENT: [estimated speedup — e.g., "O(n) → O(log n) for n up to 1M",
+    "eliminates N allocations per query"]
+  TRADEOFF: [what the alternative costs — complexity, memory, readability]
+```
+
+### Phase 4: Scale Validation — Will This Actually Matter?
+
+For each potential finding, validate it matters at realistic scale:
+
+```
+SCALE CHECK for [issue]:
+  AT SMALL SCALE (100 records): [impact — negligible / noticeable / severe]
+  AT MEDIUM SCALE (100K records): [impact]
+  AT PRODUCTION SCALE (1M+ records): [impact]
+  VERDICT: MATTERS NOW | MATTERS AT SCALE | NEGLIGIBLE
+```
+
+Only report findings with MATTERS NOW or MATTERS AT SCALE verdicts.
+
+### Phase 5: Ranked Findings
+
+Based on surviving issues from Phases 3-4, produce ranked findings.
+Each finding must cite the specific COST TRACE and SCALE CHECK.
+
+Skip generated files and test code (unless tests themselves have
+performance issues that slow CI).
 
 ## Output Format
 
