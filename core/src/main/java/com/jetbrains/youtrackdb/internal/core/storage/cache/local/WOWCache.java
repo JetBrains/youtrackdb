@@ -1602,6 +1602,20 @@ public final class WOWCache extends AbstractWriteCache
   private void stopFlush() {
     stopFlush = true;
 
+    // Cancel the scheduled periodic flush task early, before waiting for
+    // triggeredTasks, to free up the single-threaded shared commitExecutor.
+    // This reduces congestion so the triggeredTasks await loop below completes
+    // without timing out.
+    final var future = flushFuture;
+    if (future != null) {
+      // If the task hasn't started yet, cancel prevents it from running. If the
+      // task is already running, cancel(false) won't interrupt it — the running
+      // task will check the stopFlush flag and exit promptly. In both cases,
+      // get() below throws CancellationException (because cancel(false) transitions
+      // the FutureTask state to CANCELLED even while the task's code is executing).
+      future.cancel(false);
+    }
+
     for (final var completionLatch : triggeredTasks.values()) {
       try {
         if (!completionLatch.await(shutdownTimeout, TimeUnit.MILLISECONDS)) {
@@ -1616,11 +1630,13 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    if (flushFuture != null) {
+    if (future != null) {
       try {
-        flushFuture.get(shutdownTimeout, TimeUnit.MILLISECONDS);
-      } catch (final java.lang.InterruptedException | CancellationException e) {
-        // ignore
+        future.get(shutdownTimeout, TimeUnit.MILLISECONDS);
+      } catch (final java.lang.InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (final CancellationException e) {
+        // Expected — task was cancelled above.
       } catch (final ExecutionException e) {
         throw BaseException.wrapException(
             new WriteCacheException(storageName,
