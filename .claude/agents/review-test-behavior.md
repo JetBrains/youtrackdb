@@ -99,7 +99,7 @@ For each test, trace the execution through the production code:
 
 ```
 TEST: [testMethodName]
-TRACE:
+BEHAVIOR TRACE:
   1. Test calls [method(args)] @ [production file:line]
   2. Method does [action] — returns [value] / modifies [state]
   3. Test asserts [what] on [which part of the result/state]
