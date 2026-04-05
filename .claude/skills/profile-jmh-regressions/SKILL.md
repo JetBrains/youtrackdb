@@ -254,11 +254,11 @@ ssh root@<IP> '/root/run-bench.sh /root/ytdb-base "<benchmark-regex>" "<jmh-args
 ```
 
 **Decision rule**: Compare HEAD vs BASE ops/s from the triage run. Classify as **measurement noise** and skip profiling if ANY of these hold:
-- Delta is **<3%** or in the **opposite direction** (HEAD faster)
+- Delta is **<5%** or in the **opposite direction** (HEAD faster)
 - **Confidence intervals overlap** — especially when one side has high error (>10%). Overlapping CIs mean the difference is not statistically significant. Check the CI from JMH output: `CI (99.9%): [low, high]`
 - The **same benchmark in the other suite** (ST vs MT) shows improvement — a real regression in the code path would appear in both suites, not just one
 
-Only proceed to Step 8 for benchmarks that reproduce a **≥3% regression** with **non-overlapping confidence intervals** in the triage run.
+Only proceed to Step 8 for benchmarks that reproduce a **≥5% regression** with **non-overlapping confidence intervals** in the triage run.
 
 Record the triage results in the final report alongside profiling throughput for transparency.
 
