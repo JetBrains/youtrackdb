@@ -197,18 +197,29 @@ jobs:
 
           ## Step 6: Verify locally
 
-          1. Run the failing test to confirm the fix:
+          1. Run the failing test first to confirm the fix:
              ```bash
              ./mvnw -pl {module} clean test -Dtest={TestClass} \
                -Dyoutrackdb.test.env=ci
              ```
-          2. For gate failures, run the full module test suite:
-             ```bash
-             ./mvnw -pl {module} clean test -Dyoutrackdb.test.env=ci
-             ```
-          3. If the test requires a suite runner (GremlinProcessRunner, graph
+          2. If the test requires a suite runner (GremlinProcessRunner, graph
              provider), note it cannot run standalone — verify by inspection.
-          4. Run `./mvnw -pl {module} spotless:check` for formatting.
+          3. Run `./mvnw -pl {module} spotless:check` for formatting.
+          4. **Run all project unit tests** to ensure no regressions:
+             ```bash
+             ./mvnw clean package -Dyoutrackdb.test.env=ci
+             ```
+          5. **Run only the specific integration tests you changed**
+             (if any). Use failsafe's `-Dit.test=` to target them:
+             ```bash
+             ./mvnw -pl {module} clean verify \
+               -P ci-integration-tests \
+               -Dit.test={ChangedITClass} \
+               -Dyoutrackdb.test.env=ci
+             ```
+             Skip this step if no integration test files were modified.
+          6. **Do NOT proceed to Step 7 if any test fails.** Fix the
+             failures first and re-run.
 
           ## Step 7: Dimensional review (MANDATORY GATE)
 
@@ -311,6 +322,18 @@ jobs:
           7. **Repeat steps 4-6** until no blocker/should-fix findings remain.
              Maximum 3 iterations. If after 3 rounds there are still critical
              issues, document them in the summary and proceed.
+
+          8. **Final full test run after review loop completes.**
+             After the review loop exits (all findings addressed or max
+             iterations reached), run the full build with all tests
+             (unit + integration) one final time:
+             ```bash
+             ./mvnw clean verify -P ci-integration-tests \
+               -Dyoutrackdb.test.env=ci
+             ```
+             If any test fails, fix the failure, re-run `spotless:apply`,
+             and re-run the suite. Do NOT proceed to Step 8 with
+             failing tests.
 
           ## Step 8: Commit, push, and create PR
 
@@ -416,26 +439,67 @@ jobs:
           echo "prompt_file=/tmp/fix-agent-prompt-$$.md" >> "$GITHUB_OUTPUT"
 
       - name: Run Fix Agent
+        id: run-agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
         run: |
-          OUTPUT_FILE="/tmp/fix-agent-output-$$.txt"
+          JSON_LOG="/tmp/fix-agent-json-log-$(uuidgen).jsonl"
 
-          # Run agent with verbose streaming output tee'd to both the
-          # CI build log and a file. stream-json emits every event
-          # (tool calls, results, thinking) so the full session is
-          # visible in the GitHub Actions log in real time.
-          claude -p "$(cat ${{ steps.prompt.outputs.prompt_file }})" \
+          # stream-json puts ALL output (including --verbose) on stdout
+          # as JSON — there is no separate stderr stream.
+          # tee saves the full JSON to a file (uploaded as artifact),
+          # jq parses each line as raw text, attempts JSON decode, and
+          # extracts human-readable tokens in real time for the CI log.
+          # pipefail is disabled so a jq/tee error or claude crash
+          # does not kill the step before we capture the JSON log path.
+          set +o pipefail
+
+          claude -p "$(cat "${{ steps.prompt.outputs.prompt_file }}")" \
             --dangerously-skip-permissions \
             --model opus \
             --output-format stream-json \
             --verbose \
-            2>&1 | tee "$OUTPUT_FILE" || true
+            2>&1 | tee "$JSON_LOG" | \
+            jq -Rrj --unbuffered '
+              try (fromjson |
+                if .type == "content_block_delta" then
+                  if .delta.text then .delta.text
+                  else ""
+                  end
+                elif .type == "content_block_start" then
+                  if .content_block.type == "tool_use" then
+                    "\n\n--- Tool: \(.content_block.name // "unknown") ---\n"
+                    + if .content_block.input then
+                        (.content_block.input | tostring) + "\n"
+                      else ""
+                      end
+                  else ""
+                  end
+                elif .type == "message_start" then
+                  "\n=== \(.message.role // "message") ===\n\n"
+                elif .type == "result" then
+                  "\n=== Final Result ===\n" + (.result // "(no text)") + "\n"
+                else ""
+                end
+              ) catch empty
+            '
 
-          echo "Agent finished. Output length: $(wc -c < "$OUTPUT_FILE") bytes"
+          set -o pipefail
+
+          echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
+          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
+
+      - name: Upload agent JSON log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-agent-json-log
+          path: ${{ steps.run-agent.outputs.json_log }}
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Prepare Zulip summary
         id: summary
