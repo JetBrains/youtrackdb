@@ -144,7 +144,7 @@ ASSERTION at test line X: [actual assertion code]
 ### Phase 5: Ranked Findings
 
 Based on surviving issues from Phases 3-4, produce ranked findings. Each
-finding must cite the specific TRACE and FALSIFIABILITY CHECK that
+finding must cite the specific BEHAVIOR TRACE and FALSIFIABILITY CHECK that
 produced it.
 
 ## Output Format
