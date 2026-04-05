@@ -28,6 +28,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -503,6 +504,49 @@ public class WOWCacheFlushErrorTest {
 
     assertTrue("stopFlush flag must be true after stopFlush()",
         getStopFlushFlag(cache));
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} restores the interrupt flag when
+   * {@code future.get()} throws {@link InterruptedException} (i.e., the thread
+   * waiting for the flush future is interrupted). The method must not propagate
+   * the exception but must re-set the interrupt flag so that the caller can
+   * detect the interruption.
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStopFlushWithInterruptedFlushFutureRestoresInterruptFlag()
+      throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+    setField(cache, "shutdownTimeout", 10_000);
+    setField(cache, "storageName", "test");
+
+    // Use a mock Future whose get() throws InterruptedException.
+    // We cannot use a real CompletableFuture because there is no way to make
+    // its get() throw InterruptedException without actually interrupting the
+    // calling thread before the call (which is racy).
+    var interruptedFuture = Mockito.mock(Future.class);
+    Mockito.when(interruptedFuture.cancel(false)).thenReturn(false);
+    Mockito.when(interruptedFuture.get(10_000L, TimeUnit.MILLISECONDS))
+        .thenThrow(new InterruptedException("simulated interrupt"));
+    setField(cache, "flushFuture", interruptedFuture);
+
+    // Setup: clear any stale interrupt flag from a previous test
+    Thread.interrupted();
+
+    invokeStopFlush(cache);
+
+    assertTrue("stopFlush flag must be true after stopFlush()",
+        getStopFlushFlag(cache));
+    // cancel(false) must be called before get() per the stopFlush() contract
+    Mockito.verify(interruptedFuture).cancel(false);
+    // The interrupt flag must be restored by the catch block
+    assertTrue(
+        "Thread interrupt flag must be restored after InterruptedException",
+        Thread.interrupted());
   }
 
   /**
