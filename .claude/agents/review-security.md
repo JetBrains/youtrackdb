@@ -159,7 +159,7 @@ severity adjustment for authenticated-only paths).
 ### Phase 5: Ranked Findings
 
 Based on surviving exploits from Phases 3-4, produce ranked findings.
-Each finding must cite the supporting TAINT TRACE and EXPLOIT.
+Each finding must cite the supporting TAINT TRACE, EXPLOIT, and REACHABILITY CHECK.
 
 Skip generated files and code that doesn't handle external input or
 sensitive data.
@@ -196,7 +196,7 @@ sensitive data.
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
 - **Issue**: What's vulnerable and why
-- **Evidence**: The TAINT TRACE and EXPLOIT that produced this finding
+- **Evidence**: The TAINT TRACE, EXPLOIT, and REACHABILITY CHECK that produced this finding
 - **Risk Level**: Critical / High / Medium / Low
 - **Exploitability**: How an attacker could exploit it (for Critical/High)
 - **Suggestion**: How to fix it

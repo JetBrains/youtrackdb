@@ -144,7 +144,7 @@ ASSERTION at test line X: [actual assertion code]
 ### Phase 5: Ranked Findings
 
 Based on surviving issues from Phases 3-4, produce ranked findings. Each
-finding must cite the specific BEHAVIOR TRACE and FALSIFIABILITY CHECK that
+finding must cite the specific BEHAVIOR TRACE, FALSIFIABILITY CHECK, or ASSERTION PRECISION CHECK that
 produced it.
 
 ## Output Format
@@ -170,7 +170,7 @@ produced it.
 For each finding, include:
 - **File**: `path/to/TestFile.java`, method `testName` (line X)
 - **Issue**: What's wrong (coverage-driven pattern, shallow assertion, imprecise exception test)
-- **Evidence**: The BEHAVIOR TRACE and FALSIFIABILITY CHECK that produced this finding
+- **Evidence**: The BEHAVIOR TRACE, FALSIFIABILITY CHECK, or ASSERTION PRECISION CHECK that produced this finding
 - **Missing behavior**: What should actually be verified
 - **Suggested fix**:
   ```java

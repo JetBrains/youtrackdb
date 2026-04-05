@@ -152,7 +152,7 @@ INVARIANT at [file:line]:
 ### Phase 5: Ranked Findings
 
 Based on Phases 2-4, produce ranked findings. Each finding must cite
-the specific CRASH POINT, TEST TRACE, or INVARIANT that produced it.
+the specific CRASH POINT, TEST TRACE, RECOVERY CHECK, or INVARIANT that produced it.
 
 Skip generated files and code that doesn't touch persistent state.
 
@@ -179,7 +179,7 @@ Skip generated files and code that doesn't touch persistent state.
 For each crash safety finding, include:
 - **File**: `path/to/TestFile.java`
 - **Production code**: `path/to/Production.java` (line X-Y)
-- **Evidence**: The CRASH POINT and TEST TRACE that produced this finding
+- **Evidence**: The CRASH POINT, TEST TRACE, or RECOVERY CHECK that produced this finding
 - **Missing scenario**: What crash/recovery scenario is untested
 - **Why it matters**: What data loss or corruption this could hide
 - **Suggested test**:
