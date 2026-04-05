@@ -101,7 +101,9 @@ python3 -c "
 import boto3, os
 # IMPORTANT: Force HTTPS — the HETZNER_S3_ENDPOINT env var may contain http://
 # but Hetzner servers cannot reach the S3 endpoint over plain HTTP (connection timeout).
-endpoint = os.environ['HETZNER_S3_ENDPOINT'].replace('http://', 'https://')
+endpoint = os.environ['HETZNER_S3_ENDPOINT']
+if endpoint.startswith('http://'):
+    endpoint = 'https://' + endpoint[len('http://'):]
 s3 = boto3.client('s3',
     endpoint_url=endpoint,
     aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
