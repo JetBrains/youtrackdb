@@ -71,14 +71,81 @@ Tests that verify error behavior must do so precisely.
 - Not testing that the system state is consistent after an error (e.g., resource is still usable, or properly closed)
 - Missing tests for error propagation in async/concurrent code
 
-## Process
+## Reasoning Process — Semi-formal Analysis
 
-1. Identify test files in the diff (files under `src/test/`).
-2. For each test file, read the production code being tested to understand the expected behavior.
-3. Analyze each test method: Does it verify behavior, or just execute code?
-4. Check assertion quality: Are assertions precise enough to catch real bugs?
-5. Check exception tests: Are error paths tested with precision?
-6. Skip generated files and non-test files.
+Use the following structured reasoning phases internally as you analyze
+the tests. This forces you to trace what tests actually exercise in the
+production code, rather than judging test quality from test code alone.
+You do not need to reproduce the full internal reasoning in your output,
+but your findings must be grounded in evidence gathered through these
+phases.
+
+### Phase 1: Premises — Map Tests to Production Behavior
+
+For each test file in the diff, document what it tests:
+
+```
+PREMISE P1: Test [testMethodName] in [TestFile.java] calls [productionMethod(args)]
+PREMISE P2: Production method at [file:line] is supposed to [expected behavior / contract]
+PREMISE P3: The test asserts [what the test actually checks — list each assertion]
+```
+
+Read the production code being tested — do not guess what it does from
+the method name. This is mandatory.
+
+### Phase 2: Behavior Trace — What Does the Test Actually Exercise?
+
+For each test, trace the execution through the production code:
+
+```
+TEST: [testMethodName]
+BEHAVIOR TRACE:
+  1. Test calls [method(args)] @ [production file:line]
+  2. Method does [action] — returns [value] / modifies [state]
+  3. Test asserts [what] on [which part of the result/state]
+
+BEHAVIOR COVERAGE:
+  - Contract point A (e.g., "returns sorted results"): VERIFIED by assertion at test line X
+  - Contract point B (e.g., "updates internal counter"): NOT CHECKED — no assertion
+  - Contract point C (e.g., "throws on invalid input"): NOT TESTED — no test for this path
+```
+
+This trace reveals the gap between what the production code does and what
+the test actually verifies.
+
+### Phase 3: Falsifiability Analysis — Would This Test Catch a Real Bug?
+
+For each test, construct a specific mutation scenario:
+
+```
+FALSIFIABILITY CHECK for [testMethodName]:
+  MUTATION: If the production code at [file:line] were changed to [specific wrong behavior],
+            would this test fail?
+  ANALYSIS: The test asserts [X], and the mutation would produce [Y],
+            so the test would [FAIL — catches the bug | PASS — false confidence].
+```
+
+If the test would still pass with the mutation, it's coverage-driven,
+not behavior-driven. This is a finding.
+
+### Phase 4: Assertion Precision Check
+
+For each assertion in the test, check if a more precise assertion exists:
+
+```
+ASSERTION at test line X: [actual assertion code]
+  PRODUCTION VALUE: The production code returns/produces [full value]
+  PRECISION: [PRECISE — asserts the meaningful part |
+              SHALLOW — asserts only existence/non-null/size |
+              WEAK — would pass for multiple different incorrect values]
+  STRONGER ALTERNATIVE: [specific assertion code, or "already optimal"]
+```
+
+### Phase 5: Ranked Findings
+
+Based on surviving issues from Phases 3-4, produce ranked findings. Each
+finding must cite the specific BEHAVIOR TRACE, FALSIFIABILITY CHECK, or ASSERTION PRECISION CHECK that
+produced it.
 
 ## Output Format
 
@@ -103,6 +170,7 @@ Tests that verify error behavior must do so precisely.
 For each finding, include:
 - **File**: `path/to/TestFile.java`, method `testName` (line X)
 - **Issue**: What's wrong (coverage-driven pattern, shallow assertion, imprecise exception test)
+- **Evidence**: The BEHAVIOR TRACE, FALSIFIABILITY CHECK, or ASSERTION PRECISION CHECK that produced this finding
 - **Missing behavior**: What should actually be verified
 - **Suggested fix**:
   ```java

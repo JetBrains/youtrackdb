@@ -79,13 +79,82 @@ Recommend adding Java `assert` statements in production code **only where they a
 3. Explain what invariant it protects and what bug it would catch during testing
 4. If the assertion condition involves complex logic, recommend extracting it to a helper method (per CLAUDE.md tip #10)
 
-## Process
+## Reasoning Process — Semi-formal Analysis
 
-1. Identify production code in the diff that involves persistent state, WAL, storage, or durable components.
-2. Read the production code to understand the durability guarantees.
-3. Check if test code exercises crash/recovery scenarios for these guarantees.
-4. Identify production methods where assert statements would protect important invariants.
-5. Skip generated files and code that doesn't touch persistent state.
+Use the following structured reasoning phases internally as you analyze
+the tests. Crash safety testing quality cannot be assessed from test code
+alone — you must trace the production code's write and recovery paths,
+then verify that tests exercise crash points along those paths. You do
+not need to reproduce the full internal reasoning in your output, but
+your findings must be grounded in evidence gathered through these phases.
+
+### Phase 1: Premises — Map Durability Contracts
+
+For each production file in the diff that touches persistent state:
+
+```
+PREMISE P1: [Class.method()] at [file:line] modifies persistent state [page/WAL/index]
+PREMISE P2: Write path: [mutation → WAL record → page modification → commit → checkpoint]
+PREMISE P3: Recovery path: redo() at [file:line] replays via [mechanism]
+PREMISE P4: Crash-critical window: between [step X] and [step Y], a crash would leave [state]
+```
+
+Read the production code to trace the full write path — do not guess
+from class names or WAL record types.
+
+### Phase 2: Test Coverage Trace — What Crash Points Do Tests Exercise?
+
+For each crash-critical window identified, check test coverage:
+
+```
+CRASH POINT: Between [step X at file:line] and [step Y at file:line]
+TEST TRACE:
+  - Test [testMethodName] @ [test file:line]
+  - Crash simulation method: [how the test simulates crash — e.g.,
+    kill process, close without flush, inject error]
+  - Recovery verification: [what the test asserts after recovery —
+    data consistent, partial ops rolled back, WAL replayed correctly]
+  - Crash timing: [does the test crash at THIS specific point, or
+    only at a different point in the write path?]
+VERDICT: COVERED | WRONG TIMING (covers different crash point) | NOT TESTED
+```
+
+### Phase 3: Recovery Path Verification — Do Tests Check the Right Thing?
+
+For each test that exercises crash recovery, verify it checks the
+correct postcondition:
+
+```
+RECOVERY CHECK for [testMethodName]:
+  - Test crashes at: [which point in the write path]
+  - Test asserts after recovery: [what is checked]
+  - Correct postcondition: [what SHOULD be true after recovery from
+    this crash point — trace the redo() path]
+  - Match: [does the test assert the correct postcondition? YES/NO]
+  - Missing checks: [what the test should also verify but doesn't —
+    e.g., atomicity of multi-page update, LSN consistency, index integrity]
+```
+
+### Phase 4: Assert Statement Analysis — Invariant Identification
+
+For production code in the diff, identify invariants that should hold
+but aren't enforced:
+
+```
+INVARIANT at [file:line]:
+  - What must be true: [condition — e.g., "offset >= 0 && offset < pageSize"]
+  - When it could break: [scenario — e.g., "arithmetic error in page offset calculation"]
+  - Current enforcement: [existing check at file:line, or "NONE"]
+  - Assert candidate: [YES — zero cost, catches bugs during testing |
+    NO — already enforced / would have side effects / in tight loop]
+```
+
+### Phase 5: Ranked Findings
+
+Based on Phases 2-4, produce ranked findings. Each finding must cite
+the specific CRASH POINT, TEST TRACE, RECOVERY CHECK, or INVARIANT that produced it.
+
+Skip generated files and code that doesn't touch persistent state.
 
 ## Output Format
 
@@ -110,6 +179,7 @@ Recommend adding Java `assert` statements in production code **only where they a
 For each crash safety finding, include:
 - **File**: `path/to/TestFile.java`
 - **Production code**: `path/to/Production.java` (line X-Y)
+- **Evidence**: The CRASH POINT, TEST TRACE, or RECOVERY CHECK that produced this finding
 - **Missing scenario**: What crash/recovery scenario is untested
 - **Why it matters**: What data loss or corruption this could hide
 - **Suggested test**:
@@ -122,6 +192,7 @@ For each crash safety finding, include:
 
 For each assert statement finding, include:
 - **File**: `path/to/Production.java` (line X)
+- **Evidence**: The INVARIANT analysis that produced this finding
 - **Invariant**: What should always be true
 - **Suggested assertion**:
   ```java

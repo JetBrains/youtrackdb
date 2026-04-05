@@ -88,14 +88,98 @@ Inputs:
 
 ---
 
+## Semi-Formal Reasoning Protocol
+
+This review requires **structured evidence certificates** for every claim
+about code behavior. You must not assert that a code reference is correct
+or incorrect without documented evidence. This prevents logical jumps
+("this class probably exists") and catches subtle mismatches (shadowed
+methods, renamed classes, changed signatures).
+
+### Certificate requirements
+
+**For every code reference verified** (class, interface, method, SPI,
+file path, configuration parameter), produce a verification entry:
+
+```markdown
+#### Ref: <name from document>
+- **Document claim**: <what the plan or design document says — quote or
+  paraphrase the specific claim>
+- **Search performed**: <Grep/Glob query used to locate the construct>
+- **Code location**: <file:line where found, or "NOT FOUND">
+- **Actual signature/role**: <what the code actually shows — copy the
+  relevant declaration or excerpt>
+- **Verdict**: MATCHES | MISMATCHES | PARTIAL | NOT FOUND
+- **Detail**: <if MISMATCHES/PARTIAL/NOT FOUND — what specifically differs>
+```
+
+**For every workflow/sequence diagram traced**, produce a flow trace:
+
+```markdown
+#### Flow: <diagram name or operation>
+- **Document claim**: <the sequence of interactions the diagram shows>
+- **Trace**:
+  1. <Caller> → <method(args)> @ <file:line> — <what actually happens>
+  2. <Next call> → <method(args)> @ <file:line> — <what actually happens>
+  3. ... (continue until the flow completes or diverges)
+- **Divergence point**: <step N where reality differs from diagram, or "none">
+- **Verdict**: MATCHES | MISMATCHES | PARTIAL
+- **Detail**: <if divergent — what the diagram claims vs. what the code does>
+```
+
+**For every invariant checked**, produce an invariant trace:
+
+```markdown
+#### Invariant: <invariant statement>
+- **Document claim**: <what the plan says must be true>
+- **Code evidence**: <file:line(s) that enforce or violate this invariant>
+- **Mechanism**: <how the code enforces it — e.g., "inside WAL atomic
+  operation at X.java:142", or "no enforcement found">
+- **Verdict**: ENFORCED | ASPIRATIONAL | VIOLATED
+- **Detail**: <if ASPIRATIONAL — the tracks that need to implement it;
+  if VIOLATED — what contradicts it>
+```
+
+### Rules for certificates
+
+- **Every claim requires a search.** Do not assume a class exists because
+  its name is plausible. Search for it explicitly.
+- **Follow calls interprocedurally.** When tracing a flow, if a method
+  delegates to another, follow the delegation. A method named `validate()`
+  may not actually validate, or may validate the wrong property — always
+  verify what a method actually does, not what its name suggests.
+- **Document negative results.** If a search finds nothing, that is a
+  finding (phantom reference). Record the search query and "NOT FOUND."
+- **Trace until divergence or completion.** Do not stop a flow trace at
+  the first matching step. Continue until the flow completes or you find
+  a divergence.
+- **Certificates feed findings.** Each MISMATCHES, PARTIAL, NOT FOUND, or
+  ASPIRATIONAL verdict becomes a finding (below). MATCHES verdicts are
+  recorded but do not generate findings.
+
+---
+
 ## Output Format
+
+### Part 1: Verification Certificates
+
+Include all certificate entries (Ref, Flow, Invariant) grouped by review
+criterion (Design ↔ Code, Plan ↔ Code, Design ↔ Plan, Gaps). This is
+the evidence base.
+
+### Part 2: Findings
+
+Derived from certificates with non-MATCHES verdicts. Each finding must
+reference the certificate entry that produced it.
 
 For each issue found, produce a finding:
 
 ### Finding CR<N> [blocker|should-fix|suggestion]
+**Certificate**: <Ref/Flow/Invariant entry ID that produced this finding>
 **Location**: <which document and section, plus code location if applicable>
 **Issue**: <what's inconsistent or missing>
-**Evidence**: <what you found in the code vs. what the document says>
+**Evidence**: <what you found in the code vs. what the document says —
+  summarize from the certificate>
 **Proposed fix**: <concrete change to the plan/design text>
 
 Severity guide:

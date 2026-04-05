@@ -54,6 +54,31 @@ Rules:
 - Complex parts (concurrency, crash recovery, performance paths) are mandatory.
 - Do NOT modify `design.md`.
 
+**Verification protocol:** Before writing each diagram, build a
+verification table to ensure the diagram reflects actual code:
+
+For class diagrams:
+```
+| Diagram Element        | Code Location        | Verified? | Notes           |
+|------------------------|----------------------|-----------|-----------------|
+| Class X                | file:line            | YES/NO    | actual name/role |
+| X extends Y            | file:line            | YES/NO    |                 |
+| X.method(args): return | file:line            | YES/NO    | actual signature |
+```
+
+For workflow/sequence diagrams:
+```
+| Step | Diagram Claim                 | Code Location | Actual Behavior | Match? |
+|------|-------------------------------|---------------|-----------------|--------|
+| 1    | Caller → method(args)         | file:line     | [what happens]  | YES/NO |
+| 2    | Method → delegate(args)       | file:line     | [what happens]  | YES/NO |
+```
+
+Every element in the diagram must have a corresponding row. Do not
+include classes, methods, or flows that you have not verified exist in
+the current code. The tables do not appear in the final artifact — they
+are working notes that ensure accuracy.
+
 ### Artifact 2: ADR (`adr.md`)
 
 Write `docs/adr/<dir-name>/adr.md` — a post-implementation Architecture
