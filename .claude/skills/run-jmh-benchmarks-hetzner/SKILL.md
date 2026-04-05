@@ -99,8 +99,11 @@ The LDBC SF 1 CSV dataset and canonical curated parameters must be available bef
 # CSV dataset
 python3 -c "
 import boto3, os
+# IMPORTANT: Force HTTPS — the HETZNER_S3_ENDPOINT env var may contain http://
+# but Hetzner servers cannot reach the S3 endpoint over plain HTTP (connection timeout).
+endpoint = os.environ['HETZNER_S3_ENDPOINT'].replace('http://', 'https://')
 s3 = boto3.client('s3',
-    endpoint_url=os.environ['HETZNER_S3_ENDPOINT'],
+    endpoint_url=endpoint,
     aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
     aws_secret_access_key=os.environ['HETZNER_S3_SECRET_KEY'])
 for key in ['ldbc/ldbc-sf1-composite-merged-fk.tar.zst', 'ldbc/curated-params-v3.json', 'ldbc/factor-tables.json']:
