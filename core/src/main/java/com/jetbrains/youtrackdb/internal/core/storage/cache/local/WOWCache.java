@@ -1616,11 +1616,21 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    if (flushFuture != null) {
+    // Snapshot the volatile field so we cancel and await the same future.
+    final var future = flushFuture;
+    if (future != null) {
+      // Cancel the scheduled periodic flush task. If it hasn't started yet, this
+      // prevents it from running (avoiding delays when the single-threaded shared
+      // commitExecutor has a backlog from other WOWCache instances). If the task is
+      // already running, cancel(false) won't interrupt it — the running task will
+      // check the stopFlush flag and exit promptly. In either case, get() below
+      // returns immediately: CancellationException for a not-yet-started task
+      // (caught and ignored), or the task's result for an already-running task.
+      future.cancel(false);
       try {
-        flushFuture.get(shutdownTimeout, TimeUnit.MILLISECONDS);
+        future.get(shutdownTimeout, TimeUnit.MILLISECONDS);
       } catch (final java.lang.InterruptedException | CancellationException e) {
-        // ignore
+        // ignore — task was cancelled or we were interrupted during shutdown
       } catch (final ExecutionException e) {
         throw BaseException.wrapException(
             new WriteCacheException(storageName,
