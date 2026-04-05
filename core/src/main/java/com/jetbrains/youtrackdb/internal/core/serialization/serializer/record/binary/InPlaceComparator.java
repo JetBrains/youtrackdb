@@ -26,8 +26,11 @@ import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.re
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.exception.CorruptedRecordException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.OptionalInt;
@@ -307,6 +310,8 @@ public final class InPlaceComparator {
 
   // ---------------------------------------------------------------------------
   // DECIMAL (BigDecimal via DecimalSerializer)
+  // See also: compareDecimalRbc() — the ReadBytesContainer counterpart that
+  // reads the same format manually from a ByteBuffer.
   // ---------------------------------------------------------------------------
 
   private static OptionalInt compareDecimal(BytesContainer bytes, Object value) {
@@ -348,6 +353,279 @@ public final class InPlaceComparator {
   // ---------------------------------------------------------------------------
 
   private static OptionalInt compareLinkEquality(BytesContainer bytes, Object value) {
+    int valueCollectionId;
+    long valueCollectionPos;
+    if (value instanceof RID rid) {
+      valueCollectionId = rid.getCollectionId();
+      valueCollectionPos = rid.getCollectionPosition();
+    } else if (value instanceof Identifiable identifiable) {
+      var identity = identifiable.getIdentity();
+      valueCollectionId = identity.getCollectionId();
+      valueCollectionPos = identity.getCollectionPosition();
+    } else {
+      return OptionalInt.empty();
+    }
+    var serializedId = VarIntSerializer.readAsInteger(bytes);
+    var serializedPos = VarIntSerializer.readAsLong(bytes);
+    var equal = serializedId == valueCollectionId && serializedPos == valueCollectionPos;
+    return OptionalInt.of(equal ? 1 : 0);
+  }
+
+  // ===========================================================================
+  // ReadBinaryField overloads (ByteBuffer-backed, for PageFrame zero-copy)
+  // ===========================================================================
+
+  /**
+   * Compares a serialized field value in a {@link ReadBinaryField} against a Java object.
+   *
+   * @param dbTimeZone the database timezone for DATE fields
+   * @return comparison result (negative, zero, positive) or empty if fallback is needed
+   */
+  public static OptionalInt compare(
+      ReadBinaryField field, Object value, @Nullable TimeZone dbTimeZone) {
+    assert field != null : "ReadBinaryField must not be null";
+    assert field.type() != null : "ReadBinaryField.type must not be null";
+    assert value != null : "Comparison value must not be null";
+
+    return switch (field.type()) {
+      case INTEGER -> compareIntegerRbc(field.bytes(), value);
+      case LONG -> compareLongRbc(field.bytes(), value);
+      case SHORT -> compareShortRbc(field.bytes(), value);
+      case BYTE -> compareByteRbc(field.bytes(), value);
+      case FLOAT -> compareFloatRbc(field.bytes(), value);
+      case DOUBLE -> compareDoubleRbc(field.bytes(), value);
+      case STRING -> compareStringRbc(field.bytes(), value);
+      case BOOLEAN -> compareBooleanRbc(field.bytes(), value);
+      case DATETIME -> compareDatetimeRbc(field.bytes(), value);
+      case DATE -> compareDateRbc(field.bytes(), value, dbTimeZone);
+      case DECIMAL -> compareDecimalRbc(field.bytes(), value);
+      case BINARY -> compareBinaryRbc(field.bytes(), value);
+      case LINK -> OptionalInt.empty();
+      default -> OptionalInt.empty();
+    };
+  }
+
+  /**
+   * Checks equality of a serialized field value in a {@link ReadBinaryField} against a Java object.
+   *
+   * @param dbTimeZone the database timezone for DATE fields
+   * @return 1 (equal) or 0 (not equal) if comparison succeeded, or empty if fallback is needed
+   */
+  public static OptionalInt isEqual(
+      ReadBinaryField field, Object value, @Nullable TimeZone dbTimeZone) {
+    if (field.type() == PropertyTypeInternal.LINK) {
+      return compareLinkEqualityRbc(field.bytes(), value);
+    }
+    // Fast path for STRING equality: compare UTF-8 bytes directly without
+    // constructing a String object from the serialized data.
+    if (field.type() == PropertyTypeInternal.STRING) {
+      return isStringEqualRbc(field.bytes(), value);
+    }
+
+    var cmp = compare(field, value, dbTimeZone);
+    if (cmp.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(cmp.getAsInt() == 0 ? 1 : 0);
+  }
+
+  // --- ReadBytesContainer per-type comparison methods ---
+
+  private static OptionalInt compareIntegerRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    var converted = convertToInt(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = VarIntSerializer.readAsInteger(bytes);
+    return OptionalInt.of(Integer.compare(serialized, converted.getAsInt()));
+  }
+
+  private static OptionalInt compareLongRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    var converted = convertToLong(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = VarIntSerializer.readAsLong(bytes);
+    return OptionalInt.of(Long.compare(serialized, converted.getAsLong()));
+  }
+
+  private static OptionalInt compareShortRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    var converted = convertToShort(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = VarIntSerializer.readAsShort(bytes);
+    return OptionalInt.of(Short.compare(serialized, (short) converted.getAsInt()));
+  }
+
+  private static OptionalInt compareByteRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    var converted = convertToByte(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readByte(bytes);
+    return OptionalInt.of(Byte.compare(serialized, (byte) converted.getAsInt()));
+  }
+
+  private static OptionalInt compareFloatRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    if (value instanceof Double) {
+      var serializedFloat = Float.intBitsToFloat(readInteger(bytes));
+      return OptionalInt.of(Double.compare(serializedFloat, number.doubleValue()));
+    }
+    var converted = convertToFloat(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = Float.intBitsToFloat(readInteger(bytes));
+    return OptionalInt.of(
+        Float.compare(serialized, Float.intBitsToFloat(converted.getAsInt())));
+  }
+
+  private static OptionalInt compareDoubleRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Number number)) {
+      return OptionalInt.empty();
+    }
+    var converted = convertToDouble(number);
+    if (converted.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    var serialized = Double.longBitsToDouble(readLong(bytes));
+    return OptionalInt.of(
+        Double.compare(serialized, Double.longBitsToDouble(converted.getAsLong())));
+  }
+
+  private static OptionalInt compareStringRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof String strValue)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readString(bytes);
+    return OptionalInt.of(serialized.compareTo(strValue));
+  }
+
+  /**
+   * Byte-level string equality: encodes the comparison value to UTF-8 once, then
+   * compares the length prefix and raw bytes directly from the buffer without
+   * constructing a String from the serialized data. Avoids the {@code new String()}
+   * allocation that {@link #compareStringRbc} requires.
+   */
+  private static OptionalInt isStringEqualRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof String strValue)) {
+      return OptionalInt.empty();
+    }
+    var serializedLen = VarIntSerializer.readAsInteger(bytes);
+    if (serializedLen == 0) {
+      return OptionalInt.of(strValue.isEmpty() ? 1 : 0);
+    }
+    var valueUtf8 = strValue.getBytes(StandardCharsets.UTF_8);
+    if (serializedLen != valueUtf8.length) {
+      return OptionalInt.of(0);
+    }
+    // Compare raw UTF-8 bytes without constructing a String
+    for (int i = 0; i < serializedLen; i++) {
+      if (bytes.peekByte(i) != valueUtf8[i]) {
+        return OptionalInt.of(0);
+      }
+    }
+    return OptionalInt.of(1);
+  }
+
+  private static OptionalInt compareBooleanRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof Boolean boolValue)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readByte(bytes) == 1;
+    return OptionalInt.of(Boolean.compare(serialized, boolValue));
+  }
+
+  private static OptionalInt compareDatetimeRbc(ReadBytesContainer bytes, Object value) {
+    long valueMillis;
+    if (value instanceof Date date) {
+      valueMillis = date.getTime();
+    } else if (value instanceof Number number) {
+      valueMillis = number.longValue();
+    } else {
+      return OptionalInt.empty();
+    }
+    var serialized = VarIntSerializer.readAsLong(bytes);
+    return OptionalInt.of(Long.compare(serialized, valueMillis));
+  }
+
+  private static OptionalInt compareDateRbc(
+      ReadBytesContainer bytes, Object value, @Nullable TimeZone dbTimeZone) {
+    if (dbTimeZone == null) {
+      return OptionalInt.empty();
+    }
+    long valueMillis;
+    if (value instanceof Date date) {
+      valueMillis = date.getTime();
+    } else if (value instanceof Number number) {
+      valueMillis = number.longValue();
+    } else {
+      return OptionalInt.empty();
+    }
+    var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
+    savedTime = HelperClasses.convertDayToTimezone(GMT, dbTimeZone, savedTime);
+    return OptionalInt.of(Long.compare(savedTime, valueMillis));
+  }
+
+  // DECIMAL: 4-byte scale (big-endian int) + 4-byte unscaled length + unscaled bytes.
+  // This manually reads the same binary format as DecimalSerializer.staticDeserialize(),
+  // but from a ReadBytesContainer (ByteBuffer-backed) instead of a byte[]. Changes to
+  // the decimal serialization format in DecimalSerializer must be mirrored here.
+  private static OptionalInt compareDecimalRbc(ReadBytesContainer bytes, Object value) {
+    BigDecimal decimalValue;
+    if (value instanceof BigDecimal bd) {
+      decimalValue = bd;
+    } else if (value instanceof Number number) {
+      if (number instanceof Double || number instanceof Float) {
+        double dv = number.doubleValue();
+        if (Double.isNaN(dv) || Double.isInfinite(dv)) {
+          return OptionalInt.empty();
+        }
+        decimalValue = BigDecimal.valueOf(dv);
+      } else {
+        decimalValue = BigDecimal.valueOf(number.longValue());
+      }
+    } else {
+      return OptionalInt.empty();
+    }
+    var scale = bytes.getInt();
+    var unscaledLen = bytes.getInt();
+    if (unscaledLen < 0 || unscaledLen > bytes.remaining()) {
+      throw new CorruptedRecordException(
+          "Decimal unscaled length exceeds remaining buffer: "
+              + unscaledLen + " > " + bytes.remaining());
+    }
+    var unscaledBytes = new byte[unscaledLen];
+    bytes.getBytes(unscaledBytes, 0, unscaledLen);
+    var serialized = new BigDecimal(new BigInteger(unscaledBytes), scale);
+    return OptionalInt.of(serialized.compareTo(decimalValue));
+  }
+
+  private static OptionalInt compareBinaryRbc(ReadBytesContainer bytes, Object value) {
+    if (!(value instanceof byte[] byteArray)) {
+      return OptionalInt.empty();
+    }
+    var serialized = HelperClasses.readBinary(bytes);
+    return OptionalInt.of(Arrays.compare(serialized, byteArray));
+  }
+
+  private static OptionalInt compareLinkEqualityRbc(ReadBytesContainer bytes, Object value) {
     int valueCollectionId;
     long valueCollectionPos;
     if (value instanceof RID rid) {

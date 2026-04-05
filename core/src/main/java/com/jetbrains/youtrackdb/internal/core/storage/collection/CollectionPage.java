@@ -59,6 +59,20 @@ public final class CollectionPage extends DurablePage {
       PAGE_INDEXES_LENGTH_OFFSET + IntegerSerializer.INT_SIZE;
 
   static final int INDEX_ITEM_SIZE = IntegerSerializer.INT_SIZE + VERSION_SIZE;
+
+  /**
+   * Size of the per-record metadata header that precedes the actual content bytes.
+   * Layout: [recordType: 1B][contentSize: 4B][collectionPosition: 8B] = 13 bytes.
+   */
+  public static final int RECORD_METADATA_HEADER_SIZE =
+      ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
+
+  /**
+   * Size of the per-chunk tail that follows the content bytes.
+   * Layout: [firstRecordFlag: 1B][nextPagePointer: 8B] = 9 bytes.
+   */
+  public static final int RECORD_TAIL_SIZE = ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
+
   private static final int MARKED_AS_DELETED_FLAG = 1 << 16;
   private static final int POSITION_MASK = 0xFFFF;
   public static final int PAGE_SIZE =
@@ -736,6 +750,55 @@ public final class CollectionPage extends DurablePage {
     return getLongValue(
         entryPosition + 3 * IntegerSerializer.INT_SIZE
             + recordSize - LongSerializer.LONG_SIZE);
+  }
+
+  /**
+   * Returns the absolute byte offset within the page buffer to the start of the
+   * record's actual content, after the per-entry header (3 * INT_SIZE) and the
+   * metadata header ({@link #RECORD_METADATA_HEADER_SIZE}).
+   *
+   * <p><strong>Precondition:</strong> the record must not be deleted and must be
+   * an entry-point chunk ({@link #isFirstRecordChunk(int)} returns {@code true}).
+   * Continuation chunks have no metadata header, so this method would return an
+   * incorrect offset.
+   *
+   * @param recordPosition the pointer-array slot index
+   * @return absolute byte offset to record content
+   */
+  public int getRecordContentOffset(final int recordPosition) {
+    assert !isDeleted(recordPosition)
+        : "Record at position " + recordPosition + " is deleted";
+    assert isFirstRecordChunk(recordPosition)
+        : "Record at position " + recordPosition + " is not an entry-point chunk";
+    final var entryPosition = getPointerValuePosition(recordPosition);
+    return entryPosition + 3 * IntegerSerializer.INT_SIZE + RECORD_METADATA_HEADER_SIZE;
+  }
+
+  /**
+   * Returns the length of the record's actual content bytes, excluding the
+   * metadata header ({@link #RECORD_METADATA_HEADER_SIZE}) and the chunk tail
+   * ({@link #RECORD_TAIL_SIZE}).
+   *
+   * <p><strong>Precondition:</strong> the record must not be deleted and must be
+   * an entry-point chunk. The record size must be at least
+   * {@code RECORD_METADATA_HEADER_SIZE + RECORD_TAIL_SIZE} (22 bytes).
+   *
+   * @param recordPosition the pointer-array slot index
+   * @return content length in bytes (non-negative)
+   */
+  public int getRecordContentLength(final int recordPosition) {
+    assert !isDeleted(recordPosition)
+        : "Record at position " + recordPosition + " is deleted";
+    assert isFirstRecordChunk(recordPosition)
+        : "Record at position " + recordPosition + " is not an entry-point chunk";
+    final var recordSize = getRecordSize(recordPosition);
+    assert recordSize >= RECORD_METADATA_HEADER_SIZE + RECORD_TAIL_SIZE
+        : "Record size " + recordSize + " too small for content extraction";
+    final var contentLength = recordSize - RECORD_METADATA_HEADER_SIZE - RECORD_TAIL_SIZE;
+    assert contentLength >= 0
+        : "Computed content length " + contentLength + " is negative for record at position "
+            + recordPosition;
+    return contentLength;
   }
 
   private boolean insideRecordBounds(

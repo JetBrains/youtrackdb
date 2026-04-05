@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.internal.common.collection.LRUCache;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 public class StringCache {
@@ -12,8 +11,7 @@ public class StringCache {
     values = new LRUCache<>(size);
   }
 
-  public String getString(final byte[] bytes, final int offset, final int len)
-      throws UnsupportedEncodingException {
+  public String getString(final byte[] bytes, final int offset, final int len) {
     var key = new StringCacheKey(bytes, offset, len);
     String value;
     synchronized (this) {

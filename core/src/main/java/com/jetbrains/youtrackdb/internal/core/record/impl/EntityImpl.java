@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -75,14 +76,20 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.InPlaceComparator;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBinaryField;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBytesContainer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.ref.WeakReference;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -136,6 +143,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public PropertyEncryption propertyEncryption;
 
   private boolean propertyConversionInProgress = false;
+
+  // Zero-copy PageFrame fields (set by fillFromPage, cleared by clearPageFrame)
+  @Nullable private PageFrame pageFrame;
+  private long pageStamp;
+  private int pageContentOffset;
+  private int pageContentLength;
+
+  // Reusable container for in-place comparison — avoids allocating a new
+  // ReadBytesContainer + ByteBuffer.slice() on every compareFromPageFrame call.
+  private final ReadBytesContainer comparisonRbc = new ReadBytesContainer();
 
   /**
    * Internal constructor used on unmarshalling.
@@ -207,6 +224,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   public boolean sourceIsParsedByProperties() {
+    // A PageFrame-loaded record has source == null but is NOT yet parsed —
+    // it needs deserialization at property-access time.
+    if (pageFrame != null) {
+      return false;
+    }
     return super.sourceIsParsedByProperties() || (properties != null && !properties.isEmpty());
   }
 
@@ -511,6 +533,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return compareFromSource(name, value);
     }
 
+    // Fall back to PageFrame zero-copy comparison
+    if (pageFrame != null) {
+      return compareFromPageFrame(name, value);
+    }
+
     return InPlaceResult.FALLBACK;
   }
 
@@ -539,6 +566,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
     // Fall back to serialized comparison via source bytes
     if (source != null) {
       return compareFromSourceOrdering(name, value);
+    }
+
+    // Fall back to PageFrame zero-copy comparison
+    if (pageFrame != null) {
+      return compareFromPageFrameOrdering(name, value);
     }
 
     return OptionalInt.empty();
@@ -667,6 +699,131 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return null;
     }
     return field;
+  }
+
+  /**
+   * Locates a field in the PageFrame's serialized record and returns a {@link ReadBinaryField}
+   * for in-place comparison. Returns null if the field is not found, the record is encrypted,
+   * or the field uses a non-default collation.
+   *
+   * <p>Does not validate the PageFrame stamp — callers must validate after using the result.
+   *
+   * @param localPageFrame the already-captured PageFrame reference from the caller
+   * @param localOffset    the already-captured content offset from the caller
+   * @param localLength    the already-captured content length from the caller
+   * @param fieldNameBytes pre-computed UTF-8 bytes of the field name (avoids per-call allocation)
+   */
+  @Nullable private ReadBinaryField deserializeFieldForComparisonFromPageFrame(
+      String name, Object value,
+      PageFrame localPageFrame, int localOffset, int localLength,
+      byte[] fieldNameBytes) {
+    if (value == null) {
+      return null;
+    }
+    if (propertyEncryption != null && propertyEncryption.isEncrypted(name)) {
+      return null;
+    }
+    if (localLength <= 0) {
+      return null;
+    }
+
+    var buf = localPageFrame.getBuffer();
+    var serializerVersion = buf.get(localOffset);
+    var serializer = RecordSerializerBinary.INSTANCE.getSerializer(serializerVersion);
+    comparisonRbc.reset(buf, localOffset + 1, localLength - 1);
+
+    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schemaClass = getImmutableSchemaClass(session, immutableSchema);
+    var field = serializer.deserializeField(
+        session, comparisonRbc, schemaClass, name, fieldNameBytes, isEmbedded(),
+        immutableSchema, propertyEncryption);
+
+    if (field == null) {
+      return null;
+    }
+    if (field.collate() != null && !(field.collate() instanceof DefaultCollate)) {
+      return null;
+    }
+    return field;
+  }
+
+  /**
+   * Compare against the PageFrame's serialized bytes using InPlaceComparator (equality check).
+   * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
+   * page modification. Falls back on any RuntimeException because torn reads can
+   * manifest as various exception types (BufferUnderflowException, IllegalArgumentException
+   * from VarInt decoding, NullPointerException from invalid type/property IDs, etc.).
+   */
+  private InPlaceResult compareFromPageFrame(String name, Object value) {
+    var localPageFrame = this.pageFrame;
+    var localStamp = this.pageStamp;
+    var localOffset = this.pageContentOffset;
+    var localLength = this.pageContentLength;
+    if (localPageFrame == null) {
+      return InPlaceResult.FALLBACK;
+    }
+
+    try {
+      var fieldNameBytes = name.getBytes(StandardCharsets.UTF_8);
+      var field = deserializeFieldForComparisonFromPageFrame(
+          name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
+      if (field == null) {
+        return InPlaceResult.FALLBACK;
+      }
+      var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+      var result = InPlaceComparator.isEqual(field, value, dbTimeZone);
+
+      // Validate stamp after reading — detect torn reads
+      if (!localPageFrame.validate(localStamp)) {
+        return InPlaceResult.FALLBACK;
+      }
+
+      if (result.isEmpty()) {
+        return InPlaceResult.FALLBACK;
+      }
+      return result.getAsInt() == 1 ? InPlaceResult.TRUE : InPlaceResult.FALSE;
+    } catch (RuntimeException e) {
+      // Torn read from concurrent page modification — fall back
+      return InPlaceResult.FALLBACK;
+    }
+  }
+
+  /**
+   * Compare against the PageFrame's serialized bytes using InPlaceComparator (ordering).
+   * Validates the PageFrame stamp after comparison to detect torn reads from concurrent
+   * page modification. Falls back on any RuntimeException because torn reads can
+   * manifest as various exception types (BufferUnderflowException, IllegalArgumentException
+   * from VarInt decoding, NullPointerException from invalid type/property IDs, etc.).
+   */
+  private OptionalInt compareFromPageFrameOrdering(String name, Object value) {
+    var localPageFrame = this.pageFrame;
+    var localStamp = this.pageStamp;
+    var localOffset = this.pageContentOffset;
+    var localLength = this.pageContentLength;
+    if (localPageFrame == null) {
+      return OptionalInt.empty();
+    }
+
+    try {
+      var fieldNameBytes = name.getBytes(StandardCharsets.UTF_8);
+      var field = deserializeFieldForComparisonFromPageFrame(
+          name, value, localPageFrame, localOffset, localLength, fieldNameBytes);
+      if (field == null) {
+        return OptionalInt.empty();
+      }
+      var dbTimeZone = DateHelper.getDatabaseTimeZone(session);
+      var result = InPlaceComparator.compare(field, value, dbTimeZone);
+
+      // Validate stamp after reading — detect torn reads
+      if (!localPageFrame.validate(localStamp)) {
+        return OptionalInt.empty();
+      }
+
+      return result;
+    } catch (RuntimeException e) {
+      // Torn read from concurrent page modification — fall back
+      return OptionalInt.empty();
+    }
   }
 
   /**
@@ -2347,6 +2504,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public byte[] toStream() {
     checkForBinding();
 
+    // If loaded from PageFrame but not yet deserialized, trigger deserialization
+    // so the serializer can produce bytes from the parsed properties.
+    if (source == null && pageFrame != null) {
+      checkForProperties();
+    }
+
     var prev = status;
     status = STATUS.MARSHALLING;
     try {
@@ -3116,6 +3279,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     if (status != STATUS.UNMARSHALLING) {
       source = null;
+      clearPageFrame();
     }
 
     if (owner != null) {
@@ -3141,6 +3305,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
     // _SOURCE IS NULL
     checkForProperties();
+    clearPageFrame();
 
     super.setDirtyNoChanged();
   }
@@ -3155,6 +3320,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     status = STATUS.UNMARSHALLING;
     try {
+      clearPageFrame();
       removeAllCollectionChangeListeners();
 
       properties = null;
@@ -3372,7 +3538,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     List<String> additional = null;
-    if (source == null)
+    if (source == null && pageFrame == null)
     // ALREADY UNMARSHALLED OR JUST EMPTY
     {
       return true;
@@ -3429,6 +3595,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
+    if (pageFrame != null && source == null) {
+      // PageFrame zero-copy path: speculative deserialization with stamp validation
+      return deserializeFromPageFrame(propertyNames);
+    }
+
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
       checkForProperties();
@@ -3437,16 +3608,170 @@ public class EntityImpl extends RecordAbstract implements Entity {
       status = RecordElement.STATUS.LOADED;
     }
 
+    if (!checkDeserializedProperties(propertyNames)) {
+      return false;
+    }
+
+    // Full unmarshalling — release the byte[] source and PageFrame reference
+    if ((propertyNames == null || propertyNames.length == 0) && source != null) {
+      source = null;
+      clearPageFrame();
+    }
+
+    return true;
+  }
+
+  /**
+   * Speculatively deserializes this entity from the held PageFrame reference.
+   * After deserialization, validates the PageFrame stamp. If the stamp is invalid
+   * (page was modified concurrently) or deserialization throws (torn page), restores
+   * the properties snapshot and falls back to a byte[] re-read from storage.
+   *
+   * @param propertyNames null/empty for full deserialization, or specific property names
+   *     for partial deserialization
+   * @return true if properties were successfully deserialized, false otherwise
+   */
+  private boolean deserializeFromPageFrame(String[] propertyNames) {
+    assert pageFrame != null && source == null
+        : "deserializeFromPageFrame called without active PageFrame";
+
+    // Empty content: no data to deserialize. Clear PageFrame and return.
+    if (pageContentLength <= 0) {
+      clearPageFrame();
+      return true;
+    }
+
+    boolean isPartial = propertyNames != null && propertyNames.length > 0;
+
+    // Capture all PageFrame references locally. The serializer's deserialize()
+    // calls clearSource() on full deserialization, which triggers
+    // clearPageFrame(). We need frame, stamp, offset, and length for
+    // post-deserialization validation even after the entity's fields are cleared.
+    var localFrame = pageFrame;
+    var localStamp = pageStamp;
+    var localOffset = pageContentOffset;
+    var localLength = pageContentLength;
+
+    boolean speculativeSuccess = false;
+    try {
+      // Cache the buffer reference to avoid repeated SoftReference lookups
+      var buf = localFrame.getBuffer();
+
+      // Read serializer version byte from absolute position
+      byte serializerVersion = buf.get(localOffset);
+
+      // Create ReadBytesContainer from a slice starting after the version byte
+      var container = new ReadBytesContainer(
+          buf.slice(localOffset + 1, localLength - 1));
+
+      status = RecordElement.STATUS.UNMARSHALLING;
+      try {
+        checkForProperties();
+        recordSerializer.fromStream(
+            session, serializerVersion, container, this, propertyNames);
+      } finally {
+        status = RecordElement.STATUS.LOADED;
+      }
+
+      speculativeSuccess = true;
+    } catch (RuntimeException e) {
+      // Treat any exception during speculative deserialization as a torn page
+      // (equivalent to stamp invalidation). Fall through to re-read from storage.
+      // If the data is genuinely corrupt, the byte[]-backed re-read will also
+      // throw and propagate the error. This catch only suppresses transient
+      // exceptions caused by reading from a concurrently modified page.
+    }
+
+    if (speculativeSuccess) {
+      // Validate stamp AFTER deserialization — optimistic read pattern.
+      // Use localFrame/localStamp since the entity's fields may have been
+      // cleared by the serializer's clearSource() call during deserialization.
+      if (localFrame.validate(localStamp)) {
+        // Stamp valid: speculative results are correct.
+        // For full deserialization, the serializer already called clearSource()
+        // which cleared the PageFrame fields. For partial, keep PageFrame
+        // for subsequent calls.
+        if (!isPartial || pageFrame == null) {
+          clearPageFrame();
+        }
+        return checkDeserializedProperties(propertyNames);
+      }
+
+      // Stamp invalid: page was modified during deserialization — fall through to re-read
+    }
+
+    // Speculative deserialization failed or stamp invalid. Clear PageFrame and
+    // re-read from storage. The re-read path (fromStream) resets all entity
+    // state including properties, so no snapshot restore is needed here.
+    clearPageFrame();
+
+    // Re-read from storage via the pinned path
+    reReadFromStorage();
+
+    assert source != null
+        : "reReadFromStorage must populate byte[] source for fallback deserialization";
+    assert pageFrame == null
+        : "pageFrame must be cleared before fallback deserialization";
+
+    // Re-enter deserialization using the byte[] path (source is now set)
+    return deserializeProperties(propertyNames);
+  }
+
+  /**
+   * Re-reads this record from storage using the pinned read path and populates
+   * the entity's byte[] source. Called as the fallback when PageFrame stamp
+   * validation fails or speculative deserialization throws.
+   *
+   * <p>The storage read may return either {@link RawBuffer} (byte[]-backed) or
+   * {@link RawPageBuffer} (PageFrame reference). In either case, bytes are
+   * extracted into the entity's {@code source} field to ensure subsequent
+   * deserialization uses the byte[] path (no further PageFrame dependency).
+   *
+   * @throws RecordNotFoundException if the record was deleted between the
+   *     original optimistic read and this fallback re-read. This is expected
+   *     behavior — the caller should let the exception propagate, as the
+   *     record genuinely no longer exists.
+   */
+  private void reReadFromStorage() {
+    var storage = session.getStorage();
+    var atomicOp = session.getActiveTransaction().getAtomicOperation();
+
+    // Retry loop: storage.readRecord() may return a RawPageBuffer whose stamp
+    // becomes invalid between the optimistic scope close and byte extraction.
+    // toRawBuffer() validates the stamp and throws OptimisticReadFailedException
+    // on mismatch, so we retry until we get a consistent byte[] copy.
+    while (true) {
+      var readResult = storage.readRecord(getIdentity(), atomicOp);
+      try {
+        var rawBuffer = readResult.toRawBuffer();
+        fill(rawBuffer.version(), rawBuffer.buffer(), false);
+        fromStream(rawBuffer.buffer());
+        return;
+      } catch (OptimisticReadFailedException e) {
+        // Stamp was invalidated between readRecord returning and byte extraction.
+        // Retry the full read — the next attempt may return RawBuffer (pinned path)
+        // or another RawPageBuffer with a fresh stamp.
+      }
+    }
+  }
+
+  /**
+   * Checks whether the requested properties were found after deserialization.
+   * Returns {@code true} if no specific properties were requested (full
+   * unmarshalling) or if at least one requested property/attribute was found.
+   * Returns {@code false} if specific properties were requested but none
+   * were found in the deserialized state.
+   */
+  private boolean checkDeserializedProperties(String[] propertyNames) {
     if (propertyNames != null && propertyNames.length > 0) {
+      // Check for attribute requests (prefixed with '@')
       for (var property : propertyNames) {
-        if (property != null && !property.isEmpty() && property.charAt(0) == '@')
-        // ATTRIBUTE
-        {
+        if (property != null && !property.isEmpty() && property.charAt(0) == '@') {
           return true;
         }
       }
 
-      // PARTIAL UNMARSHALLING
+      // Partial unmarshalling — check if any requested property was found
       if (properties != null && !properties.isEmpty()) {
         for (var f : propertyNames) {
           if (f != null && properties.containsKey(f)) {
@@ -3455,14 +3780,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
-      // NO FIELDS FOUND
       return false;
-    } else {
-      if (source != null)
-      // FULL UNMARSHALLING
-      {
-        source = null;
-      }
     }
 
     return true;
@@ -3677,13 +3995,124 @@ public class EntityImpl extends RecordAbstract implements Entity {
           "Cannot call fill() on dirty records");
     }
 
+    clearPageFrame();
     schema = null;
     fetchSchema();
     return super.fill(version, buffer, dirty);
   }
 
+  /**
+   * Fills this entity from a PageFrame reference for zero-copy deserialization.
+   * The PageFrame is kept for lazy deserialization at property-access time.
+   * The stamp is validated after speculative deserialization; if invalid, the entity
+   * falls back to a byte[] re-read from storage.
+   *
+   * @param version      the record version
+   * @param recordType   the record type byte (unused here, but matches fill() signature pattern)
+   * @param pageFrame    the PageFrame containing the record data
+   * @param stamp        the optimistic read stamp from the PageFrame's StampedLock
+   * @param contentOffset the byte offset within the PageFrame buffer where record content starts
+   * @param contentLength the byte length of the record content
+   */
+  public void fillFromPage(long version, byte recordType, PageFrame pageFrame,
+      long stamp, int contentOffset, int contentLength) {
+    // recordType comes from the storage page header. EntityImpl subclasses
+    // (VertexEntityImpl, EdgeEntityImpl) have different RECORD_TYPE values
+    // ('v', 'e'), so we only assert it's a known entity-family type.
+    assert recordType == RECORD_TYPE
+        || recordType == VertexEntityImpl.RECORD_TYPE
+        || recordType == EdgeEntityImpl.RECORD_TYPE
+        : "Unexpected record type for EntityImpl: " + recordType;
+
+    // Use getSession() for the session-active assertion, matching fill()'s
+    // pattern. Do NOT call checkForBinding() — it rejects NOT_LOADED status
+    // which is the normal state for freshly factory-created records.
+    var session = getSession();
+
+    if (pageFrame == null) {
+      throw new IllegalArgumentException("PageFrame must not be null");
+    }
+    if (contentOffset < 0) {
+      throw new IllegalArgumentException(
+          "contentOffset must be non-negative: " + contentOffset);
+    }
+    if (contentLength < 0) {
+      throw new IllegalArgumentException(
+          "contentLength must be non-negative: " + contentLength);
+    }
+
+    if (dirty > 0) {
+      throw new DatabaseException(session.getDatabaseName(),
+          "Cannot call fillFromPage() on dirty records");
+    }
+
+    clearPageFrame();
+    removeAllCollectionChangeListeners();
+    properties = null;
+    propertiesCount = 0;
+    contentChanged = false;
+    schema = null;
+
+    fetchSchema();
+
+    this.pageFrame = pageFrame;
+    this.pageStamp = stamp;
+    this.pageContentOffset = contentOffset;
+    this.pageContentLength = contentLength;
+
+    this.recordVersion = version;
+    this.size = contentLength;
+
+    this.source = null;
+
+    this.status = STATUS.LOADED;
+  }
+
+  /**
+   * Clears the PageFrame reference and associated fields, releasing the reference
+   * for GC. Called from lifecycle methods that invalidate the record's data source
+   * (internalReset, fromStream, fill, clearSource).
+   */
+  public void clearPageFrame() {
+    pageFrame = null;
+    pageStamp = 0;
+    pageContentOffset = 0;
+    pageContentLength = 0;
+  }
+
+  @Nullable public PageFrame getPageFrame() {
+    return pageFrame;
+  }
+
+  public long getPageStamp() {
+    return pageStamp;
+  }
+
+  public int getPageContentOffset() {
+    return pageContentOffset;
+  }
+
+  public int getPageContentLength() {
+    return pageContentLength;
+  }
+
+  /**
+   * Clears the byte[] source while retaining the PageFrame reference, forcing
+   * subsequent deserialization to use the speculative PageFrame zero-copy path
+   * ({@link #deserializeFromPageFrame}). This simulates a lazy-extraction
+   * scenario where fillFromPage defers byte extraction until property access.
+   *
+   * <p>Package-private: intended for tests that verify the PageFrame
+   * deserialization + stamp validation + fallback re-read paths.
+   */
+  void clearSourceKeepPageFrame() {
+    assert pageFrame != null : "clearSourceKeepPageFrame called without PageFrame";
+    this.source = null;
+  }
+
   @Override
   public void clearSource() {
+    clearPageFrame();
     super.clearSource();
     schema = null;
   }
@@ -3913,6 +4342,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   protected void internalReset() {
+    clearPageFrame();
     removeAllCollectionChangeListeners();
     if (properties != null) {
       properties.clear();
@@ -3928,7 +4358,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         this.properties = new HashMap<>();
       }
 
-      if (source != null) {
+      if (source != null || pageFrame != null) {
         return deserializeProperties(properties);
       }
 

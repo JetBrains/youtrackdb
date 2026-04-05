@@ -353,7 +353,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // Verify data persisted across close/open
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
     Assert.assertNotNull("Record should be readable after reopen", buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     Assert.assertEquals(2, buffer.recordType());
@@ -412,7 +412,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // Verify data is still accessible after rename
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
 
     // Clean up
@@ -483,7 +483,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
-          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
           readerResult.set(buffer.buffer());
         });
       } catch (Throwable t) {
@@ -539,7 +539,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
-          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
           readerResult.set(buffer.buffer());
         });
       } catch (Throwable t) {
@@ -639,7 +639,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         op -> paginatedCollection.createRecord(smallRecord, (byte) 1, null, op));
 
     var versionAfterCreate = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op)).version();
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer()).version();
 
     // Update to a big record that spans multiple pages
     var bigRecord = new byte[(2 << 16) + 100];
@@ -650,7 +650,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             pos.collectionPosition, bigRecord, (byte) 3, op));
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assert.assertNotNull(buffer);
     Assert.assertNotEquals("Version should change after update",
         versionAfterCreate, buffer.version());
@@ -673,7 +673,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             pos.collectionPosition, smallRecord, (byte) 2, op));
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer()).isEqualTo(smallRecord);
     Assert.assertEquals(2, buffer.recordType());
   }
@@ -723,7 +723,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         op -> paginatedCollection.createRecord(originalData, (byte) 1, null, op));
 
     var versionBefore = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op)).version();
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer()).version();
 
     try {
       atomicOps().executeInsideAtomicOperation(op -> {
@@ -735,7 +735,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     }
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assert.assertEquals("Version should be unchanged after rollback",
         versionBefore, buffer.version());
     Assertions.assertThat(buffer.buffer())
@@ -759,7 +759,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         op -> paginatedCollection.createRecord(nearMaxRecord, (byte) 1, null, op));
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer()).isEqualTo(nearMaxRecord);
   }
 
@@ -793,7 +793,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     // Verify all records are readable
     for (var pos : positions) {
       var buffer = atomicOps().calculateInsideAtomicOperation(
-          op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+          op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
       Assert.assertNotNull("All created records should be readable", buffer);
     }
   }
@@ -877,7 +877,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     });
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer())
         .as("Second update should win")
         .isEqualTo(new byte[] {30, 40, 50});
@@ -897,7 +897,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     });
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos[0].collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos[0].collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer()).isEqualTo(new byte[] {4, 5, 6, 7});
     Assert.assertEquals(2, buffer.recordType());
   }
@@ -929,7 +929,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
-          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
           readerResult.set(buffer.buffer());
         });
       } catch (Throwable t) {
@@ -1058,7 +1058,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
         op -> paginatedCollection.createRecord(data, (byte) 1, allocated, op));
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(allocated.collectionPosition, op));
+        op -> paginatedCollection.readRecord(allocated.collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     Assert.assertEquals(1, buffer.recordType());
   }
@@ -1096,7 +1096,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
       var data = new byte[] {42, 43, 44};
       var pos = paginatedCollection.createRecord(data, (byte) 5, null, op);
 
-      var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+      var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
       Assert.assertEquals(5, buffer.recordType());
 
@@ -1119,7 +1119,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
       // The record was created and deleted in the same operation, so it should not be
       // counted
       try {
-        paginatedCollection.readRecord(pos.collectionPosition, op);
+        paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
         Assert.fail("Should throw RecordNotFoundException for deleted record");
       } catch (RecordNotFoundException e) {
         // expected
@@ -1159,7 +1159,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
-          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
           readerResult.set(buffer.buffer());
         });
       } catch (Throwable t) {
@@ -1200,7 +1200,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     try {
       atomicOps().executeInsideAtomicOperation(
-          op -> paginatedCollection.readRecord(allocated.collectionPosition, op));
+          op -> paginatedCollection.readRecord(allocated.collectionPosition, op).toRawBuffer());
       Assert.fail("Should throw RecordNotFoundException for allocated but not written position");
     } catch (RecordNotFoundException e) {
       // expected: the position is allocated but has no content yet
@@ -1290,7 +1290,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // Verify the record is still readable with correct content
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
   }
 
@@ -1380,7 +1380,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
-          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op);
+          var buffer = paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer();
           readerResult.set(buffer.buffer());
         });
       } catch (Throwable t) {
@@ -1897,12 +1897,12 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
 
     // First read — warms the read cache (pages loaded via pinned path).
     var buffer1 = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assert.assertArrayEquals(data, buffer1.buffer());
 
     // Second read — pages are now in cache, optimistic path can succeed.
     var buffer2 = atomicOps().calculateInsideAtomicOperation(
-        op -> paginatedCollection.readRecord(pos.collectionPosition, op));
+        op -> paginatedCollection.readRecord(pos.collectionPosition, op).toRawBuffer());
     Assert.assertArrayEquals(data, buffer2.buffer());
     Assert.assertEquals('d', buffer2.recordType());
   }

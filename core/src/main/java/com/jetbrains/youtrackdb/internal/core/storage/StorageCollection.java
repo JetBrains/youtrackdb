@@ -91,7 +91,7 @@ public interface StorageCollection {
   void updateRecordVersion(long collectionPosition, @Nonnull AtomicOperation atomicOperation);
 
   @Nonnull
-  RawBuffer readRecord(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
+  StorageReadResult readRecord(long collectionPosition, @Nonnull AtomicOperation atomicOperation)
       throws IOException;
 
   boolean exists(@Nonnull AtomicOperation atomicOperation);

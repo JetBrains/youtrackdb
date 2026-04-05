@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.ReadBytesContainer;
 import javax.annotation.Nonnull;
 
 public interface RecordSerializer {
@@ -30,6 +31,18 @@ public interface RecordSerializer {
   void fromStream(@Nonnull DatabaseSessionEmbedded session, @Nonnull byte[] iSource,
       @Nonnull RecordAbstract iRecord,
       String[] iFields);
+
+  /**
+   * Deserializes a record from a ReadBytesContainer (ByteBuffer-backed). The serializer version
+   * is passed separately because on the PageFrame path the version byte is extracted from record
+   * metadata, not from the buffer.
+   */
+  default void fromStream(@Nonnull DatabaseSessionEmbedded session, byte serializerVersion,
+      @Nonnull ReadBytesContainer container, @Nonnull RecordAbstract iRecord,
+      String[] iFields) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialization not supported by " + getName());
+  }
 
   byte[] toStream(@Nonnull DatabaseSessionEmbedded session, @Nonnull RecordAbstract iSource);
 

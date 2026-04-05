@@ -125,6 +125,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
@@ -1131,13 +1134,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
       }
 
-      final RawBuffer recordBuffer;
+      final StorageReadResult readResult;
       if (prefetchedBuffer != null) {
-        recordBuffer = prefetchedBuffer;
+        readResult = prefetchedBuffer;
       } else {
         try {
           var tx = getActiveTransaction();
-          recordBuffer = storage.readRecord(rid, tx.getAtomicOperation());
+          readResult = storage.readRecord(rid, tx.getAtomicOperation());
         } catch (RecordNotFoundException e) {
           if (throwExceptionIfRecordNotFound) {
             throw e;
@@ -1147,27 +1150,73 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         }
       }
 
-      record =
-          YouTrackDBEnginesManager.instance()
-              .getRecordFactoryManager()
-              .newInstance(recordBuffer.recordType(), rid, this);
-      final var rec = record;
-      rec.unsetDirty();
+      if (readResult instanceof RawBuffer recordBuffer) {
+        record =
+            YouTrackDBEnginesManager.instance()
+                .getRecordFactoryManager()
+                .newInstance(recordBuffer.recordType(), rid, this);
+        final var rec = record;
+        rec.unsetDirty();
 
-      if (record.getRecordType() != recordBuffer.recordType()) {
-        throw new DatabaseException(getDatabaseName(),
-            "Record type is different from the one in the database");
+        if (record.getRecordType() != recordBuffer.recordType()) {
+          throw new DatabaseException(getDatabaseName(),
+              "Record type is different from the one in the database");
+        }
+
+        record.recordSerializer = serializer;
+        record.fill(recordBuffer.version(), recordBuffer.buffer(), false);
+
+        if (record instanceof EntityImpl entity) {
+          entity.checkClass(this);
+        }
+
+        localCache.updateRecord(record, this);
+        record.fromStream(recordBuffer.buffer());
+      } else if (readResult instanceof RawPageBuffer pageBuffer) {
+        // Zero-copy PageFrame path: store PageFrame reference for lazy
+        // deserialization at property-access time.
+        record =
+            YouTrackDBEnginesManager.instance()
+                .getRecordFactoryManager()
+                .newInstance(pageBuffer.recordType(), rid, this);
+        record.unsetDirty();
+
+        if (record.getRecordType() != pageBuffer.recordType()) {
+          throw new DatabaseException(getDatabaseName(),
+              "Record type is different from the one in the database");
+        }
+
+        record.recordSerializer = serializer;
+
+        if (record instanceof EntityImpl entity) {
+          entity.fillFromPage(
+              pageBuffer.recordVersion(), pageBuffer.recordType(),
+              pageBuffer.pageFrame(), pageBuffer.stamp(),
+              pageBuffer.contentOffset(), pageBuffer.contentLength());
+          entity.checkClass(this);
+        } else {
+          // Non-EntityImpl (e.g., Blob): extract bytes from PageFrame.
+          // toRawBuffer() validates the stamp after byte extraction and throws
+          // OptimisticReadFailedException if the page was modified. Retry until
+          // we get a consistent byte[] copy.
+          var tx = getActiveTransaction();
+          var currentResult = (StorageReadResult) pageBuffer;
+          while (true) {
+            try {
+              var rawBuffer = currentResult.toRawBuffer();
+              record.fill(rawBuffer.version(), rawBuffer.buffer(), false);
+              record.fromStream(rawBuffer.buffer());
+              break;
+            } catch (OptimisticReadFailedException e) {
+              currentResult = storage.readRecord(rid, tx.getAtomicOperation());
+            }
+          }
+        }
+        localCache.updateRecord(record, this);
+      } else {
+        throw new IllegalStateException(
+            "Unknown StorageReadResult type: " + readResult.getClass());
       }
-
-      record.recordSerializer = serializer;
-      record.fill(recordBuffer.version(), recordBuffer.buffer(), false);
-
-      if (record instanceof EntityImpl entity) {
-        entity.checkClass(this);
-      }
-
-      localCache.updateRecord(record, this);
-      record.fromStream(recordBuffer.buffer());
 
       if (beforeReadOperations(record)) {
         return createRecordNotFoundResult(rid, throwExceptionIfRecordNotFound);

@@ -32,8 +32,10 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
@@ -185,13 +187,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   /**
    * Size of the per-record metadata header that precedes the actual record content.
-   *
-   * <pre>{@code
-   * Layout: [recordType: 1B][contentSize: 4B][collectionPosition: 8B] = 13 bytes
-   * }</pre>
+   * Delegates to {@link CollectionPage#RECORD_METADATA_HEADER_SIZE}.
    */
-  private static final int METADATA_SIZE =
-      ByteSerializer.BYTE_SIZE + IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE;
+  private static final int METADATA_SIZE = CollectionPage.RECORD_METADATA_HEADER_SIZE;
 
   /**
    * Bit offset used to pack a page index and a record position into a single {@code long}
@@ -872,7 +870,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   @Nonnull
-  public RawBuffer readRecord(final long collectionPosition,
+  public StorageReadResult readRecord(final long collectionPosition,
       @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     return executeOptimisticStorageRead(
@@ -948,7 +946,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * and any branch that requires pinned page access.
    */
   @Nonnull
-  private RawBuffer doReadRecordOptimistic(final long collectionPosition,
+  private StorageReadResult doReadRecordOptimistic(final long collectionPosition,
       @Nonnull final AtomicOperation atomicOperation) {
     // Speculative reads from PageView buffers can produce arbitrary garbage values
     // (sizes, offsets, array indices) that cause RuntimeExceptions unrelated to the
@@ -969,7 +967,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Nonnull
-  private RawBuffer doReadRecordOptimisticInner(final long collectionPosition,
+  private StorageReadResult doReadRecordOptimisticInner(final long collectionPosition,
       @Nonnull final AtomicOperation atomicOperation) {
     var entryWithStatus =
         collectionPositionMap.getWithStatusOptimistic(collectionPosition, atomicOperation);
@@ -1024,29 +1022,26 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throw OptimisticReadFailedException.INSTANCE;
     }
 
-    final var content = localPage.getRecordBinaryValue(recordPosition, 0, recordSize);
-    if (content == null) {
-      throw OptimisticReadFailedException.INSTANCE;
-    }
-
-    if (content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE] == 0) {
+    // Read first-record-chunk flag — if not an entry-point chunk, fall back
+    if (!localPage.isFirstRecordChunk(recordPosition)) {
       throw new RecordNotFoundException(storageName,
           new RecordId(id, collectionPosition));
     }
 
-    // Check for multi-page record
-    final var nextPagePointer =
-        LongSerializer.deserializeNative(
-            content, content.length - LongSerializer.LONG_SIZE);
+    // Check for multi-page record — fall back to pinned path for multi-page
+    final var nextPagePointer = localPage.getNextPagePointer(recordPosition);
     if (nextPagePointer >= 0) {
-      // Multi-page record — fall back to pinned path
       throw OptimisticReadFailedException.INSTANCE;
     }
 
-    final var contentSize =
-        content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE;
-    final List<byte[]> recordChunks = List.of(content);
-    return parseRecordContent(collectionPosition, recordVersion, recordChunks, contentSize);
+    // Zero-copy path: construct RawPageBuffer with page coordinates
+    final var recordType = localPage.getRecordByteValue(recordPosition, 0);
+    final var contentOffset = localPage.getRecordContentOffset(recordPosition);
+    final var contentLength = localPage.getRecordContentLength(recordPosition);
+
+    return new RawPageBuffer(
+        pageView.pageFrame(), pageView.stamp(),
+        contentOffset, contentLength, recordVersion, recordType);
   }
 
   @Nonnull

@@ -719,9 +719,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               continue;
             }
             final var buffer1 = sessionOne.getStorage()
-                .readRecord(rid1, txOne.getAtomicOperation());
+                .readRecord(rid1, txOne.getAtomicOperation()).toRawBuffer();
             final var buffer2 = sessionTwo.getStorage()
-                .readRecord(rid2, txTwo.getAtomicOperation());
+                .readRecord(rid2, txTwo.getAtomicOperation()).toRawBuffer();
 
             if (buffer1.recordType() != buffer2.recordType()) {
               listener.onMessage(
@@ -798,9 +798,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                   } else {
                     if (buffer1.buffer().length != buffer2.buffer().length) {
                       // CHECK IF THE TRIMMED SIZE IS THE SAME
-                      @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
+                      @SuppressWarnings("ObjectAllocationInLoop")
+                      final var rec1 = new String(
                           buffer1.buffer()).trim();
-                      @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
+                      @SuppressWarnings("ObjectAllocationInLoop")
+                      final var rec2 = new String(
                           buffer2.buffer()).trim();
 
                       if (rec1.length() != rec2.length()) {

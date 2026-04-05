@@ -42,8 +42,20 @@ public interface EntitySerializer {
 
   void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes);
 
+  default void deserialize(DatabaseSessionEmbedded db, EntityImpl entity,
+      ReadBytesContainer bytes) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialization not supported by " + getClass().getSimpleName());
+  }
+
   void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes,
       String[] iFields);
+
+  default void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity,
+      ReadBytesContainer bytes, String[] iFields) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserialization not supported by " + getClass().getSimpleName());
+  }
 
   Object deserializeValue(DatabaseSessionEmbedded db, BytesContainer bytes,
       PropertyTypeInternal type,
@@ -56,6 +68,25 @@ public interface EntitySerializer {
       boolean embedded,
       ImmutableSchema schema,
       PropertyEncryption encryption);
+
+  /**
+   * Locates a field in the serialized record for in-place comparison.
+   *
+   * @param fieldNameBytes pre-computed UTF-8 bytes of iFieldName (avoids per-call allocation
+   *                       when the caller invokes this method repeatedly for the same field)
+   */
+  default ReadBinaryField deserializeField(
+      DatabaseSessionEmbedded db, ReadBytesContainer bytes,
+      SchemaClass iClass,
+      String iFieldName,
+      byte[] fieldNameBytes,
+      boolean embedded,
+      ImmutableSchema schema,
+      PropertyEncryption encryption) {
+    throw new UnsupportedOperationException(
+        "ReadBytesContainer deserializeField not supported by "
+            + getClass().getSimpleName());
+  }
 
   BinaryComparator getComparator();
 

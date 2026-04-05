@@ -62,6 +62,22 @@ public class VarIntSerializer {
     return (byte) readSignedVarLong(bytes);
   }
 
+  public static short readAsShort(final ReadBytesContainer bytes) {
+    return (short) readSignedVarLong(bytes);
+  }
+
+  public static long readAsLong(final ReadBytesContainer bytes) {
+    return readSignedVarLong(bytes);
+  }
+
+  public static int readAsInteger(final ReadBytesContainer bytes) {
+    return (int) readSignedVarLong(bytes);
+  }
+
+  public static byte readAsByte(final ReadBytesContainer bytes) {
+    return (byte) readSignedVarLong(bytes);
+  }
+
   /**
    * Encodes a value using the variable-length encoding from <a
    * href="http://code.google.com/apis/protocolbuffers/docs/encoding.html">Google Protocol
@@ -132,6 +148,20 @@ public class VarIntSerializer {
   }
 
   /**
+   * Reads a signed variable-length long from the given read-only container.
+   *
+   * @param bytes to read bytes from
+   * @return decode value
+   * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have
+   *                                  been read
+   */
+  public static long readSignedVarLong(final ReadBytesContainer bytes) {
+    final var raw = readUnsignedVarLong(bytes);
+    final var temp = (((raw << 63) >> 63) ^ raw) >> 1;
+    return temp ^ (raw & (1L << 63));
+  }
+
+  /**
    * Reads a signed variable-length long from the given data input stream.
    *
    * @param bytes to read bytes from
@@ -163,6 +193,28 @@ public class VarIntSerializer {
     var i = 0;
     long b;
     while (((b = bytes.bytes[bytes.offset++]) & 0x80L) != 0) {
+      value |= (b & 0x7F) << i;
+      i += 7;
+      if (i > 63) {
+        throw new IllegalArgumentException("Variable length quantity is too long (must be <= 63)");
+      }
+    }
+    return value | (b << i);
+  }
+
+  /**
+   * Reads an unsigned variable-length long from the given read-only container.
+   *
+   * @param bytes to read bytes from
+   * @return decode value
+   * @throws IllegalArgumentException if variable-length value does not terminate after 9 bytes have
+   *                                  been read
+   */
+  public static long readUnsignedVarLong(final ReadBytesContainer bytes) {
+    var value = 0L;
+    var i = 0;
+    long b;
+    while (((b = bytes.getByte()) & 0x80L) != 0) {
       value |= (b & 0x7F) << i;
       i += 7;
       if (i > 63) {

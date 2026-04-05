@@ -7,13 +7,18 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Random;
 import org.assertj.core.api.Assertions;
@@ -117,7 +122,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
         var positions = collection.ceilingPositions(
             new PhysicalPosition(first), Integer.MAX_VALUE, op);
         for (var pos : positions) {
-          collection.readRecord(pos.collectionPosition, op);
+          collection.readRecord(pos.collectionPosition, op).toRawBuffer();
         }
       });
     } catch (IOException e) {
@@ -138,8 +143,11 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     // Read in a separate atomic operation (no pending changes) to hit the optimistic path
-    var buffer = atomicOps().calculateInsideAtomicOperation(
+    var rawResult = atomicOps().calculateInsideAtomicOperation(
         op -> collection.readRecord(pos.collectionPosition, op));
+    Assert.assertTrue("Optimistic path should return RawPageBuffer for single-page record",
+        rawResult instanceof RawPageBuffer);
+    var buffer = rawResult.toRawBuffer();
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer", buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(data);
@@ -169,7 +177,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = collection.readRecord(positions.get(i), op);
+        var buffer = collection.readRecord(positions.get(i), op).toRawBuffer();
         Assertions.assertThat(buffer.buffer())
             .as("Record %d should match inserted data", i)
             .isEqualTo(records.get(i));
@@ -194,7 +202,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     // The optimistic path detects the multi-page pointer and falls back to the pinned path
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull(buffer);
     Assertions.assertThat(buffer.buffer()).isEqualTo(bigData);
@@ -221,7 +229,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     try {
       atomicOps().calculateInsideAtomicOperation(
-          op -> collection.readRecord(nonExistent, op));
+          op -> collection.readRecord(nonExistent, op).toRawBuffer());
       Assert.fail("Should throw RecordNotFoundException for non-existent position");
     } catch (RecordNotFoundException e) {
       // The exception should reference the non-existent position.
@@ -678,7 +686,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     flushToReadCache();
 
     var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op));
+        op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
 
     Assert.assertNotNull("Optimistic read should return a non-null buffer for empty record",
         buffer);
@@ -704,7 +712,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
 
     atomicOps().executeInsideAtomicOperation(op -> {
       // readRecord
-      var buffer = collection.readRecord(pos.collectionPosition, op);
+      var buffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
       Assert.assertEquals(5, buffer.recordType());
 
@@ -773,7 +781,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
       Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT, status);
       Assert.assertTrue(collection.exists(pos.collectionPosition, op));
 
-      var buffer = collection.readRecord(pos.collectionPosition, op);
+      var buffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
       Assertions.assertThat(buffer.buffer()).isEqualTo(data);
     });
 
@@ -793,7 +801,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Verify readRecord throws RecordNotFoundException for deleted record
     try {
       atomicOps().calculateInsideAtomicOperation(
-          op -> collection.readRecord(pos.collectionPosition, op));
+          op -> collection.readRecord(pos.collectionPosition, op).toRawBuffer());
       Assert.fail("Should throw RecordNotFoundException for deleted record");
     } catch (RecordNotFoundException e) {
       // expected
@@ -836,7 +844,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Read all records in a single read-only atomic operation
     atomicOps().executeInsideAtomicOperation(op -> {
       for (var i = 0; i < positions.size(); i++) {
-        var buffer = collection.readRecord(positions.get(i), op);
+        var buffer = collection.readRecord(positions.get(i), op).toRawBuffer();
         Assert.assertNotNull("Record " + i + " should be readable", buffer);
         Assertions.assertThat(buffer.buffer())
             .as("Record %d data should match", i)
@@ -863,6 +871,180 @@ public class PaginatedCollectionV2OptimisticReadTest {
           new PhysicalPosition(last), Integer.MAX_VALUE, op);
       Assert.assertEquals("Floor from last should cover all records",
           50, floor.length);
+    });
+  }
+
+  // --- Integration tests for CollectionPage offset methods and RawPageBuffer ---
+
+  // Verifies that CollectionPage.getRecordContentOffset and getRecordContentLength
+  // return values consistent with the bytes returned by readRecord. Creates a record
+  // via PaginatedCollectionV2, loads the page directly, and compares the content
+  // bytes at the computed offset with the readRecord result.
+  @Test
+  public void testCollectionPageContentOffsetMatchesReadRecord() throws IOException {
+    var data = new byte[] {10, 20, 30, 40, 50, 60, 70, 80, 90};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      // Read via normal path to get expected content
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
+      byte[] expected = rawBuffer.buffer();
+
+      // Load the page directly and check offset/length
+      long fileId = collection.getFileId();
+      // Page 1 is the first data page (page 0 is the state page)
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+
+        // The first record is at position 0 on the page
+        int contentOffset = page.getRecordContentOffset(0);
+        int contentLength = page.getRecordContentLength(0);
+
+        Assert.assertEquals("Content length should match record data length",
+            expected.length, contentLength);
+        // Content offset must be at least past the entry header (3 ints)
+        // and metadata header within the page.
+        int minContentOffset =
+            3 * IntegerSerializer.INT_SIZE + CollectionPage.RECORD_METADATA_HEADER_SIZE;
+        Assert.assertTrue("Content offset " + contentOffset + " should be >= "
+            + minContentOffset, contentOffset >= minContentOffset);
+        Assert.assertTrue("Content must fit within page",
+            contentOffset + contentLength <= CollectionPage.PAGE_SIZE);
+
+        // Read bytes directly from the page buffer at the content offset
+        ByteBuffer pageBuffer = entry.getCachePointer().getPageFrame().getBuffer();
+        byte[] actual = new byte[contentLength];
+        for (int i = 0; i < contentLength; i++) {
+          actual[i] = pageBuffer.get(contentOffset + i);
+        }
+        Assert.assertArrayEquals("Bytes at content offset must match readRecord result",
+            expected, actual);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
+  // Verifies the end-to-end zero-copy path: constructs a RawPageBuffer from a real
+  // PageFrame obtained via the read cache, calls sliceContent(), wraps in
+  // ReadBytesContainer, and verifies the bytes match the expected record content.
+  @Test
+  public void testRawPageBufferSliceContentIntegration() throws IOException {
+    var data = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      // Read via normal path to get expected content
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
+      byte[] expected = rawBuffer.buffer();
+
+      // Load the page and construct a RawPageBuffer
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        int contentOffset = page.getRecordContentOffset(0);
+        int contentLength = page.getRecordContentLength(0);
+
+        // Construct RawPageBuffer from the real PageFrame
+        var pageFrame = entry.getCachePointer().getPageFrame();
+        long stamp = pageFrame.tryOptimisticRead();
+        var rawPageBuffer = new RawPageBuffer(
+            pageFrame, stamp, contentOffset, contentLength,
+            rawBuffer.version(), rawBuffer.recordType());
+
+        // sliceContent should return a ByteBuffer with matching content
+        ByteBuffer slice = rawPageBuffer.sliceContent();
+        Assert.assertEquals(contentLength, slice.capacity());
+
+        // Read bytes from the slice
+        byte[] actual = new byte[contentLength];
+        slice.get(actual);
+        Assert.assertArrayEquals("sliceContent bytes must match readRecord result",
+            expected, actual);
+
+        // Stamp should still be valid (no writes happened)
+        Assert.assertTrue("Stamp should still be valid after reading",
+            pageFrame.validate(stamp));
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
+  // Verifies that CollectionPage content offset/length work for zero-length record content.
+  // This exercises the contentLength == 0 boundary (recordSize == metadata + tail exactly).
+  @Test
+  public void testCollectionPageContentOffsetEmptyRecord() throws IOException {
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[0], (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var rawBuffer = collection.readRecord(pos.collectionPosition, op).toRawBuffer();
+      Assert.assertEquals(0, rawBuffer.buffer().length);
+
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        Assert.assertEquals(0, page.getRecordContentLength(0));
+
+        var pageFrame = entry.getCachePointer().getPageFrame();
+        long stamp = pageFrame.tryOptimisticRead();
+        var rpb = new RawPageBuffer(pageFrame, stamp,
+            page.getRecordContentOffset(0), 0,
+            rawBuffer.version(), rawBuffer.recordType());
+        ByteBuffer slice = rpb.sliceContent();
+        Assert.assertEquals(0, slice.capacity());
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+  }
+
+  // Verifies that CollectionPage content offset/length work for a non-first record
+  // (position > 0) on the same page, catching pointer-array indexing bugs.
+  @Test
+  public void testCollectionPageContentOffsetSecondRecord() throws IOException {
+    var data1 = new byte[] {10, 20, 30};
+    var data2 = new byte[] {40, 50, 60, 70, 80};
+    atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data1, (byte) 'd', null, op));
+    var pos2 = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(data2, (byte) 'd', null, op));
+
+    flushToReadCache();
+
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var rawBuffer = collection.readRecord(pos2.collectionPosition, op).toRawBuffer();
+      byte[] expected = rawBuffer.buffer();
+
+      long fileId = collection.getFileId();
+      try (CacheEntry entry = storage.getReadCache().loadForRead(
+          fileId, 1, storage.getWriteCache(), false)) {
+        var page = new CollectionPage(entry);
+        int offset = page.getRecordContentOffset(1);
+        int length = page.getRecordContentLength(1);
+        Assert.assertEquals(expected.length, length);
+
+        ByteBuffer buf = entry.getCachePointer().getPageFrame().getBuffer();
+        byte[] actual = new byte[length];
+        for (int i = 0; i < length; i++) {
+          actual[i] = buf.get(offset + i);
+        }
+        Assert.assertArrayEquals(expected, actual);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
     });
   }
 }
