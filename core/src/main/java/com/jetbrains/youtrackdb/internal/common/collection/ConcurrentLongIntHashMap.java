@@ -344,7 +344,7 @@ public class ConcurrentLongIntHashMap<V> {
    * Entries are only created under the section's write lock, so the small allocation is never on
    * the hot read path.
    */
-  record Entry<V>(long fileId, int pageIndex, V value) {
+  private record Entry<V>(long fileId, int pageIndex, V value) {
   }
 
   // ---- Section (inner class) ----
