@@ -132,7 +132,9 @@ Download the LDBC SF 1 CSV dataset and canonical curated parameters from Hetzner
 # but Hetzner servers cannot reach the S3 endpoint over plain HTTP (connection timeout).
 python3 -c "
 import boto3, os
-endpoint = os.environ['HETZNER_S3_ENDPOINT'].replace('http://', 'https://')
+endpoint = os.environ['HETZNER_S3_ENDPOINT']
+if endpoint.startswith('http://'):
+    endpoint = 'https://' + endpoint[len('http://'):]
 s3 = boto3.client('s3',
     endpoint_url=endpoint,
     aws_access_key_id=os.environ['HETZNER_S3_ACCESS_KEY'],
@@ -235,7 +237,8 @@ ssh root@<IP> 'cat > /root/run-bench.sh << '\''SCRIPT'\''
 #!/bin/bash
 DIR=$1        # /root/ytdb or /root/ytdb-base
 BENCH=$2      # benchmark regex
-ARGS=$3       # JMH args
+shift 2
+ARGS="$@"     # JMH args (shift+$@ preserves spaces in multi-word args)
 
 JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m"
 
@@ -252,7 +255,12 @@ ssh root@<IP> '/root/run-bench.sh /root/ytdb "<benchmark-regex>" "<jmh-args>"'
 ssh root@<IP> '/root/run-bench.sh /root/ytdb-base "<benchmark-regex>" "<jmh-args>"'
 ```
 
-**Decision rule**: Compare HEAD vs BASE ops/s from the triage run. If the delta is **<3%** or in the **opposite direction** (HEAD faster), classify as **measurement noise** and skip profiling. Only proceed to Step 8 for benchmarks that reproduce a **≥3% regression** in the triage run.
+**Decision rule**: Compare HEAD vs BASE ops/s from the triage run. Classify as **measurement noise** and skip profiling if ANY of these hold:
+- Delta is **<5%** or in the **opposite direction** (HEAD faster)
+- **Confidence intervals overlap** — especially when one side has high error (>10%). Overlapping CIs mean the difference is not statistically significant. Check the CI from JMH output: `CI (99.9%): [low, high]`
+- The **same benchmark in the other suite** (ST vs MT) shows improvement — a real regression in the code path would appear in both suites, not just one
+
+Only proceed to Step 8 for benchmarks that reproduce a **≥5% regression** with **non-overlapping confidence intervals** in the triage run.
 
 Record the triage results in the final report alongside profiling throughput for transparency.
 
@@ -270,7 +278,8 @@ ssh root@<IP> 'cat > /root/run-profile.sh << '\''SCRIPT'\''
 VERSION=$1    # head or base
 DIR=$2        # /root/ytdb or /root/ytdb-base
 BENCH=$3      # benchmark regex
-ARGS=$4       # JMH args
+shift 3
+ARGS="$@"     # JMH args (shift+$@ preserves spaces in multi-word args)
 
 JVM_ARGS="--add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.x509=ALL-UNNAMED --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED -Xms4096m -Xmx4096m"
 

@@ -12,6 +12,11 @@ import argparse
 import json
 import math
 
+# A change is only flagged when the relative error on BOTH sides stays below
+# this threshold.  High-variance results (e.g. ±15 %) are inherently unreliable
+# and should not be reported as regressions or improvements.
+MAX_RELATIVE_ERROR_PCT = 10.0
+
 
 def _safe_score_error(value):
     """Return a finite float for scoreError, treating NaN/missing as 0."""
@@ -105,22 +110,38 @@ def errors_overlap(base_score, base_error, head_score, head_error):
     return base_lo <= head_hi and head_lo <= base_hi
 
 
+def _is_high_variance(score, error):
+    """Return True if relative error exceeds MAX_RELATIVE_ERROR_PCT."""
+    if score <= 0:
+        return False
+    return error / score * 100 > MAX_RELATIVE_ERROR_PCT
+
+
 def delta_icon(base_val, head_val, threshold_pct=5.0,
                base_error=0, head_error=0):
-    """Return an icon indicating regression/improvement/neutral.
+    """Return an icon indicating regression/improvement/neutral/suppressed.
 
-    A change is only flagged when BOTH conditions hold:
+    A change is only flagged when ALL three conditions hold:
     1. The percentage change exceeds ±threshold_pct.
     2. The error bars (score ± scoreError) do not overlap.
+    3. Neither side has relative error > MAX_RELATIVE_ERROR_PCT.
+
+    When (1) and (2) hold but (3) fails, the change is marked :warning:
+    (suppressed due to high variance).
     """
     if base_val == 0:
         return ""
     delta = (head_val - base_val) / base_val * 100
-    if delta <= -threshold_pct and not errors_overlap(
-            base_val, base_error, head_val, head_error):
-        return " :red_circle:"
-    elif delta >= threshold_pct and not errors_overlap(
-            base_val, base_error, head_val, head_error):
+    exceeds_threshold = abs(delta) >= threshold_pct
+    overlap = errors_overlap(base_val, base_error, head_val, head_error)
+    high_var = (_is_high_variance(base_val, base_error)
+                or _is_high_variance(head_val, head_error))
+
+    if exceeds_threshold and not overlap:
+        if high_var:
+            return " :warning:"
+        if delta <= -threshold_pct:
+            return " :red_circle:"
         return " :green_circle:"
     return ""
 
@@ -170,13 +191,16 @@ def build_suite_table(base, head, suite):
 
 
 def count_changes(base, head, threshold_pct=5.0):
-    """Count regressions and improvements across all suites.
+    """Count regressions, improvements, and suppressed changes.
 
     A change is counted only when the percentage exceeds the threshold
-    AND the error bars do not overlap.
+    AND the error bars do not overlap AND neither side has high variance.
+    Changes that meet the first two criteria but fail the variance check
+    are counted as suppressed.
     """
     regressions = 0
     improvements = 0
+    suppressed = 0
     for key in base.keys() | head.keys():
         b = base.get(key)
         h = head.get(key)
@@ -185,11 +209,16 @@ def count_changes(base, head, threshold_pct=5.0):
             overlap = errors_overlap(
                 b["score"], b["score_error"],
                 h["score"], h["score_error"])
-            if delta <= -threshold_pct and not overlap:
-                regressions += 1
-            elif delta >= threshold_pct and not overlap:
-                improvements += 1
-    return regressions, improvements
+            high_var = (_is_high_variance(b["score"], b["score_error"])
+                        or _is_high_variance(h["score"], h["score_error"]))
+            if abs(delta) >= threshold_pct and not overlap:
+                if high_var:
+                    suppressed += 1
+                elif delta <= -threshold_pct:
+                    regressions += 1
+                else:
+                    improvements += 1
+    return regressions, improvements, suppressed
 
 
 def main():
@@ -212,7 +241,7 @@ def main():
     base_scal = compute_scalability(base)
     head_scal = compute_scalability(head)
 
-    regressions, improvements = count_changes(base, head)
+    regressions, improvements, suppressed = count_changes(base, head)
 
     lines = []
     lines.append("## JMH LDBC Benchmark Comparison")
@@ -221,16 +250,20 @@ def main():
         f"**Base:** `{args.base_sha[:10]}` (fork-point with develop) "
         f"| **Head:** `{args.head_sha[:10]}`"
     )
-    if regressions > 0 or improvements > 0:
+    if regressions > 0 or improvements > 0 or suppressed > 0:
         parts = []
         if regressions > 0:
             parts.append(f":red_circle: {regressions} regression(s)")
         if improvements > 0:
             parts.append(f":green_circle: {improvements} improvement(s)")
-        lines.append(
-            f"**Summary:** {', '.join(parts)} "
-            f"(>\u00b15% threshold, non-overlapping error bars)"
+        if suppressed > 0:
+            parts.append(
+                f":warning: {suppressed} suppressed (high variance)")
+        conditions = (
+            f">\u00b15% threshold, non-overlapping error bars, "
+            f"<{MAX_RELATIVE_ERROR_PCT:.0f}% relative error"
         )
+        lines.append(f"**Summary:** {', '.join(parts)} ({conditions})")
     lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
