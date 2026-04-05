@@ -70,12 +70,10 @@ def compute_scalability(results):
 
     scalability = {}
     for query in st:
-        if query in mt and st[query]["score"] > 0:
+        if query in mt and st[query]["score"] > 0 and mt[query]["score"] > 0:
             ratio = mt[query]["score"] / st[query]["score"]
-            rel_err_mt = (mt[query]["score_error"] / mt[query]["score"]
-                          if mt[query]["score"] > 0 else 0)
-            rel_err_st = (st[query]["score_error"] / st[query]["score"]
-                          if st[query]["score"] > 0 else 0)
+            rel_err_mt = mt[query]["score_error"] / mt[query]["score"]
+            rel_err_st = st[query]["score_error"] / st[query]["score"]
             ratio_error = ratio * math.sqrt(rel_err_mt ** 2 + rel_err_st ** 2)
             scalability[query] = {
                 "ratio": ratio,
@@ -201,10 +199,11 @@ def build_suite_table(base, head, suite):
     return rows
 
 
-def count_changes(base, head, threshold_pct=5.0):
+def _count_gated_changes(pairs, threshold_pct=5.0):
     """Count regressions, improvements, and suppressed changes.
 
-    A change is counted only when the percentage exceeds the threshold
+    ``pairs`` is an iterable of (base_value, base_error, head_value, head_error)
+    tuples.  A change is counted only when the percentage exceeds the threshold
     AND the error bars do not overlap AND neither side has high variance.
     Changes that meet the first two criteria but fail the variance check
     are counted as suppressed.
@@ -212,24 +211,45 @@ def count_changes(base, head, threshold_pct=5.0):
     regressions = 0
     improvements = 0
     suppressed = 0
+    for base_val, base_err, head_val, head_err in pairs:
+        if base_val <= 0:
+            continue
+        delta = (head_val - base_val) / base_val * 100
+        overlap = errors_overlap(base_val, base_err, head_val, head_err)
+        high_var = (_is_high_variance(base_val, base_err)
+                    or _is_high_variance(head_val, head_err))
+        if abs(delta) >= threshold_pct and not overlap:
+            if high_var:
+                suppressed += 1
+            elif delta <= -threshold_pct:
+                regressions += 1
+            else:
+                improvements += 1
+    return regressions, improvements, suppressed
+
+
+def count_changes(base, head, threshold_pct=5.0):
+    """Count throughput regressions, improvements, and suppressed changes."""
+    pairs = []
     for key in base.keys() | head.keys():
         b = base.get(key)
         h = head.get(key)
-        if b and h and b["score"] > 0:
-            delta = (h["score"] - b["score"]) / b["score"] * 100
-            overlap = errors_overlap(
-                b["score"], b["score_error"],
-                h["score"], h["score_error"])
-            high_var = (_is_high_variance(b["score"], b["score_error"])
-                        or _is_high_variance(h["score"], h["score_error"]))
-            if abs(delta) >= threshold_pct and not overlap:
-                if high_var:
-                    suppressed += 1
-                elif delta <= -threshold_pct:
-                    regressions += 1
-                else:
-                    improvements += 1
-    return regressions, improvements, suppressed
+        if b and h:
+            pairs.append((b["score"], b["score_error"],
+                          h["score"], h["score_error"]))
+    return _count_gated_changes(pairs, threshold_pct)
+
+
+def count_scalability_changes(base_scal, head_scal, threshold_pct=5.0):
+    """Count scalability ratio regressions, improvements, and suppressed."""
+    pairs = []
+    for query in base_scal.keys() | head_scal.keys():
+        b = base_scal.get(query)
+        h = head_scal.get(query)
+        if b and h:
+            pairs.append((b["ratio"], b["ratio_error"],
+                          h["ratio"], h["ratio_error"]))
+    return _count_gated_changes(pairs, threshold_pct)
 
 
 def main():
@@ -253,28 +273,8 @@ def main():
     head_scal = compute_scalability(head)
 
     regressions, improvements, suppressed = count_changes(base, head)
-
-    # Count scalability ratio changes using the same gating logic
-    scal_reg = 0
-    scal_imp = 0
-    scal_sup = 0
-    for query in base_scal.keys() | head_scal.keys():
-        b = base_scal.get(query)
-        h = head_scal.get(query)
-        if b and h and b["ratio"] > 0:
-            delta = (h["ratio"] - b["ratio"]) / b["ratio"] * 100
-            overlap = errors_overlap(
-                b["ratio"], b["ratio_error"],
-                h["ratio"], h["ratio_error"])
-            high_var = (_is_high_variance(b["ratio"], b["ratio_error"])
-                        or _is_high_variance(h["ratio"], h["ratio_error"]))
-            if abs(delta) >= 5.0 and not overlap:
-                if high_var:
-                    scal_sup += 1
-                elif delta <= -5.0:
-                    scal_reg += 1
-                else:
-                    scal_imp += 1
+    scal_reg, scal_imp, scal_sup = count_scalability_changes(
+        base_scal, head_scal)
 
     lines = []
     lines.append("## JMH LDBC Benchmark Comparison")
@@ -315,6 +315,8 @@ def main():
                     f":warning: {scal_sup} suppressed (high variance)")
             lines.append(
                 f"**Scalability:** {', '.join(parts)} ({conditions})")
+    else:
+        lines.append("**Summary:** No significant changes detected.")
     lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
