@@ -1602,6 +1602,20 @@ public final class WOWCache extends AbstractWriteCache
   private void stopFlush() {
     stopFlush = true;
 
+    // Cancel the scheduled periodic flush task early, before waiting for
+    // triggeredTasks, to free up the single-threaded shared commitExecutor.
+    // This reduces congestion so the triggeredTasks await loop below completes
+    // without timing out.
+    final var future = flushFuture;
+    if (future != null) {
+      // If the task hasn't started yet, cancel prevents it from running. If the
+      // task is already running, cancel(false) won't interrupt it — the running
+      // task will check the stopFlush flag and exit promptly. In both cases,
+      // get() below throws CancellationException (because cancel(false) transitions
+      // the FutureTask state to CANCELLED even while the task's code is executing).
+      future.cancel(false);
+    }
+
     for (final var completionLatch : triggeredTasks.values()) {
       try {
         if (!completionLatch.await(shutdownTimeout, TimeUnit.MILLISECONDS)) {
@@ -1616,21 +1630,13 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    // Snapshot the volatile field so we cancel and await the same future.
-    final var future = flushFuture;
     if (future != null) {
-      // Cancel the scheduled periodic flush task. If it hasn't started yet, this
-      // prevents it from running (avoiding delays when the single-threaded shared
-      // commitExecutor has a backlog from other WOWCache instances). If the task is
-      // already running, cancel(false) won't interrupt it — the running task will
-      // check the stopFlush flag and exit promptly. In either case, get() below
-      // returns immediately: CancellationException for a not-yet-started task
-      // (caught and ignored), or the task's result for an already-running task.
-      future.cancel(false);
       try {
         future.get(shutdownTimeout, TimeUnit.MILLISECONDS);
-      } catch (final java.lang.InterruptedException | CancellationException e) {
-        // ignore — task was cancelled or we were interrupted during shutdown
+      } catch (final java.lang.InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (final CancellationException e) {
+        // Expected — task was cancelled above.
       } catch (final ExecutionException e) {
         throw BaseException.wrapException(
             new WriteCacheException(storageName,
