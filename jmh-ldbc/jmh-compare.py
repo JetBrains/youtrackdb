@@ -62,24 +62,29 @@ def parse_jmh_results(data):
 def compute_scalability(results):
     """Compute MT/ST throughput ratio per query with error propagation.
 
-    For R = MT/ST, the propagated error is:
-        σ_R = R * sqrt((σ_MT/MT)² + (σ_ST/ST)²)
+    For R = MT/ST, the propagated absolute error is:
+        σ_R = sqrt((σ_MT/ST)² + (R·σ_ST/ST)²)
+
+    This formula is safe when MT=0 (unlike relative error propagation).
     """
     st = {k[0]: v for k, v in results.items() if k[1] == "SingleThread"}
     mt = {k[0]: v for k, v in results.items() if k[1] == "MultiThread"}
 
     scalability = {}
     for query in st:
-        if query in mt and st[query]["score"] > 0 and mt[query]["score"] > 0:
-            ratio = mt[query]["score"] / st[query]["score"]
-            rel_err_mt = mt[query]["score_error"] / mt[query]["score"]
-            rel_err_st = st[query]["score_error"] / st[query]["score"]
-            ratio_error = ratio * math.sqrt(rel_err_mt ** 2 + rel_err_st ** 2)
+        if query in mt and st[query]["score"] > 0:
+            st_score = st[query]["score"]
+            mt_score = mt[query]["score"]
+            ratio = mt_score / st_score
+            ratio_error = math.sqrt(
+                (mt[query]["score_error"] / st_score) ** 2
+                + (ratio * st[query]["score_error"] / st_score) ** 2
+            )
             scalability[query] = {
                 "ratio": ratio,
                 "ratio_error": ratio_error,
-                "st_score": st[query]["score"],
-                "mt_score": mt[query]["score"],
+                "st_score": st_score,
+                "mt_score": mt_score,
             }
     return scalability
 
