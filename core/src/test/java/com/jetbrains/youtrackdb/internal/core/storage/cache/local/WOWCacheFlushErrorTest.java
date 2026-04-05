@@ -4,12 +4,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
+import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
@@ -23,7 +25,10 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -415,6 +420,183 @@ public class WOWCacheFlushErrorTest {
     // segStart=1, segEnd=3 — must advance past segment 1 and terminate.
     // The @Test(timeout) guards against infinite-loop regression.
     invokeFlushWriteCacheFromMinLSN(cache, 1L, 3L, 10);
+  }
+
+  // ---------------------------------------------------------------------------
+  // stopFlush() tests
+  //
+  // These tests exercise the stopFlush() method's flushFuture handling: both
+  // branches of the null check, the normal-completion path of future.get(),
+  // the CancellationException catch arm, and the error-propagation contracts
+  // (ExecutionException → WriteCacheException, TimeoutException → WriteCacheException).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Verifies that {@code stopFlush()} handles the case where {@code flushFuture} is null
+   * (i.e., no periodic flush was scheduled because {@code pagesFlushInterval <= 0}).
+   * Exercises the false branch of {@code if (future != null)}.
+   */
+  @Test
+  public void testStopFlushWithNullFlushFuture() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    // flushFuture defaults to null in the mock (no periodic flush scheduled).
+    // shutdownTimeout and storageName are not needed: triggeredTasks is empty
+    // (latch loop body never runs) and flushFuture is null (future block skipped).
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+
+    invokeStopFlush(cache);
+
+    // stopFlush() must set the stopFlush flag so background tasks stop running
+    assertTrue("stopFlush flag must be true after stopFlush()",
+        getStopFlushFlag(cache));
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} correctly waits for an already-completed flush future.
+   * When {@code cancel(false)} is called on a completed future it returns false, and
+   * {@code future.get()} returns immediately without throwing CancellationException.
+   * This covers the normal-completion path of {@code future.get()}.
+   */
+  @Test
+  public void testStopFlushWithCompletedFlushFuture() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+    var future = Mockito.spy(CompletableFuture.completedFuture(null));
+    setField(cache, "flushFuture", future);
+    setField(cache, "shutdownTimeout", 10_000);
+    setField(cache, "storageName", "test");
+
+    invokeStopFlush(cache);
+
+    assertTrue("stopFlush flag must be true after stopFlush()",
+        getStopFlushFlag(cache));
+    // cancel(false) and get() must have been called on the future
+    Mockito.verify(future).cancel(false);
+    Mockito.verify(future).get(10_000L, TimeUnit.MILLISECONDS);
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} silently swallows {@link CancellationException}
+   * when the flush future was successfully cancelled (task not yet started). This is the
+   * primary path introduced by the cancel(false) addition: the periodic flush task was
+   * pending on the single-threaded executor and gets cancelled before running.
+   */
+  @Test
+  public void testStopFlushWithCancelledFlushFuture() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+    // A future that is already cancelled: get() will throw CancellationException
+    var cancelledFuture = new CompletableFuture<Void>();
+    cancelledFuture.cancel(false);
+    setField(cache, "flushFuture", cancelledFuture);
+    setField(cache, "shutdownTimeout", 10_000);
+    setField(cache, "storageName", "test");
+
+    // Must not throw — CancellationException is caught and ignored
+    invokeStopFlush(cache);
+
+    assertTrue("stopFlush flag must be true after stopFlush()",
+        getStopFlushFlag(cache));
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} propagates a {@link WriteCacheException} when
+   * {@code future.get()} throws {@link java.util.concurrent.ExecutionException}
+   * (i.e., the periodic flush task itself threw an unhandled exception).
+   */
+  @Test
+  public void testStopFlushWithFailedFlushFutureThrowsWriteCacheException()
+      throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+    setField(cache, "shutdownTimeout", 10_000);
+    setField(cache, "storageName", "test");
+
+    // A CompletableFuture completed exceptionally simulates a flush task crash
+    var failedFuture = new CompletableFuture<Void>();
+    failedFuture.completeExceptionally(
+        new RuntimeException("simulated flush crash"));
+    setField(cache, "flushFuture", failedFuture);
+
+    Method method = WOWCache.class.getDeclaredMethod("stopFlush");
+    method.setAccessible(true);
+    try {
+      method.invoke(cache);
+      fail("Expected WriteCacheException to be thrown");
+    } catch (InvocationTargetException e) {
+      assertTrue(
+          "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
+          e.getCause() instanceof WriteCacheException);
+    }
+  }
+
+  /**
+   * Verifies that {@code stopFlush()} propagates a {@link WriteCacheException} when
+   * {@code future.get()} throws {@link java.util.concurrent.TimeoutException}
+   * (i.e., the periodic flush task does not finish within shutdownTimeout).
+   */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStopFlushWithHungFlushFutureThrowsWriteCacheException()
+      throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+
+    setField(cache, "triggeredTasks",
+        new ConcurrentHashMap<ExclusiveFlushTask, CountDownLatch>());
+    setField(cache, "shutdownTimeout", 1);
+    setField(cache, "storageName", "test");
+
+    // Use a mock Future that resists cancellation and times out on get().
+    // CompletableFuture.cancel(false) always succeeds (transitions to cancelled),
+    // so we need a mock to simulate a running task that cannot be cancelled.
+    var hungFuture = Mockito.mock(java.util.concurrent.Future.class);
+    Mockito.when(hungFuture.cancel(false)).thenReturn(false);
+    Mockito.when(hungFuture.isCancelled()).thenReturn(false);
+    Mockito.when(hungFuture.get(1L, TimeUnit.MILLISECONDS))
+        .thenThrow(new java.util.concurrent.TimeoutException("simulated timeout"));
+    setField(cache, "flushFuture", hungFuture);
+
+    Method method = WOWCache.class.getDeclaredMethod("stopFlush");
+    method.setAccessible(true);
+    try {
+      method.invoke(cache);
+      fail("Expected WriteCacheException to be thrown");
+    } catch (InvocationTargetException e) {
+      assertTrue(
+          "Expected WriteCacheException, got: " + e.getCause().getClass().getName(),
+          e.getCause() instanceof WriteCacheException);
+    }
+  }
+
+  /**
+   * Invokes the private {@code stopFlush()} method via reflection, expecting it
+   * to complete without exception.
+   */
+  private static void invokeStopFlush(WOWCache cache) throws Exception {
+    Method method = WOWCache.class.getDeclaredMethod("stopFlush");
+    method.setAccessible(true);
+    try {
+      method.invoke(cache);
+    } catch (InvocationTargetException e) {
+      throw new AssertionError("stopFlush() threw unexpectedly", e.getCause());
+    }
+  }
+
+  /**
+   * Reads the private {@code stopFlush} boolean flag via reflection.
+   */
+  private static boolean getStopFlushFlag(WOWCache cache) throws Exception {
+    Field field = findField(cache.getClass(), "stopFlush");
+    field.setAccessible(true);
+    return (boolean) field.get(cache);
   }
 
   // ---------------------------------------------------------------------------
