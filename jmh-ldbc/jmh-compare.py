@@ -126,32 +126,46 @@ def _is_high_variance(score, error):
     return error / score * 100 > MAX_RELATIVE_ERROR_PCT
 
 
-def delta_icon(base_val, head_val, threshold_pct=5.0,
-               base_error=0, head_error=0):
-    """Return an icon indicating regression/improvement/neutral/suppressed.
+def _classify_change(base_val, base_error, head_val, head_error,
+                     threshold_pct=5.0):
+    """Classify a single base→head change.
+
+    Returns one of: "regression", "improvement", "suppressed", or None.
 
     A change is only flagged when ALL three conditions hold:
     1. The percentage change exceeds ±threshold_pct.
     2. The error bars (score ± scoreError) do not overlap.
     3. Neither side has relative error > MAX_RELATIVE_ERROR_PCT.
 
-    When (1) and (2) hold but (3) fails, the change is marked :warning:
-    (suppressed due to high variance).
+    When (1) and (2) hold but (3) fails, the change is "suppressed"
+    (high variance).
     """
-    if base_val == 0:
-        return ""
+    if base_val <= 0:
+        return None
     delta = (head_val - base_val) / base_val * 100
-    exceeds_threshold = abs(delta) >= threshold_pct
-    overlap = errors_overlap(base_val, base_error, head_val, head_error)
-    high_var = (_is_high_variance(base_val, base_error)
-                or _is_high_variance(head_val, head_error))
+    if abs(delta) < threshold_pct:
+        return None
+    if errors_overlap(base_val, base_error, head_val, head_error):
+        return None
+    if (_is_high_variance(base_val, base_error)
+            or _is_high_variance(head_val, head_error)):
+        return "suppressed"
+    if delta <= -threshold_pct:
+        return "regression"
+    return "improvement"
 
-    if exceeds_threshold and not overlap:
-        if high_var:
-            return " :warning:"
-        if delta <= -threshold_pct:
-            return " :red_circle:"
+
+def delta_icon(base_val, head_val, threshold_pct=5.0,
+               base_error=0, head_error=0):
+    """Return an icon indicating regression/improvement/neutral/suppressed."""
+    kind = _classify_change(base_val, base_error, head_val, head_error,
+                            threshold_pct)
+    if kind == "regression":
+        return " :red_circle:"
+    if kind == "improvement":
         return " :green_circle:"
+    if kind == "suppressed":
+        return " :warning:"
     return ""
 
 
@@ -203,28 +217,20 @@ def _count_gated_changes(pairs, threshold_pct=5.0):
     """Count regressions, improvements, and suppressed changes.
 
     ``pairs`` is an iterable of (base_value, base_error, head_value, head_error)
-    tuples.  A change is counted only when the percentage exceeds the threshold
-    AND the error bars do not overlap AND neither side has high variance.
-    Changes that meet the first two criteria but fail the variance check
-    are counted as suppressed.
+    tuples.  Each pair is classified via ``_classify_change``.
     """
     regressions = 0
     improvements = 0
     suppressed = 0
     for base_val, base_err, head_val, head_err in pairs:
-        if base_val <= 0:
-            continue
-        delta = (head_val - base_val) / base_val * 100
-        overlap = errors_overlap(base_val, base_err, head_val, head_err)
-        high_var = (_is_high_variance(base_val, base_err)
-                    or _is_high_variance(head_val, head_err))
-        if abs(delta) >= threshold_pct and not overlap:
-            if high_var:
-                suppressed += 1
-            elif delta <= -threshold_pct:
-                regressions += 1
-            else:
-                improvements += 1
+        kind = _classify_change(base_val, base_err, head_val, head_err,
+                                threshold_pct)
+        if kind == "regression":
+            regressions += 1
+        elif kind == "improvement":
+            improvements += 1
+        elif kind == "suppressed":
+            suppressed += 1
     return regressions, improvements, suppressed
 
 
