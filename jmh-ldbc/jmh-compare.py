@@ -60,15 +60,26 @@ def parse_jmh_results(data):
 
 
 def compute_scalability(results):
-    """Compute MT/ST throughput ratio per query."""
+    """Compute MT/ST throughput ratio per query with error propagation.
+
+    For R = MT/ST, the propagated error is:
+        σ_R = R * sqrt((σ_MT/MT)² + (σ_ST/ST)²)
+    """
     st = {k[0]: v for k, v in results.items() if k[1] == "SingleThread"}
     mt = {k[0]: v for k, v in results.items() if k[1] == "MultiThread"}
 
     scalability = {}
     for query in st:
         if query in mt and st[query]["score"] > 0:
+            ratio = mt[query]["score"] / st[query]["score"]
+            rel_err_mt = (mt[query]["score_error"] / mt[query]["score"]
+                          if mt[query]["score"] > 0 else 0)
+            rel_err_st = (st[query]["score_error"] / st[query]["score"]
+                          if st[query]["score"] > 0 else 0)
+            ratio_error = ratio * math.sqrt(rel_err_mt ** 2 + rel_err_st ** 2)
             scalability[query] = {
-                "ratio": mt[query]["score"] / st[query]["score"],
+                "ratio": ratio,
+                "ratio_error": ratio_error,
                 "st_score": st[query]["score"],
                 "mt_score": mt[query]["score"],
             }
@@ -243,6 +254,28 @@ def main():
 
     regressions, improvements, suppressed = count_changes(base, head)
 
+    # Count scalability ratio changes using the same gating logic
+    scal_reg = 0
+    scal_imp = 0
+    scal_sup = 0
+    for query in base_scal.keys() | head_scal.keys():
+        b = base_scal.get(query)
+        h = head_scal.get(query)
+        if b and h and b["ratio"] > 0:
+            delta = (h["ratio"] - b["ratio"]) / b["ratio"] * 100
+            overlap = errors_overlap(
+                b["ratio"], b["ratio_error"],
+                h["ratio"], h["ratio_error"])
+            high_var = (_is_high_variance(b["ratio"], b["ratio_error"])
+                        or _is_high_variance(h["ratio"], h["ratio_error"]))
+            if abs(delta) >= 5.0 and not overlap:
+                if high_var:
+                    scal_sup += 1
+                elif delta <= -5.0:
+                    scal_reg += 1
+                else:
+                    scal_imp += 1
+
     lines = []
     lines.append("## JMH LDBC Benchmark Comparison")
     lines.append("")
@@ -250,20 +283,38 @@ def main():
         f"**Base:** `{args.base_sha[:10]}` (fork-point with develop) "
         f"| **Head:** `{args.head_sha[:10]}`"
     )
-    if regressions > 0 or improvements > 0 or suppressed > 0:
-        parts = []
-        if regressions > 0:
-            parts.append(f":red_circle: {regressions} regression(s)")
-        if improvements > 0:
-            parts.append(f":green_circle: {improvements} improvement(s)")
-        if suppressed > 0:
-            parts.append(
-                f":warning: {suppressed} suppressed (high variance)")
+    has_throughput = regressions > 0 or improvements > 0 or suppressed > 0
+    has_scalability = scal_reg > 0 or scal_imp > 0 or scal_sup > 0
+    if has_throughput or has_scalability:
         conditions = (
             f">\u00b15% threshold, non-overlapping error bars, "
             f"<{MAX_RELATIVE_ERROR_PCT:.0f}% relative error"
         )
-        lines.append(f"**Summary:** {', '.join(parts)} ({conditions})")
+        if has_throughput:
+            parts = []
+            if regressions > 0:
+                parts.append(f":red_circle: {regressions} regression(s)")
+            if improvements > 0:
+                parts.append(
+                    f":green_circle: {improvements} improvement(s)")
+            if suppressed > 0:
+                parts.append(
+                    f":warning: {suppressed} suppressed (high variance)")
+            lines.append(
+                f"**Throughput:** {', '.join(parts)} ({conditions})")
+        if has_scalability:
+            parts = []
+            if scal_reg > 0:
+                parts.append(
+                    f":red_circle: {scal_reg} scaling regression(s)")
+            if scal_imp > 0:
+                parts.append(
+                    f":green_circle: {scal_imp} scaling improvement(s)")
+            if scal_sup > 0:
+                parts.append(
+                    f":warning: {scal_sup} suppressed (high variance)")
+            lines.append(
+                f"**Scalability:** {', '.join(parts)} ({conditions})")
     lines.append("")
 
     for suite, label in [("SingleThread", "Single-Thread"),
@@ -287,21 +338,47 @@ def main():
     if all_queries:
         lines.append("### Scalability (MT/ST ratio)")
         lines.append("")
-        lines.append("| Benchmark | Base ratio | Head ratio | \u0394% |")
-        lines.append("|-----------|-----------|-----------|-----|")
+        lines.append(
+            "| Benchmark | Base ratio | Base err "
+            "| Head ratio | Head err | \u0394% |"
+        )
+        lines.append(
+            "|-----------|-----------|---------|"
+            "-----------|---------|-----|"
+        )
 
         for query in all_queries:
             b = base_scal.get(query)
             h = head_scal.get(query)
             if b and h:
                 delta = fmt_delta(b["ratio"], h["ratio"])
+                icon = delta_icon(
+                    b["ratio"], h["ratio"],
+                    base_error=b["ratio_error"],
+                    head_error=h["ratio_error"])
                 lines.append(
-                    f"| {query} | {b['ratio']:.2f}x | {h['ratio']:.2f}x | {delta} |"
+                    f"| {query} "
+                    f"| {b['ratio']:.2f}x "
+                    f"| {fmt_error(b['ratio'], b['ratio_error'])} "
+                    f"| {h['ratio']:.2f}x "
+                    f"| {fmt_error(h['ratio'], h['ratio_error'])} "
+                    f"| {delta}{icon} |"
                 )
             elif b:
-                lines.append(f"| {query} | {b['ratio']:.2f}x | \u2014 | removed |")
+                lines.append(
+                    f"| {query} "
+                    f"| {b['ratio']:.2f}x "
+                    f"| {fmt_error(b['ratio'], b['ratio_error'])} "
+                    f"| \u2014 | \u2014 | removed |"
+                )
             else:
-                lines.append(f"| {query} | \u2014 | {h['ratio']:.2f}x | new |")
+                lines.append(
+                    f"| {query} "
+                    f"| \u2014 | \u2014 "
+                    f"| {h['ratio']:.2f}x "
+                    f"| {fmt_error(h['ratio'], h['ratio_error'])} "
+                    f"| new |"
+                )
         lines.append("")
 
     output = "\n".join(lines)
