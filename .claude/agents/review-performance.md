@@ -189,6 +189,7 @@ performance issues that slow CI).
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
 - **Issue**: What's slow and why
+- **Evidence**: The COST TRACE and SCALE CHECK that produced this finding
 - **Impact**: Expected effect (latency, throughput, memory, GC pressure)
 - **Suggestion**: How to improve it
 

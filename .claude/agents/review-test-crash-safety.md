@@ -179,6 +179,7 @@ Skip generated files and code that doesn't touch persistent state.
 For each crash safety finding, include:
 - **File**: `path/to/TestFile.java`
 - **Production code**: `path/to/Production.java` (line X-Y)
+- **Evidence**: The CRASH POINT and TEST TRACE that produced this finding
 - **Missing scenario**: What crash/recovery scenario is untested
 - **Why it matters**: What data loss or corruption this could hide
 - **Suggested test**:
@@ -191,6 +192,7 @@ For each crash safety finding, include:
 
 For each assert statement finding, include:
 - **File**: `path/to/Production.java` (line X)
+- **Evidence**: The INVARIANT analysis that produced this finding
 - **Invariant**: What should always be true
 - **Suggested assertion**:
   ```java

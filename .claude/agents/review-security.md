@@ -196,6 +196,7 @@ sensitive data.
 For each finding, include:
 - **File**: `path/to/file.ext` (line X-Y)
 - **Issue**: What's vulnerable and why
+- **Evidence**: The TAINT TRACE and EXPLOIT that produced this finding
 - **Risk Level**: Critical / High / Medium / Low
 - **Exploitability**: How an attacker could exploit it (for Critical/High)
 - **Suggestion**: How to fix it

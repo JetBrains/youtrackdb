@@ -170,6 +170,7 @@ produced it.
 For each finding, include:
 - **File**: `path/to/TestFile.java`, method `testName` (line X)
 - **Issue**: What's wrong (coverage-driven pattern, shallow assertion, imprecise exception test)
+- **Evidence**: The BEHAVIOR TRACE and FALSIFIABILITY CHECK that produced this finding
 - **Missing behavior**: What should actually be verified
 - **Suggested fix**:
   ```java

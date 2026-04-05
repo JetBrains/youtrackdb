@@ -180,6 +180,7 @@ For each finding, include:
 - **File**: `path/to/TestFile.java`, method `testName` (line X)
 - **Production code**: `path/to/Production.java` (line X-Y) — the concurrent code being tested
 - **Issue**: What concurrent scenario is untested or poorly tested
+- **Evidence**: The CONTRACT, TEST TRACE, or INTERLEAVING that produced this finding
 - **Why it matters**: What race condition or deadlock this could hide
 - **Suggested test**:
   ```java

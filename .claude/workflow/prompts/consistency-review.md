@@ -145,11 +145,9 @@ file path, configuration parameter), produce a verification entry:
 - **Every claim requires a search.** Do not assume a class exists because
   its name is plausible. Search for it explicitly.
 - **Follow calls interprocedurally.** When tracing a flow, if a method
-  delegates to another, follow the delegation. The paper's motivating
-  example: a function named `format()` was assumed to be Python's built-in,
-  but was actually a module-level shadow with different semantics. The same
-  class of error applies here — always verify what a method actually does,
-  not what its name suggests.
+  delegates to another, follow the delegation. A method named `validate()`
+  may not actually validate, or may validate the wrong property — always
+  verify what a method actually does, not what its name suggests.
 - **Document negative results.** If a search finds nothing, that is a
   finding (phantom reference). Record the search query and "NOT FOUND."
 - **Trace until divergence or completion.** Do not stop a flow trace at
