@@ -664,7 +664,7 @@ jobs:
 
       - name: Upload agent JSON log
         if: always() && steps.run-agent.outputs.json_log != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fix-agent-json-log
           path: ${{ steps.run-agent.outputs.json_log }}
