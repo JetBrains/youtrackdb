@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -286,10 +287,13 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 db.delete(entityToDelete);
               }
             });
-          } catch (ConcurrentModificationException | RecordNotFoundException e) {
-            // Under SI, concurrent transactions may conflict on version checks
-            // or encounter records not visible in the current snapshot during
-            // commit-time link consistency processing.
+          } catch (ConcurrentModificationException | RecordNotFoundException
+              | LinksConsistencyException e) {
+            // Under SI, concurrent transactions may conflict on version checks,
+            // encounter records not visible in the current snapshot during
+            // commit-time link consistency processing, or find opposite link
+            // bags out of sync when concurrent transactions modify entities
+            // sharing the same link targets.
             // Restore lists to pre-transaction state since the tx was rolled back.
             firstDocs.clear();
             firstDocs.addAll(firstDocsSnapshot);
