@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class IndexesSnapshot {
 
@@ -141,14 +142,62 @@ public class IndexesSnapshot {
   }
 
   /**
-   * Looks up the snapshot index for a historical version of the entry visible at
-   * {@code visibleVersion}. If found, emits it directly to {@code downstream},
-   * avoiding Stream.of/Stream.empty allocations.
+   * Checks the visibility of a single B-tree entry, encapsulating the full visibility
+   * decision: in-progress check, committed check, phantom check, and snapshot fallback.
+   *
+   * @param key the composite key from the B-tree entry (userKey..., version)
+   * @param rid the RID from the B-tree entry (RecordId, TombstoneRID, or SnapshotMarkerRID)
+   * @param visibleVersion the reader's snapshot version threshold
+   * @param inProgressVersions set of in-progress transaction versions
+   * @return the visible RID, or null if the entry is not visible
    */
-  <K> void emitSnapshotVisibility(RawPair<CompositeKey, RID> pair,
-      long visibleVersion, Function<CompositeKey, K> keyMapper,
-      Consumer<RawPair<K, RID>> downstream) {
-    var keys = pair.first().getKeys();
+  public @Nullable RID checkVisibility(CompositeKey key, RID rid,
+      long visibleVersion, LongOpenHashSet inProgressVersions) {
+    long version = (Long) key.getKeys().getLast();
+    var hasInProgress = !inProgressVersions.isEmpty();
+
+    if (hasInProgress && inProgressVersions.contains(version)) {
+      // The in-progress TX may have replaced an older committed version that
+      // was removed from the B-tree and now only exists in the snapshot.
+      // For TombstoneRID/SnapshotMarkerRID, check the snapshot for historical
+      // state. For plain RecordId (a new insert with no prior history), skip.
+      if (!(rid instanceof RecordId)) {
+        return lookupSnapshotRid(key, visibleVersion);
+      }
+      return null;
+    }
+
+    // Committed before snapshot — visible if alive, hidden if tombstoned
+    if (version < visibleVersion) {
+      if (rid instanceof SnapshotMarkerRID) {
+        return rid.getIdentity();
+      } else if (!(rid instanceof TombstoneRID)) {
+        return rid;
+      }
+      return null;
+    }
+
+    // version >= visibleVersion — phantom: no historical versions for plain RecordId
+    if (rid instanceof RecordId) {
+      return null;
+    }
+
+    // version >= visibleVersion — TombstoneRID or SnapshotMarkerRID
+    // → check snapshot for historical state
+    return lookupSnapshotRid(key, visibleVersion);
+  }
+
+  /**
+   * Looks up the snapshot index for a historical version of the entry visible at
+   * {@code visibleVersion}. Returns the visible RID if found, null otherwise.
+   *
+   * @param key the composite key from the B-tree entry (userKey..., version)
+   * @param visibleVersion the reader's snapshot version threshold
+   * @return the visible RID (always a plain RecordId), or null if no historical
+   *     version is visible
+   */
+  @Nullable RID lookupSnapshotRid(CompositeKey key, long visibleVersion) {
+    var keys = key.getKeys();
     // Build the search key in one allocation: CompositeKey(indexId, userKey..., visibleVersion)
     // instead of three intermediate CompositeKeys.
     var searchKey = new CompositeKey(keys.size() + 1);
@@ -169,20 +218,30 @@ public class IndexesSnapshot {
       // at last).
       int userKeyLen = keys.size() - 1;
       if (snapshotKeys.size() - 2 != userKeyLen) {
-        return;
+        return null;
       }
       for (int i = 0; i < userKeyLen; i++) {
         if (!Objects.equals(keys.get(i), snapshotKeys.get(i + 1))) {
-          return;
+          return null;
         }
       }
 
-      // Strip the indexId prefix from the snapshot key to return a BTree-format key.
-      // Snapshot keys are stored as CompositeKey(indexId, userKey..., version), but
-      // the caller expects CompositeKey(userKey..., version).
-      var btreeKey = new CompositeKey(snapshotKeys.subList(1, snapshotKeys.size()));
-      downstream.accept(
-          new RawPair<>(keyMapper.apply(btreeKey), latestSnapshotEntry.getValue().getIdentity()));
+      return latestSnapshotEntry.getValue().getIdentity();
+    }
+    return null;
+  }
+
+  /**
+   * Looks up the snapshot index for a historical version of the entry visible at
+   * {@code visibleVersion}. If found, emits it directly to {@code downstream},
+   * avoiding Stream.of/Stream.empty allocations.
+   */
+  <K> void emitSnapshotVisibility(RawPair<CompositeKey, RID> pair,
+      long visibleVersion, Function<CompositeKey, K> keyMapper,
+      Consumer<RawPair<K, RID>> downstream) {
+    var rid = lookupSnapshotRid(pair.first(), visibleVersion);
+    if (rid != null) {
+      downstream.accept(new RawPair<>(keyMapper.apply(pair.first()), rid));
     }
   }
 
@@ -196,9 +255,9 @@ public class IndexesSnapshot {
     var keys = key.getKeys();
     var result = new CompositeKey(keys.size() + 1);
     result.addKey(indexId);
-      for (var o : keys) {
-          result.addKey(o);
-      }
+    for (var o : keys) {
+      result.addKey(o);
+    }
     return result;
   }
 

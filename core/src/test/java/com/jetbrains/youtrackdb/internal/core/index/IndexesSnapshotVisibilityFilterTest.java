@@ -2,6 +2,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -867,5 +869,186 @@ public class IndexesSnapshotVisibilityFilterTest {
         "Deep history: record was alive at v90, should be visible at visibleVersion=95",
         1, result.size());
     assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  // ========================================================================
+  //  checkVisibility() — direct single-entry visibility checks
+  //  These test the new checkVisibility() method which encapsulates the full
+  //  visibility decision for a single entry, returning @Nullable RID.
+  // ========================================================================
+
+  /**
+   * A committed RecordId (version < visibleVersion) is a live record and must
+   * be returned as-is.
+   */
+  @Test
+  public void checkVisibility_committed_recordId_visible() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
+    assertNotNull("Committed RecordId must be visible", result);
+    assertEquals(RID_20_0, result);
+  }
+
+  /**
+   * A committed TombstoneRID (version < visibleVersion) represents a deleted
+   * record and must return null.
+   */
+  @Test
+  public void checkVisibility_committed_tombstoneRid_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 200L, LongOpenHashSet.of());
+    assertNull("Committed TombstoneRID must not be visible", result);
+  }
+
+  /**
+   * A committed SnapshotMarkerRID (version < visibleVersion) represents a
+   * re-added record. Must return the unwrapped identity RID.
+   */
+  @Test
+  public void checkVisibility_committed_snapshotMarkerRid_returnsIdentity() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, SNAPSHOT_MARKER_20_0, 200L, LongOpenHashSet.of());
+    assertNotNull("Committed SnapshotMarkerRID must be visible", result);
+    assertEquals(RID_20_0, result);
+    assertTrue("Must return plain RecordId, not SnapshotMarkerRID",
+        result instanceof RecordId);
+  }
+
+  /**
+   * An in-progress RecordId entry must return null — the entry is a new insert
+   * with no prior history in the snapshot.
+   */
+  @Test
+  public void checkVisibility_inProgress_recordId_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of(100L));
+    assertNull("In-progress RecordId must not be visible", result);
+  }
+
+  /**
+   * An in-progress TombstoneRID entry must fall through to the snapshot lookup.
+   * When the snapshot contains a prior visible version, it must be returned.
+   */
+  @Test
+  public void checkVisibility_inProgress_tombstoneRid_snapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // Snapshot: was alive at v90, removed at v100
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 90L),
+        new CompositeKey("Foo", RID_20_0, 100L),
+        RID_20_0);
+
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // version=100 is in-progress, visibleVersion=95 — snapshot has v90 TombstoneRID
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 95L, LongOpenHashSet.of(100L));
+    assertNotNull("In-progress TombstoneRID should fall back to snapshot", result);
+    assertEquals(RID_20_0, result);
+  }
+
+  /**
+   * An in-progress TombstoneRID entry with no matching snapshot entry must
+   * return null.
+   */
+  @Test
+  public void checkVisibility_inProgress_tombstoneRid_noSnapshotEntry_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 95L, LongOpenHashSet.of(100L));
+    assertNull("In-progress TombstoneRID with no snapshot entry must not be visible", result);
+  }
+
+  /**
+   * An in-progress SnapshotMarkerRID entry must also fall through to the
+   * snapshot lookup, same as TombstoneRID.
+   */
+  @Test
+  public void checkVisibility_inProgress_snapshotMarkerRid_snapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 90L),
+        new CompositeKey("Foo", RID_20_0, 100L),
+        RID_20_0);
+
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(
+        key, SNAPSHOT_MARKER_20_0, 95L, LongOpenHashSet.of(100L));
+    assertNotNull("In-progress SnapshotMarkerRID should fall back to snapshot", result);
+    assertEquals(RID_20_0, result);
+  }
+
+  /**
+   * A phantom RecordId (version >= visibleVersion) must return null.
+   */
+  @Test
+  public void checkVisibility_phantom_recordId_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 200L);
+
+    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
+    assertNull("Phantom RecordId must not be visible", result);
+  }
+
+  /**
+   * A phantom TombstoneRID (version >= visibleVersion) must fall through to the
+   * snapshot lookup. When the snapshot has a prior visible version, return it.
+   */
+  @Test
+  public void checkVisibility_phantom_tombstoneRid_snapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 90L),
+        new CompositeKey("Foo", RID_20_0, 100L),
+        RID_20_0);
+
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // version=100 >= visibleVersion=95, TombstoneRID → snapshot fallback
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 95L, LongOpenHashSet.of());
+    assertNotNull("Phantom TombstoneRID should fall back to snapshot", result);
+    assertEquals(RID_20_0, result);
+  }
+
+  /**
+   * When the inProgressVersions set is empty, the in-progress check is
+   * short-circuited and the entry proceeds to committed/phantom logic.
+   */
+  @Test
+  public void checkVisibility_emptyInProgressSet_committedRecordId_visible() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // Empty inProgressVersions — should behave exactly like committed path
+    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
+    assertNotNull("Empty inProgress set should not interfere with committed RecordId", result);
+    assertEquals(RID_20_0, result);
+  }
+
+  /**
+   * When the inProgressVersions set is non-empty but does not contain the
+   * entry's version, the entry must proceed to committed/phantom logic.
+   */
+  @Test
+  public void checkVisibility_nonMatchingInProgressVersion_passesThrough() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // version=100 is NOT in the in-progress set {99, 101}
+    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of(99L, 101L));
+    assertNotNull("Non-matching in-progress version should not filter entry", result);
+    assertEquals(RID_20_0, result);
   }
 }
