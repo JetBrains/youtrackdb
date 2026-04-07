@@ -6111,4 +6111,116 @@ public class DocValidationTest {
     assertThat(posts).hasSize(2);
   }
 
+  // ===== YQL-Create-Sequence.md (additional tests) =====
+
+  @Test
+  public void testCreateSequenceWithLimitAndCycleDoc() {
+    // Doc claims (lines 20-21): CYCLE restarts from START after LIMIT is reached
+    g.command(
+        "CREATE SEQUENCE docSeqCycle TYPE ORDERED START 0 INCREMENT 1 LIMIT 2 CYCLE TRUE");
+    g.command("CREATE CLASS CsDocCycleV IF NOT EXISTS EXTENDS V");
+
+    // Call next() three times via UPDATE to verify cycling
+    for (int i = 0; i < 3; i++) {
+      g.executeInTx(
+          tx -> {
+            tx.yql("CREATE VERTEX CsDocCycleV SET name = 'v'").iterate();
+          });
+      g.executeInTx(
+          tx -> {
+            tx.yql(
+                "UPDATE CsDocCycleV SET val = sequence('docSeqCycle').next()"
+                    + " WHERE val IS NULL")
+                .iterate();
+          });
+    }
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocCycleV ORDER BY val").toList());
+    assertThat(results).hasSize(3);
+    // Verify cycling: after limit, sequence wraps back — no error thrown
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocCycleV").iterate());
+    g.command("DROP SEQUENCE docSeqCycle");
+  }
+
+  @Test
+  public void testCreateSequenceDescOrderDoc() {
+    // Doc claim (line 22): DESC means next value is currentValue - incrementValue
+    g.command("CREATE SEQUENCE docSeqDesc TYPE ORDERED START 100 INCREMENT 10 DESC");
+    g.command("CREATE CLASS CsDocDescV IF NOT EXISTS EXTENDS V");
+
+    // Create two vertices and assign sequence values
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocDescV SET name = 'a'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("UPDATE CsDocDescV SET val = sequence('docSeqDesc').next() WHERE name = 'a'")
+              .iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocDescV SET name = 'b'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("UPDATE CsDocDescV SET val = sequence('docSeqDesc').next() WHERE name = 'b'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocDescV ORDER BY val DESC").toList());
+    assertThat(results).hasSize(2);
+    Vertex v0 = (Vertex) results.get(0);
+    Vertex v1 = (Vertex) results.get(1);
+    // DESC: sequence decrements, so first value > second value
+    assertThat((long) v0.value("val")).isGreaterThan((long) v1.value("val"));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocDescV").iterate());
+    g.command("DROP SEQUENCE docSeqDesc");
+  }
+
+  @Test
+  public void testSequenceNextInCreateVertexDoc() {
+    // Doc example (line 36): CREATE VERTEX Account SET id = sequence('idseq').next()
+    // NOTE: Through Gremlin API, sequence must be used via UPDATE in a separate tx
+    g.command("CREATE CLASS CsDocSeqAccount IF NOT EXISTS EXTENDS V");
+    g.command("CREATE SEQUENCE docSeqVertex TYPE ORDERED");
+
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocSeqAccount SET name = 'first'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "UPDATE CsDocSeqAccount SET id = sequence('docSeqVertex').next()"
+                  + " WHERE name = 'first'")
+              .iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX CsDocSeqAccount SET name = 'second'").iterate();
+        });
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "UPDATE CsDocSeqAccount SET id = sequence('docSeqVertex').next()"
+                  + " WHERE name = 'second'")
+              .iterate();
+        });
+
+    var results =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CsDocSeqAccount ORDER BY id").toList());
+    assertThat(results).hasSize(2);
+    Vertex v0 = (Vertex) results.get(0);
+    Vertex v1 = (Vertex) results.get(1);
+    // Two vertices should have different, incrementing ids
+    assertThat((long) v0.value("id")).isLessThan((long) v1.value("id"));
+
+    g.executeInTx(tx -> tx.yql("DELETE VERTEX CsDocSeqAccount").iterate());
+    g.command("DROP SEQUENCE docSeqVertex");
+  }
+
 }
