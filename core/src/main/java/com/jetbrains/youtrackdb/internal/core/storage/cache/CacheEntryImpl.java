@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LRUList;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.io.IOException;
@@ -58,7 +57,8 @@ public class CacheEntryImpl implements CacheEntry {
 
   private final boolean insideCache;
   private final ReadCache readCache;
-  private final PageKey pageKey;
+  private final long fileId;
+  private final int pageIndex;
 
   public CacheEntryImpl(
       final long fileId,
@@ -78,7 +78,8 @@ public class CacheEntryImpl implements CacheEntry {
     this.dataPointer = dataPointer;
     this.insideCache = insideCache;
     this.readCache = readCache;
-    this.pageKey = new PageKey(fileId, pageIndex);
+    this.fileId = fileId;
+    this.pageIndex = pageIndex;
   }
 
   @Override
@@ -108,12 +109,12 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public long getFileId() {
-    return pageKey.fileId();
+    return fileId;
   }
 
   @Override
   public int getPageIndex() {
-    return pageKey.pageIndex();
+    return pageIndex;
   }
 
   @Override
@@ -313,17 +314,15 @@ public class CacheEntryImpl implements CacheEntry {
     if (!(o instanceof CacheEntryImpl that)) {
       return false;
     }
-    return this.pageKey.equals(that.pageKey);
+    return this.fileId == that.fileId && this.pageIndex == that.pageIndex;
   }
 
   @Override
   public int hashCode() {
-    return pageKey.hashCode();
-  }
-
-  @Override
-  public PageKey getPageKey() {
-    return this.pageKey;
+    // Same formula as ConcurrentLongIntHashMap.hashForFrequencySketch — both use
+    // Long.hashCode(fileId) * 31 + pageIndex. This is intentionally different from
+    // the map's internal murmur hash to avoid correlation with bucket position.
+    return Long.hashCode(fileId) * 31 + pageIndex;
   }
 
   @Override

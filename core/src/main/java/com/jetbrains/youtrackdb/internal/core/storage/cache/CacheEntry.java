@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LRUList;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.io.Closeable;
@@ -115,6 +114,4 @@ public interface CacheEntry extends Closeable {
   void clearAllocationFlag();
 
   boolean insideCache();
-
-  PageKey getPageKey();
 }
