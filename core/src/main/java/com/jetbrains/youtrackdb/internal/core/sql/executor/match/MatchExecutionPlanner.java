@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
@@ -2875,12 +2876,13 @@ public class MatchExecutionPlanner {
                 ? edgeJ.edge.out.alias : edgeJ.edge.in.alias;
 
             // --- Semi-join candidacy check (Pattern A) ---
-            // If this is a vertex-level traversal (out/in, not outE/inE)
-            // and the back-ref alias is already bound, try to replace the
-            // per-row link bag scan with a one-time hash table build + O(1)
-            // probe.
-            if (isSemiJoinCandidate(edgeDirection, involvedAliases,
-                boundAliases)) {
+            // Only when the edge class belongs to the current edge (not
+            // propagated from a preceding outE/inE). When collectEdgeRids
+            // is true, the class/direction came from the previous edge —
+            // Pattern B detection handles that case below.
+            if (!collectEdgeRids
+                && isSemiJoinCandidate(edgeDirection, involvedAliases,
+                    boundAliases)) {
               var backRefAlias = involvedAliases.getFirst();
               var descriptor = new SingleEdgeSemiJoin(
                   edgeClass, edgeDirection, ridExpr,
@@ -2903,6 +2905,23 @@ public class MatchExecutionPlanner {
                         + "({}({}) back-ref from alias '{}', edgeRids={})",
                     producingEdgeIdx, edgeDirection, edgeClass, targetAliasJ,
                     collectEdgeRids);
+              }
+              // --- Pattern B: outE('E').inV() chain semi-join ---
+              // When edge class was propagated from the preceding edge, also
+              // try chain semi-join which collapses both edges into one step.
+              if (collectEdgeRids) {
+                var chainDesc = detectChainSemiJoin(
+                    schedule, j, involvedAliases, ridExpr, targetAliasJ,
+                    boundAliases, ctx);
+                if (chainDesc != null) {
+                  edgeJ.setSemiJoinDescriptor(chainDesc);
+                  schedule.get(j - 1).setConsumed(true);
+                  logger.debug(
+                      "MATCH pre-filter: ChainSemiJoin on edge[{},{}] "
+                          + "({}({}) chain semi-join via $matched.{})",
+                      j - 1, j, chainDesc.direction(), chainDesc.edgeClass(),
+                      chainDesc.backRefAlias());
+                }
               }
             }
           } else if (j > 0) {
@@ -3061,13 +3080,18 @@ public class MatchExecutionPlanner {
     if (andSubBlocks == null || andSubBlocks.isEmpty()) {
       return null;
     }
-    // Scan for NOT IN conditions matching the pattern. The condition may be
-    // nested inside SQLOrBlock → SQLAndBlock → SQLNotBlock (parser wrapping).
-    // We use toString() on each sub-block to match the full pattern string,
-    // avoiding fragile class hierarchy assumptions.
+    // Scan for SQLNotInCondition nodes whose LHS is $currentMatch and whose
+    // RHS matches $matched.X.out('E') or $matched.X.in('E'). The grammar
+    // wraps conditions in multiple transparent layers (OrBlock → AndBlock →
+    // NotBlock → ConditionBlock). We unwrap single-element wrappers before
+    // checking the inner type to avoid relying on toString() for detection.
     for (int i = 0; i < andSubBlocks.size(); i++) {
       var sub = andSubBlocks.get(i);
-      var condStr = sub.toString().trim();
+      var inner = unwrapToNotInCondition(sub);
+      if (inner == null) {
+        continue;
+      }
+      var condStr = inner.toString().trim();
       if (!condStr.startsWith("$currentMatch NOT IN ")) {
         continue;
       }
@@ -3107,10 +3131,36 @@ public class MatchExecutionPlanner {
       }
 
       return new AntiSemiJoin(
-          anchorAlias, edgeClass, direction,
-          anchorAlias, targetAlias, sub);
+          anchorAlias, edgeClass, direction, targetAlias, sub);
     }
     return null;
+  }
+
+  /**
+   * Unwraps the transparent AST wrappers the grammar produces around condition
+   * blocks (OrBlock → AndBlock → NotBlock → ConditionBlock) to reach the inner
+   * {@link SQLNotInCondition}, if present. Returns {@code null} if the expression
+   * is not a NOT IN condition or if any wrapper is non-transparent (e.g., OR with
+   * multiple branches, or NOT with {@code negate=true}).
+   */
+  @Nullable private static SQLNotInCondition unwrapToNotInCondition(
+      SQLBooleanExpression expr) {
+    var inner = expr;
+    // Unwrap single-element SQLOrBlock
+    if (inner instanceof SQLOrBlock or && or.getSubBlocks() != null
+        && or.getSubBlocks().size() == 1) {
+      inner = or.getSubBlocks().getFirst();
+    }
+    // Unwrap single-element SQLAndBlock
+    if (inner instanceof SQLAndBlock and && and.getSubBlocks() != null
+        && and.getSubBlocks().size() == 1) {
+      inner = and.getSubBlocks().getFirst();
+    }
+    // Unwrap transparent SQLNotBlock (negate=false)
+    if (inner instanceof SQLNotBlock not && !not.isNegate()) {
+      inner = not.getSub();
+    }
+    return inner instanceof SQLNotInCondition notIn ? notIn : null;
   }
 
   /**
@@ -3580,9 +3630,10 @@ public class MatchExecutionPlanner {
       }
     } else if (edge.getSemiJoinDescriptor() instanceof AntiSemiJoin) {
       // Pattern D: normal traversal + anti-join filter. The NOT IN condition
-      // is kept in the WHERE clause on the MatchStep so it serves as a
-      // correctness fallback if the hash table build fails at runtime.
-      // When the hash join succeeds, it short-circuits the per-row NOT IN.
+      // was stripped from the WHERE clause at plan time so the MatchStep
+      // traverses without it. The BackRefHashJoinStep filters results against
+      // the exclusion set; on build failure it evaluates the stored NOT IN
+      // condition per row as a correctness fallback.
       plan.chain(new MatchStep(context, edge, profilingEnabled));
       plan.chain(new BackRefHashJoinStep(
           context, edge.getSemiJoinDescriptor(), null, profilingEnabled));

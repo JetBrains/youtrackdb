@@ -381,15 +381,17 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
     }
 
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
-    // No early pre-check on linkBag.size() here: when an indexFilter is
-    // present, the effective entry count after filtering may be well below
-    // the threshold. The per-entry count check in the loop below enforces
-    // the threshold on the actual (post-filter) count.
 
     RidSet indexRidSet = null;
     if (chain.indexFilter() != null) {
+      // When an index filter is present, the effective entry count after
+      // filtering may be well below the threshold — skip early pre-check.
       indexRidSet = TraversalPreFilterHelper.resolveIndexToRidSet(
           chain.indexFilter(), ctx);
+    } else if (maxSize > 0 && linkBag.size() > maxSize) {
+      // No index filter — the full link bag will be iterated, so we can
+      // reject early without loading any edge records.
+      return null;
     }
 
     var initialCapacity = hashCapacity(linkBag.size(), maxSize);

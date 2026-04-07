@@ -18,7 +18,6 @@ import javax.annotation.Nullable;
  * @param anchorAlias           the alias X whose forward edges provide the exclusion set
  * @param traversalEdgeClass    the edge class E
  * @param traversalDirection    "out" or "in"
- * @param backRefAlias          same as anchorAlias (the vertex to traverse from)
  * @param targetAlias           the alias of the node whose WHERE clause contained NOT IN
  * @param notInCondition        the stripped NOT IN condition for fallback evaluation,
  *                              or null if the condition could not be preserved
@@ -27,19 +26,17 @@ public record AntiSemiJoin(
     String anchorAlias,
     String traversalEdgeClass,
     String traversalDirection,
-    String backRefAlias,
     String targetAlias,
     @Nullable SQLBooleanExpression notInCondition) implements SemiJoinDescriptor {
-
-  // backRefAlias is always identical to anchorAlias — it exists to satisfy
-  // the SemiJoinDescriptor.backRefAlias() interface contract.
-  public AntiSemiJoin {
-    assert anchorAlias.equals(backRefAlias)
-        : "backRefAlias must equal anchorAlias for AntiSemiJoin";
-  }
 
   @Override
   public JoinMode joinMode() {
     return JoinMode.ANTI_JOIN;
+  }
+
+  /** Returns {@link #anchorAlias()} — the vertex to traverse from is the anchor. */
+  @Override
+  public String backRefAlias() {
+    return anchorAlias;
   }
 }
