@@ -49,11 +49,11 @@ public class IndexesSnapshot {
     var enhancedRemovedKey = enhanceIndexId(removedKey);
     // Write order: TombstoneRID (lower version) first, then RecordId guard
     // (higher version). These two puts are not atomic; a concurrent reader via
-    // lowerEntry in emitSnapshotVisibility may see partial state.
+    // lowerEntry in lookupSnapshotRid may see partial state.
     //
     // This order: a same-key reader correctly sees "was alive" immediately.
     // A cross-key reader may see a foreign key's TombstoneRID without its
-    // RecordId guard — the prefix check in emitSnapshotVisibility prevents
+    // RecordId guard — the prefix check in lookupSnapshotRid prevents
     // this from leaking wrong results.
     //
     // Reversed order would be worse: a same-key reader would temporarily see
@@ -61,7 +61,7 @@ public class IndexesSnapshot {
     // for a record that was alive at the reader's snapshot.
     //
     // Neither order is safe without the prefix validation in
-    // emitSnapshotVisibility.
+    // lookupSnapshotRid.
     indexesSnapshot.put(enhancedAddedKey, new TombstoneRID(value));
     indexesSnapshot.put(enhancedRemovedKey, value);
     visibilityIndex.put(enhancedAddedKey, enhancedRemovedKey);
@@ -196,9 +196,8 @@ public class IndexesSnapshot {
   }
 
   /**
-   * Looks up the snapshot index for a historical version of the entry visible at
-   * {@code visibleVersion}. If found, emits it directly to {@code downstream},
-   * avoiding Stream.of/Stream.empty allocations.
+   * Delegates to {@link #lookupSnapshotRid} and, if visible, emits the result
+   * to {@code downstream}.
    */
   <K> void emitSnapshotVisibility(RawPair<CompositeKey, RID> pair,
       long visibleVersion, Function<CompositeKey, K> keyMapper,

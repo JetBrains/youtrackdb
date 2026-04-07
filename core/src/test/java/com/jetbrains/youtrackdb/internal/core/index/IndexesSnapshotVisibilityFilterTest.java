@@ -875,13 +875,16 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   /**
    * visibilityFilterMapped() with a non-identity keyMapper must apply the
-   * mapper to the CompositeKey of each visible entry. Verifies the refactored
-   * delegation path correctly passes the original key to the mapper.
+   * mapper to the CompositeKey of each visible entry and must not apply it
+   * to filtered-out entries. Includes a tombstoned entry that should be
+   * filtered out alongside the visible entry.
    */
   @Test
   public void visibilityFilterMapped_appliesKeyMapper() {
     var snap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
+    var visible = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
+    var tombstoned = new RawPair<>(
+        new CompositeKey("Bar", RID_20_0, 100L), (RID) TOMBSTONE_20_0);
 
     // keyMapper extracts just the first element of the CompositeKey
     Function<CompositeKey, Object> keyMapper = k -> k.getKeys().getFirst();
@@ -889,7 +892,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     var result = snap
         .visibilityFilterMapped(
             atomicOpStub(200L, LongOpenHashSet.of()),
-            Stream.of(pair),
+            Stream.of(visible, tombstoned),
             keyMapper)
         .toList();
 
@@ -1052,12 +1055,12 @@ public class IndexesSnapshotVisibilityFilterTest {
   }
 
   /**
-   * A phantom RecordId (version >= visibleVersion) must return null.
+   * A phantom RecordId (version > visibleVersion) must return null.
    */
   @Test
   public void checkVisibility_phantom_recordId_null() {
     var snap = newSnapshot(INDEX_ID);
-    var key = new CompositeKey("Foo", RID_20_0, 200L);
+    var key = new CompositeKey("Foo", RID_20_0, 300L);
 
     var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
     assertNull("Phantom RecordId must not be visible", result);
@@ -1206,5 +1209,81 @@ public class IndexesSnapshotVisibilityFilterTest {
     assertEquals("Single-value key snapshot fallback should find entry", rid, result);
     assertTrue("Snapshot fallback must return plain RecordId",
         result instanceof RecordId);
+  }
+
+  // --- TC1 fix: exact boundary tests for RecordId and SnapshotMarkerRID ---
+
+  /**
+   * version == visibleVersion with RecordId must take the phantom path (null),
+   * not the committed path. Guards the strict {@code <} comparison against
+   * accidental {@code <=} regression.
+   */
+  @Test
+  public void checkVisibility_exactBoundary_recordId_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, RID_20_0, 100L, LongOpenHashSet.of());
+    assertNull("version == visibleVersion must be phantom, not committed", result);
+  }
+
+  /**
+   * version == visibleVersion with SnapshotMarkerRID must take the phantom path
+   * (snapshot fallback), not the committed path (which would return identity
+   * directly). With no snapshot entries, must return null.
+   */
+  @Test
+  public void checkVisibility_exactBoundary_snapshotMarkerRid_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    var result = snap.checkVisibility(key, SNAPSHOT_MARKER_20_0, 100L, LongOpenHashSet.of());
+    assertNull("version == visibleVersion SnapshotMarkerRID with no snapshot must be null",
+        result);
+  }
+
+  // --- TC3: snapshot has RecordId guard (was-removed), not TombstoneRID ---
+
+  /**
+   * When lookupSnapshotRid's lowerEntry finds a RecordId guard (meaning
+   * "was removed at this version"), it must return null. This happens when
+   * the reader's visibleVersion is after the removal version.
+   */
+  @Test
+  public void checkVisibility_phantom_tombstoneRid_snapshotHasRecordIdGuard_null() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // was alive at v90, removed at v100
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 90L),
+        new CompositeKey("Foo", RID_20_0, 100L),
+        RID_20_0);
+
+    // Query at visibleVersion=101: lowerEntry(101) finds v100 → RecordId guard → null
+    var key = new CompositeKey("Foo", RID_20_0, 110L);
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 101L, LongOpenHashSet.of());
+    assertNull("Snapshot's RecordId guard means 'was removed' — must return null", result);
+  }
+
+  // --- TC4: non-empty snapshot where lowerEntry returns null ---
+
+  /**
+   * When the snapshot is non-empty but all entries sort after the search key,
+   * lowerEntry returns null and lookupSnapshotRid must return null.
+   */
+  @Test
+  public void checkVisibility_phantom_tombstoneRid_snapshotAllAfterSearchKey_null() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // Snapshot entry at v200 — but query visibleVersion is 50
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 200L),
+        new CompositeKey("Foo", RID_20_0, 210L),
+        RID_20_0);
+
+    var key = new CompositeKey("Foo", RID_20_0, 220L);
+    // visibleVersion=50 → searchKey version=50, all snapshot entries are after it
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 50L, LongOpenHashSet.of());
+    assertNull("No snapshot entry before search key — must return null", result);
   }
 }
