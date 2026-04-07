@@ -2,7 +2,6 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -887,8 +886,8 @@ public class IndexesSnapshotVisibilityFilterTest {
     var key = new CompositeKey("Foo", RID_20_0, 100L);
 
     var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
-    assertNotNull("Committed RecordId must be visible", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("Committed RecordId must be visible", RID_20_0, result);
+    assertTrue("Must return plain RecordId", result instanceof RecordId);
   }
 
   /**
@@ -914,8 +913,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     var key = new CompositeKey("Foo", RID_20_0, 100L);
 
     var result = snap.checkVisibility(key, SNAPSHOT_MARKER_20_0, 200L, LongOpenHashSet.of());
-    assertNotNull("Committed SnapshotMarkerRID must be visible", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("Committed SnapshotMarkerRID must be visible", RID_20_0, result);
     assertTrue("Must return plain RecordId, not SnapshotMarkerRID",
         result instanceof RecordId);
   }
@@ -951,8 +949,9 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     // version=100 is in-progress, visibleVersion=95 — snapshot has v90 TombstoneRID
     var result = snap.checkVisibility(key, TOMBSTONE_20_0, 95L, LongOpenHashSet.of(100L));
-    assertNotNull("In-progress TombstoneRID should fall back to snapshot", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("In-progress TombstoneRID should fall back to snapshot", RID_20_0, result);
+    assertTrue("Snapshot fallback must return plain RecordId",
+        result instanceof RecordId);
   }
 
   /**
@@ -985,8 +984,10 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     var result = snap.checkVisibility(
         key, SNAPSHOT_MARKER_20_0, 95L, LongOpenHashSet.of(100L));
-    assertNotNull("In-progress SnapshotMarkerRID should fall back to snapshot", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("In-progress SnapshotMarkerRID should fall back to snapshot",
+        RID_20_0, result);
+    assertTrue("Snapshot fallback must return plain RecordId",
+        result instanceof RecordId);
   }
 
   /**
@@ -1018,23 +1019,28 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     // version=100 >= visibleVersion=95, TombstoneRID → snapshot fallback
     var result = snap.checkVisibility(key, TOMBSTONE_20_0, 95L, LongOpenHashSet.of());
-    assertNotNull("Phantom TombstoneRID should fall back to snapshot", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("Phantom TombstoneRID should fall back to snapshot", RID_20_0, result);
+    assertTrue("Snapshot fallback must return plain RecordId",
+        result instanceof RecordId);
   }
 
   /**
    * When the inProgressVersions set is empty, the in-progress check is
-   * short-circuited and the entry proceeds to committed/phantom logic.
+   * short-circuited — the entry proceeds to committed logic and is visible.
+   * When the same version IS in the in-progress set, it must be filtered out.
    */
   @Test
-  public void checkVisibility_emptyInProgressSet_committedRecordId_visible() {
+  public void checkVisibility_emptyInProgressSet_vs_matching_contrasted() {
     var snap = newSnapshot(INDEX_ID);
     var key = new CompositeKey("Foo", RID_20_0, 100L);
 
-    // Empty inProgressVersions — should behave exactly like committed path
-    var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
-    assertNotNull("Empty inProgress set should not interfere with committed RecordId", result);
-    assertEquals(RID_20_0, result);
+    // Empty in-progress set: version 100 < visibleVersion 200 → committed, visible
+    var visible = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of());
+    assertEquals("Empty inProgress set: committed RecordId must be visible", RID_20_0, visible);
+
+    // Same entry IS filtered when its version is in the in-progress set
+    var filtered = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of(100L));
+    assertNull("Same entry must be null when version is in-progress", filtered);
   }
 
   /**
@@ -1048,7 +1054,96 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     // version=100 is NOT in the in-progress set {99, 101}
     var result = snap.checkVisibility(key, RID_20_0, 200L, LongOpenHashSet.of(99L, 101L));
-    assertNotNull("Non-matching in-progress version should not filter entry", result);
-    assertEquals(RID_20_0, result);
+    assertEquals("Non-matching in-progress version should not filter entry",
+        RID_20_0, result);
+  }
+
+  // --- TC1: phantom SnapshotMarkerRID ---
+
+  /**
+   * A phantom SnapshotMarkerRID (version >= visibleVersion) must fall through to
+   * the snapshot lookup, same as TombstoneRID.
+   */
+  @Test
+  public void checkVisibility_phantom_snapshotMarkerRid_snapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 90L),
+        new CompositeKey("Foo", RID_20_0, 100L),
+        RID_20_0);
+
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // version=100 >= visibleVersion=95, SnapshotMarkerRID → snapshot fallback
+    var result = snap.checkVisibility(key, SNAPSHOT_MARKER_20_0, 95L, LongOpenHashSet.of());
+    assertEquals("Phantom SnapshotMarkerRID should fall back to snapshot", RID_20_0, result);
+    assertTrue("Snapshot fallback must return plain RecordId",
+        result instanceof RecordId);
+  }
+
+  // --- TC2: exact boundary version == visibleVersion ---
+
+  /**
+   * When version == visibleVersion with a TombstoneRID and no snapshot entry,
+   * the entry is a phantom (not committed) and must return null.
+   * Validates the strict {@code <} comparison (not {@code <=}).
+   */
+  @Test
+  public void checkVisibility_exactBoundary_tombstoneRid_noSnapshot_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var key = new CompositeKey("Foo", RID_20_0, 100L);
+
+    // version=100 == visibleVersion=100 → phantom path, TombstoneRID, no snapshot → null
+    var result = snap.checkVisibility(key, TOMBSTONE_20_0, 100L, LongOpenHashSet.of());
+    assertNull("version == visibleVersion is phantom, not committed", result);
+  }
+
+  // --- TC3: cross-key leak through checkVisibility ---
+
+  /**
+   * checkVisibility() must not leak snapshot entries from a different user key.
+   * Snapshot has entries only for "Bar"; a phantom TombstoneRID for "Foo" must
+   * not pick up "Bar"'s snapshot entry via lowerEntry().
+   */
+  @Test
+  public void checkVisibility_phantom_tombstoneRid_crossKeyLeak_null() {
+    var snap = newSnapshot(INDEX_ID);
+    var rid = new RecordId(10, 1);
+
+    // Only "Bar" has snapshot entries
+    snap.addSnapshotPair(
+        new CompositeKey("Bar", rid, 100L),
+        new CompositeKey("Bar", rid, 110L),
+        rid);
+
+    // Phantom TombstoneRID for "Foo" — lowerEntry might find "Bar"'s entry
+    var key = new CompositeKey("Foo", rid, 150L);
+    var result = snap.checkVisibility(key, new TombstoneRID(rid), 105L, LongOpenHashSet.of());
+    assertNull("Must not leak Bar's snapshot entry for Foo query", result);
+  }
+
+  // --- TC4: single-value key through checkVisibility ---
+
+  /**
+   * checkVisibility() with a single-value index key (CompositeKey(userKey, version))
+   * must correctly look up snapshot entries where userKeyLen=1.
+   */
+  @Test
+  public void checkVisibility_singleValueKey_phantom_tombstoneRid_snapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+    var rid = new RecordId(10, 1);
+
+    // Single-value key: CompositeKey(userKey, version)
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", 90L),
+        new CompositeKey("Foo", 100L),
+        rid);
+
+    var key = new CompositeKey("Foo", 100L);
+    var result = snap.checkVisibility(key, new TombstoneRID(rid), 95L, LongOpenHashSet.of());
+    assertEquals("Single-value key snapshot fallback should find entry", rid, result);
+    assertTrue("Snapshot fallback must return plain RecordId",
+        result instanceof RecordId);
   }
 }

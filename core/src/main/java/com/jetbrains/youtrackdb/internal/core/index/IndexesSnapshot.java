@@ -154,9 +154,8 @@ public class IndexesSnapshot {
   public @Nullable RID checkVisibility(CompositeKey key, RID rid,
       long visibleVersion, LongOpenHashSet inProgressVersions) {
     long version = (Long) key.getKeys().getLast();
-    var hasInProgress = !inProgressVersions.isEmpty();
 
-    if (hasInProgress && inProgressVersions.contains(version)) {
+    if (!inProgressVersions.isEmpty() && inProgressVersions.contains(version)) {
       // The in-progress TX may have replaced an older committed version that
       // was removed from the B-tree and now only exists in the snapshot.
       // For TombstoneRID/SnapshotMarkerRID, check the snapshot for historical
