@@ -369,16 +369,16 @@ public class BTreeGetVisibleTest {
   }
 
   @Test
-  public void getVisible_manyVersionsSameKey_findsVisible() throws Exception {
-    // Insert many versions of the same key to stress the forward scan.
-    // Only the first (v0) is a plain RecordId; the rest are tombstones.
-    // The scan must skip all tombstones and return the live entry.
+  public void getVisible_manyTombstonesThenLiveAtEnd_findsVisible() throws Exception {
+    // 50 tombstones at v0..v49, then a live entry at v50. The forward scan
+    // must skip all tombstones (checkVisibility returns null for each) before
+    // finding the live entry at the end. This stresses the forward scan loop.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      tree.put(atomicOperation, new CompositeKey("Hot", 0L), RID_1);
-      for (int v = 1; v <= 50; v++) {
+      for (int v = 0; v < 50; v++) {
         tree.put(atomicOperation, new CompositeKey("Hot", (long) v),
             new TombstoneRID(RID_1));
       }
+      tree.put(atomicOperation, new CompositeKey("Hot", 50L), RID_2);
     });
 
     var snapshot = newSnapshot();
@@ -386,8 +386,8 @@ public class BTreeGetVisibleTest {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       var result = tree.getVisible(new CompositeKey("Hot"), snapshot, atomicOperation);
       assertThat(result)
-          .as("Should find the live entry among many tombstones")
-          .isEqualTo(RID_1);
+          .as("Should skip 50 tombstones and find the live entry at the end")
+          .isEqualTo(RID_2);
     });
   }
 
@@ -462,6 +462,9 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult)
+          .as("getVisible should return committed RID")
+          .isEqualTo(RID_1);
+      assertThat(directResult)
           .as("getVisible and stream path must agree")
           .isEqualTo(streamResult);
     });
@@ -488,15 +491,14 @@ public class BTreeGetVisibleTest {
           .findFirst()
           .orElse(null);
 
-      assertThat(directResult)
-          .as("Both paths should return null for tombstone")
-          .isEqualTo(streamResult);
+      assertThat(directResult).as("Direct path should be null").isNull();
+      assertThat(streamResult).as("Stream path should be null").isNull();
     });
   }
 
   @Test
   public void getVisible_equivalentToStreamPath_multipleVersions() throws Exception {
-    // Both paths should return the same result for a key with multiple versions.
+    // Both paths should return RID_2 for a key with tombstone at v0 and live at v1.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       tree.put(atomicOperation, new CompositeKey("Multi", 0L),
           new TombstoneRID(RID_1));
@@ -517,7 +519,10 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult)
-          .as("Both paths should agree for multi-version key")
+          .as("Direct path should return RID_2")
+          .isEqualTo(RID_2);
+      assertThat(directResult)
+          .as("Both paths should agree")
           .isEqualTo(streamResult);
     });
   }
@@ -542,15 +547,14 @@ public class BTreeGetVisibleTest {
           .findFirst()
           .orElse(null);
 
-      assertThat(directResult)
-          .as("Both paths should return null for missing key")
-          .isEqualTo(streamResult);
+      assertThat(directResult).as("Direct path should be null").isNull();
+      assertThat(streamResult).as("Stream path should be null").isNull();
     });
   }
 
   @Test
   public void getVisible_equivalentToStreamPath_snapshotMarker() throws Exception {
-    // Both paths should return the identity for a SnapshotMarkerRID.
+    // Both paths should return the identity RID_1 for a SnapshotMarkerRID.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       tree.put(atomicOperation, new CompositeKey("Snap", 0L),
           new SnapshotMarkerRID(RID_1));
@@ -570,14 +574,17 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult)
-          .as("Both paths should agree for snapshot marker")
+          .as("Direct path should return identity of SnapshotMarkerRID")
+          .isEqualTo(RID_1);
+      assertThat(directResult)
+          .as("Both paths should agree")
           .isEqualTo(streamResult);
     });
   }
 
   @Test
   public void getVisible_equivalentToStreamPath_nullKey() throws Exception {
-    // Both paths should agree for a null key.
+    // Both paths should return RID_1 for a null key.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       tree.put(atomicOperation, new CompositeKey((Object) null, 0L), RID_1);
     });
@@ -596,8 +603,53 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult)
-          .as("Both paths should agree for null key")
+          .as("Direct path should return RID_1")
+          .isEqualTo(RID_1);
+      assertThat(directResult)
+          .as("Both paths should agree")
           .isEqualTo(streamResult);
+    });
+  }
+
+  // ---- Boundary: key after/before all entries ----
+
+  @Test
+  public void getVisible_keyAfterAllEntries_returnsNull() throws Exception {
+    // "ZZZZ" sorts after "Alpha" and "Beta", so bucket.find() returns an
+    // insertion point past the last entry — exercises startIndex >= bucketSize path.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      tree.put(atomicOperation, new CompositeKey("Alpha", 0L), RID_1);
+      tree.put(atomicOperation, new CompositeKey("Beta", 0L), RID_2);
+    });
+
+    var snapshot = newSnapshot();
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(
+          new CompositeKey("ZZZZ"), snapshot, atomicOperation);
+      assertThat(result)
+          .as("Key after all entries should return null")
+          .isNull();
+    });
+  }
+
+  @Test
+  public void getVisible_keyBeforeAllEntries_returnsNull() throws Exception {
+    // "AAAA" sorts before "Mango" and "Orange", so the first entry at the
+    // insertion point doesn't match the prefix — scan terminates immediately.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      tree.put(atomicOperation, new CompositeKey("Mango", 0L), RID_1);
+      tree.put(atomicOperation, new CompositeKey("Orange", 0L), RID_2);
+    });
+
+    var snapshot = newSnapshot();
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(
+          new CompositeKey("AAAA"), snapshot, atomicOperation);
+      assertThat(result)
+          .as("Key before all entries should return null")
+          .isNull();
     });
   }
 }
