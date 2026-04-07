@@ -16,7 +16,7 @@ CREATE FUNCTION <name> <code>
 - **`<code>`** Defines the function code.
 - **`PARAMETERS`** Defines a comma-separated list of parameters bound to the execution heap. You must wrap your parameters list in square brackets [].
 - **`IDEMPOTENT`** Defines whether the function can change the database status. By default, it is set to `FALSE`.
-- **`LANGUAGE`** Defines the language to use. By default, it is set to YQL.
+- **`LANGUAGE`** Defines the language to use. By default, it is set to `SQL`.
 
 **Examples**
 
@@ -31,11 +31,10 @@ CREATE FUNCTION test "print('\nTest!')" LANGUAGE javascript
 CREATE FUNCTION test "return a + b;" PARAMETERS [a,b] LANGUAGE javascript
 ```
 
-- Create a function `allUsersButAdmin` in YQL, which takes no parameters:
+- Create a function `allUsersButAdmin` in SQL, which takes no parameters:
 
 ```sql
-CREATE FUNCTION allUsersButAdmin "SELECT FROM ouser WHERE name <> 
-            'admin'" LANGUAGE YQL
+CREATE FUNCTION allUsersButAdmin "SELECT FROM ouser WHERE name <> 'admin'" LANGUAGE SQL
 ```
 
 >For more information, see

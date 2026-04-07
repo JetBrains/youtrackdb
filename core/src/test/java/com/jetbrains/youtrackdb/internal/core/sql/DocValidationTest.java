@@ -3012,14 +3012,14 @@ public class DocValidationTest {
         .hasMessageContaining("OFunction");
   }
 
-  // Line 37-38: CREATE FUNCTION allUsersButAdmin "SELECT FROM ouser WHERE name <> 'admin'"
-  //             LANGUAGE YQL
-  // Validates that a YQL-language function can be created.
+  // Line 36-37: CREATE FUNCTION allUsersButAdmin "SELECT FROM ouser WHERE name <> 'admin'"
+  //             LANGUAGE SQL
+  // Validates that an SQL-language function can be created.
   @Test
-  public void testCreateFunction_languageYQL() {
+  public void testCreateFunction_languageSQL() {
     assertThatThrownBy(() -> g.executeInTx(tx -> {
       tx.yql(
-          "CREATE FUNCTION cfTest3 \"SELECT FROM ouser WHERE name <> 'admin'\" LANGUAGE YQL")
+          "CREATE FUNCTION cfTest3 \"SELECT FROM ouser WHERE name <> 'admin'\" LANGUAGE SQL")
           .iterate();
     })).isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("OFunction");
