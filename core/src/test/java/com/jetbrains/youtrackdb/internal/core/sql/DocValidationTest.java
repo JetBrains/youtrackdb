@@ -2518,8 +2518,8 @@ public class DocValidationTest {
 
   // Line 22: ALTER PROPERTY Account.age NAME "born" — rename a property
   // Validates that the ALTER PROPERTY ... NAME syntax is accepted by the parser.
-  // Note: the doc claims "the old value is copied to the new property name" (line 82),
-  // but existing record data is NOT automatically migrated — this is a doc inaccuracy.
+  // The doc claims "the old values are copied to the new property name" (line 83),
+  // which is correct — SchemaClassImpl.firePropertyNameMigration() copies data.
   @Test
   public void testAlterPropertyRenameName() {
     g.command("CREATE CLASS ApAccount IF NOT EXISTS EXTENDS V");
@@ -2572,7 +2572,7 @@ public class DocValidationTest {
     g.command("DROP CLASS ApMandatory IF EXISTS");
   }
 
-  // Line 35: ALTER PROPERTY Account.gender REGEXP "[M|F]" — regex constraint
+  // Line 34: ALTER PROPERTY Account.gender REGEXP "[MF]" — regex constraint
   // Validates that the ALTER PROPERTY ... REGEXP syntax is accepted.
   @Test
   public void testAlterPropertyRegexp() {
@@ -2580,7 +2580,7 @@ public class DocValidationTest {
     g.command("CREATE PROPERTY ApRegexp.gender STRING");
 
     // The REGEXP command should be accepted without error
-    g.command("ALTER PROPERTY ApRegexp.gender REGEXP \"[M|F]\"");
+    g.command("ALTER PROPERTY ApRegexp.gender REGEXP \"[MF]\"");
 
     // Valid value should succeed
     g.executeInTx(tx -> {
@@ -2668,7 +2668,7 @@ public class DocValidationTest {
     g.command("DROP CLASS ApDefault IF EXISTS");
   }
 
-  // Line 58-59: ALTER PROPERTY Client.id DEFAULT "uuid()" READONLY TRUE — immutable UUID default
+  // Line 58-59: ALTER PROPERTY Client.id DEFAULT "uuid()" + READONLY TRUE — immutable UUID default
   @Test
   public void testAlterPropertyDefaultUuidReadonly() {
     g.command("CREATE CLASS ApReadonly IF NOT EXISTS EXTENDS V");
