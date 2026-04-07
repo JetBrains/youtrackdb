@@ -7,16 +7,17 @@ Creates a new property in the schema. It requires that the class for the propert
 
 ```sql
 CREATE PROPERTY
-<class>.<property> <type>
+<class>.<property> [IF NOT EXISTS] <type>
 [<link-type>|<link-class>]
-( <property constraint> [, <property-constraint>]* )
+[( <property-constraint> [, <property-constraint>]* )]
 ```
 
 - **`<class>`** Defines the class for the new property.
 - **`<property>`** Defines the logical name for the property.
+- **`IF NOT EXISTS`** Skips the command without error if the property already exists.
 - **`<type>`** Defines the property data type. For supported types, see the table below.
-- **`<link-type>`** Defines the contained type for container property data types. For supported link types, see the table below.
-- **`<link-class>`** Defines the contained class for container property data types. For supported link types, see the table below.
+- **`<link-type>`** Defines the contained type for container property data types. For supported types, see the table below.
+- **`<link-class>`** Defines the contained class for container property data types. Any existing class in the schema can be used.
 - **`<property-constraint>`** See [`ALTER PROPERTY`](YQL-Alter-Property.md) `<attribute-name> [ <attribute-value> ]`
 
 >When you create a property, YouTrackDB checks the existing data for compatibility with the specified type. If persistent data contains incompatible values, the property creation fails. It applies no other constraints on the persistent data.
