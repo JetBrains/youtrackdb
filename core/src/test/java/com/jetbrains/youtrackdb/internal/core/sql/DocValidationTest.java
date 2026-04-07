@@ -6037,4 +6037,78 @@ public class DocValidationTest {
     assertThat(profileResults).isNotEmpty();
   }
 
+  // ========== YQL-Create-Link.md ==========
+
+  /**
+   * YQL-Create-Link.md line 8: Validates that CREATE LINK syntax parses and executes correctly. The
+   * syntax is: CREATE LINK <link> TYPE <link-type> FROM <source>.<prop> TO <dest>.<prop> [INVERSE]
+   */
+  @Test
+  public void testCreateLinkBasicSyntax() {
+    // Set up source and destination classes with matching properties
+    g.command("CREATE CLASS LinkPosts EXTENDS V");
+    g.command("CREATE PROPERTY LinkPosts.Id INTEGER");
+    g.command("CREATE CLASS LinkComments EXTENDS V");
+    g.command("CREATE PROPERTY LinkComments.PostId INTEGER");
+    g.command("CREATE PROPERTY LinkComments.post LINK");
+
+    // Insert some data
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX LinkPosts SET Id = 1, title = 'First Post'").iterate();
+          tx.yql("CREATE VERTEX LinkPosts SET Id = 2, title = 'Second Post'").iterate();
+          tx.yql("CREATE VERTEX LinkComments SET PostId = 1, text = 'Great post'").iterate();
+          tx.yql("CREATE VERTEX LinkComments SET PostId = 2, text = 'Nice one'").iterate();
+        });
+
+    // CREATE LINK (non-inverse) — links each Comment to its Post via a LINK property
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE LINK post TYPE LINK FROM LinkComments.PostId TO LinkPosts.Id").iterate();
+        });
+
+    // Verify the link was created: Comments should now have a 'post' property linking to Posts
+    var comments =
+        g.computeInTx(tx -> tx.yql("SELECT FROM LinkComments ORDER BY PostId").toList());
+    assertThat(comments).hasSize(2);
+  }
+
+  /**
+   * YQL-Create-Link.md line 24: Validates the example CREATE LINK with INVERSE and LINKSET type.
+   * The doc example: CREATE LINK comments TYPE LINKSET FROM Comments.PostId TO Posts.Id INVERSE
+   */
+  @Test
+  public void testCreateLinkInverseWithLinkSet() {
+    // Set up classes
+    g.command("CREATE CLASS LinkInvPosts EXTENDS V");
+    g.command("CREATE PROPERTY LinkInvPosts.Id INTEGER");
+    g.command("CREATE PROPERTY LinkInvPosts.comments LINKSET");
+    g.command("CREATE CLASS LinkInvComments EXTENDS V");
+    g.command("CREATE PROPERTY LinkInvComments.PostId INTEGER");
+
+    // Insert data: two posts, each with two comments
+    g.executeInTx(
+        tx -> {
+          tx.yql("CREATE VERTEX LinkInvPosts SET Id = 10, title = 'Post A'").iterate();
+          tx.yql("CREATE VERTEX LinkInvPosts SET Id = 20, title = 'Post B'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 10, text = 'Comment A1'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 10, text = 'Comment A2'").iterate();
+          tx.yql("CREATE VERTEX LinkInvComments SET PostId = 20, text = 'Comment B1'").iterate();
+        });
+
+    // CREATE LINK with INVERSE — creates LINKSET on Posts pointing back to Comments
+    g.executeInTx(
+        tx -> {
+          tx.yql(
+              "CREATE LINK comments TYPE LINKSET FROM LinkInvComments.PostId"
+                  + " TO LinkInvPosts.Id INVERSE")
+              .iterate();
+        });
+
+    // Verify: Posts should now have 'comments' LINKSET property
+    var posts =
+        g.computeInTx(tx -> tx.yql("SELECT FROM LinkInvPosts ORDER BY Id").toList());
+    assertThat(posts).hasSize(2);
+  }
+
 }
