@@ -874,6 +874,55 @@ public class DocValidationTest {
     assertThat(edges).isEmpty();
   }
 
+  // Line 40: DELETE VERTEX Attachment WHERE inE('HasAttachment').outV().sender CONTAINS '...'
+  // Validates the corrected doc query using outV() to traverse to the source vertex.
+  @Test
+  public void testDeleteVertexWithEdgeTraversalAndOutV() {
+    g.command("CREATE CLASS DVEmail IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVAttachment IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS DVHasAttachment IF NOT EXISTS EXTENDS E");
+
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX DVEmail SET name = 'email1', sender = 'bob@example.com'").iterate();
+      tx.yql("CREATE VERTEX DVEmail SET name = 'email2', sender = 'alice@example.com'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att1'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att2'").iterate();
+      tx.yql("CREATE VERTEX DVAttachment SET name = 'att3'").iterate();
+    });
+
+    g.executeInTx(tx -> {
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email1') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att1')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email1') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att2')")
+          .iterate();
+      tx.yql(
+          "CREATE EDGE DVHasAttachment "
+              + "FROM (SELECT FROM DVEmail WHERE name = 'email2') "
+              + "TO (SELECT FROM DVAttachment WHERE name = 'att3')")
+          .iterate();
+    });
+
+    // Doc query: delete attachments where the source vertex of HasAttachment has sender = bob
+    g.executeInTx(tx -> {
+      tx.yql(
+          "DELETE VERTEX DVAttachment "
+              + "WHERE inE('DVHasAttachment').outV().sender CONTAINS 'bob@example.com'")
+          .iterate();
+    });
+
+    // att1 and att2 deleted (from bob), att3 remains (from alice)
+    var remaining = g.computeInTx(tx -> tx.yql("SELECT FROM DVAttachment").toList());
+    assertThat(remaining).hasSize(1);
+    Vertex v = (Vertex) remaining.get(0);
+    assertThat((String) v.value("name")).isEqualTo("att3");
+  }
+
   // === YQL-Delete-Edge.md ===
 
   // Line 34: DELETE EDGE #<rid> — removes a single edge by its Record ID
