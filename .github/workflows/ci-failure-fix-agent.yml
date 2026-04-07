@@ -194,28 +194,34 @@ jobs:
 
           - **Test failure**: A test assertion or error — go to Step 2.
           - **CI gate failure** (coverage gate, test count gate): A policy
-            check failed, not a test. Read PR comments for gate details.
-            Understand the gate's threshold and why it triggered — go to
-            Step 1a.
+            check failed, not a test. Understand the gate's threshold and
+            why it triggered — go to Step 1a.
           - **Build failure**: Compilation error, dependency issue — read
-            build logs, trace the error to its source file, fix the code
-            or build configuration, then go to Step 5 to verify. If the
-            error is in production code, go through Steps 3-4 first to
-            ensure you understand the root cause.
+            build logs, trace the error to its source file. Then go
+            through Steps 3-4 to understand the root cause before
+            applying a fix, and Step 5 to verify.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
-            — write a summary noting this is infra-related and skip fix.
-            Close the draft PR with a comment explaining the infra issue.
+            — close the draft PR with a comment explaining the infra
+            issue, then go to Step 8 to write a summary.
 
           ### Step 1a: Diagnose CI gate failures
 
-          1. Read the gate's PR comment — it has specific data.
+          1. Check whether the failed run is associated with a PR
+             (`gh run view {run_id} --json headBranch,event`). If it is,
+             read the gate's PR comment — it has specific data (test
+             counts, coverage percentages). If it ran on `develop`
+             directly, extract gate details from the job logs instead.
           2. Check CLAUDE.md and gate scripts for exact rules.
           3. **Test Count Gate**: Compare baseline vs current per module. A
              big drop usually means tests were excluded by build config
-             changes. Trace WHY — don't just bypass.
+             changes. Trace the Maven profile chain — which profile was
+             removed, what did it activate, which `pom.xml` depended on
+             it. Don't just bypass.
           4. **Coverage Gate**: Check which lines are uncovered and whether
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
+          6. Once you understand the root cause, proceed to Step 4 to
+             apply the fix.
 
           ## Step 2: Locate and understand the failing test
 
@@ -247,9 +253,9 @@ jobs:
              - Test has overly strict assertion on genuinely non-deterministic
                behavior (e.g., iteration order of a hash set) → fix test,
                but ONLY if you can prove the non-determinism is legitimate
-          6. For build config issues: trace the Maven profile chain — which
-             profile was removed, what did it activate, which `pom.xml`
-             depended on it.
+          6. For build failures: trace the compilation or dependency error
+             back to the source — which file, which change introduced it,
+             and why it breaks the build.
           7. **Document your root cause analysis before making changes.**
              Write it out explicitly — this forces clear thinking and
              prevents jumping to superficial fixes.
