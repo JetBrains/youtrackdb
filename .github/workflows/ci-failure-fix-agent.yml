@@ -198,11 +198,12 @@ jobs:
             why it triggered — go to Step 1a.
           - **Build failure**: Compilation error, dependency issue — read
             build logs, trace the error to its source file. Then go
-            through Steps 3-4 to understand the root cause before
-            applying a fix, and Step 5 to verify.
+            through Steps 3-4 to understand the root cause and apply
+            the fix, Step 5 to verify, Step 6 for dimensional review,
+            and Step 7 to commit and update the PR.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
-            — close the draft PR with a comment explaining the infra
-            issue, then go to Step 8 to write a summary.
+            — go to Step 7 to close the draft PR with a comment
+            explaining the infra issue, then Step 8 to write a summary.
 
           ### Step 1a: Diagnose CI gate failures
 
@@ -221,7 +222,7 @@ jobs:
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
           6. Once you understand the root cause, proceed to Step 4 to
-             apply the fix.
+             apply the fix, then continue through Steps 5-7.
 
           ## Step 2: Locate and understand the failing test
 
@@ -442,9 +443,10 @@ jobs:
           6. **Re-run only the agent(s) with open findings** on the updated
              changes.
 
-          7. **Repeat steps 4-6** until no blocker/should-fix findings remain.
-             Maximum 3 iterations. If after 3 rounds there are still critical
-             issues, document them in the summary and proceed.
+          7. **Repeat sub-steps 4-6 above** until no blocker/should-fix
+             findings remain. Maximum 3 iterations. If after 3 rounds
+             there are still critical issues, document them in the
+             summary and proceed.
 
           8. **Final full test run after review loop completes.**
              After the review loop exits (all findings addressed or max
@@ -455,7 +457,7 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
-             and re-run the suite. Do NOT proceed to Step 7 with
+             and re-run the suite. Do NOT proceed to main Step 7 with
              failing tests.
 
           ## Step 7: Commit, push, and update the draft PR
