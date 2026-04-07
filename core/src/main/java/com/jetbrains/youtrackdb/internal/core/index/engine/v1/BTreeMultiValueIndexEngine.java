@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -558,49 +557,23 @@ public final class BTreeMultiValueIndexEngine
       return;
     }
 
-    // Null entries live in nullTree, non-null in svTree — two separate scans
-    // are unavoidable. But we combine the non-null count and key collection
-    // into a single svTree pass (previously stream().count() + keyStream()
-    // scanned svTree twice).
-    long nullCount;
-    try (var nullStream = get(null, atomicOperation)) {
-      nullCount = nullStream.count();
-    }
+    // Use approximate count for bucket sizing, scan for exact count + keys.
+    // Null entries live in nullTree; counting visible nulls would require a
+    // full scan, so approximate null count is used.
+    long approxTotal = approximateIndexEntriesCount.get();
+    long approxNull = approximateNullCount.get();
 
-    var firstKey = svTree.firstKey(atomicOperation);
-    if (firstKey == null) {
-      approximateIndexEntriesCount.set(nullCount);
-      approximateNullCount.set(nullCount);
-      svTree.setApproximateEntriesCount(atomicOperation, 0);
-      nullTree.setApproximateEntriesCount(atomicOperation, nullCount);
-      mgr.buildHistogram(atomicOperation, Stream.empty(), nullCount, nullCount,
+    long scannedNonNull;
+    try (var keyStream = keyStream(atomicOperation)) {
+      scannedNonNull = mgr.buildHistogram(
+          atomicOperation, keyStream,
+          approxTotal, approxNull,
           mgr.getKeyFieldCount());
-      return;
     }
 
-    List<RawPair<Object, RID>> nonNullEntries;
-    try (var svStream = indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        svTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
-        BTreeMultiValueIndexEngine::extractKey)) {
-      nonNullEntries = svStream.toList();
-    }
-
-    long nonNullCount = nonNullEntries.size();
-    long totalCount = nonNullCount + nullCount;
-
-    // Recalibrate approximate counters from the exact scan to prevent
-    // divergence over time (e.g., from rolled-back atomic operations).
-    // Persist recalibrated counts to entry point pages before building
-    // histogram, so count persistence is not conditional on histogram success.
-    approximateIndexEntriesCount.set(totalCount);
-    approximateNullCount.set(nullCount);
-    svTree.setApproximateEntriesCount(atomicOperation, nonNullCount);
-    nullTree.setApproximateEntriesCount(atomicOperation, nullCount);
-
-    mgr.buildHistogram(
-        atomicOperation, nonNullEntries.stream().map(RawPair::first),
-        totalCount, nullCount,
-        mgr.getKeyFieldCount());
+    // Recalibrate from exact count
+    approximateIndexEntriesCount.set(scannedNonNull + approxNull);
+    svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
   }
 
   @Override

@@ -25,11 +25,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -522,6 +520,13 @@ public final class BTreeSingleValueIndexEngine
     return result;
   }
 
+  /** Single null lookup — at most 1 entry for a unique index. */
+  private long countNulls(@Nonnull AtomicOperation atomicOperation) {
+    try (var nullStream = get(null, atomicOperation)) {
+      return nullStream.count();
+    }
+  }
+
   @Override
   public void buildInitialHistogram(@Nonnull AtomicOperation atomicOperation)
       throws IOException {
@@ -530,42 +535,23 @@ public final class BTreeSingleValueIndexEngine
       return;
     }
 
-    // Single-pass scan: iterate all visible entries once, partitioning into
-    // null and non-null groups.
-    var firstKey = sbTree.firstKey(atomicOperation);
-    if (firstKey == null) {
-      approximateIndexEntriesCount.set(0);
-      approximateNullCount.set(0);
-      sbTree.setApproximateEntriesCount(atomicOperation, 0);
-      mgr.buildHistogram(atomicOperation, Stream.empty(), 0, 0,
+    // Use approximate count for bucket sizing, scan for exact count + keys.
+    long approxTotal = approximateIndexEntriesCount.get();
+    long exactNullCount = countNulls(atomicOperation);
+
+    long scannedNonNull;
+    try (var keyStream = keyStream(atomicOperation)) {
+      scannedNonNull = mgr.buildHistogram(
+          atomicOperation, keyStream,
+          approxTotal, exactNullCount,
           mgr.getKeyFieldCount());
-      return;
     }
 
-    List<RawPair<Object, RID>> nonNullEntries;
-    long nullCount;
-    try (var allVisible = indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        sbTree.iterateEntriesMajor(firstKey, true, true, atomicOperation),
-        BTreeSingleValueIndexEngine::extractKey)) {
-      var partitioned = allVisible.collect(
-          Collectors.partitioningBy(p -> p.first() != null));
-      nonNullEntries = partitioned.get(true);
-      nullCount = partitioned.get(false).size();
-    }
-    long totalCount = nonNullEntries.size() + nullCount;
-
-    // Recalibrate approximate counters from the exact scan to prevent
-    // divergence over time (e.g., from rolled-back atomic operations).
-    // Persist recalibrated count to entry point page before building
-    // histogram, so count persistence is not conditional on histogram success.
-    approximateIndexEntriesCount.set(totalCount);
-    approximateNullCount.set(nullCount);
-    sbTree.setApproximateEntriesCount(atomicOperation, totalCount);
-
-    mgr.buildHistogram(
-        atomicOperation, nonNullEntries.stream().map(RawPair::first),
-        totalCount, nullCount,
-        mgr.getKeyFieldCount());
+    // Recalibrate from exact count
+    long exactTotal = scannedNonNull + exactNullCount;
+    approximateIndexEntriesCount.set(exactTotal);
+    approximateNullCount.set(exactNullCount);
+    sbTree.setApproximateEntriesCount(atomicOperation, exactTotal);
   }
 
   @Override

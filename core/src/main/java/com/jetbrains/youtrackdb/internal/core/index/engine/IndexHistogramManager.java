@@ -722,11 +722,14 @@ public class IndexHistogramManager extends StorageComponent {
    * @param op           atomic operation for page I/O
    * @param sortedKeys   non-null keys only (sorted by DefaultComparator).
    *                     The caller is responsible for closing this stream.
-   * @param totalCount   total entries including nulls
-   * @param nullCount    number of null entries
+   * @param totalCount   total entries including nulls (may be approximate —
+   *                     used only for bucket sizing and early-exit threshold)
+   * @param nullCount    number of null entries (may be approximate)
    * @param keyFieldCnt  number of key fields (1 for simple, >1 for composite)
+   * @return exact count of non-null keys consumed from the stream, so callers
+   *         can recalibrate approximate counters without a separate scan
    */
-  public void buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
+  public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
     long nonNullCount = totalCount - nullCount;
     if (nonNullCount < histogramMinSize) {
@@ -739,7 +742,7 @@ public class IndexHistogramManager extends StorageComponent {
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
-      return;
+      return nonNullCount;
     }
 
     // Compute effective keys (leading field for composite indexes)
@@ -780,7 +783,7 @@ public class IndexHistogramManager extends StorageComponent {
           stats, null, 0, totalCount, 0, false, null, false);
       cache.put(engineId, snapshot);
       writeSnapshotToPage(op, snapshot);
-      return;
+      return 0;
     }
 
     // Compute actual non-null count from scan (consistent with frequencies)
@@ -805,6 +808,7 @@ public class IndexHistogramManager extends StorageComponent {
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
     cache.put(engineId, snapshot);
     writeSnapshotToPage(op, snapshot);
+    return scannedNonNull;
   }
 
   // ---- Rebalance ----

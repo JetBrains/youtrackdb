@@ -593,7 +593,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void inProgress_nonMatchingVersion_passesThrough() {
     var snap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
 
     // version=100 is NOT in the in-progress set {99, 101}
     var result = filterMapped(snap, 200L, LongOpenHashSet.of(99L, 101L), List.of(pair));
@@ -609,7 +609,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void committed_recordId_visible() {
     var snap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
 
     var result = filterMapped(snap, 200L, List.of(pair));
     assertEquals("Committed RecordId must be visible", 1, result.size());
@@ -657,7 +657,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void phantom_recordId_filteredOut() {
     var snap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 200L), (RID) RID_20_0);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 200L), RID_20_0);
 
     var result = filterMapped(snap, 200L, List.of(pair));
     assertTrue("Phantom RecordId must not be visible", result.isEmpty());
@@ -672,7 +672,7 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void nullAtomicOp_allNonTombstoneVisible() {
     var snap = newSnapshot(INDEX_ID);
-    var alive = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), (RID) RID_20_0);
+    var alive = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
     var dead = new RawPair<>(
         new CompositeKey("Bar", RID_20_0, 100L), (RID) new TombstoneRID(RID_20_0));
     var marker = new RawPair<>(
@@ -716,5 +716,156 @@ public class IndexesSnapshotVisibilityFilterTest {
 
     assertEquals("Only the committed alive entry should survive", 1, result.size());
     assertEquals(ridA, result.getFirst().second());
+  }
+
+  // --- in-progress TX replaces a committed version ---
+
+  /**
+   * Regression test for a visibility bug where an in-progress TX that replaces a
+   * committed entry makes the key completely invisible.
+   *
+   * Scenario:
+   * <ol>
+   *   <li>TX1 inserts key "A" at version 100 (committed).
+   *       Primary B-Tree: {@code [A, #20:0, 100] → #20:0}</li>
+   *   <li>TX2 updates key "A" at version 105 (in-progress). The old v100 entry is
+   *       replaced in the B-Tree with a SnapshotMarkerRID at v105, and the old value
+   *       is moved to the snapshot via addSnapshotPair.
+   *       Primary B-Tree: {@code [A, #20:0, 105] → ~#20:0} (SnapshotMarkerRID)
+   *       Snapshot: {@code [A, #20:0, 100] → -#20:0} (TombstoneRID = was alive at v100)
+   *                 {@code [A, #20:0, 105] →  #20:0} (RecordId = was replaced at v105)</li>
+   *   <li>TX3 reads with visibleVersion=104, inProgressVersions={105}.
+   *       TX3 encounters the primary entry [A, #20:0, 105] → SnapshotMarkerRID.
+   *       Version 105 is in the in-progress set, so the current code skips the entry
+   *       entirely. But the old committed value at v100 (visible to TX3) was removed
+   *       from the B-Tree and only exists in the snapshot. Key "A" becomes invisible
+   *       to TX3 when it should be visible.</li>
+   * </ol>
+   *
+   * Expected: TX3 should see key "A" via the snapshot (was alive at v100, which is
+   * before TX3's visibleVersion=104).
+   */
+  @Test
+  public void inProgress_replacesCommittedEntry_oldVersionVisibleViaSnapshot() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // TX2 at v105 replaces the committed v100 entry → snapshot pair created
+    snap.addSnapshotPair(
+        new CompositeKey("A", RID_20_0, 100L),
+        new CompositeKey("A", RID_20_0, 105L),
+        RID_20_0);
+
+    // Primary B-Tree after TX2's update: SnapshotMarkerRID at v105
+    var primaryEntry = new RawPair<>(
+        new CompositeKey("A", RID_20_0, 105L), (RID) SNAPSHOT_MARKER_20_0);
+
+    // TX3: visibleVersion=104, inProgressVersions={105}
+    var result = filterMapped(snap, 104L, LongOpenHashSet.of(105L), List.of(primaryEntry));
+
+    assertEquals(
+        "In-progress TX replaced committed entry — old version should be visible via snapshot",
+        1, result.size());
+    assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  /**
+   * Same scenario as above but with a TombstoneRID in the primary B-Tree (in-progress
+   * TX deletes rather than updates), and the snapshot holds the previously committed value.
+   *
+   * TX1 inserts key "B" at v200 (committed). TX2 deletes key "B" at v210 (in-progress).
+   * Primary: {@code [B, #20:0, 210] → -#20:0} (TombstoneRID).
+   * Snapshot: v200 → TombstoneRID (was alive), v210 → RecordId (was removed).
+   * TX3 reads with visibleVersion=208, inProgressVersions={210}.
+   * Expected: TX3 should see "B" (was alive at v200 < visibleVersion=208).
+   */
+  @Test
+  public void inProgress_deletesCommittedEntry_oldVersionVisibleViaSnapshot() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // TX2 at v210 deletes the committed v200 entry → snapshot pair created
+    snap.addSnapshotPair(
+        new CompositeKey("B", RID_20_0, 200L),
+        new CompositeKey("B", RID_20_0, 210L),
+        RID_20_0);
+
+    // Primary B-Tree after TX2's delete: TombstoneRID at v210
+    var primaryEntry = new RawPair<>(
+        new CompositeKey("B", RID_20_0, 210L), (RID) TOMBSTONE_20_0);
+
+    // TX3: visibleVersion=208, inProgressVersions={210}
+    var result = filterMapped(snap, 208L, LongOpenHashSet.of(210L), List.of(primaryEntry));
+
+    assertEquals(
+        "In-progress TX deleted committed entry — old version should be visible via snapshot",
+        1, result.size());
+    assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  /**
+   * Variant: in-progress TX replaces a committed entry, but the reader's
+   * visibleVersion is before the committed version too. The old version should
+   * NOT be visible because it was committed after the reader's snapshot.
+   *
+   * TX1 inserts at v100. TX2 updates at v105 (in-progress).
+   * TX3 reads with visibleVersion=99, inProgressVersions={105}.
+   * Expected: not visible (v100 commit is after TX3's snapshot).
+   */
+  @Test
+  public void inProgress_replacesCommittedEntry_readerBeforeCommit_notVisible() {
+    var snap = newSnapshot(INDEX_ID);
+
+    snap.addSnapshotPair(
+        new CompositeKey("A", RID_20_0, 100L),
+        new CompositeKey("A", RID_20_0, 105L),
+        RID_20_0);
+
+    var primaryEntry = new RawPair<>(
+        new CompositeKey("A", RID_20_0, 105L), (RID) SNAPSHOT_MARKER_20_0);
+
+    // TX3: visibleVersion=99, inProgressVersions={105}
+    var result = filterMapped(snap, 99L, LongOpenHashSet.of(105L), List.of(primaryEntry));
+
+    assertTrue(
+        "Reader's snapshot predates the committed version — should not be visible",
+        result.isEmpty());
+  }
+
+  /**
+   * Variant: in-progress TX replaces a committed entry that was itself a deletion
+   * (TombstoneRID in the snapshot). The old "alive" version is even further back.
+   *
+   * TX1 inserts at v90, TX2 deletes at v100 (committed), TX3 re-inserts at v110 (in-progress).
+   * Snapshot from TX2's delete: v90 → TombstoneRID (was alive), v100 → RecordId (was removed).
+   * Snapshot from TX3's re-insert: v100 → TombstoneRID (tombstone), v110 → RecordId (replaced).
+   * TX4 reads with visibleVersion=95, inProgressVersions={110}.
+   * Expected: TX4 should see the key (was alive at v90 < visibleVersion=95).
+   */
+  @Test
+  public void inProgress_replacesCommittedDeletion_deepHistoryVisible() {
+    var snap = newSnapshot(INDEX_ID);
+
+    // TX2's delete at v100: was alive at v90, removed at v100
+    snap.addSnapshotPair(
+        new CompositeKey("C", RID_20_0, 90L),
+        new CompositeKey("C", RID_20_0, 100L),
+        RID_20_0);
+
+    // TX3's re-insert at v110: the tombstone at v100 is replaced
+    snap.addSnapshotPair(
+        new CompositeKey("C", RID_20_0, 100L),
+        new CompositeKey("C", RID_20_0, 110L),
+        RID_20_0);
+
+    // Primary after TX3's re-insert: SnapshotMarkerRID at v110
+    var primaryEntry = new RawPair<>(
+        new CompositeKey("C", RID_20_0, 110L), (RID) SNAPSHOT_MARKER_20_0);
+
+    // TX4: visibleVersion=95, inProgressVersions={110}
+    var result = filterMapped(snap, 95L, LongOpenHashSet.of(110L), List.of(primaryEntry));
+
+    assertEquals(
+        "Deep history: record was alive at v90, should be visible at visibleVersion=95",
+        1, result.size());
+    assertEquals(RID_20_0, result.getFirst().second());
   }
 }

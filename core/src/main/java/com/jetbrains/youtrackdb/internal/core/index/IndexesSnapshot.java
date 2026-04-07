@@ -105,6 +105,14 @@ public class IndexesSnapshot {
           long version = (Long) pair.first().getKeys().getLast();
 
           if (hasInProgress && inProgressVersions.contains(version)) {
+            // The in-progress TX may have replaced an older committed version that
+            // was removed from the B-tree and now only exists in the snapshot.
+            // For TombstoneRID/SnapshotMarkerRID, check the snapshot for historical
+            // state. For plain RecordId (a new insert with no prior history), skip.
+            var inProgressRid = pair.second();
+            if (!(inProgressRid instanceof RecordId)) {
+              emitSnapshotVisibility(pair, visibleVersion, keyMapper, downstream);
+            }
             return;
           }
 
@@ -188,9 +196,9 @@ public class IndexesSnapshot {
     var keys = key.getKeys();
     var result = new CompositeKey(keys.size() + 1);
     result.addKey(indexId);
-    for (int i = 0, size = keys.size(); i < size; i++) {
-      result.addKey(keys.get(i));
-    }
+      for (var o : keys) {
+          result.addKey(o);
+      }
     return result;
   }
 
