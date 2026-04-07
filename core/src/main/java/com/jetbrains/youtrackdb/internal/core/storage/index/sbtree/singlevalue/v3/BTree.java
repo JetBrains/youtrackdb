@@ -319,6 +319,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   @Override
   @Nullable public RID getVisible(K key, IndexesSnapshot snapshot,
       @Nonnull AtomicOperation atomicOperation) {
+    assert key instanceof CompositeKey
+        : "getVisible() requires CompositeKey, got " + (key == null ? "null" : key.getClass());
     // Null keys are stored as CompositeKey(null, version) in the main B-tree,
     // so they are handled uniformly by the same prefix-matching code path.
     try {
@@ -335,17 +337,9 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
           keySerializer.serializeNativeAsWhole(
               serializerFactory, preprocessedKey, (Object[]) keyTypes);
 
-      final long visibleVersion;
-      final LongOpenHashSet inProgressVersions;
-      if (atomicOperation.getAtomicOperationsSnapshot() != null) {
-        visibleVersion =
-            atomicOperation.getAtomicOperationsSnapshot().maxActiveOperationTs();
-        inProgressVersions =
-            atomicOperation.getAtomicOperationsSnapshot().inProgressTxs();
-      } else {
-        visibleVersion = Long.MAX_VALUE;
-        inProgressVersions = LongOpenHashSet.of();
-      }
+      final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+      final var visibleVersion = opsSnapshot.maxActiveOperationTs();
+      final var inProgressVersions = opsSnapshot.inProgressTxs();
 
       return executeOptimisticStorageRead(
           atomicOperation,
@@ -479,11 +473,9 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    * point at the first version entry. In the rare case of an exact match (a real entry has
    * version {@code Long.MIN_VALUE}), the found index points directly at a matching entry.
    *
-   * <p>The {@code prefixKey} used for prefix-match checking is the search key (user key +
-   * {@code Long.MIN_VALUE}). Because {@link CompositeKey#compareTo} compares element-by-element
-   * and returns 0 when the shorter key's elements all match, two keys with the same user-key
-   * prefix but different versions (e.g., {@code (Foo, Long.MIN_VALUE)} vs {@code (Foo, 100)})
-   * compare as equal.
+   * <p>Prefix matching uses {@link #userKeyPrefixMatches}, which compares all CompositeKey
+   * elements except the last (version) element. This correctly identifies entries belonging
+   * to the same user key regardless of their version values.
    *
    * @param bucket the leaf bucket to scan
    * @param foundIndex the result of bucket.find() — positive if exact match, negative
@@ -536,27 +528,26 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       }
     }
 
+    // Extract the user-key prefix elements (all except the last version element)
+    // once before the loop to avoid repeated getKeys() / UnmodifiableList wrapper
+    // allocations per entry.
+    final var searchPrefixKeys = ((CompositeKey) prefixKey).getKeys();
+    final var prefixLen = searchPrefixKeys.size() - 1;
+
     // Scan forward from startIndex applying visibility
     for (var i = startIndex; i < bucketSize; i++) {
       final var entry = bucket.getEntry(i, keySerializer, serializerFactory);
 
-      // Check if entry still matches the user-key prefix.
-      // CompositeKey.compareTo does prefix matching: (Foo, Long.MIN_VALUE) vs
-      // (Foo, 100L) compares "Foo"=="Foo" then stops because the shorter key
-      // has no more elements — wait, both keys have the same size here.
-      // We need a different prefix check.
-      @SuppressWarnings("unchecked")
-      final var compositeKey = (CompositeKey) (Object) entry.key;
-
-      // Prefix match: compare all user-key elements (all except the last version
-      // element). If the user-key portion differs, we've passed the prefix range.
-      if (!userKeyPrefixMatches(prefixKey, entry.key)) {
+      // Check if entry still matches the user-key prefix (all elements except
+      // the last version element). If the prefix differs, we've passed the range.
+      final var entryComposite = (CompositeKey) entry.key;
+      if (!userKeyPrefixMatches(searchPrefixKeys, prefixLen, entryComposite)) {
         return null;
       }
 
       final var rid = entry.value;
       final var visibleRid = snapshot.checkVisibility(
-          compositeKey, rid, visibleVersion, inProgressVersions);
+          entryComposite, rid, visibleVersion, inProgressVersions);
       if (visibleRid != null) {
         return visibleRid;
       }
@@ -571,25 +562,26 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   /**
-   * Checks whether two CompositeKeys share the same user-key prefix (all elements
-   * except the last version element). Both keys are expected to have {@code keySize}
-   * elements.
+   * Checks whether the entry's CompositeKey shares the same user-key prefix as the
+   * pre-extracted search key elements. The prefix is all elements except the last
+   * (version) element.
+   *
+   * @param searchPrefixKeys the search key's element list (pre-extracted to avoid
+   *     repeated {@code getKeys()} allocations in the scan loop)
+   * @param prefixLen the number of user-key elements to compare
+   *     ({@code searchPrefixKeys.size() - 1})
+   * @param entryComposite the entry's CompositeKey to check against
    */
-  private boolean userKeyPrefixMatches(K searchKey, K entryKey) {
-    if (!(searchKey instanceof CompositeKey searchComposite)
-        || !(entryKey instanceof CompositeKey entryComposite)) {
-      return comparator.compare(searchKey, entryKey) == 0;
-    }
-    var searchKeys = searchComposite.getKeys();
+  private static boolean userKeyPrefixMatches(
+      java.util.List<?> searchPrefixKeys, int prefixLen,
+      CompositeKey entryComposite) {
     var entryKeys = entryComposite.getKeys();
-    // Compare all elements except the last one (version)
-    var prefixLen = searchKeys.size() - 1;
     if (entryKeys.size() - 1 != prefixLen) {
       return false;
     }
     for (var i = 0; i < prefixLen; i++) {
       var cmp = DefaultComparator.INSTANCE.compare(
-          searchKeys.get(i), entryKeys.get(i));
+          searchPrefixKeys.get(i), entryKeys.get(i));
       if (cmp != 0) {
         return false;
       }
