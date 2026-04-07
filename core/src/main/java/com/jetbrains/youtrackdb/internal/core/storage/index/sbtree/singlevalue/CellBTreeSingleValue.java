@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -21,6 +22,20 @@ public interface CellBTreeSingleValue<K> {
       throws IOException;
 
   @Nullable RID get(K key, @Nonnull AtomicOperation atomicOperation);
+
+  /**
+   * Returns the first visible RID for the given key according to the snapshot isolation
+   * visibility rules. Uses optimistic lock-free reads on the happy path with pinned
+   * fallback. This is an SI-aware operation — visibility is applied inline during the
+   * leaf scan via {@link IndexesSnapshot#checkVisibility}.
+   *
+   * @param key the user key (without version component)
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param atomicOperation the current atomic operation (provides snapshot version)
+   * @return the visible RID, or null if no visible entry exists for this key
+   */
+  @Nullable RID getVisible(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation);
 
   boolean put(@Nonnull AtomicOperation atomicOperation, K key, RID value) throws IOException;
 

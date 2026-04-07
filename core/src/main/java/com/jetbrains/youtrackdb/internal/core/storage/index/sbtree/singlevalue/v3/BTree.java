@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
@@ -46,6 +47,7 @@ import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -312,6 +314,287 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
           new CellBTreeSingleValueV3NullBucket(nullBucketCacheEntry);
       return nullBucket.getValue();
     }
+  }
+
+  @Override
+  @Nullable public RID getVisible(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation) {
+    // Null keys are stored as CompositeKey(null, version) in the main B-tree,
+    // so they are handled uniformly by the same prefix-matching code path.
+    try {
+      // Build a search key padded with Long.MIN_VALUE as the version component.
+      // This ensures the serialized key has the full number of elements that
+      // IndexMultiValuKeySerializer expects, and Long.MIN_VALUE guarantees the
+      // search key sorts before any real versioned entry with the same user-key
+      // prefix. bucket.find() will return a negative insertion point at the first
+      // entry with the matching prefix.
+      final var searchKey = buildSearchKey(key);
+      final var preprocessedKey =
+          keySerializer.preprocess(serializerFactory, searchKey, (Object[]) keyTypes);
+      final var serializedKey =
+          keySerializer.serializeNativeAsWhole(
+              serializerFactory, preprocessedKey, (Object[]) keyTypes);
+
+      final long visibleVersion;
+      final LongOpenHashSet inProgressVersions;
+      if (atomicOperation.getAtomicOperationsSnapshot() != null) {
+        visibleVersion =
+            atomicOperation.getAtomicOperationsSnapshot().maxActiveOperationTs();
+        inProgressVersions =
+            atomicOperation.getAtomicOperationsSnapshot().inProgressTxs();
+      } else {
+        visibleVersion = Long.MAX_VALUE;
+        inProgressVersions = LongOpenHashSet.of();
+      }
+
+      return executeOptimisticStorageRead(
+          atomicOperation,
+          () -> getVisibleOptimistic(
+              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              visibleVersion, inProgressVersions),
+          () -> getVisiblePinned(
+              atomicOperation, preprocessedKey, serializedKey, snapshot,
+              visibleVersion, inProgressVersions));
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during getVisible of sbtree with name " + getName(), this),
+          e, storage.getName());
+    }
+  }
+
+  /**
+   * Builds a search key from the user-facing prefix key by appending {@code Long.MIN_VALUE}
+   * as the version component. This ensures the search key is serializable with the full
+   * {@code keyTypes} array and sorts before any real versioned entry with the same user-key
+   * prefix, so {@code bucket.find()} returns the insertion point at the first matching entry.
+   */
+  @SuppressWarnings("unchecked")
+  private K buildSearchKey(K prefixKey) {
+    if (prefixKey instanceof CompositeKey compositeKey) {
+      var fullKey = new CompositeKey(compositeKey);
+      // Pad with Long.MIN_VALUE for each missing key element
+      var itemsToAdd = keySize - fullKey.getKeys().size();
+      for (var i = 0; i < itemsToAdd; i++) {
+        fullKey.addKey(Long.MIN_VALUE);
+      }
+      return (K) fullKey;
+    }
+    return prefixKey;
+  }
+
+  /**
+   * Optimistic path for getVisible: descends to the leaf page using loadPageOptimistic(),
+   * then scans entries with prefix matching and inline visibility check. If the leaf page
+   * is exhausted without finding a visible entry, falls through to pinned path (which
+   * can follow right siblings for cross-page entries).
+   */
+  @Nullable private RID getVisibleOptimistic(
+      final AtomicOperation atomicOperation,
+      final K prefixKey,
+      final byte[] serializedKey,
+      final IndexesSnapshot snapshot,
+      final long visibleVersion,
+      final LongOpenHashSet inProgressVersions) {
+    final var scope = atomicOperation.getOptimisticReadScope();
+    var pageIndex = ROOT_INDEX;
+
+    var depth = 0;
+    while (true) {
+      depth++;
+      if (depth > MAX_PATH_LENGTH) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      final var pageView = loadPageOptimistic(atomicOperation, fileId, pageIndex);
+      final var bucket = new CellBTreeSingleValueBucketV3<K>(pageView);
+      final var index = bucket.find(serializedKey, keySerializer, serializerFactory);
+
+      if (bucket.isLeaf()) {
+        return scanLeafForVisible(
+            bucket, index, prefixKey, snapshot,
+            visibleVersion, inProgressVersions, true);
+      }
+
+      if (index >= 0) {
+        pageIndex = bucket.getRight(index);
+      } else {
+        final var insertionIndex = -index - 1;
+        if (insertionIndex >= bucket.size()) {
+          pageIndex = bucket.getRight(insertionIndex - 1);
+        } else {
+          pageIndex = bucket.getLeft(insertionIndex);
+        }
+      }
+      scope.validateLastOrThrow();
+    }
+  }
+
+  /**
+   * Pinned fallback path for getVisible: uses loadPageForRead() with try-with-resources.
+   * Follows right sibling pointers for cross-page entries.
+   */
+  @Nullable private RID getVisiblePinned(
+      final AtomicOperation atomicOperation,
+      final K prefixKey, final byte[] serializedKey,
+      final IndexesSnapshot snapshot,
+      final long visibleVersion,
+      final LongOpenHashSet inProgressVersions) throws IOException {
+    final var bucketSearchResult =
+        findBucketSerialized(prefixKey, serializedKey, atomicOperation);
+
+    var pageIndex = bucketSearchResult.getPageIndex();
+    var foundIndex = bucketSearchResult.getItemIndex();
+
+    while (true) {
+      try (final var cacheEntry =
+          loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
+
+        final var result = scanLeafForVisible(
+            bucket, foundIndex, prefixKey, snapshot,
+            visibleVersion, inProgressVersions, false);
+        if (result != null) {
+          return result;
+        }
+
+        // Leaf exhausted — follow right sibling for cross-page entries
+        final var rightSibling = bucket.getRightSibling();
+        if (rightSibling < 0) {
+          return null;
+        }
+        pageIndex = (int) rightSibling;
+        // On the next page, scan from the start
+        foundIndex = Integer.MIN_VALUE;
+      }
+    }
+  }
+
+  /**
+   * Scans leaf entries forward from the found index for the first visible entry matching
+   * the user-key prefix.
+   *
+   * <p>The search key is the user key padded with {@code Long.MIN_VALUE}, which sorts before
+   * any real versioned entry. So {@code bucket.find()} typically returns a negative insertion
+   * point at the first version entry. In the rare case of an exact match (a real entry has
+   * version {@code Long.MIN_VALUE}), the found index points directly at a matching entry.
+   *
+   * <p>The {@code prefixKey} used for prefix-match checking is the search key (user key +
+   * {@code Long.MIN_VALUE}). Because {@link CompositeKey#compareTo} compares element-by-element
+   * and returns 0 when the shorter key's elements all match, two keys with the same user-key
+   * prefix but different versions (e.g., {@code (Foo, Long.MIN_VALUE)} vs {@code (Foo, 100)})
+   * compare as equal.
+   *
+   * @param bucket the leaf bucket to scan
+   * @param foundIndex the result of bucket.find() — positive if exact match, negative
+   *     (-(insertionPoint)-1) if not found. Use Integer.MIN_VALUE to scan from index 0
+   *     (for continuation pages in pinned path).
+   * @param prefixKey the preprocessed search key (user key + Long.MIN_VALUE) for
+   *     forward prefix-match checks
+   * @param snapshot the indexes snapshot for visibility checks
+   * @param visibleVersion the reader's snapshot version threshold
+   * @param inProgressVersions set of in-progress transaction versions
+   * @param optimistic if true, throw OptimisticReadFailedException when leaf is exhausted
+   *     instead of returning null (to fall through to pinned path for cross-page entries)
+   * @return the first visible RID, or null if no visible entry found on this page
+   */
+  @Nullable private RID scanLeafForVisible(
+      final CellBTreeSingleValueBucketV3<K> bucket,
+      final int foundIndex,
+      final K prefixKey,
+      final IndexesSnapshot snapshot,
+      final long visibleVersion,
+      final LongOpenHashSet inProgressVersions,
+      final boolean optimistic) {
+    final var bucketSize = bucket.size();
+
+    if (bucketSize == 0) {
+      if (optimistic) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+      return null;
+    }
+
+    int startIndex;
+    if (foundIndex == Integer.MIN_VALUE) {
+      // Continuation page in pinned path: start from index 0
+      startIndex = 0;
+    } else if (foundIndex >= 0) {
+      // Exact match (rare: entry with version Long.MIN_VALUE exists).
+      // Start directly from this entry.
+      startIndex = foundIndex;
+    } else {
+      // Negative: insertion point. The first entry with the prefix (if any)
+      // is at the insertion point index.
+      startIndex = -foundIndex - 1;
+      if (startIndex >= bucketSize) {
+        // All entries on this page sort before the search key — no match here
+        if (optimistic) {
+          throw OptimisticReadFailedException.INSTANCE;
+        }
+        return null;
+      }
+    }
+
+    // Scan forward from startIndex applying visibility
+    for (var i = startIndex; i < bucketSize; i++) {
+      final var entry = bucket.getEntry(i, keySerializer, serializerFactory);
+
+      // Check if entry still matches the user-key prefix.
+      // CompositeKey.compareTo does prefix matching: (Foo, Long.MIN_VALUE) vs
+      // (Foo, 100L) compares "Foo"=="Foo" then stops because the shorter key
+      // has no more elements — wait, both keys have the same size here.
+      // We need a different prefix check.
+      @SuppressWarnings("unchecked")
+      final var compositeKey = (CompositeKey) (Object) entry.key;
+
+      // Prefix match: compare all user-key elements (all except the last version
+      // element). If the user-key portion differs, we've passed the prefix range.
+      if (!userKeyPrefixMatches(prefixKey, entry.key)) {
+        return null;
+      }
+
+      final var rid = entry.value;
+      final var visibleRid = snapshot.checkVisibility(
+          compositeKey, rid, visibleVersion, inProgressVersions);
+      if (visibleRid != null) {
+        return visibleRid;
+      }
+    }
+
+    // Leaf exhausted without finding a visible entry
+    if (optimistic) {
+      // Versions may span to right sibling — fall through to pinned path
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+    return null;
+  }
+
+  /**
+   * Checks whether two CompositeKeys share the same user-key prefix (all elements
+   * except the last version element). Both keys are expected to have {@code keySize}
+   * elements.
+   */
+  private boolean userKeyPrefixMatches(K searchKey, K entryKey) {
+    if (!(searchKey instanceof CompositeKey searchComposite)
+        || !(entryKey instanceof CompositeKey entryComposite)) {
+      return comparator.compare(searchKey, entryKey) == 0;
+    }
+    var searchKeys = searchComposite.getKeys();
+    var entryKeys = entryComposite.getKeys();
+    // Compare all elements except the last one (version)
+    var prefixLen = searchKeys.size() - 1;
+    if (entryKeys.size() - 1 != prefixLen) {
+      return false;
+    }
+    for (var i = 0; i < prefixLen; i++) {
+      var cmp = DefaultComparator.INSTANCE.compare(
+          searchKeys.get(i), entryKeys.get(i));
+      if (cmp != 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
