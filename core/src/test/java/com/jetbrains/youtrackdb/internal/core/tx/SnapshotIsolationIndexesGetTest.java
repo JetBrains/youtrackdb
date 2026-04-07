@@ -347,6 +347,8 @@ public class SnapshotIsolationIndexesGetTest {
       barRids = stream.collect(Collectors.toList());
     }
     assertEquals(1, barRids.size());
+    assertEquals("getRids('Bar') must return the RID of the updated vertex",
+        id1, barRids.get(0));
     for (RID rid : barRids) {
       assertFalse(rid instanceof SnapshotMarkerRID);
       assertFalse(rid instanceof TombstoneRID);
@@ -395,6 +397,7 @@ public class SnapshotIsolationIndexesGetTest {
       fooAfter = stream.collect(Collectors.toList());
     }
     assertEquals(1, fooAfter.size());
+    assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
 
     List<RID> barAfter;
     try (var stream = snapshotIndex.getRids(snapshotSession, "Bar")) {
@@ -421,6 +424,7 @@ public class SnapshotIsolationIndexesGetTest {
       freshBar = stream.collect(Collectors.toList());
     }
     assertEquals(1, freshBar.size());
+    assertEquals("Fresh Bar RID must match updated vertex", id1, freshBar.get(0));
     freshSession.commit();
     freshSession.close();
 
@@ -501,6 +505,191 @@ public class SnapshotIsolationIndexesGetTest {
       freshBar = stream.collect(Collectors.toList());
     }
     assertEquals(1, freshBar.size());
+    freshSession.commit();
+    freshSession.close();
+
+    graph.close();
+  }
+
+  /**
+   * Verifies that getRids() on an empty UNIQUE index returns an empty stream
+   * for a non-existent key. Exercises the getVisible() path when the B-tree
+   * has no entries at all.
+   */
+  @Test
+  public void getRids_emptyIndex_returnsEmpty_UNIQUE() {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
+
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    Index index = session.getIndex("IndexPropertyName");
+
+    List<RID> rids;
+    try (var stream = index.getRids(session, "NonExistent")) {
+      rids = stream.collect(Collectors.toList());
+    }
+    assertEquals(0, rids.size());
+    session.commit();
+    session.close();
+  }
+
+  /**
+   * Verifies that getRids() returns empty after deleting a record from a UNIQUE
+   * index. The B-tree still contains a TombstoneRID entry; the getVisible() path
+   * must suppress it.
+   */
+  @Test
+  public void getRids_afterDelete_returnsEmpty_UNIQUE() {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
+
+    var graph = openGraph();
+    graph.tx().begin();
+    var u1 = graph.addV("Userr").property("name", "Foo").next();
+    var id1 = u1.id();
+    graph.tx().commit();
+
+    // Delete the record
+    graph.tx().begin();
+    graph.V(id1).drop().iterate();
+    graph.tx().commit();
+
+    // Fresh session: getRids("Foo") must return empty
+    var session = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    session.begin();
+    Index index = session.getIndex("IndexPropertyName");
+
+    List<RID> rids;
+    try (var stream = index.getRids(session, "Foo")) {
+      rids = stream.collect(Collectors.toList());
+    }
+    assertEquals(0, rids.size());
+    session.commit();
+    session.close();
+    graph.close();
+  }
+
+  /**
+   * Verifies that a TX started before any data was inserted sees nothing via
+   * getRids() on a UNIQUE index, even after inserts happen concurrently.
+   * Exercises the getVisible() path for phantom insert isolation.
+   */
+  @Test
+  public void getRids_noVisibilityForTXBeforeInsert_UNIQUE() {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
+
+    // Start snapshot TX before any data exists
+    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snapshotSession.begin();
+    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+
+    List<RID> beforeInsert;
+    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+      beforeInsert = stream.collect(Collectors.toList());
+    }
+    assertEquals(0, beforeInsert.size());
+
+    // Insert in another session
+    var graph = openGraph();
+    graph.tx().begin();
+    graph.addV("Userr").property("name", "Foo").next();
+    graph.tx().commit();
+
+    // Snapshot must still see nothing
+    List<RID> afterInsert;
+    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+      afterInsert = stream.collect(Collectors.toList());
+    }
+    assertEquals(0, afterInsert.size());
+
+    snapshotSession.commit();
+    snapshotSession.close();
+
+    // Fresh session sees the record
+    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    freshSession.begin();
+    Index freshIndex = freshSession.getIndex("IndexPropertyName");
+    List<RID> freshRids;
+    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+      freshRids = stream.collect(Collectors.toList());
+    }
+    assertEquals(1, freshRids.size());
+    freshSession.commit();
+    freshSession.close();
+    graph.close();
+  }
+
+  /**
+   * Verifies getRids() with ABA update pattern on a UNIQUE index: Foo -> Bar ->
+   * Foo. A snapshot started before the updates must see the original state,
+   * while a fresh session sees the final state. Exercises the getVisible() path
+   * with multiple version entries for the same key prefix.
+   */
+  @Test
+  public void getRids_ABAUpdate_UNIQUE() {
+    SchemaClass userSchema = db.createVertexClass("Userr");
+    userSchema.createProperty("name", PropertyType.STRING);
+    userSchema.createIndex("IndexPropertyName", INDEX_TYPE.UNIQUE, "name");
+
+    var graph = openGraph();
+    graph.tx().begin();
+    var u1 = graph.addV("Userr").property("name", "Foo").next();
+    var id1 = u1.id();
+    graph.tx().commit();
+
+    // Start snapshot TX
+    var snapshotSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    snapshotSession.begin();
+    Index snapshotIndex = snapshotSession.getIndex("IndexPropertyName");
+
+    List<RID> beforeUpdate;
+    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+      beforeUpdate = stream.collect(Collectors.toList());
+    }
+    assertEquals(1, beforeUpdate.size());
+
+    // Foo -> Bar
+    graph.tx().begin();
+    graph.V(id1).property("name", "Bar").iterate();
+    graph.tx().commit();
+
+    // Bar -> Foo (ABA)
+    graph.tx().begin();
+    graph.V(id1).property("name", "Foo").iterate();
+    graph.tx().commit();
+
+    // Snapshot must still see 1 Foo (the original version)
+    List<RID> fooAfter;
+    try (var stream = snapshotIndex.getRids(snapshotSession, "Foo")) {
+      fooAfter = stream.collect(Collectors.toList());
+    }
+    assertEquals(1, fooAfter.size());
+    assertEquals("Snapshot Foo RID must match original vertex", id1, fooAfter.get(0));
+
+    snapshotSession.commit();
+    snapshotSession.close();
+
+    // Fresh session sees final state: Foo present, Bar absent
+    var freshSession = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+    freshSession.begin();
+    Index freshIndex = freshSession.getIndex("IndexPropertyName");
+
+    List<RID> freshFoo;
+    try (var stream = freshIndex.getRids(freshSession, "Foo")) {
+      freshFoo = stream.collect(Collectors.toList());
+    }
+    assertEquals(1, freshFoo.size());
+
+    List<RID> freshBar;
+    try (var stream = freshIndex.getRids(freshSession, "Bar")) {
+      freshBar = stream.collect(Collectors.toList());
+    }
+    assertEquals(0, freshBar.size());
     freshSession.commit();
     freshSession.close();
 
