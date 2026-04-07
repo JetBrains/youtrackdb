@@ -2330,6 +2330,49 @@ public class DocValidationTest {
     });
   }
 
+  // Line 10/15: EXTENDS supports multiple superclasses (grammar: EXTENDS A, B, ...)
+  @Test
+  public void testCreateClassMultipleSuperclasses() {
+    g.command("CREATE CLASS CCBase1 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCBase2 IF NOT EXISTS EXTENDS V");
+    g.command("CREATE CLASS CCMulti IF NOT EXISTS EXTENDS CCBase1, CCBase2");
+
+    // Verify the class works and is visible from both parent classes
+    g.executeInTx(tx -> {
+      tx.yql("CREATE VERTEX CCMulti SET val = 1").iterate();
+    });
+
+    var fromBase1 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCBase1").toList());
+    assertThat(fromBase1).hasSize(1);
+
+    var fromBase2 =
+        g.computeInTx(tx -> tx.yql("SELECT FROM CCBase2").toList());
+    assertThat(fromBase2).hasSize(1);
+
+    g.executeInTx(tx -> {
+      tx.yql("DELETE VERTEX CCMulti").iterate();
+    });
+  }
+
+  // Line 18: "A class must be a child of V (Vertex) or E (Edge)" — the schema DDL
+  // CREATE CLASS succeeds without EXTENDS V/E, but the Gremlin result mapper throws
+  // IllegalStateException when trying to use such a class through yql(). The doc claim
+  // is practically correct: non-V/E classes are unusable through the public Gremlin API.
+  @Test
+  public void testCreateClassWithoutVOrESchemaSucceedsButGremlinFails() {
+    // Schema DDL works — no error
+    g.command("CREATE CLASS CCPlain IF NOT EXISTS");
+
+    // But using the class through the Gremlin API fails
+    assertThatThrownBy(
+        () -> g.executeInTx(tx -> {
+          tx.yql("INSERT INTO CCPlain SET val = 1").iterate();
+        }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Only vertices and edges are supported");
+  }
+
   // === YQL-Alter-Class.md ===
 
   // Line 20: ALTER CLASS Employee SUPERCLASSES Person — define superclasses (replaces all)
