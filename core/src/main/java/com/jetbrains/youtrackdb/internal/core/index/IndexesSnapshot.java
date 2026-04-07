@@ -94,50 +94,15 @@ public class IndexesSnapshot {
       inProgressVersions = LongOpenHashSet.of();
     }
 
-    var hasInProgress = !inProgressVersions.isEmpty();
-
     // mapMulti instead of flatMap to avoid allocating a Stream object
     // (Stream.of / Stream.empty) per entry during full index scans.
-    // The inProgressVersions check is inlined here (guarded by hasInProgress
-    // short-circuit) to avoid a separate .filter() pass that would re-extract
-    // the version from every surviving entry.
     return stream
         .mapMulti((pair, downstream) -> {
-          long version = (Long) pair.first().getKeys().getLast();
-
-          if (hasInProgress && inProgressVersions.contains(version)) {
-            // The in-progress TX may have replaced an older committed version that
-            // was removed from the B-tree and now only exists in the snapshot.
-            // For TombstoneRID/SnapshotMarkerRID, check the snapshot for historical
-            // state. For plain RecordId (a new insert with no prior history), skip.
-            var inProgressRid = pair.second();
-            if (!(inProgressRid instanceof RecordId)) {
-              emitSnapshotVisibility(pair, visibleVersion, keyMapper, downstream);
-            }
-            return;
+          var visibleRid = checkVisibility(
+              pair.first(), pair.second(), visibleVersion, inProgressVersions);
+          if (visibleRid != null) {
+            downstream.accept(new RawPair<>(keyMapper.apply(pair.first()), visibleRid));
           }
-
-          var rid = pair.second();
-
-          // Committed before snapshot — visible if alive, hidden if tombstoned
-          if (version < visibleVersion) {
-            if (rid instanceof SnapshotMarkerRID) {
-              downstream.accept(
-                  new RawPair<>(keyMapper.apply(pair.getFirst()), rid.getIdentity()));
-            } else if (!(rid instanceof TombstoneRID)) {
-              downstream.accept(new RawPair<>(keyMapper.apply(pair.first()), rid));
-            }
-            return;
-          }
-
-          // version >= visibleVersion — phantom, no historical versions
-          if (rid instanceof RecordId) {
-            return;
-          }
-
-          // version >= visibleVersion — rid is TombstoneRID or SnapshotMarkerRID
-          // → check snapshot for historical state
-          emitSnapshotVisibility(pair, visibleVersion, keyMapper, downstream);
         });
   }
 
