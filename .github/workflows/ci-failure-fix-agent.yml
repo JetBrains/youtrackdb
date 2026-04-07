@@ -114,7 +114,10 @@ jobs:
              gh run view {run_id} --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .databaseId'
              gh run view --job {job_id} --log-failed
              ```
-          3. Get check run annotations for exact test names and error messages:
+             The `databaseId` returned here doubles as the check run ID
+             for the GitHub Checks API.
+          3. Get check run annotations for exact test names and error messages
+             (use the `databaseId` from step 2 as `{check_run_id}`):
              ```bash
              gh api "repos/{owner}/{repo}/check-runs/{check_run_id}/annotations"
              ```
@@ -195,7 +198,10 @@ jobs:
             Understand the gate's threshold and why it triggered — go to
             Step 1a.
           - **Build failure**: Compilation error, dependency issue — read
-            build logs.
+            build logs, trace the error to its source file, fix the code
+            or build configuration, then go to Step 5 to verify. If the
+            error is in production code, go through Steps 3-4 first to
+            ensure you understand the root cause.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
             — write a summary noting this is infra-related and skip fix.
             Close the draft PR with a comment explaining the infra issue.
@@ -448,10 +454,17 @@ jobs:
 
           ## Step 7: Commit, push, and update the draft PR
 
-          The draft PR was already created in Step 0c. Now commit the
-          actual fix, push, and convert it to ready-for-review.
+          The draft PR was already created in Step 0c. Now either
+          commit the fix or close the draft PR.
 
-          1. Stage and commit with a descriptive message:
+          1. **If no code changes are needed** (infra issue, already
+             fixed, or unfixable), close the draft PR and skip to
+             Step 8:
+             ```bash
+             gh pr close "$PR_NUMBER" \
+               --comment "No code fix needed: <reason>"
+             ```
+          2. Stage and commit with a descriptive message:
              ```bash
              git add <changed-files>
              git commit -m "$(cat <<'EOF'
@@ -461,11 +474,11 @@ jobs:
              EOF
              )"
              ```
-          2. Push the fix:
+          3. Push the fix:
              ```bash
              git push
              ```
-          3. Update the PR title, body, and convert to ready-for-review:
+          4. Update the PR title, body, and convert to ready-for-review:
              ```bash
              gh pr edit "$PR_NUMBER" \
                --title "[no-test-number-check] Fix <description>" \
@@ -490,12 +503,6 @@ jobs:
              )"
 
              gh pr ready "$PR_NUMBER"
-             ```
-          4. If no code changes are needed (infra issue, already fixed),
-             close the draft PR with a comment explaining why:
-             ```bash
-             gh pr close "$PR_NUMBER" \
-               --comment "No code fix needed: <reason>"
              ```
 
           ## Step 8: Write summary report
