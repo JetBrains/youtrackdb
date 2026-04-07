@@ -62,6 +62,12 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
 
+      - name: Install jq
+        run: |
+          if ! command -v jq &>/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          fi
+
       - name: Configure Git
         run: |
           git config user.name "ci-fix-agent[bot]"
@@ -95,27 +101,9 @@ jobs:
           - NEVER run multiple test processes simultaneously in the same
             directory.
 
-          ## Step 0: Check for existing fix PRs
+          ## Step 0: Identify the failure and check for existing fix PRs
 
-          Before any investigation, check whether someone (human or previous
-          agent run) has already opened a PR that addresses this failure.
-
-          1. List open PRs targeting `develop`:
-             ```bash
-             gh pr list --base develop --state open \
-               --json number,title,headRefName,body,labels --limit 50
-             ```
-          2. Look for PRs whose title or body mentions:
-             - The failing test class name (extract from the failed run logs)
-             - "ci-fix" or "fix ci" or "flaky" keywords
-             - A branch name starting with `ci-fix/`
-          3. If a matching PR exists:
-             - Write a summary to `/tmp/fix-agent-summary.md` noting
-               that a fix PR already exists (include PR number and URL).
-             - Exit without making changes.
-          4. If no matching PR exists, proceed to Step 1.
-
-          ## Step 1: Identify the failure
+          ### 0a: Identify the failure first
 
           1. Use `gh` CLI to fetch the failed workflow run details:
              ```bash
@@ -126,37 +114,122 @@ jobs:
              gh run view {run_id} --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .databaseId'
              gh run view --job {job_id} --log-failed
              ```
-          3. Get check run annotations for exact test names and error messages:
+             The `databaseId` returned here doubles as the check run ID
+             for the GitHub Checks API.
+          3. Get check run annotations for exact test names and error messages
+             (use the `databaseId` from step 2 as `{check_run_id}`):
              ```bash
              gh api "repos/{owner}/{repo}/check-runs/{check_run_id}/annotations"
              ```
+          4. Note the failing test class name(s), error message(s), and module.
 
-          ## Step 2: Classify the failure type
+          ### 0b: Check for existing fix PRs
+
+          Before starting work, check whether someone (human or previous
+          agent run) has already opened a PR that addresses this failure.
+
+          1. List open PRs targeting `develop`:
+             ```bash
+             gh pr list --base develop --state open \
+               --json number,title,headRefName,body,labels --limit 50
+             ```
+          2. Look for PRs whose title or body mentions:
+             - The failing test class name (from Step 0a)
+             - "ci-fix" or "fix ci" or "flaky" keywords
+             - A branch name starting with `ci-fix/`
+          3. If a matching PR exists:
+             - Write a summary to `/tmp/fix-agent-summary.md` noting
+               that a fix PR already exists (include PR number and URL).
+             - Exit without making changes.
+          4. If no matching PR exists, proceed to Step 0c.
+
+          ### 0c: Create a draft PR to claim this fix
+
+          Create a draft PR immediately to prevent other agents or humans
+          from duplicating work on the same failure.
+
+          1. Create a fix branch:
+             ```bash
+             git checkout -b ci-fix/$(date +%Y%m%d-%H%M%S) develop
+             ```
+          2. Create an empty commit and push:
+             ```bash
+             git commit --allow-empty -m "$(cat <<'EOF'
+             WIP: Investigating CI failure
+
+             Placeholder commit — fix in progress.
+             EOF
+             )"
+             git push -u origin HEAD
+             ```
+          3. Create a **draft** PR:
+             ```bash
+             gh pr create --draft --base develop \
+               --title "[ci-fix] Investigating: <short failure description>" \
+               --body "$(cat <<'EOF'
+             ## Status
+             :construction: **Investigation in progress** — automated CI fix agent is working on this.
+
+             ## Failure
+             - **Failed run**: <failed_run_url>
+             - **Workflow**: <failed_workflow_name>
+             - **Commit**: <trigger_sha>
+             - **Failing test(s)**: <test class and error from Step 0a>
+
+             ## Notes
+             This draft PR was created automatically to signal that a fix is
+             in progress. It will be updated with the actual fix and converted
+             to ready-for-review when complete.
+             EOF
+             )"
+             ```
+          4. Save the PR number for later:
+             ```bash
+             PR_NUMBER=$(gh pr view --json number -q .number)
+             ```
+
+          ## Step 1: Classify the failure
 
           Identify the category before diving into code:
 
-          - **Test failure**: A test assertion or error — go to Step 3.
+          - **Test failure**: A test assertion or error — go to Step 2.
           - **CI gate failure** (coverage gate, test count gate): A policy
-            check failed, not a test. Read PR comments for gate details.
-            Understand the gate's threshold and why it triggered — go to
-            Step 2a.
+            check failed, not a test. Understand the gate's threshold and
+            why it triggered — go to Step 1a.
           - **Build failure**: Compilation error, dependency issue — read
-            build logs.
+            build logs, trace the error to its source file. Then go
+            through Steps 3-4 to understand the root cause and apply
+            the fix, Step 5 to verify, Step 6 for dimensional review,
+            Step 7 to commit and update the PR, and Step 8 to write
+            the summary.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
-            — write a summary noting this is infra-related and skip fix.
+            — go to Step 7 to close the draft PR with a comment
+            explaining the infra issue, then Step 8 to write a summary.
 
-          ### Step 2a: Diagnose CI gate failures
+          ### Step 1a: Diagnose CI gate failures
 
-          1. Read the gate's PR comment — it has specific data.
+          1. Check whether the failed run is associated with a PR
+             (`gh run view {run_id} --json headBranch,event`). If it is,
+             read the gate's PR comment — it has specific data (test
+             counts, coverage percentages). If it ran on `develop`
+             directly, extract gate details from the job logs instead.
           2. Check CLAUDE.md and gate scripts for exact rules.
           3. **Test Count Gate**: Compare baseline vs current per module. A
              big drop usually means tests were excluded by build config
-             changes. Trace WHY — don't just bypass.
+             changes. Trace the Maven profile chain — which profile was
+             removed, what did it activate, which `pom.xml` depended on
+             it. Don't just bypass.
           4. **Coverage Gate**: Check which lines are uncovered and whether
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
+          6. **Document your root cause analysis before making changes.**
+             Write it out explicitly — this forces clear thinking and
+             prevents jumping to superficial fixes (same requirement as
+             Step 3 item 7, which gate failures skip).
+          7. Once you understand the root cause, proceed to Step 4 to
+             apply the fix, then continue through Steps 5-8.
 
-          ## Step 3: Locate and understand the failing test
+          ## Step 2: Locate and understand the failing test
 
           1. Find the test file: `Glob **/{TestClassName}.java`
           2. Read the full test file — understand the failing assertion.
@@ -166,21 +239,83 @@ jobs:
              - Environment issue: path separators, locale, OS-specific
              - Actual regression: code change broke the test
 
-          ## Step 4: Trace the root cause
+          ## Step 3: Trace the root cause
 
+          **Do NOT skip this step. Do NOT proceed to Step 4 until you can
+          clearly explain WHY the failure happens — not just WHAT fails.**
+
+          **For test failures (coming from Step 2):**
           1. Read the production code exercised by the failing test.
           2. Understand the full data flow from code under test to assertion.
-          3. Determine if the fix goes in the test or production code:
+          3. For concurrency failures: identify the exact race condition —
+             which threads, which shared state, which missing
+             happens-before edge.
+          4. For assertion failures: trace the actual value back to its
+             origin. Where in the production code is the wrong value
+             computed or the wrong state produced? Don't stop at "the
+             assertion got the wrong value" — find WHERE and WHY the
+             wrong value was produced.
+          5. Determine if the fix goes in the test or production code:
              - Test asserts a contract production code violates → fix prod
-             - Test has overly strict assertion → fix test
-          4. For build config issues: trace the Maven profile chain — which
-             profile was removed, what did it activate, which `pom.xml`
-             depended on it.
-          5. Document your root cause analysis before making changes.
+             - Test has overly strict assertion on genuinely non-deterministic
+               behavior (e.g., iteration order of a hash set) → fix test,
+               but ONLY if you can prove the non-determinism is legitimate
 
-          ## Step 5: Apply the fix
+          **For build failures (coming from Step 1):**
+          6. Trace the compilation or dependency error back to the source —
+             which file, which change introduced it, and why it breaks the
+             build. Check recent commits (`git log --oneline -20`) to
+             identify the change that introduced the breakage.
 
-          1. Make the minimal change that fixes the root cause.
+          7. **Document your root cause analysis before making changes.**
+             Write it out explicitly — this forces clear thinking and
+             prevents jumping to superficial fixes.
+
+          ## Step 4: Apply the fix
+
+          **CRITICAL: Fix the root cause, not the symptom.** Your job is to
+          find and fix the actual bug or design flaw that caused the failure.
+          A correct fix addresses WHY the failure happened, not just WHAT
+          failed.
+
+          **Anti-patterns to avoid (these hide real bugs):**
+          - Adding `try/catch` to swallow exceptions instead of fixing the
+            code that throws them
+          - Adding `Thread.sleep()` or retry loops to mask race conditions
+            instead of fixing synchronization
+          - Relaxing assertions (e.g., changing `assertEquals` to
+            `assertTrue(x > 0)`) instead of fixing the code that produces
+            wrong values
+          - Adding `@Ignore` / `@Disabled` to failing tests
+          - Wrapping flaky operations in "tolerance" logic that accepts
+            both correct and incorrect results
+          - Catching `ConcurrentModificationException` instead of fixing
+            the unsafe concurrent access
+          - Adding null checks at the symptom site instead of fixing the
+            code that produces null upstream
+
+          **How to determine the correct fix:**
+          1. You MUST understand the root cause from Step 3 (or Step 1a
+             for gate failures) before writing any code. If you cannot
+             articulate WHY the failure happens, go back to the
+             appropriate root-cause step.
+          2. The fix should make the failing scenario **impossible**, not
+             just unlikely or harder to trigger.
+          3. For concurrency bugs: fix the synchronization, data structure
+             choice, or happens-before relationship — not the timing.
+          4. For logic bugs: fix the computation or state management, not
+             the assertion that catches the wrong result.
+          5. For flaky tests caused by genuine non-determinism (e.g., hash
+             map iteration order, GC timing): it is acceptable to make
+             the test tolerant of valid variation, but you must prove the
+             variation is legitimate (not a bug) and document this in a
+             comment.
+
+          **Implementation guidelines:**
+          1. Fix the root cause in the right layer (production code vs test
+             code, per your Step 3 analysis). Keep the change focused —
+             don't refactor unrelated code — but don't artificially minimize
+             the fix if a proper solution needs more lines.
           2. Add comments explaining **why** the fix is correct.
           3. Update Javadoc for affected methods/classes.
           4. Add Java `assert` statements in production code touched by the
@@ -195,13 +330,21 @@ jobs:
              API** under `com.jetbrains.youtrackdb.api`.
           6. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
 
-          ## Step 6: Verify locally
+          ## Step 5: Verify locally
 
-          1. Run the failing test first to confirm the fix:
+          1. **For test failures**: Run the failing test first to confirm
+             the fix:
              ```bash
              ./mvnw -pl {module} clean test -Dtest={TestClass} \
                -Dyoutrackdb.test.env=ci
              ```
+             **For build failures**: Verify the build compiles:
+             ```bash
+             ./mvnw -pl {module} clean compile
+             ```
+             **For gate failures**: Run the gate's check to confirm the
+             fix (e.g., test count comparison, coverage report). The
+             full test run in item 4 will also exercise the gate logic.
           2. If the test requires a suite runner (GremlinProcessRunner, graph
              provider), note it cannot run standalone — verify by inspection.
           3. Run `./mvnw -pl {module} spotless:check` for formatting.
@@ -218,12 +361,12 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              Skip this step if no integration test files were modified.
-          6. **Do NOT proceed to Step 7 if any test fails.** Fix the
+          6. **Do NOT proceed to Step 6 if any test fails.** Fix the
              failures first and re-run.
 
-          ## Step 7: Dimensional review (MANDATORY GATE)
+          ## Step 6: Dimensional review (MANDATORY GATE)
 
-          **BLOCKING: Do NOT proceed to Step 8 until this step is fully
+          **BLOCKING: Do NOT proceed to Step 7 until this step is fully
           complete. Skipping this step is never acceptable — it exists to
           catch bugs in the fix itself before creating a PR.**
 
@@ -319,9 +462,10 @@ jobs:
           6. **Re-run only the agent(s) with open findings** on the updated
              changes.
 
-          7. **Repeat steps 4-6** until no blocker/should-fix findings remain.
-             Maximum 3 iterations. If after 3 rounds there are still critical
-             issues, document them in the summary and proceed.
+          7. **Repeat sub-steps 4-6 above** until no blocker/should-fix
+             findings remain. Maximum 3 iterations. If after 3 rounds
+             there are still critical issues, document them in the
+             summary and proceed.
 
           8. **Final full test run after review loop completes.**
              After the review loop exits (all findings addressed or max
@@ -332,14 +476,20 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
-             and re-run the suite. Do NOT proceed to Step 8 with
+             and re-run the suite. Do NOT proceed to main Step 7 with
              failing tests.
 
-          ## Step 8: Commit, push, and create PR
+          ## Step 7: Commit, push, and update the draft PR
 
-          1. Create a fix branch:
+          The draft PR was already created in Step 0c. Now either
+          commit the fix or close the draft PR.
+
+          1. **If no code changes are needed** (infra issue, already
+             fixed, or unfixable), close the draft PR and skip to
+             Step 8:
              ```bash
-             git checkout -b ci-fix/$(date +%Y%m%d-%H%M%S) develop
+             gh pr close "$PR_NUMBER" \
+               --comment "No code fix needed: <reason>"
              ```
           2. Stage and commit with a descriptive message:
              ```bash
@@ -351,34 +501,44 @@ jobs:
              EOF
              )"
              ```
-          3. Push and create PR:
+          3. Push the fix:
              ```bash
-             git push -u origin HEAD
-             gh pr create --base develop \
-               --title "Fix <description>" \
+             git push
+             ```
+          4. Update the PR title, body, and convert to ready-for-review:
+             ```bash
+             gh pr edit "$PR_NUMBER" \
+               --title "[no-test-number-check] Fix <description>" \
                --body "$(cat <<'EOF'
              ## Summary
              - <what was fixed and why>
+
+             ## Root Cause
+             <detailed technical explanation of why the failure happened>
+
+             ## Changes
+             <list of files changed and what each change does>
 
              ## Motivation
              CI failure on develop: <failed_run_url>
 
              ## Test plan
-             - [ ] Failing test passes locally
-             - [ ] No other tests broken
+             - [x] Failing test passes locally
+             - [x] Full test suite passes (unit + integration)
+             - [x] Dimensional code review completed
              EOF
              )"
-             ```
-          4. If no code changes are needed (infra issue, already fixed),
-             skip PR creation.
 
-          ## Step 9: Write summary report
+             gh pr ready "$PR_NUMBER"
+             ```
+
+          ## Step 8: Write summary report
 
           Write your final summary to `/tmp/fix-agent-summary.md`:
 
           ```markdown
           ## Status
-          <!-- One of: FIX_PR_CREATED, EXISTING_PR_FOUND, NO_FIX_NEEDED,
+          <!-- One of: FIX_PR_READY, EXISTING_PR_FOUND, DRAFT_PR_CLOSED,
                INVESTIGATION_ONLY -->
           <status>
 
@@ -399,8 +559,13 @@ jobs:
 
           - Always use `gh` CLI for GitHub API, not WebFetch.
           - Read before editing — always read full test and production code.
-          - Minimal changes — fix root cause, don't refactor surroundings.
+          - **Fix root cause, not symptoms** — never apply a patch that
+            makes the failure less visible without fixing the underlying
+            bug. A correct fix makes the failure scenario impossible, not
+            just unlikely.
           - Don't blindly relax assertions — understand why they fail first.
+            If the production code returns a wrong value, fix the code, not
+            the assertion.
           - Don't bypass CI gates without understanding why tests disappeared.
           - Build config changes have test side effects — check Maven profiles.
           - NEVER run multiple test processes simultaneously.
@@ -487,13 +652,18 @@ jobs:
               ) catch empty
             '
 
+          CLAUDE_EXIT=${PIPESTATUS[0]}
           set -o pipefail
 
           echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
-          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
+          echo "Agent finished (exit code $CLAUDE_EXIT). JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
+          if [ "$CLAUDE_EXIT" -ne 0 ]; then
+            echo "::warning::Claude Code exited with code $CLAUDE_EXIT"
+          fi
+          exit "$CLAUDE_EXIT"
 
       - name: Upload agent JSON log
-        if: always()
+        if: always() && steps.run-agent.outputs.json_log != ''
         uses: actions/upload-artifact@v4
         with:
           name: fix-agent-json-log
@@ -513,12 +683,12 @@ jobs:
 
           # Write to file for the Zulip step (avoids escaping issues)
           cat > /tmp/zulip-message-$$.md <<EOF
-          **CI Fix Agent Report** :robot:
-          Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
-          [Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+**CI Fix Agent Report** :robot:
+Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
+[Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-          ${SUMMARY}
-          EOF
+${SUMMARY}
+EOF
 
           echo "zulip_message_file=/tmp/zulip-message-$$.md" >> "$GITHUB_OUTPUT"
 
