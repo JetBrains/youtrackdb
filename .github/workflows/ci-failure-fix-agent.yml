@@ -200,7 +200,8 @@ jobs:
             build logs, trace the error to its source file. Then go
             through Steps 3-4 to understand the root cause and apply
             the fix, Step 5 to verify, Step 6 for dimensional review,
-            and Step 7 to commit and update the PR.
+            Step 7 to commit and update the PR, and Step 8 to write
+            the summary.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
             — go to Step 7 to close the draft PR with a comment
             explaining the infra issue, then Step 8 to write a summary.
@@ -222,7 +223,7 @@ jobs:
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
           6. Once you understand the root cause, proceed to Step 4 to
-             apply the fix, then continue through Steps 5-7.
+             apply the fix, then continue through Steps 5-8.
 
           ## Step 2: Locate and understand the failing test
 
