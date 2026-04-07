@@ -1,16 +1,16 @@
 # YQL - `CREATE USER`
 
-Creates a user in the current database, using the specified password and an optional role.  When the role is unspecified, it defaults to `writer`.
+Creates a user in the current database, using the specified password and an optional role. When the role is unspecified, it defaults to `writer`.
 
 **Syntax**
 
 ```sql
-CREATE USER <user> IDENTIFIED BY <password> [ROLE <role>]
+CREATE USER <user> IDENTIFIED BY <password> [ROLE <role> | ROLE [<role1>, <role2>, ...]]
 ```
 
-- **`<user>`** Defines the logical name of the user you want to create.
-- **`<password>`** Defines the password to use for this user.
-- **`ROLE`** Defines the role you want to set for the user.  For multiple roles, use the following syntax: `['author', 'writer']`.
+- **`<user>`** — Defines the logical name of the user you want to create.
+- **`<password>`** — Defines the password to use for this user.
+- **`ROLE`** — Defines the role you want to set for the user. For multiple roles, use the bracket syntax: `['author', 'writer']`.
 
 **Examples**
 

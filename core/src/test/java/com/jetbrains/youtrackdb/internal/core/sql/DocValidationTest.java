@@ -3524,6 +3524,25 @@ public class DocValidationTest {
     g.computeInTx(tx -> tx.yql("CREATE USER cuSyntaxFoo IDENTIFIED BY bar ROLE admin"));
   }
 
+  // Line 13: Multiple roles with bracket syntax — ROLE [role1, role2]
+  @Test
+  public void testCreateUserMultipleRolesBracketSyntax() {
+    // The grammar expects Identifier() inside brackets, not quoted strings.
+    // Verify that unquoted bracket syntax parses correctly.
+    g.computeInTx(
+        tx -> tx.yql("CREATE USER cuMultiRole IDENTIFIED BY pass ROLE [admin, reader]"));
+  }
+
+  // Line 13: Doc shows ['author', 'writer'] syntax — single-quoted roles in brackets.
+  // Verified: the parser accepts single-quoted identifiers inside the bracket list.
+  @Test
+  public void testCreateUserQuotedRolesInBracketsSyntax() {
+    // Verify that single-quoted role names inside brackets parse correctly,
+    // matching the documented syntax ['author', 'writer'].
+    g.computeInTx(
+        tx -> tx.yql("CREATE USER cuQuotedRole IDENTIFIED BY pass ROLE ['admin', 'reader']"));
+  }
+
   // === YQL-Drop-Class.md ===
 
   // Line 7-9: DROP CLASS <class> — basic syntax on an empty class
