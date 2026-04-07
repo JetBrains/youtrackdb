@@ -101,27 +101,9 @@ jobs:
           - NEVER run multiple test processes simultaneously in the same
             directory.
 
-          ## Step 0: Check for existing fix PRs
+          ## Step 0: Identify the failure and check for existing fix PRs
 
-          Before any investigation, check whether someone (human or previous
-          agent run) has already opened a PR that addresses this failure.
-
-          1. List open PRs targeting `develop`:
-             ```bash
-             gh pr list --base develop --state open \
-               --json number,title,headRefName,body,labels --limit 50
-             ```
-          2. Look for PRs whose title or body mentions:
-             - The failing test class name (extract from the failed run logs)
-             - "ci-fix" or "fix ci" or "flaky" keywords
-             - A branch name starting with `ci-fix/`
-          3. If a matching PR exists:
-             - Write a summary to `/tmp/fix-agent-summary.md` noting
-               that a fix PR already exists (include PR number and URL).
-             - Exit without making changes.
-          4. If no matching PR exists, proceed to Step 1.
-
-          ## Step 1: Identify the failure
+          ### 0a: Identify the failure first
 
           1. Use `gh` CLI to fetch the failed workflow run details:
              ```bash
@@ -136,22 +118,89 @@ jobs:
              ```bash
              gh api "repos/{owner}/{repo}/check-runs/{check_run_id}/annotations"
              ```
+          4. Note the failing test class name(s), error message(s), and module.
 
-          ## Step 2: Classify the failure type
+          ### 0b: Check for existing fix PRs
+
+          Before starting work, check whether someone (human or previous
+          agent run) has already opened a PR that addresses this failure.
+
+          1. List open PRs targeting `develop`:
+             ```bash
+             gh pr list --base develop --state open \
+               --json number,title,headRefName,body,labels --limit 50
+             ```
+          2. Look for PRs whose title or body mentions:
+             - The failing test class name (from Step 0a)
+             - "ci-fix" or "fix ci" or "flaky" keywords
+             - A branch name starting with `ci-fix/`
+          3. If a matching PR exists:
+             - Write a summary to `/tmp/fix-agent-summary.md` noting
+               that a fix PR already exists (include PR number and URL).
+             - Exit without making changes.
+          4. If no matching PR exists, proceed to Step 0c.
+
+          ### 0c: Create a draft PR to claim this fix
+
+          Create a draft PR immediately to prevent other agents or humans
+          from duplicating work on the same failure.
+
+          1. Create a fix branch:
+             ```bash
+             git checkout -b ci-fix/$(date +%Y%m%d-%H%M%S) develop
+             ```
+          2. Create an empty commit and push:
+             ```bash
+             git commit --allow-empty -m "$(cat <<'EOF'
+             WIP: Investigating CI failure
+
+             Placeholder commit — fix in progress.
+             EOF
+             )"
+             git push -u origin HEAD
+             ```
+          3. Create a **draft** PR:
+             ```bash
+             gh pr create --draft --base develop \
+               --title "[ci-fix] Investigating: <short failure description>" \
+               --body "$(cat <<'EOF'
+             ## Status
+             :construction: **Investigation in progress** — automated CI fix agent is working on this.
+
+             ## Failure
+             - **Failed run**: <failed_run_url>
+             - **Workflow**: <failed_workflow_name>
+             - **Commit**: <trigger_sha>
+             - **Failing test(s)**: <test class and error from Step 0a>
+
+             ## Notes
+             This draft PR was created automatically to signal that a fix is
+             in progress. It will be updated with the actual fix and converted
+             to ready-for-review when complete.
+             EOF
+             )"
+             ```
+          4. Save the PR number for later:
+             ```bash
+             PR_NUMBER=$(gh pr view --json number -q .number)
+             ```
+
+          ## Step 1: Classify the failure
 
           Identify the category before diving into code:
 
-          - **Test failure**: A test assertion or error — go to Step 3.
+          - **Test failure**: A test assertion or error — go to Step 2.
           - **CI gate failure** (coverage gate, test count gate): A policy
             check failed, not a test. Read PR comments for gate details.
             Understand the gate's threshold and why it triggered — go to
-            Step 2a.
+            Step 1a.
           - **Build failure**: Compilation error, dependency issue — read
             build logs.
           - **Infrastructure failure**: Timeout, runner issue, flaky network
             — write a summary noting this is infra-related and skip fix.
+            Close the draft PR with a comment explaining the infra issue.
 
-          ### Step 2a: Diagnose CI gate failures
+          ### Step 1a: Diagnose CI gate failures
 
           1. Read the gate's PR comment — it has specific data.
           2. Check CLAUDE.md and gate scripts for exact rules.
@@ -162,7 +211,7 @@ jobs:
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
 
-          ## Step 3: Locate and understand the failing test
+          ## Step 2: Locate and understand the failing test
 
           1. Find the test file: `Glob **/{TestClassName}.java`
           2. Read the full test file — understand the failing assertion.
@@ -172,9 +221,9 @@ jobs:
              - Environment issue: path separators, locale, OS-specific
              - Actual regression: code change broke the test
 
-          ## Step 4: Trace the root cause
+          ## Step 3: Trace the root cause
 
-          **Do NOT skip this step. Do NOT proceed to Step 5 until you can
+          **Do NOT skip this step. Do NOT proceed to Step 4 until you can
           clearly explain WHY the failure happens — not just WHAT fails.**
 
           1. Read the production code exercised by the failing test.
@@ -199,7 +248,7 @@ jobs:
              Write it out explicitly — this forces clear thinking and
              prevents jumping to superficial fixes.
 
-          ## Step 5: Apply the fix
+          ## Step 4: Apply the fix
 
           **CRITICAL: Fix the root cause, not the symptom.** Your job is to
           find and fix the actual bug or design flaw that caused the failure.
@@ -223,9 +272,9 @@ jobs:
             code that produces null upstream
 
           **How to determine the correct fix:**
-          1. You MUST understand the root cause from Step 4 before writing
+          1. You MUST understand the root cause from Step 3 before writing
              any code. If you cannot articulate WHY the failure happens,
-             go back to Step 4.
+             go back to Step 3.
           2. The fix should make the failing scenario **impossible**, not
              just unlikely or harder to trigger.
           3. For concurrency bugs: fix the synchronization, data structure
@@ -240,7 +289,7 @@ jobs:
 
           **Implementation guidelines:**
           1. Fix the root cause in the right layer (production code vs test
-             code, per your Step 4 analysis). Keep the change focused —
+             code, per your Step 3 analysis). Keep the change focused —
              don't refactor unrelated code — but don't artificially minimize
              the fix if a proper solution needs more lines.
           2. Add comments explaining **why** the fix is correct.
@@ -257,7 +306,7 @@ jobs:
              API** under `com.jetbrains.youtrackdb.api`.
           6. Run `./mvnw -pl {module} spotless:apply` to fix formatting.
 
-          ## Step 6: Verify locally
+          ## Step 5: Verify locally
 
           1. Run the failing test first to confirm the fix:
              ```bash
@@ -280,12 +329,12 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              Skip this step if no integration test files were modified.
-          6. **Do NOT proceed to Step 7 if any test fails.** Fix the
+          6. **Do NOT proceed to Step 6 if any test fails.** Fix the
              failures first and re-run.
 
-          ## Step 7: Dimensional review (MANDATORY GATE)
+          ## Step 6: Dimensional review (MANDATORY GATE)
 
-          **BLOCKING: Do NOT proceed to Step 8 until this step is fully
+          **BLOCKING: Do NOT proceed to Step 7 until this step is fully
           complete. Skipping this step is never acceptable — it exists to
           catch bugs in the fix itself before creating a PR.**
 
@@ -394,16 +443,15 @@ jobs:
                -Dyoutrackdb.test.env=ci
              ```
              If any test fails, fix the failure, re-run `spotless:apply`,
-             and re-run the suite. Do NOT proceed to Step 8 with
+             and re-run the suite. Do NOT proceed to Step 7 with
              failing tests.
 
-          ## Step 8: Commit, push, and create PR
+          ## Step 7: Commit, push, and update the draft PR
 
-          1. Create a fix branch:
-             ```bash
-             git checkout -b ci-fix/$(date +%Y%m%d-%H%M%S) develop
-             ```
-          2. Stage and commit with a descriptive message:
+          The draft PR was already created in Step 0c. Now commit the
+          actual fix, push, and convert it to ready-for-review.
+
+          1. Stage and commit with a descriptive message:
              ```bash
              git add <changed-files>
              git commit -m "$(cat <<'EOF'
@@ -413,34 +461,50 @@ jobs:
              EOF
              )"
              ```
-          3. Push and create PR:
+          2. Push the fix:
              ```bash
-             git push -u origin HEAD
-             gh pr create --base develop \
-               --title "Fix <description>" \
+             git push
+             ```
+          3. Update the PR title, body, and convert to ready-for-review:
+             ```bash
+             gh pr edit "$PR_NUMBER" \
+               --title "[no-test-number-check] Fix <description>" \
                --body "$(cat <<'EOF'
              ## Summary
              - <what was fixed and why>
+
+             ## Root Cause
+             <detailed technical explanation of why the failure happened>
+
+             ## Changes
+             <list of files changed and what each change does>
 
              ## Motivation
              CI failure on develop: <failed_run_url>
 
              ## Test plan
-             - [ ] Failing test passes locally
-             - [ ] No other tests broken
+             - [x] Failing test passes locally
+             - [x] Full test suite passes (unit + integration)
+             - [x] Dimensional code review completed
              EOF
              )"
+
+             gh pr ready "$PR_NUMBER"
              ```
           4. If no code changes are needed (infra issue, already fixed),
-             skip PR creation.
+             close the draft PR with a comment explaining why:
+             ```bash
+             gh pr close "$PR_NUMBER" \
+               --comment "No code fix needed: <reason>"
+             ```
 
-          ## Step 9: Write summary report
+          ## Step 8: Write summary report
 
           Write your final summary to `/tmp/fix-agent-summary.md`:
 
           ```markdown
           ## Status
-          <!-- One of: FIX_PR_CREATED, EXISTING_PR_FOUND, NO_FIX_NEEDED,
+          <!-- One of: FIX_PR_READY, EXISTING_PR_FOUND, DRAFT_PR_CLOSED,
                INVESTIGATION_ONLY -->
           <status>
 
