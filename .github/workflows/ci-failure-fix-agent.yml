@@ -286,9 +286,10 @@ jobs:
             code that produces null upstream
 
           **How to determine the correct fix:**
-          1. You MUST understand the root cause from Step 3 before writing
-             any code. If you cannot articulate WHY the failure happens,
-             go back to Step 3.
+          1. You MUST understand the root cause from Step 3 (or Step 1a
+             for gate failures) before writing any code. If you cannot
+             articulate WHY the failure happens, go back to the
+             appropriate root-cause step.
           2. The fix should make the failing scenario **impossible**, not
              just unlikely or harder to trigger.
           3. For concurrency bugs: fix the synchronization, data structure
