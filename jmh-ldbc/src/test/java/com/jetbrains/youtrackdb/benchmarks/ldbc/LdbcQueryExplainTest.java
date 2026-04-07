@@ -93,50 +93,51 @@ public class LdbcQueryExplainTest {
    * Person -> HAS_CREATOR -> Post -> CONTAINER_OF -> Forum ->
    * outE(HAS_MEMBER) -> inV (back-ref to person).
    *
-   * <p>The planner should detect the {@code .inV()} back-reference
-   * ({@code @rid = $matched.person.@rid}), propagate the edge class
-   * from the preceding {@code .outE('HAS_MEMBER')} step, and set an
-   * intersection descriptor on the HAS_MEMBER edge traversal step.
+   * <p>The planner should detect the {@code outE('HAS_MEMBER').inV()} chain
+   * back-reference ({@code @rid = $matched.person.@rid}) and replace the
+   * per-row link bag scan with a back-ref hash join (Pattern B — ChainSemiJoin).
    */
   @Test
-  public void testIC5_backReferenceIntersection() {
+  public void testIC5_backReferenceHashJoin() {
     String plan = explain(LdbcQuerySql.IC5,
         "personId", 1L, "minDate", new Date(epochMillis(2010, 1, 1)),
         "limit", 10);
     assertTrue(
-        "IC5 plan should show intersection optimization on the HAS_MEMBER "
-            + "edge traversal step (back-ref from .inV()). Plan was:\n" + plan,
-        plan.contains("intersection:"));
+        "IC5 plan should show BACK-REF HASH JOIN for the outE/inV chain. "
+            + "Plan was:\n" + plan,
+        plan.contains("BACK-REF HASH JOIN"));
   }
 
   /**
    * IC7: The MATCH pattern checks whether a liker KNOWS the start person
    * via an optional edge: {@code .out('KNOWS'){where: (@rid = $matched.startPerson.@rid),
-   * optional: true}}. The planner should detect the back-reference and
-   * set an intersection descriptor on the KNOWS edge traversal step.
+   * optional: true}}. The planner should detect the correlated optional
+   * back-reference and use a hash join or intersection optimization.
    */
   @Test
-  public void testIC7_backReferenceIntersectionOptional() {
+  public void testIC7_backReferenceOptionalHashJoin() {
     String plan = explain(LdbcQuerySql.IC7, "personId", 1L, "limit", 10);
     assertTrue(
-        "IC7 plan should show intersection optimization on the KNOWS "
-            + "optional back-reference edge. Plan was:\n" + plan,
-        plan.contains("intersection:"));
+        "IC7 plan should show correlated optional hash join or intersection "
+            + "on the KNOWS optional back-reference edge. Plan was:\n" + plan,
+        plan.contains("CORRELATED OPTIONAL HASH JOIN")
+            || plan.contains("intersection:"));
   }
 
   /**
    * IS7: The MATCH pattern checks whether a reply author KNOWS the original
    * message author via an optional edge: {@code .out('KNOWS'){where:
    * (@rid = $matched.author.@rid), optional: true}}. The planner should
-   * detect the back-reference and set an intersection descriptor.
+   * detect the correlated optional back-reference and use a hash join.
    */
   @Test
-  public void testIS7_backReferenceIntersectionOptional() {
+  public void testIS7_backReferenceOptionalHashJoin() {
     String plan = explain(LdbcQuerySql.IS7, "messageId", 800L, "limit", 10);
     assertTrue(
-        "IS7 plan should show intersection optimization on the KNOWS "
-            + "optional back-reference edge. Plan was:\n" + plan,
-        plan.contains("intersection:"));
+        "IS7 plan should show correlated optional hash join or intersection "
+            + "on the KNOWS optional back-reference edge. Plan was:\n" + plan,
+        plan.contains("CORRELATED OPTIONAL HASH JOIN")
+            || plan.contains("intersection:"));
   }
 
   // ==================== Index pre-filter on edge properties ====================

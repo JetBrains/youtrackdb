@@ -2881,6 +2881,7 @@ public class MatchExecutionPlanner {
             // is true, the class/direction came from the previous edge —
             // Pattern B detection handles that case below.
             if (!collectEdgeRids
+                && !edgeJ.edge.in.isOptionalNode()
                 && isSemiJoinCandidate(edgeDirection, involvedAliases,
                     boundAliases)) {
               var backRefAlias = involvedAliases.getFirst();
