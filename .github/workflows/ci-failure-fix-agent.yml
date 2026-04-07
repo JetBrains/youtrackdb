@@ -493,10 +493,15 @@ jobs:
               ) catch empty
             '
 
+          CLAUDE_EXIT=${PIPESTATUS[0]}
           set -o pipefail
 
           echo "json_log=$JSON_LOG" >> "$GITHUB_OUTPUT"
-          echo "Agent finished. JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
+          echo "Agent finished (exit code $CLAUDE_EXIT). JSON log: $(wc -c < "$JSON_LOG" 2>/dev/null || echo 0) bytes"
+          if [ "$CLAUDE_EXIT" -ne 0 ]; then
+            echo "::warning::Claude Code exited with code $CLAUDE_EXIT"
+          fi
+          exit "$CLAUDE_EXIT"
 
       - name: Upload agent JSON log
         if: always() && steps.run-agent.outputs.json_log != ''
@@ -519,12 +524,12 @@ jobs:
 
           # Write to file for the Zulip step (avoids escaping issues)
           cat > /tmp/zulip-message-$$.md <<EOF
-          **CI Fix Agent Report** :robot:
-          Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
-          [Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+**CI Fix Agent Report** :robot:
+Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
+[Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-          ${SUMMARY}
-          EOF
+${SUMMARY}
+EOF
 
           echo "zulip_message_file=/tmp/zulip-message-$$.md" >> "$GITHUB_OUTPUT"
 
