@@ -174,19 +174,75 @@ jobs:
 
           ## Step 4: Trace the root cause
 
+          **Do NOT skip this step. Do NOT proceed to Step 5 until you can
+          clearly explain WHY the failure happens — not just WHAT fails.**
+
           1. Read the production code exercised by the failing test.
           2. Understand the full data flow from code under test to assertion.
-          3. Determine if the fix goes in the test or production code:
+          3. For concurrency failures: identify the exact race condition —
+             which threads, which shared state, which missing
+             happens-before edge.
+          4. For assertion failures: trace the actual value back to its
+             origin. Where in the production code is the wrong value
+             computed or the wrong state produced? Don't stop at "the
+             assertion got the wrong value" — find WHERE and WHY the
+             wrong value was produced.
+          5. Determine if the fix goes in the test or production code:
              - Test asserts a contract production code violates → fix prod
-             - Test has overly strict assertion → fix test
-          4. For build config issues: trace the Maven profile chain — which
+             - Test has overly strict assertion on genuinely non-deterministic
+               behavior (e.g., iteration order of a hash set) → fix test,
+               but ONLY if you can prove the non-determinism is legitimate
+          6. For build config issues: trace the Maven profile chain — which
              profile was removed, what did it activate, which `pom.xml`
              depended on it.
-          5. Document your root cause analysis before making changes.
+          7. **Document your root cause analysis before making changes.**
+             Write it out explicitly — this forces clear thinking and
+             prevents jumping to superficial fixes.
 
           ## Step 5: Apply the fix
 
-          1. Make the minimal change that fixes the root cause.
+          **CRITICAL: Fix the root cause, not the symptom.** Your job is to
+          find and fix the actual bug or design flaw that caused the failure.
+          A correct fix addresses WHY the failure happened, not just WHAT
+          failed.
+
+          **Anti-patterns to avoid (these hide real bugs):**
+          - Adding `try/catch` to swallow exceptions instead of fixing the
+            code that throws them
+          - Adding `Thread.sleep()` or retry loops to mask race conditions
+            instead of fixing synchronization
+          - Relaxing assertions (e.g., changing `assertEquals` to
+            `assertTrue(x > 0)`) instead of fixing the code that produces
+            wrong values
+          - Adding `@Ignore` / `@Disabled` to failing tests
+          - Wrapping flaky operations in "tolerance" logic that accepts
+            both correct and incorrect results
+          - Catching `ConcurrentModificationException` instead of fixing
+            the unsafe concurrent access
+          - Adding null checks at the symptom site instead of fixing the
+            code that produces null upstream
+
+          **How to determine the correct fix:**
+          1. You MUST understand the root cause from Step 4 before writing
+             any code. If you cannot articulate WHY the failure happens,
+             go back to Step 4.
+          2. The fix should make the failing scenario **impossible**, not
+             just unlikely or harder to trigger.
+          3. For concurrency bugs: fix the synchronization, data structure
+             choice, or happens-before relationship — not the timing.
+          4. For logic bugs: fix the computation or state management, not
+             the assertion that catches the wrong result.
+          5. For flaky tests caused by genuine non-determinism (e.g., hash
+             map iteration order, GC timing): it is acceptable to make
+             the test tolerant of valid variation, but you must prove the
+             variation is legitimate (not a bug) and document this in a
+             comment.
+
+          **Implementation guidelines:**
+          1. Fix the root cause in the right layer (production code vs test
+             code, per your Step 4 analysis). Keep the change focused —
+             don't refactor unrelated code — but don't artificially minimize
+             the fix if a proper solution needs more lines.
           2. Add comments explaining **why** the fix is correct.
           3. Update Javadoc for affected methods/classes.
           4. Add Java `assert` statements in production code touched by the
@@ -405,8 +461,13 @@ jobs:
 
           - Always use `gh` CLI for GitHub API, not WebFetch.
           - Read before editing — always read full test and production code.
-          - Minimal changes — fix root cause, don't refactor surroundings.
+          - **Fix root cause, not symptoms** — never apply a patch that
+            makes the failure less visible without fixing the underlying
+            bug. A correct fix makes the failure scenario impossible, not
+            just unlikely.
           - Don't blindly relax assertions — understand why they fail first.
+            If the production code returns a wrong value, fix the code, not
+            the assertion.
           - Don't bypass CI gates without understanding why tests disappeared.
           - Build config changes have test side effects — check Maven profiles.
           - NEVER run multiple test processes simultaneously.
