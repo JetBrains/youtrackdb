@@ -492,7 +492,9 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult).as("Direct path should be null").isNull();
-      assertThat(streamResult).as("Stream path should be null").isNull();
+      assertThat(directResult)
+          .as("Both paths must agree (both null for tombstone)")
+          .isEqualTo(streamResult);
     });
   }
 
@@ -548,7 +550,9 @@ public class BTreeGetVisibleTest {
           .orElse(null);
 
       assertThat(directResult).as("Direct path should be null").isNull();
-      assertThat(streamResult).as("Stream path should be null").isNull();
+      assertThat(directResult)
+          .as("Both paths must agree (both null for key not found)")
+          .isEqualTo(streamResult);
     });
   }
 
@@ -650,6 +654,82 @@ public class BTreeGetVisibleTest {
       assertThat(result)
           .as("Key before all entries should return null")
           .isNull();
+    });
+  }
+
+  // ---- Long.MIN_VALUE version: exact-match path in scanLeafForVisible ----
+
+  @Test
+  public void getVisible_versionLongMinValue_exactMatchPath() throws Exception {
+    // An entry with version Long.MIN_VALUE triggers the rare exact-match path
+    // in scanLeafForVisible (foundIndex >= 0), since buildSearchKey pads with
+    // Long.MIN_VALUE and bucket.find() finds the key directly.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      tree.put(atomicOperation,
+          new CompositeKey("Exact", Long.MIN_VALUE), RID_1);
+    });
+
+    var snapshot = newSnapshot();
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(
+          new CompositeKey("Exact"), snapshot, atomicOperation);
+      assertThat(result)
+          .as("Entry with version Long.MIN_VALUE should be found via exact-match path")
+          .isEqualTo(RID_1);
+    });
+  }
+
+  @Test
+  public void getVisible_tombstoneAtMinVersion_liveAtNormalVersion() throws Exception {
+    // Tombstone at Long.MIN_VALUE (exact-match path), live entry at v1.
+    // Scan must skip the tombstone and continue to the live entry, testing
+    // the interaction of the exact-match start with the forward scan loop.
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      tree.put(atomicOperation,
+          new CompositeKey("MinVer", Long.MIN_VALUE),
+          new TombstoneRID(RID_1));
+      tree.put(atomicOperation, new CompositeKey("MinVer", 1L), RID_2);
+    });
+
+    var snapshot = newSnapshot();
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(
+          new CompositeKey("MinVer"), snapshot, atomicOperation);
+      assertThat(result)
+          .as("Should skip tombstone at Long.MIN_VALUE and return live entry")
+          .isEqualTo(RID_2);
+    });
+  }
+
+  // ---- Cross-page: many versions of the same key spanning leaf pages ----
+
+  @Test
+  public void getVisible_manyVersionsSameKey_crossPageContinuation() throws Exception {
+    // Use a long key (~400 chars) to reduce entries per page (~19 entries/page).
+    // 25 tombstone versions + 1 live version = 26 entries forces a page split
+    // within the same key's range, exercising the getRightSibling() continuation
+    // in the pinned path. Version numbers are kept small (0-25) to stay below
+    // visibleVersion — the atomic operation counter after DB setup is typically ~60+.
+    var longKey = "K".repeat(400);
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (int v = 0; v < 25; v++) {
+        tree.put(atomicOperation, new CompositeKey(longKey, (long) v),
+            new TombstoneRID(RID_1));
+      }
+      tree.put(atomicOperation, new CompositeKey(longKey, 25L), RID_2);
+    });
+
+    var snapshot = newSnapshot();
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(
+          new CompositeKey(longKey), snapshot, atomicOperation);
+      assertThat(result)
+          .as("Should follow right siblings and find the live entry")
+          .isEqualTo(RID_2);
     });
   }
 }
