@@ -222,7 +222,11 @@ jobs:
           4. **Coverage Gate**: Check which lines are uncovered and whether
              existing tests should cover them.
           5. The fix is often in build configuration, not test code.
-          6. Once you understand the root cause, proceed to Step 4 to
+          6. **Document your root cause analysis before making changes.**
+             Write it out explicitly — this forces clear thinking and
+             prevents jumping to superficial fixes (same requirement as
+             Step 3 item 7, which gate failures skip).
+          7. Once you understand the root cause, proceed to Step 4 to
              apply the fix, then continue through Steps 5-8.
 
           ## Step 2: Locate and understand the failing test
@@ -240,6 +244,7 @@ jobs:
           **Do NOT skip this step. Do NOT proceed to Step 4 until you can
           clearly explain WHY the failure happens — not just WHAT fails.**
 
+          **For test failures (coming from Step 2):**
           1. Read the production code exercised by the failing test.
           2. Understand the full data flow from code under test to assertion.
           3. For concurrency failures: identify the exact race condition —
@@ -255,9 +260,13 @@ jobs:
              - Test has overly strict assertion on genuinely non-deterministic
                behavior (e.g., iteration order of a hash set) → fix test,
                but ONLY if you can prove the non-determinism is legitimate
-          6. For build failures: trace the compilation or dependency error
-             back to the source — which file, which change introduced it,
-             and why it breaks the build.
+
+          **For build failures (coming from Step 1):**
+          6. Trace the compilation or dependency error back to the source —
+             which file, which change introduced it, and why it breaks the
+             build. Check recent commits (`git log --oneline -20`) to
+             identify the change that introduced the breakage.
+
           7. **Document your root cause analysis before making changes.**
              Write it out explicitly — this forces clear thinking and
              prevents jumping to superficial fixes.
@@ -323,11 +332,19 @@ jobs:
 
           ## Step 5: Verify locally
 
-          1. Run the failing test first to confirm the fix:
+          1. **For test failures**: Run the failing test first to confirm
+             the fix:
              ```bash
              ./mvnw -pl {module} clean test -Dtest={TestClass} \
                -Dyoutrackdb.test.env=ci
              ```
+             **For build failures**: Verify the build compiles:
+             ```bash
+             ./mvnw -pl {module} clean compile
+             ```
+             **For gate failures**: Run the gate's check to confirm the
+             fix (e.g., test count comparison, coverage report). The
+             full test run in item 4 will also exercise the gate logic.
           2. If the test requires a suite runner (GremlinProcessRunner, graph
              provider), note it cannot run standalone — verify by inspection.
           3. Run `./mvnw -pl {module} spotless:check` for formatting.
