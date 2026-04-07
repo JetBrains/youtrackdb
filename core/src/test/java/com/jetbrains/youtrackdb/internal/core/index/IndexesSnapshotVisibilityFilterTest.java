@@ -18,6 +18,7 @@ import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Test;
@@ -867,6 +868,66 @@ public class IndexesSnapshotVisibilityFilterTest {
     assertEquals(
         "Deep history: record was alive at v90, should be visible at visibleVersion=95",
         1, result.size());
+    assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  // --- visibilityFilterMapped() with non-identity keyMapper ---
+
+  /**
+   * visibilityFilterMapped() with a non-identity keyMapper must apply the
+   * mapper to the CompositeKey of each visible entry. Verifies the refactored
+   * delegation path correctly passes the original key to the mapper.
+   */
+  @Test
+  public void visibilityFilterMapped_appliesKeyMapper() {
+    var snap = newSnapshot(INDEX_ID);
+    var pair = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
+
+    // keyMapper extracts just the first element of the CompositeKey
+    Function<CompositeKey, Object> keyMapper = k -> k.getKeys().getFirst();
+
+    var result = snap
+        .visibilityFilterMapped(
+            atomicOpStub(200L, LongOpenHashSet.of()),
+            Stream.of(pair),
+            keyMapper)
+        .toList();
+
+    assertEquals(1, result.size());
+    assertEquals("Foo", result.getFirst().first());
+    assertEquals(RID_20_0, result.getFirst().second());
+  }
+
+  /**
+   * When an in-progress entry falls back to snapshot lookup, the keyMapper
+   * must still be applied to the original CompositeKey, not to any
+   * intermediate object.
+   */
+  @Test
+  public void visibilityFilterMapped_keyMapperAppliedOnSnapshotFallback() {
+    var snap = newSnapshot(INDEX_ID);
+    // Set up snapshot: was alive at v125, removed at v128
+    snap.addSnapshotPair(
+        new CompositeKey("Foo", RID_20_0, 125L),
+        new CompositeKey("Foo", RID_20_0, 128L),
+        RID_20_0);
+
+    // B-tree entry: in-progress TX at v128 with TombstoneRID
+    var pair = new RawPair<>(
+        new CompositeKey("Foo", RID_20_0, 128L), (RID) new TombstoneRID(RID_20_0));
+
+    Function<CompositeKey, Object> keyMapper = k -> k.getKeys().getFirst();
+
+    // visibleVersion=127: snapshot lowerEntry(127) finds v125 TombstoneRID → visible
+    var result = snap
+        .visibilityFilterMapped(
+            atomicOpStub(127L, LongOpenHashSet.of(128L)),
+            Stream.of(pair),
+            keyMapper)
+        .toList();
+
+    assertEquals(1, result.size());
+    assertEquals("Foo", result.getFirst().first());
     assertEquals(RID_20_0, result.getFirst().second());
   }
 
