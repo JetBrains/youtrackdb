@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.internal.core.db.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.exception.LinksConsistencyException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -194,7 +193,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                     linkBag.add(rid);
                   }
                 });
-              } catch (ConcurrentModificationException | LinksConsistencyException e) {
+              } catch (ConcurrentModificationException e) {
                 continue;
               }
 
@@ -298,8 +297,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                 }
 
                 break;
-              } catch (ConcurrentModificationException | LinksConsistencyException
-                  | RecordNotFoundException e) {
+              } catch (ConcurrentModificationException | RecordNotFoundException e) {
                 //retry
               }
             }

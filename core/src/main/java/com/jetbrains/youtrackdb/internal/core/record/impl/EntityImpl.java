@@ -81,8 +81,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.bi
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
@@ -127,6 +125,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private int propertiesCount;
 
   private Map<String, EntityEntry> properties;
+
+  // Guards against re-entrant full deserialization triggered by setDirty()
+  // when modifying a partially-deserialized property. See setDirty() for details.
+  private boolean deserializingProperties;
 
   private boolean lazyLoad = true;
   protected WeakReference<RecordElement> owner = null;
@@ -1874,8 +1876,32 @@ public class EntityImpl extends RecordAbstract implements Entity {
       this.properties = new HashMap<>();
     }
 
+    // If this property was already deserialized (e.g. via partial deserialization)
+    // and has been modified in-memory, keep the modified version. Full
+    // deserialization from source bytes would overwrite it with the original
+    // (pre-modification) data, losing any changes made since the partial
+    // deserialization.
+    //
+    // We check both isModified() (set when tracking is disabled) and
+    // getTimeLine() (populated when tracking is enabled, e.g. for LinkBag
+    // properties whose changes are recorded via the tracker rather than
+    // setting the dirty flag directly).
+    var existingEntry = properties.get(name);
+    if (existingEntry != null
+        && existingEntry.value instanceof TrackedMultiValue<?, ?> tmv) {
+      if (tmv.isModified()) {
+        return;
+      }
+      var timeLine = tmv.getTimeLine();
+      if (timeLine != null && !timeLine.getMultiValueChangeEvents().isEmpty()) {
+        return;
+      }
+    }
+
     var entry = new EntityEntry();
-    propertiesCount++;
+    if (existingEntry == null) {
+      propertiesCount++;
+    }
     properties.put(name, entry);
 
     value = preprocessAssignedValue(value, propertyType);
@@ -3272,9 +3298,15 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return;
     }
 
-    // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
-    // _SOURCE IS NULL
-    checkForProperties();
+    // Force-load all properties from source bytes before they are discarded.
+    // Skip if properties are currently being deserialized — this can happen when
+    // a partially-deserialized property (e.g., a LinkBag) is modified, firing
+    // setDirty() via the tracker/owner chain, which would re-enter
+    // checkForProperties() and trigger full deserialization from the original
+    // source bytes, overwriting the just-modified property with stale data.
+    if (!deserializingProperties) {
+      checkForProperties();
+    }
     super.setDirty();
 
     if (status != STATUS.UNMARSHALLING) {
@@ -3302,9 +3334,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
-    // THIS IS IMPORTANT TO BE SURE THAT FIELDS ARE LOADED BEFORE IT'S TOO LATE AND THE RECORD
-    // _SOURCE IS NULL
-    checkForProperties();
+    // Force-load all properties from source bytes before they are discarded
+    // (super.setDirtyNoChanged() nulls source when status != UNMARSHALLING).
+    // Skip if properties are currently being deserialized — mirrors the guard
+    // in setDirty() to prevent re-entrant checkForProperties() from overwriting
+    // a just-modified property with stale source bytes.
+    if (!deserializingProperties) {
+      checkForProperties();
+    }
     clearPageFrame();
 
     super.setDirtyNoChanged();
@@ -3600,12 +3637,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return deserializeFromPageFrame(propertyNames);
     }
 
+    deserializingProperties = true;
     status = RecordElement.STATUS.UNMARSHALLING;
     try {
       checkForProperties();
       recordSerializer.fromStream(session, source, this, propertyNames);
     } finally {
       status = RecordElement.STATUS.LOADED;
+      deserializingProperties = false;
     }
 
     if (!checkDeserializedProperties(propertyNames)) {
@@ -3664,6 +3703,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       var container = new ReadBytesContainer(
           buf.slice(localOffset + 1, localLength - 1));
 
+      deserializingProperties = true;
       status = RecordElement.STATUS.UNMARSHALLING;
       try {
         checkForProperties();
@@ -3671,6 +3711,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
             session, serializerVersion, container, this, propertyNames);
       } finally {
         status = RecordElement.STATUS.LOADED;
+        deserializingProperties = false;
       }
 
       speculativeSuccess = true;
@@ -3701,56 +3742,53 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     // Speculative deserialization failed or stamp invalid. Clear PageFrame and
-    // re-read from storage. The re-read path (fromStream) resets all entity
-    // state including properties, so no snapshot restore is needed here.
+    // re-read the raw bytes from storage. We only populate the source field
+    // WITHOUT calling fromStream() — fromStream() nulls `properties`, which
+    // would destroy any in-memory modifications (e.g., LinkBag entries added
+    // during callback processing). The subsequent deserializeProperties() call
+    // goes through setDeserializedPropertyInternal(), which has a guard to
+    // preserve modified properties.
     clearPageFrame();
 
-    // Re-read from storage via the pinned path
-    reReadFromStorage();
+    // Re-read raw bytes from storage into `source`
+    rePopulateSourceBytes();
 
     assert source != null
-        : "reReadFromStorage must populate byte[] source for fallback deserialization";
+        : "rePopulateSourceBytes must populate byte[] source for fallback deserialization";
     assert pageFrame == null
         : "pageFrame must be cleared before fallback deserialization";
 
-    // Re-enter deserialization using the byte[] path (source is now set)
+    // Re-enter deserialization using the byte[] path (source is now set).
+    // This goes through setDeserializedPropertyInternal() which preserves
+    // properties that have been modified in-memory.
     return deserializeProperties(propertyNames);
   }
 
   /**
-   * Re-reads this record from storage using the pinned read path and populates
-   * the entity's byte[] source. Called as the fallback when PageFrame stamp
-   * validation fails or speculative deserialization throws.
+   * Re-reads raw bytes from storage into the entity's {@code source} field
+   * WITHOUT calling {@link #fromStream(byte[])}. This preserves the in-memory
+   * properties map (which may contain modifications not yet committed to storage).
    *
-   * <p>The storage read may return either {@link RawBuffer} (byte[]-backed) or
-   * {@link RawPageBuffer} (PageFrame reference). In either case, bytes are
-   * extracted into the entity's {@code source} field to ensure subsequent
-   * deserialization uses the byte[] path (no further PageFrame dependency).
-   *
-   * @throws RecordNotFoundException if the record was deleted between the
-   *     original optimistic read and this fallback re-read. This is expected
-   *     behavior — the caller should let the exception propagate, as the
-   *     record genuinely no longer exists.
+   * <p>Used as the fallback in {@link #deserializeFromPageFrame(String[])} when
+   * stamp validation fails but the entity may have in-memory modifications
+   * (e.g., LinkBag entries added during callback processing). The caller
+   * then uses {@link #deserializeProperties(String...)} which goes through
+   * {@link #setDeserializedPropertyInternal} to safely merge storage data
+   * with existing in-memory modifications.
    */
-  private void reReadFromStorage() {
+  private void rePopulateSourceBytes() {
     var storage = session.getStorage();
     var atomicOp = session.getActiveTransaction().getAtomicOperation();
 
-    // Retry loop: storage.readRecord() may return a RawPageBuffer whose stamp
-    // becomes invalid between the optimistic scope close and byte extraction.
-    // toRawBuffer() validates the stamp and throws OptimisticReadFailedException
-    // on mismatch, so we retry until we get a consistent byte[] copy.
     while (true) {
       var readResult = storage.readRecord(getIdentity(), atomicOp);
       try {
         var rawBuffer = readResult.toRawBuffer();
         fill(rawBuffer.version(), rawBuffer.buffer(), false);
-        fromStream(rawBuffer.buffer());
+        source = rawBuffer.buffer();
         return;
       } catch (OptimisticReadFailedException e) {
-        // Stamp was invalidated between readRecord returning and byte extraction.
-        // Retry the full read — the next attempt may return RawBuffer (pinned path)
-        // or another RawPageBuffer with a fresh stamp.
+        // Stamp was invalidated — retry
       }
     }
   }

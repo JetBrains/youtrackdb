@@ -276,7 +276,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 }
 
                 entityOne.newLinkMap("linkMap", linkMap);
-
               }
 
               var deleteEntity = random.nextDouble() <= 0.2;

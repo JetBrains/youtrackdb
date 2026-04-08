@@ -1690,6 +1690,7 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
 
     session.commit();
 
+    session.begin();
     teamMates.remove(bob.getIdentity());
 
     assertEquals(0, teamMates.size());
@@ -1698,6 +1699,7 @@ public abstract class LinkBagJUnit5Test extends BaseDBJUnit5Test {
 
     assertEquals(1, teamMates.size());
     assertEquals(bob.getIdentity(), teamMates.iterator().next().primaryRid());
+    session.commit();
   }
 
   @Test
