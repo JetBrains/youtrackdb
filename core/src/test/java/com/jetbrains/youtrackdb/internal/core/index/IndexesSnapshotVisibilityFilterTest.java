@@ -2,6 +2,7 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -101,20 +102,16 @@ public class IndexesSnapshotVisibilityFilterTest {
   }
 
   // ========================================================================
-  // Helper: create a primary B-Tree pair and call snapshotVisibility
+  // Helper: call lookupSnapshotRid on a primary B-Tree pair's key
   // ========================================================================
 
-  private List<RawPair<CompositeKey, RID>> callSnapshotVisibility(
-      IndexesSnapshot snap, RawPair<CompositeKey, RID> pair, long visibleVersion) {
-    var result = new java.util.ArrayList<RawPair<CompositeKey, RID>>();
-    snap.emitSnapshotVisibility(pair, visibleVersion, java.util.function.Function.identity(),
-        result::add);
-    return result;
+  private RID callSnapshotLookup(
+      IndexesSnapshot snap, CompositeKey key, long visibleVersion) {
+    return snap.lookupSnapshotRid(key, visibleVersion);
   }
 
-  private List<RawPair<CompositeKey, RID>> callSnapshotVisibility(
-      RawPair<CompositeKey, RID> pair, long visibleVersion) {
-    return callSnapshotVisibility(snapshot, pair, visibleVersion);
+  private RID callSnapshotLookup(CompositeKey key, long visibleVersion) {
+    return callSnapshotLookup(snapshot, key, visibleVersion);
   }
 
   // ========================================================================
@@ -153,8 +150,8 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void afterFirstRemove_readerBeforeAnyOp_notVisible() {
     // v=121 < 128: snapshot lowerEntry(121) = empty → not visible
-    var result = callSnapshotVisibility(pairAfterRemove128(), 121L);
-    assertTrue("Before any operation, nothing should be visible", result.isEmpty());
+    var result = callSnapshotLookup(pairAfterRemove128().first(), 121L);
+    assertNull("Before any operation, nothing should be visible", result);
   }
 
   /**
@@ -165,14 +162,14 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterFirstRemove_readerWhileAlive_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove128(), 126L);
-    assertEquals("Record was alive at v125, should be visible via snapshot", 1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove128().first(), 126L);
+    assertNotNull("Record was alive at v125, should be visible via snapshot", result);
   }
 
   @Test
   public void afterFirstRemove_readerStillAliveBeforeRemove_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove128(), 127L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove128().first(), 127L);
+    assertNotNull(result);
   }
 
   // ========================================================================
@@ -182,8 +179,8 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void afterReAdd_readerBeforeAnyOp_notVisible() {
-    var result = callSnapshotVisibility(pairAfterPut130(), 121L);
-    assertTrue(result.isEmpty());
+    var result = callSnapshotLookup(pairAfterPut130().first(), 121L);
+    assertNull(result);
   }
 
   /**
@@ -193,8 +190,8 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterReAdd_readerWhileAliveBeforeFirstRemove_visible() {
-    var result = callSnapshotVisibility(pairAfterPut130(), 126L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterPut130().first(), 126L);
+    assertNotNull(result);
   }
 
   /**
@@ -206,8 +203,8 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterReAdd_readerBetweenRemoveAndReAdd_notVisible() {
-    var result = callSnapshotVisibility(pairAfterPut130(), 130L);
-    assertTrue("Between remove@128 and re-add@130, record must not be visible", result.isEmpty());
+    var result = callSnapshotLookup(pairAfterPut130().first(), 130L);
+    assertNull("Between remove@128 and re-add@130, record must not be visible", result);
   }
 
   // ========================================================================
@@ -217,21 +214,21 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   @Test
   public void afterFinalRemove_readerBeforeAnyOp_notVisible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 121L);
-    assertTrue(result.isEmpty());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 121L);
+    assertNull(result);
   }
 
   @Test
   public void afterFinalRemove_readerDuringFirstAlivePhase_visible() {
     // v=126 < 135: snapshot lowerEntry(126) = {125: Tombstone} → visible
-    var result = callSnapshotVisibility(pairAfterRemove135(), 126L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 126L);
+    assertNotNull(result);
   }
 
   @Test
   public void afterFinalRemove_readerJustBeforeFirstRemove_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 128L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 128L);
+    assertNotNull(result);
   }
 
   /**
@@ -240,8 +237,8 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterFinalRemove_readerAtFirstRemove_notVisible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 129L);
-    assertTrue(result.isEmpty());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 129L);
+    assertNull(result);
   }
 
   /**
@@ -252,8 +249,8 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterFinalRemove_readerBetweenRemoveAndReAdd_notVisible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 130L);
-    assertTrue("Must not be visible between remove@128 and re-add@130", result.isEmpty());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 130L);
+    assertNull("Must not be visible between remove@128 and re-add@130", result);
   }
 
   /**
@@ -262,20 +259,20 @@ public class IndexesSnapshotVisibilityFilterTest {
    */
   @Test
   public void afterFinalRemove_readerAtReAdd_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 131L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 131L);
+    assertNotNull(result);
   }
 
   @Test
   public void afterFinalRemove_readerAfterReAdd_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 133L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 133L);
+    assertNotNull(result);
   }
 
   @Test
   public void afterFinalRemove_readerJustBeforeFinalRemove_visible() {
-    var result = callSnapshotVisibility(pairAfterRemove135(), 135L);
-    assertEquals(1, result.size());
+    var result = callSnapshotLookup(pairAfterRemove135().first(), 135L);
+    assertNotNull(result);
   }
 
   // ========================================================================
@@ -285,21 +282,17 @@ public class IndexesSnapshotVisibilityFilterTest {
   @Test
   public void emptySnapshot_futureTombstone_notVisible() {
     IndexesSnapshot emptySnap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("X", RID_20_0, 200L), (RID) TOMBSTONE_20_0);
-    var result = callSnapshotVisibility(emptySnap, pair, 101L);
-    assertTrue(
-        "Future TombstoneRID with empty snapshot should not be visible",
-        result.isEmpty());
+    var key = new CompositeKey("X", RID_20_0, 200L);
+    var result = callSnapshotLookup(emptySnap, key, 101L);
+    assertNull("Future TombstoneRID with empty snapshot should not be visible", result);
   }
 
   @Test
   public void emptySnapshot_futureSnapshotMarker_notVisible() {
     IndexesSnapshot emptySnap = newSnapshot(INDEX_ID);
-    var pair = new RawPair<>(new CompositeKey("X", RID_20_0, 200L), (RID) SNAPSHOT_MARKER_20_0);
-    var result = callSnapshotVisibility(emptySnap, pair, 101L);
-    assertTrue(
-        "Future SnapshotMarkerRID with empty snapshot should not be visible",
-        result.isEmpty());
+    var key = new CompositeKey("X", RID_20_0, 200L);
+    var result = callSnapshotLookup(emptySnap, key, 101L);
+    assertNull("Future SnapshotMarkerRID with empty snapshot should not be visible", result);
   }
 
   // ========================================================================
@@ -318,17 +311,17 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Val", ridA, 110L),
         ridA);
 
-    // Primary after A removed: [Val, #10:1, 110] → TombstoneRID(A)
-    var pairA = new RawPair<>(new CompositeKey("Val", ridA, 110L), (RID) new TombstoneRID(ridA));
+    // Primary key after A removed: [Val, #10:1, 110]
+    var keyA = new CompositeKey("Val", ridA, 110L);
 
     // At v=108: lowerEntry(108) = {100: Tomb} → visible (A was alive)
-    var resultA108 = callSnapshotVisibility(snap, pairA, 108L);
-    assertEquals("Record A should be visible at v=108", 1, resultA108.size());
+    var resultA108 = callSnapshotLookup(snap, keyA, 108L);
+    assertNotNull("Record A should be visible at v=108", resultA108);
 
     // At v=113: lowerEntry(113) = {110: RecordId} → not Tombstone → not visible
-    var resultA113 = callSnapshotVisibility(snap, pairA, 113L);
-    assertTrue("Record A at v=113: snapshot lookup returns RecordId, not visible",
-        resultA113.isEmpty());
+    var resultA113 = callSnapshotLookup(snap, keyA, 113L);
+    assertNull("Record A at v=113: snapshot lookup returns RecordId, not visible",
+        resultA113);
   }
 
   // ========================================================================
@@ -353,11 +346,11 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Key", rid, 110L),
         rid);
 
-    // Primary after remove@110:
-    var pair = new RawPair<>(new CompositeKey("Key", rid, 110L), (RID) new TombstoneRID(rid));
+    // Primary key after remove@110:
+    var key = new CompositeKey("Key", rid, 110L);
 
-    var result = callSnapshotVisibility(snap, pair, 110L);
-    assertEquals("Was alive at v=109, should be visible", 1, result.size());
+    var result = callSnapshotLookup(snap, key, 110L);
+    assertNotNull("Was alive at v=109, should be visible", result);
   }
 
   // ========================================================================
@@ -366,7 +359,7 @@ public class IndexesSnapshotVisibilityFilterTest {
 
   /**
    * Regression test: snapshot contains entries only for key "Bar". When
-   * snapshotVisibility is called for a primary entry with key "Foo"
+   * lookupSnapshotRid is called for a primary entry with key "Foo"
    * (which sorts after "Bar"), lowerEntry must NOT return the "Bar"
    * snapshot entry and surface it as a result for "Foo".
    *
@@ -375,7 +368,7 @@ public class IndexesSnapshotVisibilityFilterTest {
    *              [Bar, #10:1, 110] → RecordId       (was removed at v110)
    *
    * Primary entry for Foo: [Foo, #10:1, 150] → TombstoneRID
-   *   (version=150 >= visibleVersion=105, so snapshotVisibility is called)
+   *   (version=150 >= visibleVersion=105, so lookupSnapshotRid is called)
    *
    * lowerEntry([Foo, #10:1, 105]) could return [Bar, #10:1, 100] → TombstoneRID
    *   because "Bar" < "Foo". This would incorrectly make "Foo" visible.
@@ -391,16 +384,15 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Bar", rid, 110L),
         rid);
 
-    // Primary entry for "Foo" at v150 (TombstoneRID — deleted after snapshot)
-    var fooPair = new RawPair<>(
-        new CompositeKey("Foo", rid, 150L), (RID) new TombstoneRID(rid));
+    // Primary key for "Foo" at v150
+    var fooKey = new CompositeKey("Foo", rid, 150L);
 
     // visibleVersion=105: lowerEntry([Foo, #10:1, 105]) must not return
     // the [Bar, #10:1, 100] entry
-    var result = callSnapshotVisibility(snap, fooPair, 105L);
-    assertTrue(
-        "snapshotVisibility must not leak 'Bar' snapshot entry as a result for 'Foo'",
-        result.isEmpty());
+    var result = callSnapshotLookup(snap, fooKey, 105L);
+    assertNull(
+        "lookupSnapshotRid must not leak 'Bar' snapshot entry as a result for 'Foo'",
+        result);
   }
 
   /**
@@ -420,14 +412,13 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Bar", 110L),
         rid);
 
-    // Primary entry for "Foo" at v150 (TombstoneRID)
-    var fooPair = new RawPair<>(
-        new CompositeKey("Foo", 150L), (RID) new TombstoneRID(rid));
+    // Primary key for "Foo" at v150
+    var fooKey = new CompositeKey("Foo", 150L);
 
-    var result = callSnapshotVisibility(snap, fooPair, 105L);
-    assertTrue(
-        "snapshotVisibility must not leak 'Bar' snapshot entry as a result for 'Foo'",
-        result.isEmpty());
+    var result = callSnapshotLookup(snap, fooKey, 105L);
+    assertNull(
+        "lookupSnapshotRid must not leak 'Bar' snapshot entry as a result for 'Foo'",
+        result);
   }
 
   /**
@@ -453,15 +444,14 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Foo", ridFoo, 110L),
         ridFoo);
 
-    // Primary entry for "Foo" at v110 (TombstoneRID)
-    var fooPair = new RawPair<>(
-        new CompositeKey("Foo", ridFoo, 110L), (RID) new TombstoneRID(ridFoo));
+    // Primary key for "Foo" at v110
+    var fooKey = new CompositeKey("Foo", ridFoo, 110L);
 
     // visibleVersion=105: should find "Foo"@100 (TombstoneRID) → visible
-    var result = callSnapshotVisibility(snap, fooPair, 105L);
-    assertEquals("Foo should be visible via its own snapshot entry", 1, result.size());
+    var result = callSnapshotLookup(snap, fooKey, 105L);
+    assertNotNull("Foo should be visible via its own snapshot entry", result);
     // Verify the returned RID is Foo's, not Bar's
-    assertEquals(ridFoo, result.getFirst().second());
+    assertEquals(ridFoo, result);
   }
 
   /**
@@ -495,18 +485,18 @@ public class IndexesSnapshotVisibilityFilterTest {
         new CompositeKey("Key", rid, 135L),
         rid);
 
-    // Primary after put@120:
-    var pair = new RawPair<>(new CompositeKey("Key", rid, 120L), (RID) new SnapshotMarkerRID(rid));
+    // Primary key after put@120:
+    var key = new CompositeKey("Key", rid, 120L);
 
-    var result = callSnapshotVisibility(snap, pair, 116L);
-    assertTrue("Between remove@110 and re-add@120, must not be visible", result.isEmpty());
+    var result = callSnapshotLookup(snap, key, 116L);
+    assertNull("Between remove@110 and re-add@120, must not be visible", result);
   }
 
   // ========================================================================
   //  visibilityFilterMapped() — full pipeline tests
   //  These test the inProgressVersions filtering and the version < visibleVersion
   //  branches that are only reachable through visibilityFilterMapped(), not through
-  //  emitSnapshotVisibility() alone.
+  //  lookupSnapshotRid() alone.
   // ========================================================================
 
   /**

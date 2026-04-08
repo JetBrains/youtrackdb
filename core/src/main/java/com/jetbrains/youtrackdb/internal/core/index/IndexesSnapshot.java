@@ -12,7 +12,6 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -193,19 +192,6 @@ public class IndexesSnapshot {
       return latestSnapshotEntry.getValue().getIdentity();
     }
     return null;
-  }
-
-  /**
-   * Delegates to {@link #lookupSnapshotRid} and, if visible, emits the result
-   * to {@code downstream}.
-   */
-  <K> void emitSnapshotVisibility(RawPair<CompositeKey, RID> pair,
-      long visibleVersion, Function<CompositeKey, K> keyMapper,
-      Consumer<RawPair<K, RID>> downstream) {
-    var rid = lookupSnapshotRid(pair.first(), visibleVersion);
-    if (rid != null) {
-      downstream.accept(new RawPair<>(keyMapper.apply(pair.first()), rid));
-    }
   }
 
   public Set<Entry<CompositeKey, RID>> allEntries() {
