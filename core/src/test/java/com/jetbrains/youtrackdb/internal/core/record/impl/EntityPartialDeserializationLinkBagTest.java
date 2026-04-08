@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -13,6 +15,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
@@ -192,8 +196,8 @@ public class EntityPartialDeserializationLinkBagTest extends DbTestBase {
       var target = (EntityImpl) tx.loadEntity(targetRids.get(0));
       var oppositeBag = (LinkBag) target.getPropertyInternal("#linkMap", false);
       assertNotNull("Target should still have #linkMap", oppositeBag);
-      assertTrue("Target's #linkMap should have exactly 1 entry (entity C)",
-          oppositeBag.size() == 1);
+      assertEquals("Target's #linkMap should have exactly 1 entry (entity C)",
+          1, oppositeBag.size());
     });
   }
 
@@ -271,8 +275,8 @@ public class EntityPartialDeserializationLinkBagTest extends DbTestBase {
 
       // None of the deleted RIDs should be in the bag
       for (var deletedRid : deletedRids) {
-        assertTrue("Deleted entity " + deletedRid + " should NOT be in #linkMap",
-            !oppositeBag.contains(deletedRid));
+        assertFalse("Deleted entity " + deletedRid + " should NOT be in #linkMap",
+            oppositeBag.contains(deletedRid));
       }
     });
   }
@@ -307,9 +311,8 @@ public class EntityPartialDeserializationLinkBagTest extends DbTestBase {
     var targetRid = targetRids.get(0);
     var numThreads = 4;
     var iterationsPerThread = 50;
-    var allCommittedSourceRids = java.util.concurrent.ConcurrentHashMap
-        .<RID>newKeySet();
-    var errors = new java.util.concurrent.ConcurrentLinkedQueue<Throwable>();
+    var allCommittedSourceRids = ConcurrentHashMap.<RID>newKeySet();
+    var errors = new ConcurrentLinkedQueue<Throwable>();
     var startBarrier = new CountDownLatch(1);
     var doneLatch = new CountDownLatch(numThreads);
 
@@ -336,7 +339,7 @@ public class EntityPartialDeserializationLinkBagTest extends DbTestBase {
                 });
                 // TX committed successfully — record the RID
                 allCommittedSourceRids.add(committedRid.get());
-              } catch (com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException ignored) {
+              } catch (ConcurrentModificationException ignored) {
                 // Expected under SI when two TXs modify the same
                 // target entity's #linkMap concurrently — retry next
                 // iteration.

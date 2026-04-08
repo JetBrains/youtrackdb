@@ -1899,7 +1899,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var entry = new EntityEntry();
-    propertiesCount++;
+    if (existingEntry == null) {
+      propertiesCount++;
+    }
     properties.put(name, entry);
 
     value = preprocessAssignedValue(value, propertyType);
@@ -3334,7 +3336,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     // Force-load all properties from source bytes before they are discarded
     // (super.setDirtyNoChanged() nulls source when status != UNMARSHALLING).
-    checkForProperties();
+    // Skip if properties are currently being deserialized — mirrors the guard
+    // in setDirty() to prevent re-entrant checkForProperties() from overwriting
+    // a just-modified property with stale source bytes.
+    if (!deserializingProperties) {
+      checkForProperties();
+    }
     clearPageFrame();
 
     super.setDirtyNoChanged();

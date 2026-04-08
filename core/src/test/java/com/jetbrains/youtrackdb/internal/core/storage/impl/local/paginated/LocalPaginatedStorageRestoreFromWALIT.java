@@ -230,10 +230,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
           // Snapshot lists before each transaction so we can restore on conflict
           var firstDocsSnapshot = new ArrayList<>(firstDocs);
           var testTwoSnapshot = new ArrayList<>(testTwoList);
-          // DIAGNOSTIC: capture linkMap→testTwo mappings for post-commit verification
-          // Key: entityOne RID (mutable, becomes persistent after commit)
-          // Value: list of TestTwo RIDs pointed to by linkMap
-          var createdLinkMapEntries = new HashMap<RID, List<RID>>();
           try {
             db.executeInTx(transaction -> {
               var entityOne = ((EntityImpl) transaction.newEntity(classOne));
@@ -280,12 +276,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 }
 
                 entityOne.newLinkMap("linkMap", linkMap);
-                // DIAGNOSTIC: capture for verification
-                // entityOne.getIdentity() is a ChangeableRecordId that will be
-                // mutated to the persistent RID after commit
-                createdLinkMapEntries.put(
-                    entityOne.getIdentity(),
-                    new ArrayList<>(linkMap.values()));
               }
 
               var deleteEntity = random.nextDouble() <= 0.2;
@@ -295,54 +285,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
                 db.delete(entityToDelete);
               }
             });
-
-            // DIAGNOSTIC: post-commit verification of back-references
-            // After executeInTx succeeds, entityOne RIDs are now persistent
-            if (!createdLinkMapEntries.isEmpty()) {
-              db.executeInTx(verifyTx -> {
-                for (var mapEntry : createdLinkMapEntries.entrySet()) {
-                  var sourceRid = mapEntry.getKey();
-                  // Skip entries for entities that were created and deleted in
-                  // the same TX — their temp RID was never assigned a persistent
-                  // position, so back-references may legitimately not exist.
-                  if (!sourceRid.isPersistent()) {
-                    continue;
-                  }
-                  for (var testTwoRid : mapEntry.getValue()) {
-                    var testTwoEntity = (EntityImpl) verifyTx.load(testTwoRid);
-                    var bag =
-                        (com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag) testTwoEntity
-                            .getPropertyInternal("#linkMap");
-                    if (bag == null) {
-                      throw new AssertionError(
-                          "POST-COMMIT FAIL: TestTwo " + testTwoRid
-                              + " has no #linkMap, expected back-ref from "
-                              + sourceRid);
-                    }
-                    boolean found = false;
-                    for (var pair : bag) {
-                      if (pair.primaryRid().equals(sourceRid)) {
-                        found = true;
-                        break;
-                      }
-                    }
-                    if (!found) {
-                      var bagContents = new java.util.ArrayList<RID>();
-                      for (var pair : bag) {
-                        bagContents.add(pair.primaryRid());
-                      }
-                      throw new AssertionError(
-                          "POST-COMMIT FAIL: TestTwo " + testTwoRid
-                              + " #linkMap missing back-ref from " + sourceRid
-                              + " bagSize=" + bag.size()
-                              + " bagContents=" + bagContents
-                              + " entityVersion=" + testTwoEntity.getVersion()
-                              + " isEmbedded=" + bag.isEmbedded());
-                    }
-                  }
-                }
-              });
-            }
           } catch (ConcurrentModificationException | RecordNotFoundException e) {
             // Under SI, concurrent transactions may conflict on version checks
             // or encounter records not visible in the current snapshot during

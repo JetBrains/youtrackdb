@@ -356,6 +356,8 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     // reaches the entity. Without this, deserialized LinkBags would have
     // a null owner, and modifications via add()/remove() would never
     // register the entity as dirty in the TX — losing the changes at commit.
+    assert this.owner == null || this.owner == parent
+        : "enableTracking called with a different parent than the current owner";
     this.owner = parent;
     if (!tracker.isEnabled()) {
       tracker.enable();
