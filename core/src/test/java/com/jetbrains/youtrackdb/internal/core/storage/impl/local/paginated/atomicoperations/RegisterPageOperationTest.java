@@ -42,7 +42,7 @@ public class RegisterPageOperationTest {
     var snapshot =
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
     return new AtomicOperationBinaryTracking(
-        readCache, writeCache, STORAGE_ID,
+        readCache, writeCache, null, STORAGE_ID,
         snapshot,
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),

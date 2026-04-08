@@ -94,7 +94,8 @@ public class AtomicOperationsManager {
       segmentLock.sharedUnlock();
     }
     var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(lastId);
-    return new AtomicOperationBinaryTracking(readCache, writeCache, storage.getId(),
+    return new AtomicOperationBinaryTracking(readCache, writeCache, writeAheadLog,
+        storage.getId(),
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),

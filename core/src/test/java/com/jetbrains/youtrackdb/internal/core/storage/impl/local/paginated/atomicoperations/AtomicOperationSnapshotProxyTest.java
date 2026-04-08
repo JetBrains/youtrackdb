@@ -66,7 +66,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.getStorageName()).thenReturn("test-storage");
     var snapshot = new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
     return new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1, snapshot,
+        readCache, writeCache, null, 1, snapshot,
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
   }
@@ -1270,7 +1270,7 @@ public class AtomicOperationSnapshotProxyTest {
         .thenReturn(mockCacheEntry);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1296,7 +1296,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.addFile(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1332,7 +1332,7 @@ public class AtomicOperationSnapshotProxyTest {
         .thenReturn(mockCacheEntry);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1359,7 +1359,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.getStorageName()).thenReturn("test-storage");
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1382,7 +1382,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.addFile(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1445,7 +1445,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1466,7 +1466,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1489,7 +1489,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.fileNameById(composedFileId)).thenReturn("reused-file.dat");
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1514,7 +1514,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId(anyString())).thenReturn((1L << 32) | 10);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1554,7 +1554,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1578,7 +1578,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1600,7 +1600,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.getStorageName()).thenReturn("test-storage");
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1622,7 +1622,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.loadFile("existing.dat")).thenReturn(composedFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
@@ -1645,7 +1645,7 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.bookFileId("nondurable.dat")).thenReturn(nonDurableFileId);
 
     var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, 1,
+        readCache, writeCache, null, 1,
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);

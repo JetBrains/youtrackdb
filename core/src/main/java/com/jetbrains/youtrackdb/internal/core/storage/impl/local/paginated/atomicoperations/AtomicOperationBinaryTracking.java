@@ -96,6 +96,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final ReadCache readCache;
   private final WriteCache writeCache;
+  @Nullable private final WriteAheadLog writeAheadLog;
+
+  // Tracks whether the WAL atomic unit start record has been emitted (lazily).
+  // Shared between flushPendingOperations() and commitChanges() so that the
+  // start record is emitted at most once per atomic operation.
+  private boolean walUnitStarted;
+  @Nullable private LogSequenceNumber startLSN;
 
   private final Map<String, AtomicOperationMetadata<?>> metadata = new LinkedHashMap<>();
 
@@ -140,6 +147,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
       final WriteCache writeCache,
+      @Nullable final WriteAheadLog writeAheadLog,
       final int storageId,
       @Nonnull AtomicOperationsSnapshot snapshot,
       @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
@@ -155,6 +163,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.storageId = storageId;
     this.readCache = readCache;
     this.writeCache = writeCache;
+    this.writeAheadLog = writeAheadLog;
     this.sharedSnapshotIndex = sharedSnapshotIndex;
     this.sharedVisibilityIndex = sharedVisibilityIndex;
     this.snapshotIndexSize = snapshotIndexSize;
@@ -429,6 +438,44 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
+  public void flushPendingOperations() throws IOException {
+    assert writeAheadLog != null
+        : "flushPendingOperations called but WriteAheadLog is null";
+
+    for (final var fileEntry : fileChanges.long2ObjectEntrySet()) {
+      final var fileId = fileEntry.getLongKey();
+      final var fileChanges = fileEntry.getValue();
+
+      // Skip non-durable files — they never produce WAL records
+      if (fileChanges.nonDurable || writeCache.isNonDurable(fileId)) {
+        continue;
+      }
+
+      for (final var pageEntry : fileChanges.pageChangesMap.long2ObjectEntrySet()) {
+        final var pageChanges = pageEntry.getValue();
+        final var pendingOps = pageChanges.getPendingOperations();
+
+        if (pendingOps.isEmpty()) {
+          continue;
+        }
+
+        // Lazy emission of AtomicUnitStartRecord before the first WAL record
+        if (!walUnitStarted) {
+          startLSN = emitWalUnitStart(writeAheadLog, operationCommitTs);
+          walUnitStarted = true;
+        }
+
+        for (final var op : pendingOps) {
+          final var lsn = writeAheadLog.log(op);
+          pageChanges.setChangeLSN(lsn);
+        }
+
+        pageChanges.clearPendingOperations();
+      }
+    }
+  }
+
+  @Override
   public long filledUpTo(long fileId) {
     checkIfActive();
 
@@ -618,14 +665,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             fileId, entry.getValue().nonDurable || writeCache.isNonDurable(fileId));
       }
 
-      // Defer WAL unit start: only emit when first durable change is encountered.
-      // If the operation contains only non-durable changes, no WAL records are written.
-      boolean walUnitStarted = false;
-      // startLSN is captured immediately after the WAL unit start record, so it
-      // points into the same segment as the start record. This is critical for
-      // dirty-page tracking: pages pin this LSN to prevent WAL truncation of the
-      // segment containing their WAL records.
-      LogSequenceNumber startLSN = null;
+      // walUnitStarted and startLSN are instance fields (shared with
+      // flushPendingOperations). If flushPendingOperations was called before
+      // commitChanges, walUnitStarted may already be true and startLSN set.
       this.operationCommitTs = commitTs;
 
       var deletedFilesIterator = deletedFiles.longIterator();
