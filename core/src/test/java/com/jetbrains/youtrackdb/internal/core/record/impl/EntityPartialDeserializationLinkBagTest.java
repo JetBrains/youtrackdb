@@ -282,6 +282,179 @@ public class EntityPartialDeserializationLinkBagTest extends DbTestBase {
   }
 
   /**
+   * Directly tests that setDeserializedPropertyInternal preserves a modified
+   * TrackedMultiValue property instead of overwriting it with stale data from
+   * source bytes. This exercises the isModified() guard at
+   * EntityImpl.setDeserializedPropertyInternal() line 1892.
+   *
+   * <p>Scenario: an entity has a linkMap property (EntityLinkMapIml, which
+   * implements TrackedMultiValue) that has been modified in-memory. When
+   * setDeserializedPropertyInternal is called for the same property (as would
+   * happen during full deserialization from source bytes), the guard detects
+   * that the existing property is modified and returns early, preserving the
+   * in-memory modifications.
+   */
+  @Test
+  public void testSetDeserializedPropertyPreservesModifiedTrackedMultiValue() {
+    var schema = session.getMetadata().getSchema();
+    var testClass = schema.createClass("DeserGuardTest");
+    testClass.createProperty("linkMap", PropertyType.LINKMAP);
+    testClass.createProperty("label", PropertyType.STRING);
+
+    // Create a target entity for the linkMap
+    var targetRids = new ArrayList<RID>();
+    session.executeInTx(tx -> {
+      var target = (EntityImpl) tx.newEntity(testClass);
+      target.setProperty("label", "target");
+      targetRids.add(target.getIdentity());
+    });
+
+    session.executeInTx(tx -> {
+      var entity = (EntityImpl) tx.newEntity(testClass);
+      entity.setProperty("label", "source");
+
+      // Manually set up a linkMap property via setPropertyInternal,
+      // then modify it so isModified() returns true.
+      var linkMap = new com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml(entity);
+      linkMap.put("key1", targetRids.get(0));
+      entity.setPropertyInternal("linkMap", linkMap,
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.LINKMAP);
+
+      // Verify the linkMap is now tracked as modified
+      assertTrue("LinkMap should be modified after put()", linkMap.isModified());
+
+      // Call setDeserializedPropertyInternal with a DIFFERENT (empty) linkMap.
+      // The guard should detect the existing modified linkMap and return early,
+      // preserving the original with its modification.
+      var freshLinkMap = new com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml(
+          entity);
+      entity.setDeserializedPropertyInternal("linkMap", freshLinkMap,
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.LINKMAP);
+
+      // The original modified linkMap should be preserved, not replaced
+      var result = entity.getPropertyInternal("linkMap", false);
+      assertNotNull("linkMap should not be null", result);
+      assertTrue("linkMap should still contain key1",
+          ((java.util.Map<?, ?>) result).containsKey("key1"));
+
+      // Also exercise the branch where existingEntry is present but its value
+      // is NOT a TrackedMultiValue (e.g., a String property that was already
+      // deserialized). In this case, setDeserializedPropertyInternal should
+      // replace the value normally since there's no modification guard.
+      entity.setDeserializedPropertyInternal("label", "new-label",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.STRING);
+      assertEquals("Non-TMV property should be replaced by deserialization",
+          "new-label", entity.getPropertyInternal("label", false));
+    });
+  }
+
+  /**
+   * Verifies that directly modifying a LinkBag property (via add()) on a
+   * committed entity survives the full re-deserialization triggered by
+   * setDirtyNoChanged(). This exercises the TrackedMultiValue guard in
+   * EntityImpl.setDeserializedPropertyInternal() — when the LinkBag has
+   * been partially deserialized and modified, full deserialization must
+   * not overwrite it with stale data from source bytes.
+   *
+   * <p>The key difference from testLinkBagAddSurvivesFullReDeserialization
+   * (which uses LinkMap) is that LinkBag's addEvent() ALWAYS calls
+   * setDirtyNoChanged() (propagating to the owner entity), while LinkMap
+   * only records tracker events without propagating dirty. This means
+   * LinkBag modifications directly trigger the re-deserialization path.
+   *
+   * <p>Flow:
+   * <ol>
+   *   <li>Entity B has #linkMap (LinkBag) + other properties from a committed linkMap</li>
+   *   <li>B is loaded fresh from storage (source bytes present)</li>
+   *   <li>#linkMap is accessed (partial deserialization — only this property)</li>
+   *   <li>An entry is added to #linkMap → dirty=true, setDirtyNoChanged propagates</li>
+   *   <li>Entity's setDirtyNoChanged → checkForProperties → deserializeProperties</li>
+   *   <li>setDeserializedPropertyInternal for #linkMap: guard sees isModified()=true → skip</li>
+   * </ol>
+   */
+  @Test
+  public void testLinkBagModificationSurvivesReDeserializationViaSetDirtyNoChanged() {
+    var schema = session.getMetadata().getSchema();
+    var sourceClass = schema.createClass("ReDeserSource");
+    sourceClass.createProperty("intProp", PropertyType.INTEGER);
+    sourceClass.createProperty("stringProp", PropertyType.STRING);
+    sourceClass.createProperty("linkMap", PropertyType.LINKMAP);
+    var targetClass = schema.createClass("ReDeserTarget");
+    targetClass.createProperty("label", PropertyType.STRING);
+
+    // Create target B with extra properties so it has more than just #linkMap
+    var targetRids = new ArrayList<RID>();
+    session.executeInTx(tx -> {
+      var target = (EntityImpl) tx.newEntity(targetClass);
+      target.setProperty("label", "target-with-props");
+      targetRids.add(target.getIdentity());
+    });
+
+    // Create multiple source entities linking to B, so B has a #linkMap
+    // with multiple entries and extra properties to ensure source bytes
+    // contain data beyond just #linkMap.
+    var sourceRids = new ArrayList<RID>();
+    for (var i = 0; i < 3; i++) {
+      int idx = i;
+      session.executeInTx(tx -> {
+        var entity = (EntityImpl) tx.newEntity(sourceClass);
+        entity.setProperty("intProp", idx);
+        entity.setProperty("stringProp", "source" + idx);
+        Map<String, RID> linkMap = new HashMap<>();
+        linkMap.put(targetRids.get(0).toString(), targetRids.get(0));
+        entity.newLinkMap("linkMap", linkMap);
+        sourceRids.add(entity.getIdentity());
+      });
+    }
+
+    // Verify: target B has #linkMap with 3 entries
+    session.executeInTx(tx -> {
+      var target = (EntityImpl) tx.loadEntity(targetRids.get(0));
+      var bag = (LinkBag) target.getPropertyInternal("#linkMap", false);
+      assertNotNull("Target should have #linkMap", bag);
+      assertEquals("Should have 3 back-references", 3, bag.size());
+    });
+
+    // Now: in a new TX, create a new source entity linking to B.
+    // During commit callback processing (afterCreateOperations):
+    // 1. B is loaded fresh from storage (with source bytes)
+    // 2. B's #linkMap is accessed (partial deserialization)
+    // 3. The new entry is added to #linkMap (LinkBag.add())
+    // 4. setDirtyNoChanged propagates → checkForProperties → full deserialization
+    // 5. setDeserializedPropertyInternal for #linkMap: guard detects modification
+    var newSourceRids = new ArrayList<RID>();
+    session.executeInTx(tx -> {
+      var entity = (EntityImpl) tx.newEntity(sourceClass);
+      entity.setProperty("intProp", 99);
+      entity.setProperty("stringProp", "new-source");
+      Map<String, RID> linkMap = new HashMap<>();
+      linkMap.put(targetRids.get(0).toString(), targetRids.get(0));
+      entity.newLinkMap("linkMap", linkMap);
+      newSourceRids.add(entity.getIdentity());
+    });
+
+    // Verify: target B's #linkMap should now have 4 entries (3 + 1 new)
+    session.executeInTx(tx -> {
+      var target = (EntityImpl) tx.loadEntity(targetRids.get(0));
+      var bag = (LinkBag) target.getPropertyInternal("#linkMap", false);
+      assertNotNull("Target should still have #linkMap", bag);
+      assertEquals("Should have 4 back-references after adding new source",
+          4, bag.size());
+
+      // Verify the new entry is present
+      var newRid = newSourceRids.get(0);
+      assertTrue("Target's #linkMap should contain the new source entity",
+          bag.contains(newRid));
+
+      // Verify all original entries are still present
+      for (var sourceRid : sourceRids) {
+        assertTrue("Target's #linkMap should still contain " + sourceRid,
+            bag.contains(sourceRid));
+      }
+    });
+  }
+
+  /**
    * Stress test for concurrent opposite-link updates. Multiple threads
    * simultaneously create entities linking to the same target. After all
    * threads finish, every committed back-reference must be present in the

@@ -4166,12 +4166,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
       if (linkBag == null) {
         if (diff < 0) {
-          // If the entity was created and deleted in the same transaction,
-          // its back-references may never have been added to opposite entities
-          // (CREATED processing is skipped when the type changes to DELETED).
-          if (entity.getIdentity().isNew()) {
-            continue;
-          }
+          // Invariant: if we're removing a back-reference, the opposite entity
+          // must have the link bag property. For new entities created and deleted
+          // in the same TX, the CREATED callback runs first (adding back-refs),
+          // so this path is not expected for new entities.
+          assert !entity.getIdentity().isNew()
+              : "New entity " + entity.getIdentity()
+                  + " has missing opposite link bag " + oppositeLinkBagPropertyName
+                  + " on " + oppositeEntity.getIdentity();
           throw new LinksConsistencyException(this,
               "Cannot remove link " + propertyName + " for " + entity
                   + " from opposite entity " + oppositeEntity
@@ -4189,13 +4191,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         } else {
           var removed = linkBag.remove(entity.getIdentity());
           if (!removed) {
-            // If the entity was created and deleted in the same transaction,
-            // its back-references may never have been committed. The CREATED
-            // callback processing is skipped when the record type is changed
-            // directly from CREATED to DELETED before processing.
-            if (entity.getIdentity().isNew()) {
-              continue;
-            }
+            // Invariant: if the link bag exists but doesn't contain the entity,
+            // the entity must have been added by a prior CREATED callback.
+            // For new entities, the CREATED callback always runs before the
+            // DELETED callback within preProcessRecordsAndExecuteCallCallbacks.
+            assert !entity.getIdentity().isNew()
+                : "New entity " + entity.getIdentity()
+                    + " not found in opposite link bag " + oppositeLinkBagPropertyName
+                    + " on " + oppositeEntity.getIdentity();
             throw new LinksConsistencyException(this, "Cannot remove link " + rid
                 + " from opposite entity because it does not exist in opposite link bag : "
                 + oppositeLinkBagPropertyName);
