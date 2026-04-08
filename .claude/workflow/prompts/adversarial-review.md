@@ -5,11 +5,11 @@ You MUST read the codebase to ground your challenges in reality.
 ## Workflow Context
 
 You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
-the execution workflow. The overall workflow has five stages: Phase 0–1
-(research & planning — produced the plan you are reviewing), Phase 2
-(consistency & structural review of the plan — already passed), Phase 3
-(execution — tracks implemented one at a time, each going through Phase A →
-Phase B → Phase C), and Phase 4 (final artifacts).
+the execution workflow. The overall workflow has five phases: Phase 0
+(research), Phase 1 (planning) — together these produced the plan you are
+reviewing, Phase 2 (consistency & structural review of the plan — already
+passed), Phase 3 (execution — tracks implemented one at a time, each going
+through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 
 **Key terminology:**
 - **Track**: A coherent stream of related work within the plan. Contains
@@ -17,8 +17,10 @@ Phase B → Phase C), and Phase 4 (final artifacts).
   steps per track.
 - **Step**: A single atomic change = one commit. Fully tested.
 - **Episode**: A structured record of what happened during a step or track
-  implementation. Episodes from completed tracks (in the plan file) are your
-  evidence of what actually happened — they may reveal codebase realities
+  implementation. Track episodes (in the plan file under completed tracks)
+  summarize strategic outcomes; step episodes (in step files) contain
+  implementation details. Episodes from completed tracks are your evidence
+  of what actually happened — they may reveal codebase realities
   that weaken this track's assumptions.
 - **Scope indicator**: A rough sketch of expected work in a track
   (`~N steps covering X, Y, Z`). Strategic signal, not a binding contract.
@@ -31,8 +33,10 @@ Phase B → Phase C), and Phase 4 (final artifacts).
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components this plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true before/after the change.
-  Each must map to a testable assertion — your violation scenarios test
-  whether the assertion is actually enforceable.
+  Can be ENFORCED (code already guarantees them), ASPIRATIONAL (tracks need
+  to implement them), or VIOLATED (current code contradicts them). Each must
+  map to a testable assertion — your violation scenarios test whether the
+  assertion is actually enforceable.
 - **Non-Goals**: Explicit scope exclusions. Challenge whether they are
   correctly scoped — is important work being excluded, or does the scope
   boundary allow unintended consequences?

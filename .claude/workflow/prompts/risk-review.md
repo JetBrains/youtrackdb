@@ -4,11 +4,11 @@ feasibility. You MUST read the codebase to assess risk realistically.
 ## Workflow Context
 
 You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
-the execution workflow. The overall workflow has five stages: Phase 0–1
-(research & planning — produced the plan you are reviewing), Phase 2
-(consistency & structural review of the plan — already passed), Phase 3
-(execution — tracks implemented one at a time, each going through Phase A →
-Phase B → Phase C), and Phase 4 (final artifacts).
+the execution workflow. The overall workflow has five phases: Phase 0
+(research), Phase 1 (planning) — together these produced the plan you are
+reviewing, Phase 2 (consistency & structural review of the plan — already
+passed), Phase 3 (execution — tracks implemented one at a time, each going
+through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 
 **Key terminology:**
 - **Track**: A coherent stream of related work within the plan. Contains
@@ -30,7 +30,13 @@ Phase B → Phase C), and Phase 4 (final artifacts).
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components this plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true before/after the change.
-  Each must map to a testable assertion.
+  Can be ENFORCED (code already guarantees them), ASPIRATIONAL (tracks need
+  to implement them), or VIOLATED (current code contradicts them). Each must
+  map to a testable assertion.
+- **Integration Points**: How new code connects to existing code — entry
+  points, SPIs, callbacks, event flows.
+- **Non-Goals**: Explicit scope exclusions to prevent scope creep during
+  execution.
 
 **Your role:** Assess risks and feasibility of this track before
 implementation begins. Your findings may lead to risk mitigation steps,

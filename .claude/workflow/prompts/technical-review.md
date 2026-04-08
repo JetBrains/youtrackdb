@@ -4,11 +4,11 @@ You MUST read the codebase to validate this track's assumptions.
 ## Workflow Context
 
 You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
-the execution workflow. The overall workflow has five stages: Phase 0–1
-(research & planning — produced the plan you are reviewing), Phase 2
-(consistency & structural review of the plan — already passed), Phase 3
-(execution — tracks implemented one at a time, each going through Phase A →
-Phase B → Phase C), and Phase 4 (final artifacts).
+the execution workflow. The overall workflow has five phases: Phase 0
+(research), Phase 1 (planning) — together these produced the plan you are
+reviewing, Phase 2 (consistency & structural review of the plan — already
+passed), Phase 3 (execution — tracks implemented one at a time, each going
+through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 
 **Key terminology:**
 - **Track**: A coherent stream of related work within the plan. Contains
@@ -29,10 +29,16 @@ Phase B → Phase C), and Phase 4 (final artifacts).
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components this plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true before/after the change.
-  Each must map to a testable assertion in the relevant step.
+  Can be ENFORCED (code already guarantees them), ASPIRATIONAL (tracks need
+  to implement them), or VIOLATED (current code contradicts them). Each must
+  map to a testable assertion in the relevant step.
+- **Integration Points**: How new code connects to existing code — entry
+  points, SPIs, callbacks, event flows.
+- **Non-Goals**: Explicit scope exclusions to prevent scope creep during
+  execution.
 
 **Your role:** Validate this track's approach before implementation begins.
-Your findings may lead to plan adjustments, step decomposition changes, or
+Your findings may lead to plan adjustments, decomposition guidance, or
 (if severity is `skip`) a recommendation to skip the entire track. After
 your review, the main agent decomposes the track into concrete steps.
 
