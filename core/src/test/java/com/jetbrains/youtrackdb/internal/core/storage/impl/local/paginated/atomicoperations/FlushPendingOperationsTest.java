@@ -74,7 +74,7 @@ public class FlushPendingOperationsTest {
   private AtomicOperationBinaryTracking createOperation() {
     var snapshot =
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
-    return new AtomicOperationBinaryTracking(
+    var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, wal, STORAGE_ID,
         snapshot,
         new ConcurrentSkipListMap<>(),
@@ -83,6 +83,10 @@ public class FlushPendingOperationsTest {
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),
         new AtomicLong());
+    // Production lifecycle: startToApplyOperations is always called before
+    // component operations (and thus before flushPendingOperations)
+    op.startToApplyOperations(42);
+    return op;
   }
 
   private static long composeFileId(long internalId, int storageId) {

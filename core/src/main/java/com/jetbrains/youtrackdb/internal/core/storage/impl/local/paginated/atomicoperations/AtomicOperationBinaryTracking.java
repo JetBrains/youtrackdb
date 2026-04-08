@@ -423,6 +423,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void registerPageOperation(long fileId, long pageIndex, PageOperation op) {
+    checkIfActive();
+    assert op != null : "PageOperation must not be null";
+
     fileId = checkFileIdCompatibility(fileId, storageId);
 
     final var changesContainer = fileChanges.get(fileId);
@@ -439,8 +442,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void flushPendingOperations() throws IOException {
+    checkIfActive();
     assert writeAheadLog != null
         : "flushPendingOperations called but WriteAheadLog is null";
+    assert operationCommitTs != -1
+        : "flushPendingOperations called before operationCommitTs was set"
+            + " — call startToApplyOperations first";
 
     for (final var fileEntry : fileChanges.long2ObjectEntrySet()) {
       final var fileId = fileEntry.getLongKey();
@@ -466,6 +473,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         }
 
         for (final var op : pendingOps) {
+          op.setOperationUnitId(operationCommitTs);
           final var lsn = writeAheadLog.log(op);
           pageChanges.setChangeLSN(lsn);
         }
@@ -651,6 +659,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   public LogSequenceNumber commitChanges(long commitTs, @Nonnull final WriteAheadLog writeAheadLog)
       throws IOException {
     checkIfActive();
+    assert this.writeAheadLog == null || this.writeAheadLog == writeAheadLog
+        : "commitChanges WAL instance differs from flushPendingOperations WAL instance";
     try {
       LogSequenceNumber txEndLsn;
 
@@ -715,6 +725,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         while (filePageChangesIterator.hasNext()) {
           final var filePageChangesEntry =
               filePageChangesIterator.next();
+
+          // All pending logical operations must have been flushed to WAL before
+          // commitChanges — callers must call flushPendingOperations() first.
+          assert filePageChangesEntry.getValue().getPendingOperations().isEmpty()
+              : "Unflushed pending operations on page "
+                  + filePageChangesEntry.getLongKey()
+                  + " of file " + fileId
+                  + " — flushPendingOperations() must be called before commitChanges()";
 
           if (filePageChangesEntry.getValue().changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();

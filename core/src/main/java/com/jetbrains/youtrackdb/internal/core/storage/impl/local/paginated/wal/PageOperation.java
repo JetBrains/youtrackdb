@@ -47,6 +47,7 @@ public abstract class PageOperation extends AbstractPageWALRecord {
   protected PageOperation(
       long pageIndex, long fileId, long operationUnitId, LogSequenceNumber initialLsn) {
     super(pageIndex, fileId, operationUnitId);
+    assert initialLsn != null : "initialLsn must not be null — required for CAS recovery check";
     this.initialLsn = initialLsn;
   }
 

@@ -6,7 +6,6 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -24,7 +23,6 @@ import org.junit.Test;
 public class RegisterPageOperationTest {
 
   private static final int STORAGE_ID = 1;
-  private static final int PAGE_SIZE = DurablePage.MAX_PAGE_SIZE_BYTES;
 
   private ReadCache readCache;
   private WriteCache writeCache;

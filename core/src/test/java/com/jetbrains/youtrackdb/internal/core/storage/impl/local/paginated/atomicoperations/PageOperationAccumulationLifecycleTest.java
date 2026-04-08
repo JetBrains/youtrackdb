@@ -80,7 +80,7 @@ public class PageOperationAccumulationLifecycleTest {
   private AtomicOperationBinaryTracking createOperation() {
     var snapshot =
         new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100);
-    return new AtomicOperationBinaryTracking(
+    var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, wal, STORAGE_ID,
         snapshot,
         new ConcurrentSkipListMap<>(),
@@ -89,6 +89,10 @@ public class PageOperationAccumulationLifecycleTest {
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),
         new AtomicLong());
+    // Production lifecycle: startToApplyOperations is always called before
+    // component operations (and thus before flushPendingOperations)
+    op.startToApplyOperations(42);
+    return op;
   }
 
   private static long composeFileId(long internalId, int storageId) {
@@ -214,12 +218,21 @@ public class PageOperationAccumulationLifecycleTest {
 
   /**
    * Verify that flushed ops' changeLSNs are captured on CacheEntryChanges.
-   * After flush, the changeLSN should reflect the last flushed operation's LSN.
+   * After flush, the changeLSN should reflect the LAST flushed operation's LSN
+   * (not the first), since each op overwrites it.
    */
   @Test
   public void testChangeLSNCapturedAfterFlush() throws IOException {
     var op = createOperation();
-    long fileId = setupNewFileWithPage(op, "test.dat");
+
+    // Set up file and page manually to capture the CacheEntryChanges
+    long nextInternalId = fileIdCounter.getAndIncrement();
+    long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
+    when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
+    long fileId = op.addFile("test.dat");
+    var page = (CacheEntryChanges) op.addPage(fileId);
+    page.getChanges().setByteValue(null, (byte) 1, 100);
+    page.setInitialLSN(new LogSequenceNumber(-1, -1));
 
     op.registerPageOperation(fileId, 0,
         new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 10));
@@ -228,9 +241,16 @@ public class PageOperationAccumulationLifecycleTest {
 
     op.flushPendingOperations();
 
-    // The last flushed op should have an LSN set
-    var lastOp = (TestPageOperation) loggedRecords.get(loggedRecords.size() - 1);
+    // The changeLSN on CacheEntryChanges must equal the LAST flushed op's LSN
+    var firstOp = (TestPageOperation) loggedRecords.get(1);
+    var lastOp = (TestPageOperation) loggedRecords.get(2);
     Assert.assertNotNull(lastOp.getLsn());
+
+    // Both ops have distinct LSNs (mock counter increments)
+    Assert.assertNotEquals(firstOp.getLsn(), lastOp.getLsn());
+
+    // changeLSN must be the last op's LSN, not the first
+    Assert.assertEquals(lastOp.getLsn(), page.getChangeLSN());
   }
 
   /**

@@ -1,64 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.nio.ByteBuffer;
 import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Tests for the {@link PageOperation} abstract base class. Uses a minimal concrete subclass
- * ({@link TestPageOperation}) to verify construction, field handling, and serialization roundtrip.
+ * Tests for the {@link PageOperation} abstract base class. Uses the shared
+ * {@link TestPageOperation} to verify construction, field handling, and serialization roundtrip.
  */
 public class PageOperationTest {
-
-  /** Minimal concrete PageOperation for testing. Carries a single int field. */
-  private static final class TestPageOperation extends PageOperation {
-
-    private static final int TEST_RECORD_ID = 200;
-
-    private int testValue;
-
-    TestPageOperation() {
-    }
-
-    TestPageOperation(
-        long pageIndex, long fileId, long operationUnitId,
-        LogSequenceNumber initialLsn, int testValue) {
-      super(pageIndex, fileId, operationUnitId, initialLsn);
-      this.testValue = testValue;
-    }
-
-    @Override
-    public void redo(DurablePage page) {
-      // no-op for testing
-    }
-
-    @Override
-    public int getId() {
-      return TEST_RECORD_ID;
-    }
-
-    @Override
-    public int serializedSize() {
-      return super.serializedSize() + Integer.BYTES;
-    }
-
-    @Override
-    protected void serializeToByteBuffer(ByteBuffer buffer) {
-      super.serializeToByteBuffer(buffer);
-      buffer.putInt(testValue);
-    }
-
-    @Override
-    protected void deserializeFromByteBuffer(ByteBuffer buffer) {
-      super.deserializeFromByteBuffer(buffer);
-      testValue = buffer.getInt();
-    }
-
-    int getTestValue() {
-      return testValue;
-    }
-  }
 
   @Test
   public void testConstructionAndGetters() {
