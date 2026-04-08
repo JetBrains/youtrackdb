@@ -655,14 +655,15 @@ public class IndexesSnapshotVisibilityFilterTest {
     assertTrue("Phantom RecordId must not be visible", result.isEmpty());
   }
 
-  // --- null atomicOperation ---
+  // --- Long.MAX_VALUE visibleVersion (everything committed is visible) ---
 
   /**
-   * When atomicOperation is null, visibleVersion defaults to Long.MAX_VALUE and
-   * inProgressVersions is empty. All non-tombstone entries should be visible.
+   * With visibleVersion=Long.MAX_VALUE and no in-progress versions, all
+   * non-tombstone entries should be visible (committed RecordId and
+   * SnapshotMarkerRID), while TombstoneRID entries are filtered out.
    */
   @Test
-  public void nullAtomicOp_allNonTombstoneVisible() {
+  public void maxVisibleVersion_allNonTombstoneVisible() {
     var snap = newSnapshot(INDEX_ID);
     var alive = new RawPair<>(new CompositeKey("Foo", RID_20_0, 100L), RID_20_0);
     var dead = new RawPair<>(
@@ -670,9 +671,7 @@ public class IndexesSnapshotVisibilityFilterTest {
     var marker = new RawPair<>(
         new CompositeKey("Baz", RID_20_0, 100L), (RID) new SnapshotMarkerRID(RID_20_0));
 
-    var result = snap
-        .visibilityFilter(null, Stream.of(alive, dead, marker))
-        .toList();
+    var result = filterMapped(snap, Long.MAX_VALUE, List.of(alive, dead, marker));
 
     assertEquals("Only alive and marker entries should be visible", 2, result.size());
   }

@@ -55,12 +55,10 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.addToApproximateEntriesCount(4);
     f.engine.addToApproximateNullCount(1);
     var nullRid = new RecordId(1, 1);
-    // countNulls calls get(null) which uses iterateEntriesBetween + visibilityFilter.
+    // countNulls calls get(null) which uses getVisible() (direct leaf-page lookup).
     // visibilityFilteredKeyStream uses firstKey + iterateEntriesMajor + visibilityFilter.
     // Use thenAnswer to return fresh streams on each call.
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), nullRid)));
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(nullRid);
     var firstKey = new CompositeKey(null, 0L);
     when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
@@ -123,9 +121,8 @@ public class BTreeEngineHistogramBuildTest {
     var f = new SingleValueFixture();
     f.engine.addToApproximateEntriesCount(10);
     f.engine.addToApproximateNullCount(2);
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), new RecordId(1, 1))));
+    // countNulls calls get(null) which uses getVisible() (direct leaf-page lookup).
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(new RecordId(1, 1));
     var firstKey = new CompositeKey(null, 0L);
     when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);
     when(f.sbTree.iterateEntriesMajor(eq(firstKey), eq(true), eq(true), any()))
@@ -191,9 +188,8 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.addToApproximateEntriesCount(5);
     f.engine.addToApproximateNullCount(1);
     var nullRid = new RecordId(1, 1);
-    when(f.sbTree.iterateEntriesBetween(any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenAnswer(inv -> Stream.of(
-            new RawPair<>(new CompositeKey(null, 0L), nullRid)));
+    // countNulls calls get(null) which uses getVisible() (direct leaf-page lookup).
+    when(f.sbTree.getVisible(any(), any(), any())).thenReturn(nullRid);
     // firstKey returns null-key entry; iterateEntriesMajor returns only the null
     var firstKey = new CompositeKey(null, 0L);
     when(f.sbTree.firstKey(f.op)).thenReturn(firstKey);

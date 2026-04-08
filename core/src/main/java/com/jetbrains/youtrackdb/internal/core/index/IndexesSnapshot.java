@@ -69,7 +69,8 @@ public class IndexesSnapshot {
     snapshotSizeCounter.addAndGet(2);
   }
 
-  public Stream<RawPair<CompositeKey, RID>> visibilityFilter(AtomicOperation atomicOperation,
+  public Stream<RawPair<CompositeKey, RID>> visibilityFilter(
+      @Nonnull AtomicOperation atomicOperation,
       Stream<RawPair<CompositeKey, RID>> stream) {
     return visibilityFilterMapped(atomicOperation, stream, Function.identity());
   }
@@ -80,18 +81,12 @@ public class IndexesSnapshot {
    * intermediate RawPair allocations.
    */
   public <K> Stream<RawPair<K, RID>> visibilityFilterMapped(
-      AtomicOperation atomicOperation,
+      @Nonnull AtomicOperation atomicOperation,
       Stream<RawPair<CompositeKey, RID>> stream,
       Function<CompositeKey, K> keyMapper) {
-    long visibleVersion;
-    LongOpenHashSet inProgressVersions;
-    if (atomicOperation != null) {
-      visibleVersion = atomicOperation.getAtomicOperationsSnapshot().maxActiveOperationTs();
-      inProgressVersions = atomicOperation.getAtomicOperationsSnapshot().inProgressTxs();
-    } else {
-      visibleVersion = Long.MAX_VALUE;
-      inProgressVersions = LongOpenHashSet.of();
-    }
+    var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+    var visibleVersion = opsSnapshot.maxActiveOperationTs();
+    var inProgressVersions = opsSnapshot.inProgressTxs();
 
     // mapMulti instead of flatMap to avoid allocating a Stream object
     // (Stream.of / Stream.empty) per entry during full index scans.
