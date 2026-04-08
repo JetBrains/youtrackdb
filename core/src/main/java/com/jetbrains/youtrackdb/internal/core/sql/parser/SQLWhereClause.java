@@ -925,22 +925,36 @@ public class SQLWhereClause extends SimpleNode {
     if (baseExpression == null) {
       return null;
     }
+    return findRidInExpression(baseExpression);
+  }
 
-    var expr = baseExpression;
+  /**
+   * Recursively searches for {@code @rid = <expr>} in a possibly nested
+   * AND/OR structure. Handles the double-nesting created by
+   * {@code addAliases()} in {@code MatchExecutionPlanner}, where compound
+   * WHERE clauses like {@code @rid = #23:1 AND name = 'bob'} are wrapped
+   * in an extra AND layer.
+   */
+  @Nullable
+  private static SQLExpression findRidInExpression(SQLBooleanExpression expr) {
     if (expr instanceof SQLOrBlock orBlock) {
       if (orBlock.subBlocks.size() != 1) {
         return null;
       }
       expr = orBlock.subBlocks.getFirst();
     }
-    if (!(expr instanceof SQLAndBlock andBlock)) {
-      return null;
-    }
-
-    for (var sub : andBlock.subBlocks) {
-      var ridExpr = tryExtractRidFromTerm(sub);
-      if (ridExpr != null) {
-        return ridExpr;
+    if (expr instanceof SQLAndBlock andBlock) {
+      for (var sub : andBlock.subBlocks) {
+        var ridExpr = tryExtractRidFromTerm(sub);
+        if (ridExpr != null) {
+          return ridExpr;
+        }
+        // sub might be a nested AND/OR wrapping the compound condition —
+        // recurse to flatten it
+        ridExpr = findRidInExpression(sub);
+        if (ridExpr != null) {
+          return ridExpr;
+        }
       }
     }
     return null;

@@ -1820,14 +1820,15 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // --- Back-reference detection ---
-      // Check if target filter contains @rid = $matched.X.@rid
+      // --- RID equality detection ---
+      // Check if target filter contains @rid = <expr>.
       // Uses findRidEquality() (non-destructive) instead of
       // extractAndRemoveRidEquality() to avoid mutating the filter.
       var ridExpr = targetFilter.findRidEquality();
       if (ridExpr != null) {
         var involvedAliases = ridExpr.getMatchPatternInvolvedAliases();
         if (involvedAliases != null && !involvedAliases.isEmpty()) {
+          // Back-reference: @rid = $matched.X.@rid → EdgeRidLookup
           var edgeClass = getEdgeClassName(edgeJ);
           var edgeDirection = getEdgeDirection(edgeJ);
           var collectEdgeRids = false;
@@ -1866,6 +1867,17 @@ public class MatchExecutionPlanner {
                   collectEdgeRids);
             }
           }
+        } else {
+          // Literal or parameter RID: @rid = #12:0 or @rid = :param
+          // → DirectRid singleton set for zero-waste link bag filtering.
+          // A singleton RID cannot benefit from further index intersection,
+          // so skip the index detection below.
+          edgeJ.addIntersectionDescriptor(
+              new RidFilterDescriptor.DirectRid(ridExpr));
+          logger.debug(
+              "MATCH pre-filter: DirectRid on edge[{}] for alias '{}'",
+              j, targetAliasJ);
+          continue;
         }
       }
 
