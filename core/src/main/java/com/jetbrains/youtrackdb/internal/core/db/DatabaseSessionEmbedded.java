@@ -4166,6 +4166,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
       if (linkBag == null) {
         if (diff < 0) {
+          // If the entity was created and deleted in the same transaction,
+          // its back-references may never have been added to opposite entities
+          // (CREATED processing is skipped when the type changes to DELETED).
+          if (entity.getIdentity().isNew()) {
+            continue;
+          }
           throw new LinksConsistencyException(this,
               "Cannot remove link " + propertyName + " for " + entity
                   + " from opposite entity " + oppositeEntity
@@ -4183,6 +4189,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         } else {
           var removed = linkBag.remove(entity.getIdentity());
           if (!removed) {
+            // If the entity was created and deleted in the same transaction,
+            // its back-references may never have been committed. The CREATED
+            // callback processing is skipped when the record type is changed
+            // directly from CREATED to DELETED before processing.
+            if (entity.getIdentity().isNew()) {
+              continue;
+            }
             throw new LinksConsistencyException(this, "Cannot remove link " + rid
                 + " from opposite entity because it does not exist in opposite link bag : "
                 + oppositeLinkBagPropertyName);

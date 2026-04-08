@@ -57,7 +57,6 @@ public class LinkBag
     init();
   }
 
-
   public LinkBag(@Nonnull DatabaseSessionEmbedded session, LinkBagDelegate delegate) {
     this.session = session;
     initThresholds(session);
@@ -244,15 +243,13 @@ public class LinkBag
   }
 
   protected void init() {
-    delegate = topThreshold >= 0 ?
-        new EmbeddedLinkBag(session, Integer.MAX_VALUE) :
-        new BTreeBasedLinkBag(session, Integer.MAX_VALUE);
+    delegate = topThreshold >= 0 ? new EmbeddedLinkBag(session, Integer.MAX_VALUE)
+        : new BTreeBasedLinkBag(session, Integer.MAX_VALUE);
   }
 
   public LinkBagDelegate getDelegate() {
     return delegate;
   }
-
 
   @Override
   public int hashCode() {

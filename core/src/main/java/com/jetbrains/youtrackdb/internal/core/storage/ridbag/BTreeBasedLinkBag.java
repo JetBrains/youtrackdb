@@ -106,7 +106,6 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
         counterMaxValue, session));
   }
 
-
   @Override
   public void requestDelete(FrontendTransaction transaction) {
     if (collectionPointer != null) {
@@ -145,7 +144,7 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     if (tree == null) {
       oldValue = null;
     } else {
-      oldValue = tree.get(rid, atomicOperation);
+      oldValue = tree.get(rid, getAtomicOperation());
     }
 
     if (oldValue == null) {
@@ -163,16 +162,15 @@ public class BTreeBasedLinkBag extends AbstractLinkBag {
     if (newValue < 0) {
       throw new DatabaseException(
           "More entries were removed from link collection than it contains. For rid : "
-              + rid + " collection contains : " + oldCounter + " entries, but " + (
-              newValue - oldCounter) +
+              + rid + " collection contains : " + oldCounter + " entries, but "
+              + (newValue - oldCounter) +
               " entries were removed.");
     }
     return new AbsoluteChange(newValue, secondaryRid);
 
   }
 
-  @Nullable
-  protected IsolatedLinkBagBTree<RID, LinkBagValue> loadTree() {
+  @Nullable protected IsolatedLinkBagBTree<RID, LinkBagValue> loadTree() {
     if (collectionPointer == null) {
       return null;
     }

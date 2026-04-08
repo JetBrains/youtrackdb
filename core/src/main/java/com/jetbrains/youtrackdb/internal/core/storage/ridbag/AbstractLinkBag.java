@@ -38,8 +38,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   @Nonnull
   protected final DatabaseSessionEmbedded session;
-  @Nonnull
-  protected final AtomicOperation atomicOperation;
 
   @Nonnull
   protected BagChangesContainer localChanges;
@@ -70,9 +68,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int size, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
-    var transaction = session.getActiveTransaction();
-
-    this.atomicOperation = transaction.getAtomicOperation();
     this.localChanges = createChangesContainer();
     this.size = size;
 
@@ -82,13 +77,21 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   public AbstractLinkBag(@Nonnull DatabaseSessionEmbedded session, int counterMaxValue) {
     assert assertIfNotActive();
     this.session = session;
-    var transaction = session.getActiveTransaction();
-    this.atomicOperation = transaction.getAtomicOperation();
     this.counterMaxValue = counterMaxValue;
     this.localChanges = createChangesContainer();
   }
 
   protected abstract BagChangesContainer createChangesContainer();
+
+  /**
+   * Returns the atomic operation from the current active transaction.
+   * Resolves dynamically instead of caching at construction time, because
+   * a link bag may outlive the transaction that created it (e.g. when the
+   * owning entity is held in the local record cache across transactions).
+   */
+  protected AtomicOperation getAtomicOperation() {
+    return session.getActiveTransaction().getAtomicOperation();
+  }
 
   public int getCounterMaxValue() {
     return counterMaxValue;
@@ -111,7 +114,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
     this.owner = owner;
   }
-
 
   @Override
   public void addAll(Collection<RID> values) {
@@ -283,9 +285,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     return size() == 0;
   }
 
-
-  @Nullable
-  protected abstract AbsoluteChange getAbsoluteChange(RID rid);
+  @Nullable protected abstract AbsoluteChange getAbsoluteChange(RID rid);
 
   protected boolean removeFromNewEntries(final RID rid) {
     var entryValue = newEntries.get(rid);
@@ -319,33 +319,44 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
               var change = new AbsoluteChange(pair.getValue().counter,
                   pair.getValue().secondaryRid);
               return new RawPair<RID, AbsoluteChange>(pair.getKey(), change);
-            }
-        )
-        , localChanges.stream(), ArrayBasedBagChangesContainer.COMPARATOR
+            }),
+        localChanges.stream(), ArrayBasedBagChangesContainer.COMPARATOR
 
     );
   }
 
   private void addEvent(RID key, RID rid) {
+    // Always propagate dirty to the owner entity via setDirtyNoChanged().
+    // Previously, the tracker-enabled path only called tracker.add() without
+    // propagating dirty — leaving the entity unaware of the modification.
+    // This caused two problems:
+    // 1. The entity was not registered as UPDATED in the TX, so the modified
+    //    LinkBag was never serialized/committed → back-reference data loss.
+    // 2. The entity's source bytes were not cleared, so a later
+    //    checkForProperties() could re-deserialize stale data over the
+    //    in-memory modification.
     if (tracker.isEnabled()) {
       tracker.add(key, rid);
-    } else {
-      setDirty();
     }
+    setDirtyNoChanged();
   }
 
   protected void removeEvent(RID removed, RID secondaryRid) {
     if (tracker.isEnabled()) {
       tracker.remove(removed, secondaryRid);
-    } else {
-      setDirty();
     }
+    setDirtyNoChanged();
   }
 
   @Override
   public void enableTracking(RecordElement parent) {
     assert assertIfNotActive();
 
+    // Set the owner so that dirty propagation via setDirtyNoChanged()
+    // reaches the entity. Without this, deserialized LinkBags would have
+    // a null owner, and modifications via add()/remove() would never
+    // register the entity as dirty in the TX — losing the changes at commit.
+    this.owner = parent;
     if (!tracker.isEnabled()) {
       tracker.enable();
     }
@@ -411,11 +422,21 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   public void setDirtyNoChanged() {
     assert assertIfNotActive();
 
+    // Set dirty BEFORE propagating to the owner. The owner's
+    // setDirtyNoChanged() triggers checkForProperties() which may
+    // deserialize properties from source bytes. The deserialization
+    // guard in setDeserializedPropertyInternal checks isModified()
+    // (which returns this.dirty) to decide whether to skip re-
+    // deserialization of an already-modified property. If we
+    // propagate first, the guard sees dirty=false and replaces the
+    // in-memory LinkBag (with its newEntries) with a freshly
+    // deserialized copy — losing all uncommitted additions.
+    this.dirty = true;
+    this.transactionDirty = true;
+
     if (owner != null) {
       owner.setDirtyNoChanged();
     }
-    this.dirty = true;
-    this.transactionDirty = true;
   }
 
   @Override
@@ -478,8 +499,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     return StreamSupport.stream(spliterator(), false);
   }
 
-  @Nullable
-  protected abstract Spliterator<BTreeReadEntry<RID>> btreeSpliterator(
+  @Nullable protected abstract Spliterator<BTreeReadEntry<RID>> btreeSpliterator(
       AtomicOperation atomicOperation);
 
   @Override
@@ -489,28 +509,21 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   private final class MergingSpliterator implements Spliterator<RidPair> {
 
-    @Nullable
-    private Spliterator<Map.Entry<RID, NewEntryValue>> newEntriesSpliterator;
-    @Nullable
-    private Spliterator<RawPair<RID, AbsoluteChange>> localChangesSpliterator;
-    @Nullable
-    private Spliterator<BTreeReadEntry<RID>> btreeRecordsSpliterator;
+    @Nullable private Spliterator<Map.Entry<RID, NewEntryValue>> newEntriesSpliterator;
+    @Nullable private Spliterator<RawPair<RID, AbsoluteChange>> localChangesSpliterator;
+    @Nullable private Spliterator<BTreeReadEntry<RID>> btreeRecordsSpliterator;
 
-    @Nullable
-    private RidPair currentPair;
+    @Nullable private RidPair currentPair;
     private int currentCounter;
 
-    @Nullable
-    private RID btreeRid;
+    @Nullable private RID btreeRid;
     private int btreeCounter;
     private int btreeSecondaryCollectionId;
     private long btreeSecondaryPosition;
 
-    @Nullable
-    private RID localRid;
+    @Nullable private RID localRid;
     private int localCounter;
-    @Nullable
-    private RID localSecondaryRid;
+    @Nullable private RID localSecondaryRid;
 
     private long savedNewModificationsCount = newModificationsCount;
     private long savedLocalChangesModificationsCount = localChangesModificationsCount;
@@ -618,7 +631,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
 
     private void initBTreeRecordsSpliterator() {
-      btreeRecordsSpliterator = btreeSpliterator(atomicOperation);
+      btreeRecordsSpliterator = btreeSpliterator(getAtomicOperation());
     }
 
     void removed(RID rid) {
@@ -723,8 +736,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       currentCounter--;
     }
 
-    @Nullable
-    @Override
+    @Nullable @Override
     public Spliterator<RidPair> trySplit() {
       assert assertIfNotActive();
       return null;
@@ -745,8 +757,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
     }
 
     @Override
-    @Nullable
-    public Comparator<? super RidPair> getComparator() {
+    @Nullable public Comparator<? super RidPair> getComparator() {
       return null;
     }
   }
@@ -813,7 +824,6 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
       currentPair = null;
     }
   }
-
 
   @Override
   public String toString() {

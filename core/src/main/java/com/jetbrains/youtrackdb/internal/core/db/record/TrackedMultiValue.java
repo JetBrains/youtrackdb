@@ -103,7 +103,6 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
 
   void transactionClear();
 
-
   MultiValueChangeTimeLine<? extends K, ? extends V> getTransactionTimeLine();
 
   default void addOwner(V e) {
@@ -139,7 +138,8 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
       session = owner.getSession();
     }
     assert session == null
-        || session.assertIfNotActive() : "Data container is unloaded please acquire new one from entity";
+        || session.assertIfNotActive()
+        : "Data container is unloaded please acquire new one from entity";
 
     return true;
   }
