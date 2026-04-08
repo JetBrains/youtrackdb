@@ -466,9 +466,24 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (content != null && content.containsKey(name)) {
       //noinspection unchecked
       result = (T) content.get(name);
-    } else {
-      if (isEntity()) {
-        result = asEntity().getProperty(name);
+    } else if (identifiable != null) {
+      // Fast path: resolve entity directly without going through asEntity()
+      // which would call isEntity() → isBlob() a second time. For bare RIDs
+      // (lazy MATCH path) this avoids 2 redundant schema snapshot lookups
+      // per property access.
+      Entity entity;
+      if (identifiable instanceof Entity e) {
+        entity = e;
+      } else if (!isBlob()) {
+        var transaction = session.getActiveTransaction();
+        entity = transaction.loadEntity(identifiable);
+        this.identifiable = entity;
+      } else {
+        entity = null;
+      }
+      if (entity != null) {
+        //noinspection unchecked
+        result = (T) entity.getProperty(name);
       }
     }
 
