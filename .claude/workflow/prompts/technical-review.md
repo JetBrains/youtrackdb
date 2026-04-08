@@ -1,6 +1,43 @@
 You are reviewing ONE TRACK of an implementation plan for technical soundness.
 You MUST read the codebase to validate this track's assumptions.
 
+## Workflow Context
+
+You are a sub-agent spawned during **Phase A (Review + Decomposition)** of
+the execution workflow. The overall workflow has five stages: Phase 0–1
+(research & planning — produced the plan you are reviewing), Phase 2
+(consistency & structural review of the plan — already passed), Phase 3
+(execution — tracks implemented one at a time, each going through Phase A →
+Phase B → Phase C), and Phase 4 (final artifacts).
+
+**Key terminology:**
+- **Track**: A coherent stream of related work within the plan. Contains
+  steps (decomposed later in this Phase A, after your review). Max ~5-7
+  steps per track.
+- **Step**: A single atomic change = one commit. Fully tested. Step
+  decomposition has not happened yet — only scope indicators exist.
+- **Episode**: A structured record of what happened during a step or track
+  implementation. Track episodes (in the plan file under completed tracks)
+  summarize strategic outcomes; step episodes (in step files) contain
+  implementation details. Episodes from completed tracks are your evidence
+  of what actually happened vs. what was planned.
+- **Scope indicator**: A rough sketch of expected work in a track
+  (`~N steps covering X, Y, Z`). Strategic signal, not a binding contract.
+- **Decision Records**: Design choices in the plan's Architecture Notes
+  section. Each has alternatives, rationale, risks, and track references.
+  They are immutable during execution — changes require formal replanning.
+- **Component Map**: Mermaid diagram + annotated bullet list showing which
+  system components this plan touches and what changes in each.
+- **Invariants**: Conditions that must remain true before/after the change.
+  Each must map to a testable assertion in the relevant step.
+
+**Your role:** Validate this track's approach before implementation begins.
+Your findings may lead to plan adjustments, step decomposition changes, or
+(if severity is `skip`) a recommendation to skip the entire track. After
+your review, the main agent decomposes the track into concrete steps.
+
+---
+
 Inputs:
 - Plan file: {plan_path} (read the full plan for context, but focus on
   the specified track)

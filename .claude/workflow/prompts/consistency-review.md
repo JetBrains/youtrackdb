@@ -7,6 +7,42 @@ code to find gaps and inconsistencies between the three artifacts:
 2. **Design document** (`design.md`)
 3. **Actual codebase**
 
+## Workflow Context
+
+You are a sub-agent spawned during **Phase 2 (Implementation Review)**,
+which validates the plan before execution begins. Phase 2 has two steps:
+(1) this consistency review (you), then (2) a structural review. After both
+pass, the plan proceeds to Phase 3 (execution).
+
+**Why this matters:** During Phase 3, an execution agent reads the plan and
+design document to guide implementation. Every inconsistency you miss — a
+phantom class reference, an incorrect call flow, a mismatched interface —
+will cause the execution agent to make wrong assumptions and produce
+incorrect code.
+
+**Key terminology:**
+- **Track**: A coherent stream of related work within the plan. Max ~5-7
+  steps per track. Step-level decomposition does not exist yet — only scope
+  indicators.
+- **Scope indicator**: A rough sketch of expected work in a track
+  (`> **Scope:** ~N steps covering X, Y, Z`). A strategic signal for effort
+  estimation, not a binding contract.
+- **Decision Records**: Design choices in the plan's Architecture Notes
+  section. Each has alternatives, rationale, risks, and track references.
+- **Component Map**: Mermaid diagram + annotated bullet list showing which
+  system components the plan touches and what changes in each.
+- **Invariants**: Conditions that must remain true. Can be ENFORCED (code
+  already guarantees them), ASPIRATIONAL (tracks need to implement them),
+  or VIOLATED (current code contradicts them).
+- **Integration Points**: How new code connects to existing code — entry
+  points, SPIs, callbacks, event flows.
+- **Design document** (`design.md`): Separate file explaining the structural
+  and behavioral design — class diagrams, workflow diagrams, dedicated
+  sections for complex parts (concurrency, crash recovery, performance).
+  Frozen after planning — never modified during execution.
+
+---
+
 Inputs:
 - Plan file: {plan_path}
 - Design document: {design_path}
