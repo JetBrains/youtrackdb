@@ -93,14 +93,17 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       return upstream.filter((row, c) -> null);
     }
 
-    var ridToAnchor = new java.util.HashMap<RID, Result>();
+    // Multi-map: each reachable RID may map to multiple anchors (e.g., a probe
+    // vertex can reach several WHILE targets that all satisfy the WHERE filter).
+    var ridToAnchors = new java.util.HashMap<RID, List<Result>>();
     reachableRids = new RidSet();
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
     boolean truncated = false;
     for (var anchor : anchors) {
       var anchorRid = extractRid(anchor);
       if (anchorRid != null) {
-        ridToAnchor.put(anchorRid, anchor);
+        ridToAnchors.computeIfAbsent(anchorRid, k -> new ArrayList<>())
+            .add(anchor);
         reachableRids.add(anchorRid);
       }
       var descendants = collectDescendantRids(anchor, session);
@@ -109,39 +112,46 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       }
       for (var descendantRid : descendants) {
         reachableRids.add(descendantRid);
-        ridToAnchor.putIfAbsent(descendantRid, anchor);
+        ridToAnchors.computeIfAbsent(descendantRid, k -> new ArrayList<>())
+            .add(anchor);
       }
     }
 
     // Capture locally for null-safety
     var builtSet = reachableRids;
-    var builtMap = ridToAnchor;
+    var builtMap = ridToAnchors;
     var wasTruncated = truncated;
 
-    // Probe phase: filter upstream rows by directClass membership.
+    // Probe phase: for each upstream row, emit one result per matching anchor.
     // When the build-phase BFS was truncated, probe misses may be false
     // negatives — fall back to per-row forward BFS for those rows.
     var upstream = prev.start(ctx);
-    return upstream.filter((row, c) -> {
+    return upstream.flatMap((row, c) -> {
       var probeValue = row.getProperty(probeAlias);
       var rid = extractRid(probeValue);
       if (rid == null) {
-        return null;
+        return ExecutionStream.empty();
       }
+      List<Result> matched = null;
       if (builtSet.contains(rid)) {
-        var anchor = builtMap.get(rid);
-        return new MatchResultRow(c.getDatabaseSession(), row, targetAlias, anchor);
+        matched = builtMap.get(rid);
+      } else if (wasTruncated) {
+        matched = forwardBfsToAnchors(
+            rid, builtSet, builtMap, c.getDatabaseSession());
       }
-      if (!wasTruncated) {
-        return null; // Definitive miss — set is complete
+      if (matched == null || matched.isEmpty()) {
+        return ExecutionStream.empty();
       }
-      // Truncated set — false negative possible. Forward BFS to verify.
-      var anchor = forwardBfsToAnchor(
-          rid, builtSet, builtMap, c.getDatabaseSession());
-      if (anchor == null) {
-        return null; // Verified miss
+      if (matched.size() == 1) {
+        return ExecutionStream.singleton(new MatchResultRow(
+            c.getDatabaseSession(), row, targetAlias, matched.getFirst()));
       }
-      return new MatchResultRow(c.getDatabaseSession(), row, targetAlias, anchor);
+      var results = new ArrayList<Result>(matched.size());
+      for (var a : matched) {
+        results.add(new MatchResultRow(
+            c.getDatabaseSession(), row, targetAlias, a));
+      }
+      return ExecutionStream.resultIterator(results.iterator());
     });
   }
 
@@ -218,18 +228,21 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
   /**
    * Per-row fallback when the build-phase BFS was truncated: walks FORWARD from
-   * probeRid (toward the anchors) to check reachability. Stops early if a vertex
-   * already present in the build-phase set is found, and returns the corresponding
-   * anchor. Returns {@code null} if no anchor is reachable.
+   * probeRid (toward the anchors) to find all reachable anchors. Collects unique
+   * anchors from all builtSet vertices encountered during the BFS. Returns
+   * {@code null} if no anchor is reachable.
    */
-  @Nullable private Result forwardBfsToAnchor(
-      RID probeRid, Set<RID> builtSet, Map<RID, Result> ridToAnchor,
+  @Nullable private List<Result> forwardBfsToAnchors(
+      RID probeRid, Set<RID> builtSet,
+      Map<RID, List<Result>> ridToAnchors,
       DatabaseSessionEmbedded session) {
     var forwardDir = edgeOut ? "out" : "in";
     var sql = "SELECT expand(" + forwardDir + "('" + edgeLabel + "')) FROM ?";
     var visited = new RidSet();
     var frontier = new ArrayList<RID>();
     frontier.add(probeRid);
+    var foundAnchorRids = new RidSet();
+    var foundAnchors = new ArrayList<Result>();
     while (!frontier.isEmpty()) {
       var nextFrontier = new ArrayList<RID>();
       for (var current : frontier) {
@@ -239,7 +252,15 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
             var rid = extractRid(row);
             if (rid != null && visited.add(rid)) {
               if (builtSet.contains(rid)) {
-                return ridToAnchor.get(rid);
+                var mapped = ridToAnchors.get(rid);
+                if (mapped != null) {
+                  for (var a : mapped) {
+                    var aRid = extractRid(a);
+                    if (aRid != null && foundAnchorRids.add(aRid)) {
+                      foundAnchors.add(a);
+                    }
+                  }
+                }
               }
               nextFrontier.add(rid);
             }
@@ -248,7 +269,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       }
       frontier = nextFrontier;
     }
-    return null;
+    return foundAnchors.isEmpty() ? null : foundAnchors;
   }
 
   /** Extracts RID from a value that may be a RID, Identifiable, or Result. */
