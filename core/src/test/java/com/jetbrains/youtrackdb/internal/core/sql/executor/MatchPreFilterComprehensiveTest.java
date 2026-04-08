@@ -358,10 +358,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
 
     Set<String> contents = collectProperty(result, "content");
     // p0 authored m0, m1, m2 in 'general'
-    assertTrue("Should find m0", contents.contains("m0"));
-    assertTrue("Should find m1", contents.contains("m1"));
-    assertTrue("Should find m2", contents.contains("m2"));
-    assertFalse("Should NOT find m3 (by p1)", contents.contains("m3"));
+    assertEquals(Set.of("m0", "m1", "m2"), contents);
 
     assertPlanHasIntersection(query, "Plan should show intersection for back-ref");
     session.commit();
@@ -787,8 +784,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     assertEquals(7, result.size());
 
     Set<String> contents = collectProperty(result, "content");
-    assertTrue("Should include the CComment subclass vertex",
-        contents.contains("c0"));
+    assertEquals(Set.of("m0", "m1", "m2", "m3", "m4", "m5", "c0"), contents);
 
     // Same as classFilter_targetClassConstraint: the polymorphic class filter
     // operates via acceptedCollectionIds (includes CMessage + CComment cluster
@@ -877,9 +873,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     // p0 works at acme (workFrom=2010 < 2013).
     // acme has p0, p1, p2 as workers → coworkers are p0, p1, p2
     Set<String> names = collectProperty(result, "name");
-    assertTrue("Should find p0", names.contains("p0"));
-    assertTrue("Should find p1", names.contains("p1"));
-    assertTrue("Should find p2", names.contains("p2"));
+    assertEquals(Set.of("p0", "p1", "p2"), names);
 
     assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
@@ -986,7 +980,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     // since > 2006: only p0→p2 matches for outE, but bothE also checks inE
     Set<String> names = collectProperty(result, "name");
     // p0→p2 has since=2007 > 2006 → target p2 via outE.inV
-    assertTrue("Should find p2 via outE path", names.contains("p2"));
+    assertEquals(Set.of("p2"), names);
 
     // Verify the bothE() edge step specifically has no intersection descriptor.
     // Check only the plan line for the bothE edge, not the entire plan, to
@@ -1063,10 +1057,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
         .toList();
 
     Set<String> contents = collectProperty(result, "content");
-    assertTrue("Should find m1", contents.contains("m1"));
-    assertTrue("Should find m2", contents.contains("m2"));
-    assertFalse("Should NOT find m0 (creationDate=1000 < 1100)",
-        contents.contains("m0"));
+    assertEquals(Set.of("m1", "m2"), contents);
 
     // Should have both index intersection on post2 and EdgeRidLookup on creator
     assertPlanHasIntersection(
@@ -1111,11 +1102,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     // p1's messages >= 1500: m5(1500)
     // p2's messages >= 1500: m6(1600), m7(1700), m8(1800)
     Set<String> msgs = collectProperty(result, "msgContent");
-    assertTrue("Should find m5", msgs.contains("m5"));
-    assertTrue("Should find m6", msgs.contains("m6"));
-    assertTrue("Should find m7", msgs.contains("m7"));
-    assertTrue("Should find m8", msgs.contains("m8"));
-    assertFalse("Should NOT find m3 (1300 < 1500)", msgs.contains("m3"));
+    assertEquals(Set.of("m5", "m6", "m7", "m8"), msgs);
 
     assertPlanHasIndexIntersection(
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
@@ -1904,8 +1891,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
         .toList();
 
     Set<String> contents = collectProperty(result, "content");
-    assertTrue("Should find newly created message",
-        contents.contains("mNew"));
+    assertEquals(Set.of("mNew"), contents);
 
     // No indexed filter on traversal targets (CForum.title is not indexed) and
     // no back-reference in this query. The where: (title = 'tech') on the forum
