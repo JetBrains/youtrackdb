@@ -947,6 +947,20 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     // p0 has 5 outgoing edges: CWorksAt(→acme), CKnows(→p1, →p2),
     //   CContributes(→alpha), CLikes(→m9)
     assertEquals("p0 has 5 outgoing edges", 5, result.size());
+    Set<String> targetNames = new HashSet<>();
+    Set<String> targetContents = new HashSet<>();
+    for (var r : result) {
+      String name = r.getProperty("tName");
+      String content = r.getProperty("tContent");
+      if (name != null) {
+        targetNames.add(name);
+      }
+      if (content != null) {
+        targetContents.add(content);
+      }
+    }
+    assertEquals(Set.of("acme", "p1", "p2", "alpha"), targetNames);
+    assertEquals(Set.of("m9"), targetContents);
 
     // outE() without edge class argument means the planner cannot determine which
     // edge class or index to use for the workFrom filter. Without an edge class,

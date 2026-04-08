@@ -1611,6 +1611,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     assertEquals("RID matches bob but name='carol' should yield 0 results",
         0, resultMismatch.size());
+
+    // findRidEquality() recursively flattens nested AND/OR blocks created by
+    // addAliases(), so it can extract the @rid from compound conditions too.
+    assertPlanHasIntersection(
+        "MATCH {class: DR3Person, as: p, where: (name = 'alice')}"
+            + ".out('DR3Knows'){as: friend,"
+            + "  where: (@rid = " + bobRid + " AND name = 'bob')}"
+            + " RETURN friend.name as friendName",
+        "Compound AND with @rid should produce DirectRid intersection");
     session.commit();
   }
 
@@ -1682,19 +1691,15 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     assertEquals("Non-existent RID + compound WHERE should yield 0 results",
         0, result.size());
 
-    // With compound WHERE (@rid = ... AND name = ...), findRidEquality() extracts
-    // the RID equality, so the planner should still produce a DirectRid descriptor.
-    // However, the non-existent RID means the intersection is empty → 0 results.
-    // Note: if the plan does NOT show intersection, it means findRidEquality()
-    // cannot extract the RID from the compound condition — document this behavior.
-    String plan = explainPlan(
+    // findRidEquality() extracts the @rid from the compound AND condition,
+    // producing a DirectRid descriptor. The non-existent RID means the
+    // intersection is empty → 0 results.
+    assertPlanHasIntersection(
         "MATCH {class: DR5Person, as: p, where: (name = 'alice')}"
             + ".out('DR5Knows'){as: friend,"
             + "  where: (@rid = #999:999 AND name = 'bob')}"
-            + " RETURN friend.name as friendName");
-    // The compound WHERE may or may not produce a DirectRid descriptor
-    // depending on whether findRidEquality() handles AND conditions.
-    // The key correctness check is that we get 0 results (verified above).
+            + " RETURN friend.name as friendName",
+        "Compound AND with non-existent @rid should still produce DirectRid");
     session.commit();
   }
 
@@ -2550,6 +2555,14 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // Inverted bounds: val >= 60 AND val <= 30 → impossible → empty
     assertEquals("Inverted BETWEEN bounds should yield 0 results",
         0, result.size());
+
+    // flatten() rewrites to >= 60 AND <= 30 — the planner still sees two range
+    // conditions on an indexed property and attaches the descriptor.
+    assertPlanHasIndexIntersection(
+        "MATCH {class: BIHub, as: hub, where: (name = 'center')}"
+            + ".out('BILink'){as: item, where: (val BETWEEN 60 AND 30)}"
+            + " RETURN item.label as label",
+        "Inverted bounds: planner still attaches index descriptor");
     session.commit();
   }
 
@@ -2573,6 +2586,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // :low is unset (null) → BETWEEN null AND 60 should yield 0 results
     assertEquals("BETWEEN with null bound should yield 0 results",
         0, result.size());
+
+    // The planner sees BETWEEN :low AND :high on an indexed property and
+    // activates the index pre-filter (flatten → >= AND <=). At runtime the
+    // null key produces an open-ended range, but evaluate() post-filters
+    // everything out. The plan still shows the intersection descriptor.
+    assertPlanHasIndexIntersection(
+        "MATCH {class: BNHub, as: hub, where: (name = 'center')}"
+            + ".out('BNLink'){as: item,"
+            + "  where: (val BETWEEN :low AND :high)}"
+            + " RETURN item.label as label",
+        new HashMap<>(Map.of("high", 60)),
+        "Null param does not prevent plan-time index detection");
     session.commit();
   }
 
@@ -3405,12 +3430,12 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN friend.name as friendName, msg.ts as msgTs")
         .toList();
 
-    assertFalse("Should have results", result.isEmpty());
-    for (var r : result) {
-      assertEquals("bob", r.getProperty("friendName"));
-      assertTrue("ts should be >= 200",
-          ((Number) r.getProperty("msgTs")).longValue() >= 200);
-    }
+    // alice knows bob (1 friend). alice wrote ts=100 and ts=200.
+    // ts >= 200 → only ts=200. Cartesian product: {bob} × {200} = 1 row.
+    assertEquals(1, result.size());
+    assertEquals("bob", result.get(0).getProperty("friendName"));
+    assertEquals(200L,
+        ((Number) result.get(0).getProperty("msgTs")).longValue());
 
     assertPlanHasIndexIntersection(
         "MATCH {class: MPPerson, as: person, where: (name = 'alice')}"
@@ -4447,6 +4472,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     Set<String> titles = collectProperty(result, "title");
     assertEquals(Set.of("post1", "post3", "post4"), titles);
+
+    // The NOT sub-pattern's edges are handled by a separate execution path
+    // (MatchNotStep) that does not go through the intersection descriptor
+    // attachment logic. The positive branch (out('ENWrote')) has no indexed
+    // WHERE either, so no intersection in the plan.
+    assertPlanHasNoIntersection(query,
+        "NOT sub-pattern edges bypass intersection descriptor attachment");
     session.commit();
   }
 
