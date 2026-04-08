@@ -78,7 +78,7 @@ public class RegisterPageOperationTest {
 
   /**
    * Registers a single PageOperation on a page that is loaded for write.
-   * Verifies the operation is accumulated in CacheEntryChanges.
+   * Verifies the operation is accumulated in CacheEntryChanges' pendingOperations list.
    */
   @Test
   public void testRegisterSingleOperation() throws IOException {
@@ -88,12 +88,18 @@ public class RegisterPageOperationTest {
     var pageOp = new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 42);
     op.registerPageOperation(fileId, 0, pageOp);
 
-    Assert.assertTrue(op.hasChangesForPage(fileId, 0));
+    // Verify the operation was accumulated in CacheEntryChanges
+    var page = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 1, false);
+    var pending = page.getPendingOperations();
+    Assert.assertEquals(1, pending.size());
+    Assert.assertSame(pageOp, pending.get(0));
+    Assert.assertEquals(42, ((TestPageOperation) pending.get(0)).getTestValue());
+    op.releasePageFromWrite(page);
   }
 
   /**
    * Registers multiple PageOperations on the same page and verifies they are
-   * accumulated in order.
+   * accumulated in insertion order in the pendingOperations list.
    */
   @Test
   public void testRegisterMultipleOperationsOnSamePage() throws IOException {
@@ -108,12 +114,19 @@ public class RegisterPageOperationTest {
     op.registerPageOperation(fileId, 0, op2);
     op.registerPageOperation(fileId, 0, op3);
 
-    Assert.assertTrue(op.hasChangesForPage(fileId, 0));
+    // Verify operations are accumulated in order
+    var page = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 1, false);
+    var pending = page.getPendingOperations();
+    Assert.assertEquals(3, pending.size());
+    Assert.assertSame(op1, pending.get(0));
+    Assert.assertSame(op2, pending.get(1));
+    Assert.assertSame(op3, pending.get(2));
+    op.releasePageFromWrite(page);
   }
 
   /**
    * Registers operations on different pages in the same file and verifies
-   * each page accumulates independently.
+   * each page accumulates its own operations independently.
    */
   @Test
   public void testRegisterOperationsOnDifferentPages() throws IOException {
@@ -126,8 +139,16 @@ public class RegisterPageOperationTest {
     op.registerPageOperation(fileId, 0, pageOp0);
     op.registerPageOperation(fileId, 1, pageOp1);
 
-    Assert.assertTrue(op.hasChangesForPage(fileId, 0));
-    Assert.assertTrue(op.hasChangesForPage(fileId, 1));
+    // Verify each page has its own pending operation
+    var page0 = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 2, false);
+    Assert.assertEquals(1, page0.getPendingOperations().size());
+    Assert.assertSame(pageOp0, page0.getPendingOperations().get(0));
+    op.releasePageFromWrite(page0);
+
+    var page1 = (CacheEntryChanges) op.loadPageForWrite(fileId, 1, 2, false);
+    Assert.assertEquals(1, page1.getPendingOperations().size());
+    Assert.assertSame(pageOp1, page1.getPendingOperations().get(0));
+    op.releasePageFromWrite(page1);
   }
 
   /**
