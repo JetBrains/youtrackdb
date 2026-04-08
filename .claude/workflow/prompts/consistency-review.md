@@ -24,16 +24,25 @@ incorrect code.
 - **Track**: A coherent stream of related work within the plan. Max ~5-7
   steps per track. Step-level decomposition does not exist yet — only scope
   indicators.
+- **Step**: A single atomic change = one commit. Fully tested. Step
+  decomposition is **deferred to Phase 3 execution** — the plan should NOT
+  contain `- [ ] Step:` items or *(provisional)* markers. Only scope
+  indicators exist at this point.
+- **Execution agent**: The agent that implements tracks during Phase 3. It
+  reads the plan and design document to guide implementation. It decomposes
+  scope indicators into concrete steps, implements them, and writes episodes.
 - **Scope indicator**: A rough sketch of expected work in a track
   (`> **Scope:** ~N steps covering X, Y, Z`). A strategic signal for effort
   estimation, not a binding contract.
 - **Decision Records**: Design choices in the plan's Architecture Notes
   section. Each has alternatives, rationale, risks, and track references.
+  Immutable during execution — changes require formal replanning.
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components the plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true. Can be ENFORCED (code
   already guarantees them), ASPIRATIONAL (tracks need to implement them),
-  or VIOLATED (current code contradicts them).
+  or VIOLATED (current code contradicts them). Each must map to a testable
+  assertion.
 - **Integration Points**: How new code connects to existing code — entry
   points, SPIs, callbacks, event flows.
 - **Non-Goals**: Explicit scope exclusions to prevent scope creep during

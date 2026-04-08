@@ -22,7 +22,7 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
   implementation details. Episodes from completed tracks are your evidence
   of what actually happened vs. what was planned.
 - **Scope indicator**: A rough sketch of expected work in a track
-  (`~N steps covering X, Y, Z`). Strategic signal, not a binding contract.
+  (`> **Scope:** ~N steps covering X, Y, Z`). Strategic signal, not a binding contract.
 - **Decision Records**: Design choices in the plan's Architecture Notes
   section. Each has alternatives, rationale, risks, and track references.
   Immutable during execution — changes require formal replanning.

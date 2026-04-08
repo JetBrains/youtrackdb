@@ -34,13 +34,15 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 - **Decision Records**: Design choices in the plan's Architecture Notes
   section. Each must include: alternatives considered, rationale, risks/
   caveats, and track references (which track(s) implement this decision).
+  Immutable during execution — changes require formal replanning.
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components the plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true. Can be ENFORCED (code
   already guarantees them), ASPIRATIONAL (tracks need to implement them),
   or VIOLATED (current code contradicts them). Each must map to a testable
   assertion in the relevant step.
-- **Integration Points**: How new code connects to existing code.
+- **Integration Points**: How new code connects to existing code — entry
+  points, SPIs, callbacks, event flows.
 - **Non-Goals**: Explicit scope exclusions to prevent scope creep during
   execution.
 - **Design document** (`design.md`): Separate file with class diagrams,
