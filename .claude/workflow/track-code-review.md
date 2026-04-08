@@ -66,6 +66,24 @@ Every sub-agent receives the same context block. Assemble it once and
 include it in each agent's prompt:
 
 ```
+## Workflow Context
+This is a **track-level code review** within a structured development
+workflow. A **track** is a coherent stream of related work containing
+multiple steps (each step = one commit, fully tested). You are reviewing
+the **full track diff** — all steps combined — to catch cross-step
+interaction issues that step-level reviews could not see (e.g.,
+inconsistent error handling across steps, missing integration between
+components introduced in different steps, architectural drift from the
+plan). The implementation plan below provides strategic context: goals,
+architecture decisions (Decision Records), constraints, and component
+topology (Component Map). The track steps file provides tactical context:
+what each step does and what was discovered. **Episodes** are the
+blockquoted sections under completed steps (starting with
+`**What was done:**`) — structured records of implementation outcomes.
+Use episodes to understand intent and check whether the combined result
+matches the plan's goals. Severities: **blocker** (must fix),
+**should-fix** (should fix before merge), **suggestion** (optional improvement).
+
 ## Review Target
 Track {N}: {track title}
 Reviewing commit range: {base_commit}..HEAD

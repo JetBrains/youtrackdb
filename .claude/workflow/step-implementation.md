@@ -102,6 +102,21 @@ completion**, before moving to the next step:
 
       Each agent receives the same context:
       ```
+      ## Workflow Context
+      This is a **step-level code review** within a structured development
+      workflow. A **track** is a coherent stream of related work within an
+      implementation plan; a **step** is a single atomic change (one commit,
+      fully tested). You are reviewing one step's diff. The implementation
+      plan below provides strategic context: goals, architecture decisions
+      (Decision Records), constraints, and component topology (Component Map).
+      The track steps file provides tactical context: what each step does and
+      what was discovered. **Episodes** are the blockquoted sections under
+      completed steps (starting with `**What was done:**`) — they are
+      structured records of implementation outcomes. Use episodes to
+      understand intent behind prior steps and check for cross-step
+      consistency issues. Severities: **blocker** (must fix), **should-fix**
+      (should fix before merge), **suggestion** (optional improvement).
+
       ## Review Target
       Track {N}, Step {M}: {step description}
       Reviewing: uncommitted changes or last commit (as appropriate)
