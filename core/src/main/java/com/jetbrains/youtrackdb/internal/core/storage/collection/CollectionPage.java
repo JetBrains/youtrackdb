@@ -162,6 +162,14 @@ public final class CollectionPage extends DurablePage {
 
             writeEntry(record, entryPosition, entrySize, entryIndex);
 
+            var cacheEntry = getCacheEntry();
+            if (cacheEntry instanceof CacheEntryChanges cec) {
+              cec.registerPageOperation(
+                  new CollectionPageAppendRecordOp(
+                      cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+                      0, cec.getInitialLSN(), recordVersion, record, entryIndex));
+            }
+
             return entryIndex;
           }
         }

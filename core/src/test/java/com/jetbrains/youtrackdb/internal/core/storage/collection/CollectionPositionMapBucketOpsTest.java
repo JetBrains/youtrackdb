@@ -331,12 +331,28 @@ public class CollectionPositionMapBucketOpsTest {
     var entry = createRawCacheEntry();
     try {
       var bucket = new CollectionPositionMapBucket(entry);
+      // Plain CacheEntry — instanceof CacheEntryChanges guard prevents registration
       bucket.init();
+      Assert.assertEquals(0, bucket.getSize());
+
       bucket.allocate();
+      Assert.assertEquals(1, bucket.getSize());
+      Assert.assertEquals(CollectionPositionMapBucket.ALLOCATED, bucket.getStatus(0));
+
       bucket.set(0, new PositionEntry(42, 7, 1L));
+      Assert.assertEquals(CollectionPositionMapBucket.FILLED, bucket.getStatus(0));
+      var e = bucket.get(0);
+      Assert.assertNotNull(e);
+      Assert.assertEquals(42, e.getPageIndex());
+      Assert.assertEquals(7, e.getRecordPosition());
+      Assert.assertEquals(1L, e.getRecordVersion());
+
       bucket.updateVersion(0, 10L);
+      Assert.assertEquals(10L, bucket.getRecordVersionAt(0));
+
       bucket.remove(0, 20L);
-      // No throws — plain CacheEntry, no registration
+      Assert.assertEquals(CollectionPositionMapBucket.REMOVED, bucket.getStatus(0));
+      Assert.assertEquals(20L, bucket.getRecordVersionAt(0));
     } finally {
       releaseEntry(entry);
     }

@@ -498,15 +498,21 @@ public class CollectionPageSimpleOpsTest {
     var entry = createRawCacheEntry();
     try {
       var page = new CollectionPage(entry);
-      // These calls should not throw — plain CacheEntry, no atomic operation
+      // Plain CacheEntry — instanceof CacheEntryChanges guard prevents registration
       page.init();
-      page.appendRecord(1L, new byte[] {1, 2, 3}, -1,
-          it.unimi.dsi.fastutil.ints.IntSets.emptySet());
-      page.setRecordVersion(0, 5);
-      page.deleteRecord(0, true);
+      Assert.assertEquals(0, page.getRecordsCount());
 
-      // No assertions needed beyond no-throw — the instanceof check prevents
-      // registration when not backed by CacheEntryChanges
+      int idx = page.appendRecord(1L, new byte[] {1, 2, 3}, -1,
+          it.unimi.dsi.fastutil.ints.IntSets.emptySet());
+      Assert.assertNotEquals(-1, idx);
+      Assert.assertEquals(1, page.getRecordsCount());
+
+      boolean versionSet = page.setRecordVersion(0, 5);
+      Assert.assertTrue(versionSet);
+      Assert.assertEquals(5, page.getRecordVersion(0));
+
+      page.deleteRecord(0, true);
+      Assert.assertTrue(page.isDeleted(0));
     } finally {
       releaseEntry(entry);
     }

@@ -312,6 +312,173 @@ public class CollectionPageAppendRecordOpTest {
     Assert.assertNotEquals(op1, op4);
   }
 
+  // --- Multiple sequential redos ---
+
+  /**
+   * Multiple sequential append redos must produce the same cumulative page state
+   * as the direct path. Validates that index area, free space, and free position
+   * accounting are consistent across multiple redo replays.
+   */
+  @Test
+  public void testRedoMultipleSequentialAppends() {
+    var entry1 = createRawCacheEntry();
+    var entry2 = createRawCacheEntry();
+    try {
+      var r1 = new byte[] {1, 2, 3};
+      var r2 = new byte[] {4, 5, 6, 7, 8};
+      var r3 = new byte[] {9};
+
+      // Direct path
+      var page1 = new CollectionPage(entry1);
+      page1.init();
+      int idx1 = page1.appendRecord(1L, r1, -1, IntSets.emptySet());
+      int idx2 = page1.appendRecord(2L, r2, -1, IntSets.emptySet());
+      int idx3 = page1.appendRecord(3L, r3, -1, IntSets.emptySet());
+
+      // Redo path — replay all 3 appends via redo on a freshly initialized page
+      var page2 = new CollectionPage(entry2);
+      page2.init();
+      new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 1L, r1, idx1).redo(page2);
+      new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, r2, idx2).redo(page2);
+      new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 3L, r3, idx3).redo(page2);
+
+      // Cumulative state must match
+      Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
+      Assert.assertEquals(page1.getFreeSpace(), page2.getFreeSpace());
+      Assert.assertEquals(page1.getFreePosition(), page2.getFreePosition());
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idx1, 0, r1.length),
+          page2.getRecordBinaryValue(idx1, 0, r1.length));
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idx2, 0, r2.length),
+          page2.getRecordBinaryValue(idx2, 0, r2.length));
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idx3, 0, r3.length),
+          page2.getRecordBinaryValue(idx3, 0, r3.length));
+    } finally {
+      releaseEntry(entry1);
+      releaseEntry(entry2);
+    }
+  }
+
+  /**
+   * Append that triggers defragmentation: direct path vs redo (DefragOp + AppendRecordOp).
+   * When contiguous free space is insufficient but total free space suffices, appendRecord
+   * triggers doDefragmentation() internally. During WAL replay, DefragOp is replayed first,
+   * then AppendRecordOp. Verifies logical equivalence.
+   */
+  @Test
+  public void testRedoAppendWithDefragmentationTrigger() {
+    var entry1 = createRawCacheEntry();
+    var entry2 = createRawCacheEntry();
+    try {
+      var smallRecord = new byte[100];
+
+      // Direct path: fill page, delete non-adjacent records, append larger record
+      var page1 = new CollectionPage(entry1);
+      page1.init();
+
+      int idx0 = page1.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      int idx1 = page1.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      int idx2 = page1.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      while (page1.appendRecord(1L, smallRecord, -1, IntSets.emptySet()) != -1) {
+        // fill until full
+      }
+
+      // Delete two non-adjacent records — creates two separate holes (~112 bytes each)
+      page1.deleteRecord(idx0, true);
+      page1.deleteRecord(idx2, true);
+
+      // Append a record of size 150 (entrySize ~162) — no single hole is big enough,
+      // so defragmentation is triggered to consolidate free space
+      var bigRecord = new byte[150];
+      int idxNew = page1.appendRecord(2L, bigRecord, -1, IntSets.emptySet());
+      Assert.assertNotEquals("append requiring defrag should succeed", -1, idxNew);
+
+      // Redo path: same setup, then replay DefragOp + AppendRecordOp
+      var page2 = new CollectionPage(entry2);
+      page2.init();
+
+      page2.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      page2.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      page2.appendRecord(1L, smallRecord, -1, IntSets.emptySet());
+      while (page2.appendRecord(1L, smallRecord, -1, IntSets.emptySet()) != -1) {
+        // fill until full
+      }
+      page2.deleteRecord(idx0, true);
+      page2.deleteRecord(idx2, true);
+
+      new CollectionPageDoDefragmentationOp(
+          0, 0, 0, new LogSequenceNumber(0, 0)).redo(page2);
+      new CollectionPageAppendRecordOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), 2L, bigRecord, idxNew).redo(page2);
+
+      // Logical state must match
+      Assert.assertEquals(page1.getRecordsCount(), page2.getRecordsCount());
+      Assert.assertArrayEquals(
+          page1.getRecordBinaryValue(idxNew, 0, bigRecord.length),
+          page2.getRecordBinaryValue(idxNew, 0, bigRecord.length));
+    } finally {
+      releaseEntry(entry1);
+      releaseEntry(entry2);
+    }
+  }
+
+  // --- Hole-reuse registration (CQ1 fix) ---
+
+  /**
+   * Verify that appendRecord into a hole (free-list reuse early-return path)
+   * registers a CollectionPageAppendRecordOp. The hole-reuse path must not skip
+   * registration.
+   */
+  @Test
+  public void testAppendIntoHoleRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var entry = createRawCacheEntry();
+    try {
+      changes.setDelegate(entry);
+      changes.setInitialLSN(new LogSequenceNumber(1, 100));
+
+      var page = new CollectionPage(changes);
+      page.init();
+
+      // Fill the page with same-sized records until full
+      var record = new byte[200];
+      int firstIdx = page.appendRecord(1L, record, -1, IntSets.emptySet());
+      while (page.appendRecord(1L, record, -1, IntSets.emptySet()) != -1) {
+        // keep filling
+      }
+
+      // Delete the first record to create a hole of exactly the right size
+      page.deleteRecord(firstIdx, true);
+
+      reset(atomicOp);
+
+      // Append a record of the same size — should reuse the hole
+      int holeIdx = page.appendRecord(2L, record, -1, IntSets.emptySet());
+      Assert.assertNotEquals("append into hole should succeed", -1, holeIdx);
+
+      // Verify a CollectionPageAppendRecordOp was registered
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          ArgumentMatchers.anyLong(), ArgumentMatchers.anyLong(),
+          opCaptor.capture());
+      Assert.assertTrue(
+          "Expected CollectionPageAppendRecordOp but got "
+              + opCaptor.getValue().getClass(),
+          opCaptor.getValue() instanceof CollectionPageAppendRecordOp);
+      var appendOp = (CollectionPageAppendRecordOp) opCaptor.getValue();
+      Assert.assertEquals(holeIdx, appendOp.getAllocatedIndex());
+    } finally {
+      releaseEntry(entry);
+    }
+  }
+
   // --- No registration during redo ---
 
   @Test
