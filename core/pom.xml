@@ -146,7 +146,7 @@
 
     <!-- Run StorageComponent integration tests with a small disk cache (4 MB)
          to exercise optimistic read fallback under heavy eviction pressure.
-         Command: ./mvnw -pl core clean verify -P small-cache-it -->
+         Command: ./mvnw -pl core -am clean verify -P small-cache-it -->
     <profile>
       <id>small-cache-it</id>
       <build>
