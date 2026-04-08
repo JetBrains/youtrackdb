@@ -1563,6 +1563,96 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     session.commit();
   }
 
+  /**
+   * DirectRid with compound WHERE: {@code @rid = <rid> AND name = 'bob'}.
+   * The planner should still produce a DirectRid descriptor for the @rid
+   * part, and the non-RID condition acts as a post-filter.
+   */
+  @Test
+  public void directRid_compoundWhereWithRidAndProperty() {
+    session.execute("CREATE class DR3Person extends V").close();
+    session.execute("CREATE property DR3Person.name STRING").close();
+    session.execute("CREATE class DR3Knows extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DR3Person set name = 'alice'").close();
+    session.execute("CREATE VERTEX DR3Person set name = 'bob'").close();
+    session.execute("CREATE VERTEX DR3Person set name = 'carol'").close();
+
+    session.execute(
+        "CREATE EDGE DR3Knows FROM (SELECT FROM DR3Person WHERE name = 'alice')"
+            + " TO (SELECT FROM DR3Person WHERE name = 'bob')")
+        .close();
+    session.execute(
+        "CREATE EDGE DR3Knows FROM (SELECT FROM DR3Person WHERE name = 'alice')"
+            + " TO (SELECT FROM DR3Person WHERE name = 'carol')")
+        .close();
+
+    // Get bob's RID
+    var bobRid = session.query(
+        "SELECT @rid as rid FROM DR3Person WHERE name = 'bob'")
+        .toList().get(0).getProperty("rid").toString();
+
+    // Compound WHERE: @rid matches bob AND name matches bob → 1 result
+    var result = session.query(
+        "MATCH {class: DR3Person, as: p, where: (name = 'alice')}"
+            + ".out('DR3Knows'){as: friend,"
+            + "  where: (@rid = " + bobRid + " AND name = 'bob')}"
+            + " RETURN friend.name as friendName")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("bob", result.get(0).getProperty("friendName"));
+
+    // Compound WHERE: @rid matches bob but name doesn't → 0 results
+    var resultMismatch = session.query(
+        "MATCH {class: DR3Person, as: p, where: (name = 'alice')}"
+            + ".out('DR3Knows'){as: friend,"
+            + "  where: (@rid = " + bobRid + " AND name = 'carol')}"
+            + " RETURN friend.name as friendName")
+        .toList();
+    assertEquals("RID matches bob but name='carol' should yield 0 results",
+        0, resultMismatch.size());
+    session.commit();
+  }
+
+  /**
+   * DirectRid with a non-existent RID. The pre-filter should produce an
+   * empty intersection, yielding zero results without errors.
+   */
+  @Test
+  public void directRid_nonExistentRid() {
+    session.execute("CREATE class DR4Person extends V").close();
+    session.execute("CREATE property DR4Person.name STRING").close();
+    session.execute("CREATE class DR4Knows extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DR4Person set name = 'alice'").close();
+    session.execute("CREATE VERTEX DR4Person set name = 'bob'").close();
+    session.execute(
+        "CREATE EDGE DR4Knows FROM (SELECT FROM DR4Person WHERE name = 'alice')"
+            + " TO (SELECT FROM DR4Person WHERE name = 'bob')")
+        .close();
+
+    // Use a non-existent RID (cluster 999, position 999)
+    var result = session.query(
+        "MATCH {class: DR4Person, as: p, where: (name = 'alice')}"
+            + ".out('DR4Knows'){as: friend,"
+            + "  where: (@rid = #999:999)}"
+            + " RETURN friend.name as friendName")
+        .toList();
+    assertEquals("Non-existent RID should yield 0 results",
+        0, result.size());
+
+    // Verify EXPLAIN still shows DirectRid intersection
+    assertPlanHasIntersection(
+        "MATCH {class: DR4Person, as: p, where: (name = 'alice')}"
+            + ".out('DR4Knows'){as: friend,"
+            + "  where: (@rid = #999:999)}"
+            + " RETURN friend.name as friendName",
+        "Plan should show direct-rid intersection even for non-existent RID");
+    session.commit();
+  }
+
   // ========================================================================
   // 2. GROUP BY with pre-filter
   // ========================================================================
@@ -2368,6 +2458,121 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".out('BTLink'){as: item, where: (val BETWEEN 30 AND 60)}"
             + " RETURN item.label as label",
         "BETWEEN should trigger index intersection");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with equal bounds (val BETWEEN 30 AND 30). This is a degenerate
+   * case equivalent to val = 30, and should return exactly one item.
+   */
+  @Test
+  public void between_equalBounds_singleResult() {
+    createBetweenSchema("BEHub", "BEItem", "BELink");
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: BEHub, as: hub, where: (name = 'center')}"
+            + ".out('BELink'){as: item, where: (val BETWEEN 30 AND 30)}"
+            + " RETURN item.label as label")
+        .toList();
+
+    // val BETWEEN 30 AND 30 → only b3(30)
+    assertEquals(Set.of("b3"), collectProperty(result, "label"));
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: BEHub, as: hub, where: (name = 'center')}"
+            + ".out('BELink'){as: item, where: (val BETWEEN 30 AND 30)}"
+            + " RETURN item.label as label",
+        "BETWEEN 30 AND 30 should trigger index intersection");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with inverted bounds (val BETWEEN 60 AND 30, where low > high).
+   * Standard SQL semantics: BETWEEN low AND high returns rows where
+   * val >= low AND val <= high. When low > high this is an empty range.
+   */
+  @Test
+  public void between_invertedBounds_emptyResult() {
+    createBetweenSchema("BIHub", "BIItem", "BILink");
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: BIHub, as: hub, where: (name = 'center')}"
+            + ".out('BILink'){as: item, where: (val BETWEEN 60 AND 30)}"
+            + " RETURN item.label as label")
+        .toList();
+
+    // Inverted bounds: val >= 60 AND val <= 30 → impossible → empty
+    assertEquals("Inverted BETWEEN bounds should yield 0 results",
+        0, result.size());
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with null parameter for the low bound. evaluate() returns false
+   * for null operands, so zero results are expected without errors.
+   */
+  @Test
+  public void between_nullBound_emptyResult() {
+    createBetweenSchema("BNHub", "BNItem", "BNLink");
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: BNHub, as: hub, where: (name = 'center')}"
+            + ".out('BNLink'){as: item,"
+            + "  where: (val BETWEEN :low AND :high)}"
+            + " RETURN item.label as label",
+        new HashMap<>(Map.of("high", 60)))
+        .toList();
+
+    // :low is unset (null) → BETWEEN null AND 60 should yield 0 results
+    assertEquals("BETWEEN with null bound should yield 0 results",
+        0, result.size());
+    session.commit();
+  }
+
+  /**
+   * Helper: creates a hub→item graph with indexed val property and 10 items
+   * (val 0, 10, 20, ..., 90). Used by BETWEEN edge-case tests.
+   */
+  private void createBetweenSchema(
+      String hubClass, String itemClass, String linkClass) {
+    session.execute("CREATE class " + hubClass + " extends V").close();
+    session.execute(
+        "CREATE property " + hubClass + ".name STRING").close();
+
+    session.execute("CREATE class " + itemClass + " extends V").close();
+    session.execute(
+        "CREATE property " + itemClass + ".label STRING").close();
+    session.execute(
+        "CREATE property " + itemClass + ".val INTEGER").close();
+    session.execute(
+        "CREATE index " + itemClass + "_val on " + itemClass
+            + " (val) NOTUNIQUE")
+        .close();
+
+    session.execute("CREATE class " + linkClass + " extends E").close();
+    session.execute(
+        "CREATE property " + linkClass + ".out LINK " + hubClass).close();
+    session.execute(
+        "CREATE property " + linkClass + ".in LINK " + itemClass).close();
+
+    session.begin();
+    session.execute(
+        "CREATE VERTEX " + hubClass + " set name = 'center'").close();
+    for (int i = 0; i < 10; i++) {
+      session.execute(
+          "CREATE VERTEX " + itemClass + " set label = 'b" + i
+              + "', val = " + (i * 10))
+          .close();
+      session.execute(
+          "CREATE EDGE " + linkClass + " FROM"
+              + " (SELECT FROM " + hubClass + " WHERE name = 'center')"
+              + " TO (SELECT FROM " + itemClass + " WHERE label = 'b"
+              + i + "')")
+          .close();
+    }
     session.commit();
   }
 

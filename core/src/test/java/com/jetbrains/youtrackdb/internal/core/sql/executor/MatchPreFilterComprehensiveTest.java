@@ -15,7 +15,7 @@ import org.junit.Test;
  * Comprehensive test suite for the index-into traversal optimization (adjacency
  * list intersection pre-filtering) in the MATCH engine.
  *
- * <p>Tests cover three pre-filter descriptor types:
+ * <p>Tests cover four pre-filter descriptor types:
  * <ul>
  *   <li><b>Class filter</b> — zero-I/O collection-ID check on target vertex class
  *   <li><b>IndexLookup</b> — index query producing a RidSet of accepted targets
@@ -392,11 +392,14 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " RETURN friend.name as friendName, forumMsg.content as fmContent")
         .toList();
 
-    // p1 authored m3-m5 in general; forum for m0 is general
-    // p2 authored m6-m8 in tech; forum for m0 is general — p2 is NOT in
-    // general forum as author, so no match for p2
+    // p1 authored m3-m5 in general; p2 authored m6-m8 in tech.
+    // For friend=p1: friendMsg ∈ {m3,m4,m5}, forum=general, forumMsg authored
+    //   by p1 in general → {m3,m4,m5}. Match.
+    // For friend=p2: friendMsg ∈ {m6,m7,m8}, forum=tech, forumMsg authored
+    //   by p2 in tech → {m6,m7,m8}. Match.
     Set<String> friends = collectProperty(result, "friendName");
-    assertTrue("p1 should appear (has posts in general)", friends.contains("p1"));
+    assertEquals("Both p1 and p2 should appear",
+        Set.of("p1", "p2"), friends);
 
     assertPlanHasIntersection(
         "MATCH {class: CMessage, as: msg, where: (content = 'm0')}"
@@ -495,7 +498,12 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " RETURN post2.content as content";
     var result = session.query(query).toList();
 
-    assertFalse("Should have results", result.isEmpty());
+    // post2 must be authored by p0 (creator=p0), so post2 ∈ {m0, m1, m2}.
+    // otherPost also by p0, forum2 must be general again.
+    // Distinct post2.content values are {m0, m1, m2}.
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals("post2 should be p0's posts in general",
+        Set.of("m0", "m1", "m2"), contents);
     assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
   }
@@ -699,13 +707,19 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
   public void indexFilter_allRecordsMatch() {
     session.begin();
     // All messages have creationDate >= 1000
-    var result = session.query(
+    String query =
         "MATCH {class: CForum, as: forum, where: (title = 'general')}"
             + ".out('CContainerOf'){as: msg,"
             + "  where: (creationDate >= 1000)}"
-            + " RETURN msg.content as content")
-        .toList();
-    assertEquals(6, result.size());
+            + " RETURN msg.content as content";
+    var result = session.query(query).toList();
+
+    // general has m0..m5 (creationDate 1000..1500), all >= 1000
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m0", "m1", "m2", "m3", "m4", "m5"), contents);
+
+    assertPlanHasIndexIntersection(query,
+        "Plan should show index intersection");
     session.commit();
   }
 
@@ -936,9 +950,9 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + "  target.label as tLabel, target.title as tTitle")
         .toList();
 
-    // Count all outgoing edges from p0
-    assertTrue("p0 should have multiple outgoing edges",
-        result.size() >= 4);
+    // p0 has 5 outgoing edges: CWorksAt(→acme), CKnows(→p1, →p2),
+    //   CContributes(→alpha), CLikes(→m9)
+    assertEquals("p0 has 5 outgoing edges", 5, result.size());
 
     // outE() without edge class argument means the planner cannot determine which
     // edge class or index to use for the workFrom filter. Without an edge class,
@@ -1337,12 +1351,13 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
 
   /**
    * High fan-out vertex: create a person with many CKnows edges and verify
-   * that back-reference pre-filter still works correctly.
+   * that back-reference pre-filter still works correctly when the link bag
+   * is large and the pre-filter must actually filter out most entries.
    */
   @Test
   public void highFanOut_backRefStillCorrect() {
     session.begin();
-    // Create 50 extra persons connected to p0
+    // Create 50 extra persons connected FROM p0
     for (int i = 100; i < 150; i++) {
       session.execute(
           "CREATE VERTEX CPerson set name = 'extra" + i + "', age = 30")
@@ -1355,25 +1370,43 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
           .close();
     }
 
+    // Create 3 edges back TO p0, forming 2-hop cycles.
+    // These force the pre-filter to scan the large out-link-bag of each
+    // friend and filter it down to just p0's RID.
+    session.execute(
+        "CREATE EDGE CKnows FROM"
+            + " (SELECT FROM CPerson WHERE name = 'extra100')"
+            + " TO (SELECT FROM CPerson WHERE name = 'p0')"
+            + " SET since = 3000")
+        .close();
+    session.execute(
+        "CREATE EDGE CKnows FROM"
+            + " (SELECT FROM CPerson WHERE name = 'extra101')"
+            + " TO (SELECT FROM CPerson WHERE name = 'p0')"
+            + " SET since = 3001")
+        .close();
+    session.execute(
+        "CREATE EDGE CKnows FROM"
+            + " (SELECT FROM CPerson WHERE name = 'extra102')"
+            + " TO (SELECT FROM CPerson WHERE name = 'p0')"
+            + " SET since = 3002")
+        .close();
+
     // p0 knows p1, p2, and 50 extras. Cycle check: p0→friend→fof=p0
-    var result = session.query(
+    // extra100, extra101, extra102 know p0 back, so those 3 form 2-hop cycles.
+    String query =
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
             + ".out('CKnows'){as: friend}"
             + ".out('CKnows'){as: fof,"
             + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN friend.name as friendName")
-        .toList();
+            + " RETURN friend.name as friendName";
+    var result = session.query(query).toList();
 
-    // No 2-hop cycles from p0 (none of the extras know p0 back)
-    assertEquals(0, result.size());
+    Set<String> friends = collectProperty(result, "friendName");
+    assertEquals("Only the 3 extras that know p0 back form cycles",
+        Set.of("extra100", "extra101", "extra102"), friends);
 
-    assertPlanHasIntersection(
-        "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
-            + ".out('CKnows'){as: friend}"
-            + ".out('CKnows'){as: fof,"
-            + "  where: (@rid = $matched.person.@rid)}"
-            + " RETURN friend.name as friendName",
-        "Plan should show intersection");
+    assertPlanHasIntersection(query, "Plan should show intersection");
     session.rollback();
   }
 
@@ -1451,12 +1484,13 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " LIMIT 3")
         .toList();
     assertEquals(3, result.size());
-    // All returned contents should be valid messages from 'general'
+    // All returned contents should be valid messages from 'general' (m0-m5)
+    Set<String> validContents = Set.of("m0", "m1", "m2", "m3", "m4", "m5");
     for (var r : result) {
       String content = r.getProperty("content");
       assertNotNull(content);
-      assertTrue("Content should be m0-m5",
-          content.startsWith("m"));
+      assertTrue("Content '" + content + "' should be one of m0-m5",
+          validContents.contains(content));
     }
 
     assertPlanHasIntersection(
@@ -1725,14 +1759,17 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + "  forumPost.content as content")
         .toList();
 
+    // For friend=p1: friendPost ∈ {m3,m4,m5}, forum=general,
+    //   forumPost authored by p1 in general → {m3,m4,m5}. Match.
+    // For friend=p2: friendPost ∈ {m6,m7,m8}, forum=tech,
+    //   forumPost authored by p2 in tech → {m6,m7,m8}. Match.
     assertFalse("Should have results", result.isEmpty());
-    for (var r : result) {
-      String friendName = r.getProperty("friendName");
-      String content = r.getProperty("content");
-      // Each result should have the friend as author of the forum post
-      assertNotNull(friendName);
-      assertNotNull(content);
-    }
+    Set<String> friends = collectProperty(result, "friendName");
+    assertEquals("Both p1 and p2 should appear",
+        Set.of("p1", "p2"), friends);
+    Set<String> forums = collectProperty(result, "forumTitle");
+    assertEquals("Both general and tech forums",
+        Set.of("general", "tech"), forums);
 
     assertPlanHasIntersection(
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
@@ -1770,11 +1807,10 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
 
     assertFalse("Should have results", result.isEmpty());
     Set<String> coworkers = collectProperty(result, "cwName");
-    // acme workers: p0, p1, p2 (but only p0 matched workFrom < 2013)
-    // So company is acme, coworkers are p0, p1, p2
-    assertTrue("Should find p0 as coworker", coworkers.contains("p0"));
-    assertTrue("Should find p1 as coworker", coworkers.contains("p1"));
-    assertTrue("Should find p2 as coworker", coworkers.contains("p2"));
+    // p0 works at acme with workFrom=2010 (< 2013), so company=acme.
+    // All acme workers (p0, p1, p2) are coworkers. No other companies match.
+    assertEquals("Coworkers should be exactly acme workers",
+        Set.of("p0", "p1", "p2"), coworkers);
 
     assertPlanHasIntersection(
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"
