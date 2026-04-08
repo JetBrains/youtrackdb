@@ -1,11 +1,11 @@
 ---
 name: analyze-changes
-description: "Analyze git changes (branch, commit, or current branch) and produce a detailed markup document with Mermaid diagrams, PR context, and impact assessment."
+description: "Analyze git changes (branch, commit, or current branch) and produce a design-oriented markup document with Mermaid diagrams, query/usage examples, data walkthroughs, PR context, and impact assessment."
 argument-hint: "[branch-name | commit-sha]"
 user-invocable: true
 ---
 
-Analyze the git changes specified by the argument and produce a detailed markup document.
+Analyze the git changes specified by the argument and produce a design-oriented analysis document.
 
 ## Input
 
@@ -63,16 +63,17 @@ If a PR is found:
 
 ### 3. Read all changed files at their final state
 
-For every file that was added or modified in the diff, use the `Read` tool to read the final version of the file. This is essential for providing accurate line number references. Read the full file contents so you can reference specific line numbers.
+For every file that was added or modified in the diff, use the `Read` tool to read the final version of the file. This gives you the full source to understand the design, not just the diff hunks.
 
 ### 4. Analyze the changes
 
 Study the diff, commit messages, PR description, and PR comments carefully. Identify:
 
 - **Purpose**: What is the overall goal of these changes?
-- **Architecture impact**: Are new classes, interfaces, or modules introduced? Are existing patterns changed?
-- **Non-trivial sections**: Complex algorithms, concurrency changes, data structure changes, performance optimizations, protocol changes, etc.
-- **Trivial sections**: Simple renames, formatting, import changes, minor config tweaks
+- **Architecture**: What are the new algorithms, data structures, and execution flows? How do they connect?
+- **Concrete usage**: What queries, API calls, or scenarios trigger each new code path? What does the old behavior look like vs the new?
+- **Non-trivial decisions**: Why was this approach chosen? What trade-offs were made?
+- **Trivial parts**: Simple renames, formatting, config — note briefly, don't over-analyze.
 
 ### 5. Generate the markup document
 
@@ -92,68 +93,67 @@ The document MUST follow this structure:
 
 <2-5 sentence high-level summary of what these changes accomplish and why.>
 
-## Changed Files
+## Design
 
-| File | Change Type | Lines Changed | Description |
-|------|------------|---------------|-------------|
-| `path/to/file` | Added/Modified/Deleted | +X / -Y | Brief description |
+<Start with the shared concepts that apply across all changes: the overall
+algorithm/approach, common data structures, shared invariants, configuration.
+Then break into per-feature/per-algorithm subsections.>
 
-## Detailed Analysis
+### <Shared concept: e.g., overall algorithm, detection pipeline>
 
-### <Section title for a logical group of changes>
+<Explain the top-level algorithm or decision flow that ties the changes together.
+Include a Mermaid diagram showing the overall flow.>
 
-<Detailed explanation of what changed and why. Reference specific source code locations using the format `path/to/File.java:42` with line numbers from the final state of the files.>
+### <Shared concept: e.g., common data structures, eligibility checks>
 
-<For non-trivial changes, include one or more Mermaid diagrams. Choose the appropriate diagram type:>
+<Describe data structures, class relationships, and preconditions shared across
+multiple features. Include a class diagram if new types are introduced.>
 
-#### Flow Diagram
-```mermaid
-flowchart TD
-    A[Step 1] --> B[Step 2]
-    B --> C{Decision}
-    C -->|Yes| D[Path A]
-    C -->|No| E[Path B]
-```
+### <Feature/Algorithm 1>
 
-#### Class Diagram
-```mermaid
-classDiagram
-    class ClassName {
-        -field: Type
-        +method(): ReturnType
-    }
-    ClassName --> DependencyClass
-```
+<For each distinct feature or algorithm, write a SELF-CONTAINED section that
+flows in this order:>
 
-#### Sequence Diagram
-```mermaid
-sequenceDiagram
-    participant A as ComponentA
-    participant B as ComponentB
-    A->>B: methodCall()
-    B-->>A: response
-```
+**Algorithm.** <What it does, when it triggers, what the eligibility conditions
+are. Keep this concise — the reader should understand the approach before seeing
+code or examples.>
 
-#### State Diagram
-```mermaid
-stateDiagram
-    [*] --> StateA
-    StateA --> StateB: Event1
-    StateB --> StateC: Event2
-    StateC --> [*]
-```
+**Execution flow:**
 
-<Repeat sections for each logical group of non-trivial changes.>
+<Mermaid diagram showing the internal decision/data flow for this specific
+feature. NOT a rehash of the overall diagram — zoom into this feature's logic.>
 
-### Trivial Changes
+**Query/usage example:**
 
-<Brief list of trivial changes (formatting, imports, renames) that don't warrant detailed analysis. Still reference file:line.>
+<A concrete, real-world example that triggers this code path. For a database,
+this is a SQL query with schema context. For an API, this is a request/response.
+For a library, this is a code snippet. Pick the most representative example —
+prefer production queries (e.g., from benchmarks) over synthetic test data.>
+
+**Data walkthrough:**
+
+<Walk through the example step by step with ACTUAL VALUES. Show what the old
+code did (with cost), then what the new code does (with cost). Use concrete
+data — not "vertex A" but "Alice" or "n1". Show the build phase output, the
+probe phase per row, and the final result. This is what makes the design
+understandable — abstract descriptions alone are not enough.>
+
+<Repeat for each feature/algorithm.>
+
+### Summary
+
+Provide a table mapping each feature to its trigger condition, implementation class, data structure, and real-world impact (benchmark numbers if available).
+
+| Feature | Trigger | Implementation | Data Structures | Impact |
+|---|---|---|---|---|
+| ... | ... | ... | ... | ... |>
 
 ## PR Discussion Summary
 
 *(Only if a PR with comments exists)*
 
-<Summarize key points from PR comments and reviews. Note any decisions made, concerns raised, or alternatives discussed.>
+<Summarize key points from PR comments and reviews. Note any decisions made,
+concerns raised, or alternatives discussed.>
 
 ## Impact Assessment
 
@@ -165,14 +165,27 @@ stateDiagram
 
 ### Important Rules
 
-1. **Every code reference MUST include line numbers** in the format `path/to/File.java:42` or `path/to/File.java:42-58` for ranges. Use line numbers from the FINAL state of the files (as read by the Read tool), not from the diff.
-2. **Mermaid diagrams are REQUIRED** for any non-trivial change. Use:
-   - **Flowchart** for control flow, algorithms, or process changes
-   - **Class diagram** for new/modified class hierarchies or relationships
-   - **Sequence diagram** for interaction patterns between components
+1. **Design-first, not file-first.** Never organize the document by file, by diff hunk, or by commit. Organize by algorithm/feature. A single feature may span multiple files — the document should explain it as one unit. Each section should be self-contained: a reader should understand one feature without reading the others.
+
+2. **Every feature section must have a concrete example with a data walkthrough.** Abstract algorithm descriptions are insufficient. Show real values flowing through the system. For database changes, use actual SQL queries (from benchmarks or tests) and walk through with sample data. Show both old behavior and new behavior with cost comparison.
+
+3. **Mermaid diagrams are REQUIRED** for non-trivial changes. Use:
+   - **Flowchart** for decision logic, algorithm flow, execution paths
+   - **Class diagram** for new type hierarchies and relationships
+   - **Sequence diagram** for multi-component interactions
    - **State diagram** for state machine changes
-   - Skip diagrams ONLY for truly trivial changes (formatting, typo fixes, simple config changes)
-3. **Group related changes** into logical sections rather than going file-by-file
-4. **Explain WHY**, not just what. Use commit messages and PR description for motivation context
-5. **Use the Agent tool** with `subagent_type: "Explore"` if you need to understand surrounding code context that isn't in the diff
-6. The output file goes in the **project root directory** (the current working directory)
+   Place diagrams INSIDE the feature section they belong to, right after the algorithm description and before the example. Do not collect all diagrams in one place.
+
+4. **Do NOT include a "Changed Files" table.** It duplicates what `git diff --stat` already shows and adds no design insight. The document is about understanding, not inventory.
+
+5. **Do NOT use file:line references.** They go stale after any rebase or edit and clutter the text. Refer to classes and methods by name (e.g., "`traceBackwardBranch()` in `MatchExecutionPlanner`"). The reader can find them with grep.
+
+6. **Shared concepts go at the top of the Design section.** If multiple features share a data structure, an invariant (like context isolation), a safety mechanism (like a runtime fallback), or a configuration knob — describe it once before the per-feature sections, not repeated in each.
+
+7. **Explain WHY, not just what.** Use commit messages and PR description for motivation. When a design choice has trade-offs, state them. When something looks redundant (e.g., a check that always passes with current data), explain when it matters.
+
+8. **Be honest about limitations.** If a feature is only exercised by synthetic tests and not by any production query, say so. If a pattern never actually filters in symmetric cases, explain what the real win is (cost reduction, not filtering).
+
+9. **Use the Agent tool** with `subagent_type: "Explore"` if you need to understand surrounding code context that isn't in the diff — e.g., to find which real queries trigger a new optimization, or to understand the old behavior being replaced.
+
+10. The output file goes in the **project root directory** (the current working directory).
