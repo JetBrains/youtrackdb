@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeVisibilityKey;
@@ -196,6 +197,27 @@ public interface AtomicOperation {
    * shared index.
    */
   boolean containsEdgeVisibilityEntry(EdgeVisibilityKey key);
+
+  /**
+   * Registers a logical page operation with this atomic operation. The operation is accumulated
+   * in the page's {@link CacheEntryChanges} and flushed to WAL at component operation boundaries.
+   * The page must already be loaded for write (CacheEntryChanges must exist).
+   *
+   * <p>Default no-op for non-tracking implementations (e.g., read-only operations).
+   */
+  default void registerPageOperation(long fileId, long pageIndex, PageOperation op) {
+    // no-op by default
+  }
+
+  /**
+   * Flushes all pending logical page operations to the WAL. Called at component operation
+   * boundaries by {@code AtomicOperationsManager.executeInsideComponentOperation()}.
+   *
+   * <p>Default no-op for non-tracking implementations.
+   */
+  default void flushPendingOperations() throws IOException {
+    // no-op by default
+  }
 
   @SuppressWarnings("unused")
   boolean isActive();

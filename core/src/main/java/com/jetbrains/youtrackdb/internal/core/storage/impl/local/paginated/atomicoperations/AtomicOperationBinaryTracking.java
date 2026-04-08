@@ -41,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeSnapshotKey;
@@ -409,6 +410,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
 
     return changesContainer.pageChangesMap.containsKey(pageIndex);
+  }
+
+  @Override
+  public void registerPageOperation(long fileId, long pageIndex, PageOperation op) {
+    fileId = checkFileIdCompatibility(fileId, storageId);
+
+    final var changesContainer = fileChanges.get(fileId);
+    assert changesContainer != null
+        : "File " + fileId + " has no FileChanges — page must be loaded for write first";
+
+    final var pageChanges = changesContainer.pageChangesMap.get(pageIndex);
+    assert pageChanges != null
+        : "Page " + pageIndex + " in file " + fileId
+            + " has no CacheEntryChanges — page must be loaded for write first";
+
+    pageChanges.addPendingOperation(op);
   }
 
   @Override

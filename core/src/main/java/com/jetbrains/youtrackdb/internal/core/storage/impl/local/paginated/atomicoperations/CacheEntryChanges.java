@@ -4,9 +4,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LRUList;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class CacheEntryChanges implements CacheEntry {
 
@@ -18,6 +22,8 @@ public class CacheEntryChanges implements CacheEntry {
   protected boolean isNew;
 
   private LogSequenceNumber changeLSN;
+
+  private ArrayList<PageOperation> pendingOperations;
 
   protected boolean verifyCheckSum;
 
@@ -211,6 +217,26 @@ public class CacheEntryChanges implements CacheEntry {
   @Override
   public void setInitialLSN(LogSequenceNumber lsn) {
     this.initialLSN = lsn;
+  }
+
+  void addPendingOperation(PageOperation op) {
+    if (pendingOperations == null) {
+      pendingOperations = new ArrayList<>();
+    }
+    pendingOperations.add(op);
+  }
+
+  List<PageOperation> getPendingOperations() {
+    if (pendingOperations == null) {
+      return List.of();
+    }
+    return Collections.unmodifiableList(pendingOperations);
+  }
+
+  void clearPendingOperations() {
+    if (pendingOperations != null) {
+      pendingOperations.clear();
+    }
   }
 
   @Override
