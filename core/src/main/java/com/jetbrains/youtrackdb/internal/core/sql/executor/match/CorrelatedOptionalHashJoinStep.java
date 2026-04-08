@@ -47,6 +47,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
 
   @Nullable private Set<RID> neighborRids;
   @Nullable private RID lastCorrelatedRid;
+  private boolean neighborSetTruncated;
 
   CorrelatedOptionalHashJoinStep(
       CommandContext ctx,
@@ -98,10 +99,18 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
         // Hit: liker KNOWS startPerson → set targetAlias to correlated vertex
         var matchValue = toResultOrNull(correlatedValue, session);
         return new MatchResultRow(session, row, targetAlias, matchValue);
-      } else {
-        // Miss: optional semantics → set targetAlias to null
-        return new MatchResultRow(session, row, targetAlias, null);
       }
+      if (neighborSetTruncated && probeRid != null
+          && currentCorrelatedRid != null) {
+        // Truncated set — probe miss might be false negative.
+        // Per-row check: does probeRid have a direct edge to correlated vertex?
+        if (checkEdgeFallback(probeRid, currentCorrelatedRid, session)) {
+          var matchValue = toResultOrNull(correlatedValue, session);
+          return new MatchResultRow(session, row, targetAlias, matchValue);
+        }
+      }
+      // Definitive miss or null probe: optional semantics → null
+      return new MatchResultRow(session, row, targetAlias, null);
     });
   }
 
@@ -143,7 +152,22 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
         }
       }
     }
+    neighborSetTruncated = set.size() >= maxSize;
     return set;
+  }
+
+  /**
+   * Per-row fallback when the build-phase neighbor collection was truncated:
+   * checks if probeRid has a direct edge to the correlated vertex.
+   */
+  private boolean checkEdgeFallback(
+      RID probeRid, RID correlatedRid, DatabaseSessionEmbedded session) {
+    var inverseDir = edgeOut ? "in" : "out";
+    var sql = "SELECT FROM (SELECT expand(" + inverseDir + "('" + edgeLabel
+        + "')) FROM ?) WHERE @rid = ?";
+    try (var rs = session.query(sql, correlatedRid, probeRid)) {
+      return rs.hasNext();
+    }
   }
 
   @Nullable private static Result toResultOrNull(Object value, DatabaseSessionEmbedded session) {
@@ -181,6 +205,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
   public void close() {
     neighborRids = null;
     lastCorrelatedRid = null;
+    neighborSetTruncated = false;
     super.close();
   }
 

@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -94,13 +95,19 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
 
     var ridToAnchor = new java.util.HashMap<RID, Result>();
     reachableRids = new RidSet();
+    var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
+    boolean truncated = false;
     for (var anchor : anchors) {
       var anchorRid = extractRid(anchor);
       if (anchorRid != null) {
         ridToAnchor.put(anchorRid, anchor);
         reachableRids.add(anchorRid);
       }
-      for (var descendantRid : collectDescendantRids(anchor, session)) {
+      var descendants = collectDescendantRids(anchor, session);
+      if (descendants.size() >= maxSize) {
+        truncated = true;
+      }
+      for (var descendantRid : descendants) {
         reachableRids.add(descendantRid);
         ridToAnchor.putIfAbsent(descendantRid, anchor);
       }
@@ -109,17 +116,31 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     // Capture locally for null-safety
     var builtSet = reachableRids;
     var builtMap = ridToAnchor;
+    var wasTruncated = truncated;
 
-    // Probe phase: filter upstream rows by directClass membership
+    // Probe phase: filter upstream rows by directClass membership.
+    // When the build-phase BFS was truncated, probe misses may be false
+    // negatives — fall back to per-row forward BFS for those rows.
     var upstream = prev.start(ctx);
     return upstream.filter((row, c) -> {
       var probeValue = row.getProperty(probeAlias);
       var rid = extractRid(probeValue);
-      if (rid == null || !builtSet.contains(rid)) {
-        return null; // Not in hierarchy → discard
+      if (rid == null) {
+        return null;
       }
-      // Match: set targetAlias to the anchor vertex this directClass descends from
-      var anchor = builtMap.get(rid);
+      if (builtSet.contains(rid)) {
+        var anchor = builtMap.get(rid);
+        return new MatchResultRow(c.getDatabaseSession(), row, targetAlias, anchor);
+      }
+      if (!wasTruncated) {
+        return null; // Definitive miss — set is complete
+      }
+      // Truncated set — false negative possible. Forward BFS to verify.
+      var anchor = forwardBfsToAnchor(
+          rid, builtSet, builtMap, c.getDatabaseSession());
+      if (anchor == null) {
+        return null; // Verified miss
+      }
       return new MatchResultRow(c.getDatabaseSession(), row, targetAlias, anchor);
     });
   }
@@ -193,6 +214,41 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
       frontier = nextFrontier;
     }
     return rids;
+  }
+
+  /**
+   * Per-row fallback when the build-phase BFS was truncated: walks FORWARD from
+   * probeRid (toward the anchors) to check reachability. Stops early if a vertex
+   * already present in the build-phase set is found, and returns the corresponding
+   * anchor. Returns {@code null} if no anchor is reachable.
+   */
+  @Nullable private Result forwardBfsToAnchor(
+      RID probeRid, Set<RID> builtSet, Map<RID, Result> ridToAnchor,
+      DatabaseSessionEmbedded session) {
+    var forwardDir = edgeOut ? "out" : "in";
+    var sql = "SELECT expand(" + forwardDir + "('" + edgeLabel + "')) FROM ?";
+    var visited = new RidSet();
+    var frontier = new ArrayList<RID>();
+    frontier.add(probeRid);
+    while (!frontier.isEmpty()) {
+      var nextFrontier = new ArrayList<RID>();
+      for (var current : frontier) {
+        try (var rs = session.query(sql, current)) {
+          while (rs.hasNext()) {
+            var row = rs.next();
+            var rid = extractRid(row);
+            if (rid != null && visited.add(rid)) {
+              if (builtSet.contains(rid)) {
+                return ridToAnchor.get(rid);
+              }
+              nextFrontier.add(rid);
+            }
+          }
+        }
+      }
+      frontier = nextFrontier;
+    }
+    return null;
   }
 
   /** Extracts RID from a value that may be a RID, Identifiable, or Result. */
