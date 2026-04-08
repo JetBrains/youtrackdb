@@ -637,7 +637,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
   public void indexFilter_compoundWhere_indexedPlusNonIndexed() {
     session.begin();
     // creationDate >= 1800 AND content LIKE 'm1%'
-    // m8(1800), m9(1900), m10(2000), m11(2100) — of these, m10 matches 'm1%'
+    // m8(1800), m9(1900), m10(2000), m11(2100) — of these, m10 and m11 match 'm1%'
     String query =
         "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
             + ".out('CContainerOf'){as: msg,"
@@ -666,7 +666,7 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + ".inV(){as: proj}"
             + " RETURN proj.name as projName")
         .toList();
-    assertFalse("p0 contributes to alpha as lead", result.isEmpty());
+    assertEquals(1, result.size());
     assertEquals("alpha", result.get(0).getProperty("projName"));
 
     assertPlanHasNoIntersection(
@@ -740,7 +740,8 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + ".out('CContainerOf'){class: CMessage, as: msg}"
             + " RETURN msg.content as content")
         .toList();
-    assertEquals(6, result.size());
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m0", "m1", "m2", "m3", "m4", "m5"), contents);
 
     // The class filter optimization IS active here via setAcceptedCollectionIds()
     // on EdgeTraversal. This is a zero-I/O filter applied at the LinkBag iteration
@@ -1524,6 +1525,13 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " SKIP 2 LIMIT 2")
         .toList();
     assertEquals(2, result.size());
+    // All returned contents should be valid messages from 'general' (m0-m5)
+    Set<String> validContents = Set.of("m0", "m1", "m2", "m3", "m4", "m5");
+    for (var r : result) {
+      String content = r.getProperty("content");
+      assertTrue("Content '" + content + "' should be one of m0-m5",
+          validContents.contains(content));
+    }
 
     // Use the base query without SKIP/LIMIT for EXPLAIN
     assertPlanHasIntersection(

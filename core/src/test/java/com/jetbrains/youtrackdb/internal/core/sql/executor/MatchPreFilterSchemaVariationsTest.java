@@ -118,7 +118,9 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".inV(){as: email}"
             + " RETURN email.addr as addr")
         .toList();
-    assertEquals(2, result.size()); // priority 3 and 4
+    // priority 3 and 4 → e3@test.com, e4@test.com
+    assertEquals(Set.of("e3@test.com", "e4@test.com"),
+        collectProperty(result, "addr"));
 
     // outE(SHasPhone){isPrimary = 1} → primary phone
     var phoneResult = session.query(
@@ -128,6 +130,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN phone.number as num")
         .toList();
     assertEquals(1, phoneResult.size());
+    assertEquals("555-0000", phoneResult.get(0).getProperty("num"));
 
     assertPlanHasIntersection(
         "MATCH {class: SHub, as: hub, where: (name = 'hub1')}"
@@ -204,6 +207,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     // EdgeB >= 2: item4(2), item5(3) → 2 items
     // Cartesian: 2 × 2 = 4
     assertEquals(4, result.size());
+    assertEquals(Set.of("item1", "item2"), collectProperty(result, "aLabel"));
+    assertEquals(Set.of("item4", "item5"), collectProperty(result, "bLabel"));
 
     assertPlanHasIntersection(
         "MATCH {class: MHub, as: h, where: (name = 'center')}"
@@ -1213,6 +1218,13 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
     // Only 'c' (val=20) matches val >= 15
     assertEquals(1, result.size());
+    // Verify the returned path contains the correct target
+    var pathResult = session.query(
+        "MATCH {class: RPNode, as: start, where: (name = 'a')}"
+            + ".out('RPEdge'){as: target, where: (val >= 15)}"
+            + " RETURN target.name as tName")
+        .toList();
+    assertEquals("c", pathResult.get(0).getProperty("tName"));
 
     // No intersection: RPEdge has no typed LINK properties, so the planner
     // cannot infer the target class RPNode and cannot discover the RPNode_val
@@ -1324,6 +1336,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // a→b, a→c. From b, in(CMEdge) = {a}. a <> b? yes → return (b, a)
     // From c, in(CMEdge) = {a}. a <> c? yes → return (c, a)
+    assertEquals(2, result.size());
+    assertEquals(Set.of("b", "c"), collectProperty(result, "tName"));
     for (var r : result) {
       assertEquals("a", r.getProperty("bName"));
     }
@@ -1447,7 +1461,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".in('RvLink'){as: src, where: (priority >= 8)}"
             + " RETURN src.name as name")
         .toList();
-    assertEquals(2, result.size()); // rs8, rs9
+    assertEquals(Set.of("rs8", "rs9"), collectProperty(result, "name"));
 
     assertPlanHasIndexIntersection(
         "MATCH {class: RvTarget, as: t, where: (name = 'center')}"
@@ -1961,6 +1975,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // ann: mid(50), high(100)
     // ben: null (optional, no edges at all)
+    assertEquals("ann gets 2 matching posts + ben gets 1 null row",
+        3, result.size());
     boolean foundAnnMid = false;
     boolean foundAnnHigh = false;
     boolean foundBenNull = false;
@@ -2054,8 +2070,9 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     // bob is member of forum1 with joinYear 2021 >= 2021 → match
-    assertFalse("Should find bob in forum1", result.isEmpty());
+    assertEquals(1, result.size());
     assertEquals("bob", result.get(0).getProperty("fName"));
+    assertEquals("forum1", result.get(0).getProperty("forumTitle"));
 
     assertPlanHasIntersection(
         "MATCH {class: EBPerson, as: person, where: (name = 'alice')}"
@@ -2819,7 +2836,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".out('CX2Link'){as: item, where: (category = 'food')}"
             + " RETURN item.label as label")
         .toList();
-    assertEquals(3, result.size());
+    assertEquals(Set.of("i0", "i1", "i2"), collectProperty(result, "label"));
 
     assertPlanHasIndexIntersection(
         "MATCH {class: CX2Hub, as: hub, where: (name = 'warehouse')}"
@@ -2873,7 +2890,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".out('CX3Link'){as: item, where: (size >= 30)}"
             + " RETURN item.label as label")
         .toList();
-    assertEquals(2, result.size()); // x2(30), x3(40)
+    assertEquals(Set.of("x2", "x3"), collectProperty(result, "label"));
 
     // Composite index cannot be used without leading field — no intersection
     assertPlanHasNoIntersection(
@@ -3654,9 +3671,18 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN person.name as pName, forumMsg.text as text")
         .toList();
 
-    // Each person should find their own 2 messages
-    assertFalse("Should have results", result.isEmpty());
+    // Each person has 2 messages; for each myMsg (2) × forumMsg by same
+    // person (2) = 4 rows per person, 3 persons = 12 rows total.
+    assertEquals(12, result.size());
     assertEquals(Set.of("u0", "u1", "u2"), collectProperty(result, "pName"));
+    // Verify each person's forumMsg are only their own messages
+    for (var r : result) {
+      String pName = r.getProperty("pName");
+      String text = r.getProperty("text");
+      assertTrue("Person " + pName + " should only see their own messages,"
+          + " but got: " + text,
+          text.startsWith("msg" + pName.substring(1) + "_"));
+    }
 
     assertPlanHasIntersection(
         "MATCH {class: MSBPerson, as: person}"
@@ -3708,7 +3734,8 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".inV(){as: c}"
             + " RETURN c.name as cName")
         .toList();
-    assertEquals(5, result.size());
+    assertEquals(Set.of("co0", "co1", "co2", "co3", "co4"),
+        collectProperty(result, "cName"));
 
     assertPlanHasIntersection(
         "MATCH {class: AEPerson, as: p, where: (name = 'pat')}"
@@ -3756,6 +3783,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + " RETURN e.weight as w")
         .toList();
     assertEquals(2, result.size());
+    Set<Integer> weights = new HashSet<>();
+    for (var r : result) {
+      weights.add(r.getProperty("w"));
+    }
+    assertEquals(Set.of(20, 30), weights);
 
     assertPlanHasIntersection(
         "MATCH {class: MEPNode, as: src, where: (name = 'a')}"
@@ -3799,7 +3831,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
             + ".out('LELink'){as: item, where: (val <= 20)}"
             + " RETURN item.val as v")
         .toList();
-    assertEquals(3, result.size());
+    Set<Integer> vals = new HashSet<>();
+    for (var r : result) {
+      vals.add(r.getProperty("v"));
+    }
+    assertEquals(Set.of(0, 10, 20), vals);
 
     assertPlanHasIndexIntersection(
         "MATCH {class: LEHub, as: hub, where: (name = 'h')}"
