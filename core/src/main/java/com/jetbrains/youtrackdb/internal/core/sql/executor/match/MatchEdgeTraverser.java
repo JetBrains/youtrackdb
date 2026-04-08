@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -391,10 +393,14 @@ public class MatchEdgeTraverser implements ExecutionStream {
               ctx));
     } else {
       // ---- Recursive (WHILE / maxDepth) mode ----
-      // Uses a lazy, pull-based stream instead of eagerly materializing all
-      // results into an ArrayList. Results are yielded on-demand: the starting
-      // point first (if it passes filters), then each neighbor's subtree is
-      // explored lazily via recursive child streams.
+      // Two strategies:
+      // - EAGER (whileCondition != null, no explicit maxDepth): collect all
+      //   results into an ArrayList via recursive calls. Zero stream-combinator
+      //   overhead — optimal for shallow WHILE-bounded traversals like IC1's
+      //   `while: ($depth < 3)` and IC11's `while: ($depth < 2)`.
+      // - LAZY (explicit maxDepth only): pull-based LazyRecursiveTraversalStream
+      //   that yields results on-demand. Supports early termination when
+      //   downstream stops pulling.
       //
       // Dedup strategy: when no pathAlias is declared, a RidSet tracks emitted
       // vertices so that diamond/cyclic graphs don't produce duplicates. When a
@@ -403,11 +409,87 @@ public class MatchEdgeTraverser implements ExecutionStream {
       assert item.getFilter() != null : "filter guaranteed non-null in recursive branch";
       var hasPathAlias = item.getFilter().getPathAlias() != null;
       var dedupVisited = hasPathAlias ? null : visited;
+      var session = iCommandContext.getDatabaseSession();
 
-      return new LazyRecursiveTraversalStream(
-          this, iCommandContext, startingPoint, depth, pathToHere,
-          filter, whileCondition, maxDepth, className, targetRid,
-          hasPathAlias, dedupVisited);
+      if (whileCondition != null && maxDepth == null) {
+        // ---- Eager path for WHILE-only traversals ----
+        // Identical to the pre-lazy-stream implementation: collect all results
+        // into an ArrayList via recursive executeTraversal calls.
+        List<Result> result = new ArrayList<>();
+        iCommandContext.setSystemVariable(CommandContext.VAR_DEPTH, depth);
+        var previousMatch =
+            iCommandContext.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
+        iCommandContext.setSystemVariable(
+            CommandContext.VAR_CURRENT_MATCH, startingPoint);
+
+        // Evaluate the starting point against all filters
+        if (startingPoint != null
+            && matchesFilters(iCommandContext, filter, startingPoint)
+            && matchesClass(iCommandContext, className, startingPoint)
+            && matchesRid(iCommandContext, targetRid, startingPoint)) {
+          ResultInternal rs;
+          if (startingPoint instanceof ResultInternal resultInternal) {
+            rs = resultInternal;
+          } else {
+            rs = ResultInternal.toResultInternal(
+                startingPoint, session, null);
+          }
+          if (rs != null) {
+            rs.setMetadata("$depth", depth);
+            if (hasPathAlias) {
+              rs.setMetadata("$matchPath",
+                  pathToHere == null
+                      ? PathNode.emptyPath() : pathToHere.toList());
+            }
+            result.add(rs);
+          }
+        }
+
+        // Mark visited to prevent re-entry from sibling branches
+        if (dedupVisited != null && startingPoint != null
+            && startingPoint.getIdentity() != null) {
+          dedupVisited.add(startingPoint.getIdentity());
+        }
+
+        // Recurse into neighbors if WHILE condition holds
+        if (startingPoint != null
+            && whileCondition.matchesFilters(startingPoint, iCommandContext)) {
+
+          var queryResult = traversePatternEdge(startingPoint, iCommandContext);
+
+          while (queryResult.hasNext(iCommandContext)) {
+            var origin = ResultInternal.toResult(
+                queryResult.next(iCommandContext), session);
+            if (origin == null) {
+              continue;
+            }
+            if (dedupVisited != null) {
+              var neighborRid = origin.getIdentity();
+              if (neighborRid != null && dedupVisited.contains(neighborRid)) {
+                continue;
+              }
+            }
+
+            var newPath = hasPathAlias
+                ? new PathNode(origin, pathToHere, depth) : null;
+
+            var subResult = executeTraversal(
+                iCommandContext, item, origin, depth + 1, newPath, visited);
+            while (subResult.hasNext(iCommandContext)) {
+              result.add(subResult.next(iCommandContext));
+            }
+          }
+        }
+        iCommandContext.setSystemVariable(
+            CommandContext.VAR_CURRENT_MATCH, previousMatch);
+        return ExecutionStream.resultIterator(result.iterator());
+      } else {
+        // ---- Lazy path for maxDepth-bounded traversals ----
+        return new LazyRecursiveTraversalStream(
+            this, iCommandContext, startingPoint, depth, pathToHere,
+            filter, whileCondition, maxDepth, className, targetRid,
+            hasPathAlias, dedupVisited);
+      }
     }
   }
 
