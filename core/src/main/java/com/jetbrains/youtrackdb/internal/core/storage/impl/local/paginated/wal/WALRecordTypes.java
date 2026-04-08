@@ -195,4 +195,10 @@ public final class WALRecordTypes {
   // New PageOperation subclasses use IDs starting at PAGE_OPERATION_ID_BASE.
   // Each concrete subclass is registered in WALRecordsFactory via registerNewRecord().
   public static final int PAGE_OPERATION_ID_BASE = 200;
+
+  // PaginatedCollectionStateV2 operations
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 1;
+  public static final int PAGINATED_COLLECTION_STATE_V2_SET_APPROX_RECORDS_COUNT_OP =
+      PAGE_OPERATION_ID_BASE + 2;
 }

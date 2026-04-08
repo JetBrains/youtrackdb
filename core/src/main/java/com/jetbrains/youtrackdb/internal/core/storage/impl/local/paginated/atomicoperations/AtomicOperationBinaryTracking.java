@@ -726,13 +726,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           final var filePageChangesEntry =
               filePageChangesIterator.next();
 
-          // All pending logical operations must have been flushed to WAL before
-          // commitChanges — callers must call flushPendingOperations() first.
-          assert filePageChangesEntry.getValue().getPendingOperations().isEmpty()
-              : "Unflushed pending operations on page "
-                  + filePageChangesEntry.getLongKey()
-                  + " of file " + fileId
-                  + " — flushPendingOperations() must be called before commitChanges()";
+          // Transition period (D7): clear any unflushed pending logical operations.
+          // During incremental conversion, some page types register PageOperations
+          // but the component boundary flush (Track 4) is not yet wired. The
+          // UpdatePageRecord below already captures the binary diff covering these
+          // mutations. Once all page types are converted and the component boundary
+          // flush is active, pending operations will always be empty here.
+          filePageChangesEntry.getValue().clearPendingOperations();
 
           if (filePageChangesEntry.getValue().changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();

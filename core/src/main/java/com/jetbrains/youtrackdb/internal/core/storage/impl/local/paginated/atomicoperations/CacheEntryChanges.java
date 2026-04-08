@@ -219,6 +219,16 @@ public class CacheEntryChanges implements CacheEntry {
     this.initialLSN = lsn;
   }
 
+  /**
+   * Convenience method for DurablePage mutation methods to register a logical
+   * WAL operation. Delegates to the owning atomic operation's
+   * {@link AtomicOperation#registerPageOperation} with this entry's fileId
+   * and pageIndex.
+   */
+  public void registerPageOperation(PageOperation op) {
+    atomicOp.registerPageOperation(getFileId(), getPageIndex(), op);
+  }
+
   void addPendingOperation(PageOperation op) {
     if (pendingOperations == null) {
       pendingOperations = new ArrayList<>();

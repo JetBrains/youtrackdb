@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -70,6 +71,14 @@ public final class PaginatedCollectionStateV2 extends DurablePage {
    */
   public void setFileSize(int size) {
     setIntValue(FILE_SIZE_OFFSET, size);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new PaginatedCollectionStateV2SetFileSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), size));
+    }
   }
 
   /**
@@ -82,6 +91,14 @@ public final class PaginatedCollectionStateV2 extends DurablePage {
 
   public void setApproximateRecordsCount(long count) {
     setLongValue(APPROXIMATE_RECORDS_COUNT_OFFSET, count);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new PaginatedCollectionStateV2SetApproxRecordsCountOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), count));
+    }
   }
 
   public long getApproximateRecordsCount() {
