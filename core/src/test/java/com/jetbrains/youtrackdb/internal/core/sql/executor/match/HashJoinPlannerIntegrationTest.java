@@ -87,6 +87,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
         "CREATE EDGE Likes from (select from Person where name='n4')"
             + " to (select from Tag where name='t1')")
         .close();
+
     session.commit();
   }
 
@@ -261,23 +262,30 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   /**
    * Diamond pattern with intermediate alias in RETURN — should use INNER_JOIN
    * because the intermediate alias is needed downstream and the build-side row
-   * values must be merged into the result.
+   * values must be merged into the result. Cost guards are bypassed (upstreamMin=0)
+   * because this test verifies pattern detection, not the cost model.
    */
   @Test
   public void diamondPattern_intermediateInReturn_usesHashInnerJoin() {
-    session.begin();
-    var result = session.query(
-        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
-            + " RETURN a.name, b.name, c.name, t.name")
-        .toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull(plan);
-    assertTrue("plan should use HASH INNER_JOIN when intermediate is in RETURN, got:\n"
-        + plan, plan.contains("HASH INNER_JOIN"));
-    session.commit();
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name, b.name, c.name, t.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertTrue("plan should use HASH INNER_JOIN when intermediate is in RETURN, got:\n"
+          + plan, plan.contains("HASH INNER_JOIN"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+    }
   }
 
   /**
@@ -309,59 +317,74 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   /**
    * Diamond pattern EXPLAIN: when only shared aliases are in RETURN,
    * the planner should use hash semi-join for the secondary branch.
+   * Cost guards are bypassed (upstreamMin=0) because this test verifies
+   * pattern detection, not the cost model.
    */
   @Test
   public void explainDiamondPattern_semiJoinEligible_usesHashSemiJoin() {
-    session.begin();
-    var result = session.query(
-        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
-            + " RETURN a.name, t.name")
-        .toList();
-    assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
-    assertNotNull(plan);
-    assertTrue("plan should use hash semi-join, got:\n" + plan,
-        plan.contains("HASH SEMI_JOIN"));
-    session.commit();
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      session.begin();
+      var result = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name, t.name")
+          .toList();
+      assertEquals(1, result.size());
+      String plan = result.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertTrue("plan should use hash semi-join, got:\n" + plan,
+          plan.contains("HASH SEMI_JOIN"));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+    }
   }
 
   /**
    * Regression guard: existing semi-join behavior is preserved after the rename
    * refactoring (SemiJoinBranch → HashJoinBranch). Verifies both plan shape
    * (HASH SEMI_JOIN present) and result correctness for a diamond pattern with
-   * intermediate alias NOT in RETURN.
+   * intermediate alias NOT in RETURN. Cost guards are bypassed (upstreamMin=0)
+   * because this test verifies pattern detection, not the cost model.
    */
   @Test
   public void semiJoin_regressionGuard_preservedAfterRefactor() {
-    session.begin();
-    // Verify plan shape: semi-join should still be selected after refactoring
-    var explainResult = session.query(
-        "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
-            + " RETURN a.name as aName, t.name as tName")
-        .toList();
-    assertEquals(1, explainResult.size());
-    String plan = explainResult.get(0).getProperty("executionPlanAsString");
-    assertNotNull(plan);
-    assertTrue("plan should use hash semi-join after refactor, got:\n" + plan,
-        plan.contains("HASH SEMI_JOIN"));
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      session.begin();
+      // Verify plan shape: semi-join should still be selected after refactoring
+      var explainResult = session.query(
+          "EXPLAIN MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name as aName, t.name as tName")
+          .toList();
+      assertEquals(1, explainResult.size());
+      String plan = explainResult.get(0).getProperty("executionPlanAsString");
+      assertNotNull(plan);
+      assertTrue("plan should use hash semi-join after refactor, got:\n" + plan,
+          plan.contains("HASH SEMI_JOIN"));
 
-    // Verify correctness
-    var result = session.query(
-        "MATCH {class:Person, as:a, where:(name='n1')}"
-            + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
-            + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
-            + " RETURN a.name as aName, t.name as tName")
-        .toList();
-    assertFalse("semi-join query should return results", result.isEmpty());
-    var names = result.stream()
-        .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))
-        .collect(Collectors.toSet());
-    assertEquals(Set.of("n1:t1", "n1:t2"), names);
-    session.commit();
+      // Verify correctness
+      var result = session.query(
+          "MATCH {class:Person, as:a, where:(name='n1')}"
+              + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+              + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+              + " RETURN a.name as aName, t.name as tName")
+          .toList();
+      assertFalse("semi-join query should return results", result.isEmpty());
+      var names = result.stream()
+          .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))
+          .collect(Collectors.toSet());
+      assertEquals(Set.of("n1:t1", "n1:t2"), names);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(saved);
+    }
   }
 
   // ── Runtime fallback tests (threshold exceeded → nested-loop) ─────────

@@ -861,6 +861,17 @@ public enum GlobalConfiguration {
       10000L,
       true),
 
+  QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN(
+      "youtrackdb.query.match.hashJoinUpstreamMin",
+      "Minimum upstream (probe-side) cardinality for the MATCH hash join"
+          + " optimization. When the probe side has fewer rows than this value,"
+          + " hash join is skipped because nested-loop is already fast."
+          + " Set to 0 to bypass upstream and cost-based guards"
+          + " (only the build-side threshold applies).",
+      Long.class,
+      5L,
+      true),
+
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",

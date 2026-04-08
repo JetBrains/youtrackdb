@@ -335,6 +335,25 @@ public class MatchExecutionPlanner {
     return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong();
   }
 
+  /**
+   * Minimum upstream (probe-side) cardinality for hash join to be worthwhile.
+   * When set to 0, both the upstream check (Guard 1) and cost-based comparison
+   * (Guard 2) are bypassed — only the build-side threshold applies. Configurable
+   * via {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN}.
+   */
+  static long getHashJoinUpstreamMin() {
+    return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValueAsLong();
+  }
+
+  /**
+   * Memory weight ratio of INNER_JOIN vs SEMI_JOIN entries. INNER_JOIN materializes
+   * full ResultInternal rows (~100 + aliasCount × 80 bytes each) into a
+   * HashMap&lt;JoinKey, List&lt;Result&gt;&gt;, while SEMI_JOIN stores only JoinKey entries
+   * in a HashSet (~72 bytes each). The INNER_JOIN is roughly 7× heavier per entry
+   * and should use a proportionally tighter threshold.
+   */
+  private static final int INNER_JOIN_MEMORY_WEIGHT = 7;
+
   // FANOUT_PER_HOP removed — fan-out is now computed per-edge via
   // EdgeFanOutEstimator.estimateFanOut() using schema statistics
   // (edgeCount / sourceCount). Falls back to GlobalConfiguration
@@ -1255,12 +1274,52 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Estimate cardinality: start from branch root, multiply by schema fan-out per edge,
-    // apply 0.5 selectivity for WHERE filters
+    // Estimate build-side cardinality: start from branch root, multiply by schema
+    // fan-out per edge, apply selectivity for WHERE filters
     long cardinality = estimateBranchCardinality(
         branchRoot, branchEdges, aliasClasses, aliasFilters, aliasRids, context);
-    if (cardinality > getHashJoinThreshold()) {
+    long threshold = getHashJoinThreshold();
+    if (cardinality > threshold) {
       return null;
+    }
+
+    // Guard 3: INNER_JOIN materializes full ResultInternal rows (~7× heavier per
+    // entry than SEMI_JOIN's lightweight JoinKey entries). Apply a proportionally
+    // tighter threshold to avoid excessive memory usage.
+    if (joinMode == JoinMode.INNER_JOIN
+        && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
+      return null;
+    }
+
+    // Guards 1 & 2 are only active when upstreamMin > 0. Setting upstreamMin to 0
+    // bypasses both guards — only the build-side threshold applies.
+    long upstreamMin = getHashJoinUpstreamMin();
+    if (upstreamMin > 0) {
+      // Guard 1: Skip hash join when the upstream (probe side) is small. If the
+      // probe side has fewer rows than upstreamMin, nested-loop is already fast —
+      // hash join adds build-side execution and allocation overhead without
+      // meaningful benefit.
+      long upstreamCardinality = estimateUpstreamCardinality(
+          scheduledEdges, checkIdx, branchEdges,
+          aliasClasses, aliasFilters, aliasRids, context);
+      if (upstreamCardinality < upstreamMin) {
+        return null;
+      }
+
+      // Guard 2: Cost-based comparison. Nested-loop evaluates the branch once per
+      // upstream row, incurring per-hop I/O (index seek + record load) at each edge.
+      // Hash join materializes the branch once and probes with O(1) lookups.
+      //   hashJoinCost  = build_cardinality + upstream  (build once, probe each row)
+      //   nestedLoopCost = upstream × branchFanOut × numHops  (per-row multi-hop I/O)
+      // where numHops = branch edges excluding the consistency-check edge.
+      double branchFanOut = estimateBranchFanOut(
+          branchEdges, branchRoot, aliasClasses, aliasFilters, context);
+      int numBranchHops = Math.max(1, branchEdges.size() - 1);
+      double nestedLoopCost = upstreamCardinality * branchFanOut * numBranchHops;
+      double hashJoinCost = (double) cardinality + upstreamCardinality;
+      if (hashJoinCost >= nestedLoopCost) {
+        return null;
+      }
     }
 
     // Shared aliases: the branch root and the check edge's non-intermediate endpoint
@@ -1327,6 +1386,104 @@ public class MatchExecutionPlanner {
     }
 
     return rows;
+  }
+
+  /**
+   * Estimates the upstream (probe-side) cardinality at the point where a hash join
+   * branch diverges from the main path. Walks the main-path edges from the scan root
+   * up to (but not including) the branch edges, multiplying by fan-out and selectivity.
+   *
+   * <p>Main-path edges are all edges in {@code scheduledEdges[0..checkIdx-1]} that are
+   * NOT in {@code branchEdges}. The upstream cardinality is:
+   * <pre>
+   *   rootCardinality × Π(fanOut_i × selectivity_i) for each main-path edge i
+   * </pre>
+   *
+   * @param scheduledEdges full edge schedule
+   * @param checkIdx       index of the consistency-check edge
+   * @param branchEdges    edges belonging to the hash join branch
+   * @return estimated upstream row count, or {@link Long#MAX_VALUE} if not estimable
+   */
+  private static long estimateUpstreamCardinality(
+      List<EdgeTraversal> scheduledEdges,
+      int checkIdx,
+      List<EdgeTraversal> branchEdges,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext context) {
+    var session = context.getDatabaseSession();
+    var branchEdgeSet = new HashSet<>(branchEdges);
+
+    // Find the scan root alias (source of the first scheduled edge)
+    var rootAlias = sourceAlias(scheduledEdges.get(0));
+    long rows = estimateAliasCardinality(
+        rootAlias, aliasClasses, aliasFilters, aliasRids, context);
+
+    var currentClass = aliasClasses.get(rootAlias);
+    for (int i = 0; i < checkIdx; i++) {
+      var edgeT = scheduledEdges.get(i);
+      if (branchEdgeSet.contains(edgeT)) {
+        continue; // Skip branch edges — they don't contribute to upstream
+      }
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      double fanOut = estimateMethodFanOut(method, currentClass, session);
+      long fanOutLong = Math.max(1, Math.round(fanOut));
+      if (rows > Long.MAX_VALUE / fanOutLong) {
+        return Long.MAX_VALUE;
+      }
+      rows *= fanOutLong;
+      var target = targetAlias(edgeT);
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        rows = Math.max(1, Math.round(rows * selectivity));
+      }
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Estimates the per-row branch fan-out — the average number of rows a single upstream
+   * row produces when traversing the branch via nested-loop. This is the product of
+   * fanOut × selectivity for each branch edge, excluding the last consistency-check edge
+   * (which is a free RID equality check, cost 0).
+   *
+   * @return the estimated per-row fan-out (≥ 1.0)
+   */
+  private static double estimateBranchFanOut(
+      List<EdgeTraversal> branchEdges,
+      String branchRoot,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      CommandContext context) {
+    var session = context.getDatabaseSession();
+    // Exclude the last edge (consistency-check) — it's a free RID match
+    int edgeCount = Math.max(0, branchEdges.size() - 1);
+    double fanOut = 1.0;
+    var currentClass = aliasClasses.get(branchRoot);
+    for (int i = 0; i < edgeCount; i++) {
+      var edgeT = branchEdges.get(i);
+      var method = edgeT.edge.item != null ? edgeT.edge.item.getMethod() : null;
+      fanOut *= estimateMethodFanOut(method, currentClass, session);
+      var target = targetAlias(edgeT);
+      var targetFilter = aliasFilters.get(target);
+      if (targetFilter != null) {
+        double selectivity = estimateFilterSelectivity(
+            targetFilter, currentClass, context);
+        fanOut *= selectivity;
+      }
+      var targetClass = aliasClasses.get(target);
+      if (targetClass != null) {
+        currentClass = targetClass;
+      }
+    }
+    return Math.max(1.0, fanOut);
   }
 
   /**
