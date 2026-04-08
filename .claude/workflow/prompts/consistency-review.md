@@ -36,6 +36,8 @@ incorrect code.
   or VIOLATED (current code contradicts them).
 - **Integration Points**: How new code connects to existing code — entry
   points, SPIs, callbacks, event flows.
+- **Non-Goals**: Explicit scope exclusions to prevent scope creep during
+  execution.
 - **Design document** (`design.md`): Separate file explaining the structural
   and behavioral design — class diagrams, workflow diagrams, dedicated
   sections for complex parts (concurrency, crash recovery, performance).

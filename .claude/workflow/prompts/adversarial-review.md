@@ -15,7 +15,8 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 - **Track**: A coherent stream of related work within the plan. Contains
   steps (decomposed later in this Phase A, after your review). Max ~5-7
   steps per track.
-- **Step**: A single atomic change = one commit. Fully tested.
+- **Step**: A single atomic change = one commit. Fully tested. Step
+  decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track
   implementation. Track episodes (in the plan file under completed tracks)
   summarize strategic outcomes; step episodes (in step files) contain
@@ -37,6 +38,9 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
   to implement them), or VIOLATED (current code contradicts them). Each must
   map to a testable assertion — your violation scenarios test whether the
   assertion is actually enforceable.
+- **Integration Points**: How new code connects to existing code — entry
+  points, SPIs, callbacks, event flows. Challenge whether they are
+  complete and correctly described.
 - **Non-Goals**: Explicit scope exclusions. Challenge whether they are
   correctly scoped — is important work being excluded, or does the scope
   boundary allow unintended consequences?

@@ -14,9 +14,8 @@ through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 - **Track**: A coherent stream of related work within the plan. Contains
   steps (decomposed later in this Phase A, after your review). Max ~5-7
   steps per track.
-- **Step**: A single atomic change = one commit. Fully tested with 85% line
-  / 70% branch coverage. Step decomposition has not happened yet — only
-  scope indicators exist.
+- **Step**: A single atomic change = one commit. Fully tested. Step
+  decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track
   implementation. Track episodes (in the plan file under completed tracks)
   summarize strategic outcomes; step episodes (in step files) contain

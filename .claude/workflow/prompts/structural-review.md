@@ -36,8 +36,10 @@ descriptions, oversized tracks, contradictions — directly impair execution.
   caveats, and track references (which track(s) implement this decision).
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components the plan touches and what changes in each.
-- **Invariants**: Conditions that must remain true. Each must map to a
-  testable assertion in the relevant step.
+- **Invariants**: Conditions that must remain true. Can be ENFORCED (code
+  already guarantees them), ASPIRATIONAL (tracks need to implement them),
+  or VIOLATED (current code contradicts them). Each must map to a testable
+  assertion in the relevant step.
 - **Integration Points**: How new code connects to existing code.
 - **Non-Goals**: Explicit scope exclusions to prevent scope creep during
   execution.

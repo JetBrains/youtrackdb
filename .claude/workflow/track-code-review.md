@@ -82,7 +82,7 @@ blockquoted sections under completed steps (starting with
 `**What was done:**`) — structured records of implementation outcomes.
 Use episodes to understand intent and check whether the combined result
 matches the plan's goals. Severities: **blocker** (must fix),
-**should-fix** (should fix before merge), **suggestion** (optional).
+**should-fix** (should fix before merge), **suggestion** (optional improvement).
 
 ## Review Target
 Track {N}: {track title}
