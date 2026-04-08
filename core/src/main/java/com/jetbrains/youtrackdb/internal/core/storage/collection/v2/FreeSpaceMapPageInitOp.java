@@ -24,6 +24,8 @@ public final class FreeSpaceMapPageInitOp extends PageOperation {
 
   @Override
   public void redo(DurablePage page) {
+    // During redo, changes == null so init() writes directly to the buffer.
+    // The instanceof CacheEntryChanges check will be false — D4 redo suppression.
     var fsmPage = new FreeSpaceMapPage(page.getCacheEntry());
     fsmPage.init();
   }

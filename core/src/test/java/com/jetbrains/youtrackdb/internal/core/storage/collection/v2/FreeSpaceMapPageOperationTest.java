@@ -149,8 +149,9 @@ public class FreeSpaceMapPageOperationTest {
   // --- Redo correctness tests ---
 
   /**
-   * Redo correctness for init: apply init directly on page1, then apply via redo on page2.
-   * Both pages must have all segment-tree nodes zeroed.
+   * Redo correctness for init on a dirty (pre-populated) page. Populate both pages
+   * with non-zero segment-tree data, then apply init directly on page1 and via redo
+   * on page2. Both must be fully zeroed — verifies redo actually clears pre-existing data.
    */
   @Test
   public void testInitRedoCorrectness() {
@@ -169,16 +170,31 @@ public class FreeSpaceMapPageOperationTest {
     entry2.acquireExclusiveLock();
 
     try {
-      // Apply directly
+      // Populate both pages with non-zero data
       var page1 = new FreeSpaceMapPage(entry1);
       page1.init();
+      page1.updatePageMaxFreeSpace(0, 255);
+      page1.updatePageMaxFreeSpace(100, 128);
+      page1.updatePageMaxFreeSpace(FreeSpaceMapPage.CELLS_PER_PAGE - 1, 200);
 
-      // Apply via redo
       var page2 = new FreeSpaceMapPage(entry2);
+      page2.init();
+      page2.updatePageMaxFreeSpace(0, 255);
+      page2.updatePageMaxFreeSpace(100, 128);
+      page2.updatePageMaxFreeSpace(FreeSpaceMapPage.CELLS_PER_PAGE - 1, 200);
+
+      // Sanity: pages have data
+      Assert.assertEquals(0, page1.findPage(255));
+      Assert.assertEquals(0, page2.findPage(255));
+
+      // Apply init directly on page1
+      page1.init();
+
+      // Apply init via redo on page2
       var op = new FreeSpaceMapPageInitOp(0, 0, 0, new LogSequenceNumber(0, 0));
       op.redo(page2);
 
-      // After init, findPage should return -1 (all zeroes)
+      // Both pages must be fully zeroed
       Assert.assertEquals(-1, page1.findPage(1));
       Assert.assertEquals(-1, page2.findPage(1));
     } finally {
@@ -191,7 +207,8 @@ public class FreeSpaceMapPageOperationTest {
 
   /**
    * Redo correctness for updatePageMaxFreeSpace: apply on page1, redo on page2.
-   * Both pages must have the same segment tree state including propagated values.
+   * Both pages must have the same segment tree state. Asserts concrete expected values
+   * (leaf 5 has 120, all others 0, so root = 120) and uses byte-level buffer comparison.
    */
   @Test
   public void testUpdateRedoCorrectness() {
@@ -217,21 +234,29 @@ public class FreeSpaceMapPageOperationTest {
       page2.init();
 
       // Apply update directly
-      var rootValue1 = page1.updatePageMaxFreeSpace(5, 120);
+      var rootValue = page1.updatePageMaxFreeSpace(5, 120);
 
-      // Apply via redo
+      // Apply via redo — no second mutation on page2
       var op = new FreeSpaceMapPageUpdateOp(
           0, 0, 0, new LogSequenceNumber(0, 0), 5, 120);
       op.redo(page2);
-      // Read the root value from page2 by searching
-      var rootValue2 = page2.updatePageMaxFreeSpace(5, 120); // idempotent
 
-      Assert.assertEquals(rootValue1, rootValue2);
+      // Root must be 120 (only non-zero leaf)
+      Assert.assertEquals(120, rootValue);
 
-      // Both pages must find the same leaf when searching
-      Assert.assertEquals(page1.findPage(100), page2.findPage(100));
-      Assert.assertEquals(page1.findPage(120), page2.findPage(120));
-      Assert.assertEquals(page1.findPage(121), page2.findPage(121));
+      // Concrete expected values: leaf 5 has 120, findPage searches leftmost qualifying
+      Assert.assertEquals(5, page1.findPage(100));
+      Assert.assertEquals(5, page2.findPage(100));
+      Assert.assertEquals(5, page1.findPage(120));
+      Assert.assertEquals(5, page2.findPage(120));
+      Assert.assertEquals(-1, page1.findPage(121));
+      Assert.assertEquals(-1, page2.findPage(121));
+
+      // Byte-level buffer comparison for exhaustive segment tree verification
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after redo", 0, buf1.compareTo(buf2));
     } finally {
       entry1.releaseExclusiveLock();
       entry2.releaseExclusiveLock();
@@ -279,12 +304,159 @@ public class FreeSpaceMapPageOperationTest {
       new FreeSpaceMapPageUpdateOp(0, 0, 0, new LogSequenceNumber(0, 0), 100, 150)
           .redo(page2);
 
-      // Both pages must produce the same search results
-      Assert.assertEquals(page1.findPage(50), page2.findPage(50));
-      Assert.assertEquals(page1.findPage(100), page2.findPage(100));
-      Assert.assertEquals(page1.findPage(150), page2.findPage(150));
-      Assert.assertEquals(page1.findPage(200), page2.findPage(200));
-      Assert.assertEquals(page1.findPage(201), page2.findPage(201));
+      // Concrete expected values: leaf 0=50, leaf 10=200, leaf 100=150
+      // findPage(50): leftmost with >= 50 is leaf 0 (value 50)
+      Assert.assertEquals(0, page1.findPage(50));
+      Assert.assertEquals(0, page2.findPage(50));
+
+      // findPage(100): leaf 0 has 50 < 100, leftmost qualifying is leaf 10 (200)
+      Assert.assertEquals(10, page1.findPage(100));
+      Assert.assertEquals(10, page2.findPage(100));
+
+      // findPage(150): leaf 10 has 200 >= 150, leftmost qualifying is leaf 10
+      Assert.assertEquals(10, page1.findPage(150));
+      Assert.assertEquals(10, page2.findPage(150));
+
+      // findPage(200): leaf 10 has 200 >= 200
+      Assert.assertEquals(10, page1.findPage(200));
+      Assert.assertEquals(10, page2.findPage(200));
+
+      // findPage(201): no leaf has value >= 201
+      Assert.assertEquals(-1, page1.findPage(201));
+      Assert.assertEquals(-1, page2.findPage(201));
+
+      // Byte-level buffer comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after redo", 0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * Redo correctness at the last valid leaf index (CELLS_PER_PAGE - 1). This is the
+   * only index where the sibling is beyond the page boundary, triggering the fallback
+   * path in updatePageMaxFreeSpace where siblingValue = nodeValue.
+   */
+  @Test
+  public void testUpdateRedoCorrectnessAtLastLeaf() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var lastLeaf = FreeSpaceMapPage.CELLS_PER_PAGE - 1;
+
+      var page1 = new FreeSpaceMapPage(entry1);
+      page1.init();
+      var page2 = new FreeSpaceMapPage(entry2);
+      page2.init();
+
+      // Apply update at the last leaf directly
+      var rootValue = page1.updatePageMaxFreeSpace(lastLeaf, 200);
+
+      // Apply via redo
+      var op = new FreeSpaceMapPageUpdateOp(
+          0, 0, 0, new LogSequenceNumber(0, 0), lastLeaf, 200);
+      op.redo(page2);
+
+      Assert.assertEquals(200, rootValue);
+
+      // Both pages must find the last leaf
+      Assert.assertEquals(lastLeaf, page1.findPage(200));
+      Assert.assertEquals(lastLeaf, page2.findPage(200));
+
+      // No page should satisfy a request above 200
+      Assert.assertEquals(-1, page1.findPage(201));
+      Assert.assertEquals(-1, page2.findPage(201));
+
+      // Byte-level buffer comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after redo", 0, buf1.compareTo(buf2));
+    } finally {
+      entry1.releaseExclusiveLock();
+      entry2.releaseExclusiveLock();
+      cachePointer1.decrementReferrer();
+      cachePointer2.decrementReferrer();
+    }
+  }
+
+  /**
+   * Redo correctness when decreasing a leaf value. The segment tree must propagate
+   * the decrease correctly to all ancestor nodes.
+   */
+  @Test
+  public void testUpdateRedoDecreaseValue() {
+    var bufferPool = ByteBufferPool.instance(null);
+
+    var pointer1 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer1 = new CachePointer(pointer1, bufferPool, 0, 0);
+    cachePointer1.incrementReferrer();
+    CacheEntry entry1 = new CacheEntryImpl(0, 0, cachePointer1, false, null);
+    entry1.acquireExclusiveLock();
+
+    var pointer2 = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer2 = new CachePointer(pointer2, bufferPool, 0, 0);
+    cachePointer2.incrementReferrer();
+    CacheEntry entry2 = new CacheEntryImpl(0, 0, cachePointer2, false, null);
+    entry2.acquireExclusiveLock();
+
+    try {
+      var page1 = new FreeSpaceMapPage(entry1);
+      page1.init();
+      var page2 = new FreeSpaceMapPage(entry2);
+      page2.init();
+
+      // Set leaf 10 to 200 on both pages
+      page1.updatePageMaxFreeSpace(10, 200);
+      new FreeSpaceMapPageUpdateOp(0, 0, 0, new LogSequenceNumber(0, 0), 10, 200)
+          .redo(page2);
+
+      // Now decrease leaf 10 to 50 on both pages
+      var rootValue = page1.updatePageMaxFreeSpace(10, 50);
+      new FreeSpaceMapPageUpdateOp(0, 0, 0, new LogSequenceNumber(0, 0), 10, 50)
+          .redo(page2);
+
+      Assert.assertEquals(50, rootValue);
+
+      // Searching for 51 should find nothing (max is now 50)
+      Assert.assertEquals(-1, page1.findPage(51));
+      Assert.assertEquals(-1, page2.findPage(51));
+
+      // Searching for 50 should find leaf 10
+      Assert.assertEquals(10, page1.findPage(50));
+      Assert.assertEquals(10, page2.findPage(50));
+
+      // Decrease to 0 — page should be effectively empty
+      page1.updatePageMaxFreeSpace(10, 0);
+      new FreeSpaceMapPageUpdateOp(0, 0, 0, new LogSequenceNumber(0, 0), 10, 0)
+          .redo(page2);
+
+      Assert.assertEquals(-1, page1.findPage(1));
+      Assert.assertEquals(-1, page2.findPage(1));
+
+      // Byte-level buffer comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after redo", 0, buf1.compareTo(buf2));
     } finally {
       entry1.releaseExclusiveLock();
       entry2.releaseExclusiveLock();
@@ -382,6 +554,8 @@ public class FreeSpaceMapPageOperationTest {
       var updateOp = (FreeSpaceMapPageUpdateOp) registeredOp;
       Assert.assertEquals(42, updateOp.getFsmPageIndex());
       Assert.assertEquals(180, updateOp.getFreeSpace());
+      Assert.assertEquals(7, updateOp.getPageIndex());
+      Assert.assertEquals(42, updateOp.getFileId());
       Assert.assertEquals(new LogSequenceNumber(2, 200), updateOp.getInitialLsn());
     } finally {
       delegate.releaseExclusiveLock();
