@@ -142,8 +142,11 @@ understandable — abstract descriptions alone are not enough.>
 
 ### Summary
 
-<A table mapping each feature to its trigger condition, implementation class,
-data structure, and real-world impact (benchmark numbers if available).>
+Provide a table mapping each feature to its trigger condition, implementation class, data structure, and real-world impact (benchmark numbers if available).
+
+| Feature | Trigger | Implementation | Data Structures | Impact |
+|---|---|---|---|---|
+| ... | ... | ... | ... | ... |>
 
 ## PR Discussion Summary
 
@@ -162,7 +165,7 @@ concerns raised, or alternatives discussed.>
 
 ### Important Rules
 
-1. **Design-first, not file-first.** Never organize the document by file or by diff hunk. Organize by algorithm/feature. Each section should be self-contained: a reader should understand one feature without reading the others.
+1. **Design-first, not file-first.** Never organize the document by file, by diff hunk, or by commit. Organize by algorithm/feature. A single feature may span multiple files — the document should explain it as one unit. Each section should be self-contained: a reader should understand one feature without reading the others.
 
 2. **Every feature section must have a concrete example with a data walkthrough.** Abstract algorithm descriptions are insufficient. Show real values flowing through the system. For database changes, use actual SQL queries (from benchmarks or tests) and walk through with sample data. Show both old behavior and new behavior with cost comparison.
 
@@ -170,6 +173,7 @@ concerns raised, or alternatives discussed.>
    - **Flowchart** for decision logic, algorithm flow, execution paths
    - **Class diagram** for new type hierarchies and relationships
    - **Sequence diagram** for multi-component interactions
+   - **State diagram** for state machine changes
    Place diagrams INSIDE the feature section they belong to, right after the algorithm description and before the example. Do not collect all diagrams in one place.
 
 4. **Do NOT include a "Changed Files" table.** It duplicates what `git diff --stat` already shows and adds no design insight. The document is about understanding, not inventory.
@@ -182,8 +186,6 @@ concerns raised, or alternatives discussed.>
 
 8. **Be honest about limitations.** If a feature is only exercised by synthetic tests and not by any production query, say so. If a pattern never actually filters in symmetric cases, explain what the real win is (cost reduction, not filtering).
 
-9. **Group related changes into logical sections** rather than going file-by-file or commit-by-commit. A single feature may span multiple files — the document should explain it as one unit.
+9. **Use the Agent tool** with `subagent_type: "Explore"` if you need to understand surrounding code context that isn't in the diff — e.g., to find which real queries trigger a new optimization, or to understand the old behavior being replaced.
 
-10. **Use the Agent tool** with `subagent_type: "Explore"` if you need to understand surrounding code context that isn't in the diff — e.g., to find which real queries trigger a new optimization, or to understand the old behavior being replaced.
-
-11. The output file goes in the **project root directory** (the current working directory).
+10. The output file goes in the **project root directory** (the current working directory).
