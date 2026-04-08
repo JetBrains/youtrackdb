@@ -1209,7 +1209,11 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " RETURN friend.name as friendName, tag.label as tagLabel")
         .toList();
 
-    assertFalse("Should have results", result.isEmpty());
+    // Cartesian product: p0's friends {p1, p2} × p0's msg tags {java, python, rust}
+    Set<String> friends = collectProperty(result, "friendName");
+    assertEquals(Set.of("p1", "p2"), friends);
+    Set<String> tags = collectProperty(result, "tagLabel");
+    assertEquals(Set.of("java", "python", "rust"), tags);
 
     // No back-reference (@rid = $matched...) and no indexed property filter on
     // any traversal target. The shared 'person' alias across patterns is resolved
@@ -1245,8 +1249,10 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
             + " RETURN msg.content as content")
         .toList();
 
-    // p0.age=20. friend's messages with creationDate > 20 — all qualify
-    assertFalse("Should have results", result.isEmpty());
+    // p0.age=20. p0→knows→{p1, p2}. All friend messages have creationDate > 20.
+    // p1 authored m3,m4,m5; p2 authored m6,m7,m8
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m3", "m4", "m5", "m6", "m7", "m8"), contents);
 
     // The WHERE references $matched for a non-RID property comparison.
     // splitByMatchedReference() splits the filter, but creationDate > $matched...
@@ -1750,13 +1756,12 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
     //   forumPost authored by p1 in general → {m3,m4,m5}. Match.
     // For friend=p2: friendPost ∈ {m6,m7,m8}, forum=tech,
     //   forumPost authored by p2 in tech → {m6,m7,m8}. Match.
-    assertFalse("Should have results", result.isEmpty());
     Set<String> friends = collectProperty(result, "friendName");
-    assertEquals("Both p1 and p2 should appear",
-        Set.of("p1", "p2"), friends);
+    assertEquals(Set.of("p1", "p2"), friends);
     Set<String> forums = collectProperty(result, "forumTitle");
-    assertEquals("Both general and tech forums",
-        Set.of("general", "tech"), forums);
+    assertEquals(Set.of("general", "tech"), forums);
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m3", "m4", "m5", "m6", "m7", "m8"), contents);
 
     assertPlanHasIntersection(
         "MATCH {class: CPerson, as: person, where: (name = 'p0')}"

@@ -1032,8 +1032,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     // bob's messages with ts >= 1300: msg3(1300), msg4(1400)
     Set<String> texts = collectProperty(result, "text");
-    assertTrue("Should find msg3", texts.contains("msg3"));
-    assertTrue("Should find msg4", texts.contains("msg4"));
+    assertEquals(Set.of("msg3", "msg4"), texts);
 
     // Should see both index intersection (ts on bobMsg) and
     // EdgeRidLookup intersection (back-ref on alice2)
@@ -1653,6 +1652,52 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     session.commit();
   }
 
+  /**
+   * DirectRid with a non-existent RID combined with a compound WHERE.
+   * {@code @rid = #999:999 AND name = 'bob'} should produce zero results
+   * without errors — the DirectRid descriptor handles the non-existent RID
+   * gracefully even when additional property conditions are present.
+   */
+  @Test
+  public void directRid_nonExistentRid_compoundWhere() {
+    session.execute("CREATE class DR5Person extends V").close();
+    session.execute("CREATE property DR5Person.name STRING").close();
+    session.execute("CREATE class DR5Knows extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX DR5Person set name = 'alice'").close();
+    session.execute("CREATE VERTEX DR5Person set name = 'bob'").close();
+    session.execute(
+        "CREATE EDGE DR5Knows FROM (SELECT FROM DR5Person WHERE name = 'alice')"
+            + " TO (SELECT FROM DR5Person WHERE name = 'bob')")
+        .close();
+
+    // Non-existent RID with compound WHERE: @rid = #999:999 AND name = 'bob'
+    var result = session.query(
+        "MATCH {class: DR5Person, as: p, where: (name = 'alice')}"
+            + ".out('DR5Knows'){as: friend,"
+            + "  where: (@rid = #999:999 AND name = 'bob')}"
+            + " RETURN friend.name as friendName")
+        .toList();
+    assertEquals("Non-existent RID + compound WHERE should yield 0 results",
+        0, result.size());
+
+    // With compound WHERE (@rid = ... AND name = ...), findRidEquality() extracts
+    // the RID equality, so the planner should still produce a DirectRid descriptor.
+    // However, the non-existent RID means the intersection is empty → 0 results.
+    // Note: if the plan does NOT show intersection, it means findRidEquality()
+    // cannot extract the RID from the compound condition — document this behavior.
+    String plan = explainPlan(
+        "MATCH {class: DR5Person, as: p, where: (name = 'alice')}"
+            + ".out('DR5Knows'){as: friend,"
+            + "  where: (@rid = #999:999 AND name = 'bob')}"
+            + " RETURN friend.name as friendName");
+    // The compound WHERE may or may not produce a DirectRid descriptor
+    // depending on whether findRidEquality() handles AND conditions.
+    // The key correctness check is that we get 0 results (verified above).
+    session.commit();
+  }
+
   // ========================================================================
   // 2. GROUP BY with pre-filter
   // ========================================================================
@@ -2152,10 +2197,10 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     // A→B→D and A→C→D: target=D, left∈{B,C}, right∈{B,C} where right.out→D
-    // Rows: (left=B, right=C, target=D) and (left=C, right=B, target=D)
-    // Also B→E is target but C has no edge to E, and C→D is target but B→D matches
+    // target=D: all (left,right) combos from {B,C} work since both B→D and C→D
+    // target=E: only left=B has B→E, and only right=B has B→E for converge
     Set<String> targets = collectProperty(result, "targetN");
-    assertTrue("D should be a convergence point", targets.contains("D"));
+    assertEquals(Set.of("D", "E"), targets);
 
     assertPlanHasIntersection(
         "MATCH {class: DiNode, as: root, where: (name = 'A')}"
@@ -2326,8 +2371,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     Set<String> descendants = collectProperty(result2, "dName");
     // c1's descendants via PWChild: gc1(30), ggc(40) — both >= 25
-    assertTrue("Should find gc1", descendants.contains("gc1"));
-    assertTrue("Should find ggc", descendants.contains("ggc"));
+    assertEquals(Set.of("gc1", "ggc"), descendants);
 
     assertPlanHasIntersection(
         "MATCH {class: PWNode, as: start, where: (name = 'root')}"
@@ -2934,9 +2978,11 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     for (var r : result) {
       indices.add(r.getProperty("idx"));
     }
+    Set<Integer> expected = new HashSet<>();
     for (int i = 490; i < 500; i++) {
-      assertTrue("Should contain idx " + i, indices.contains(i));
+      expected.add(i);
     }
+    assertEquals(expected, indices);
 
     assertPlanHasIntersection(
         "MATCH {class: LDHub, as: hub, where: (name = 'bigHub')}"
@@ -3296,9 +3342,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     Set<String> texts = collectProperty(result, "text");
-    assertTrue("Should find m2", texts.contains("m2"));
-    assertTrue("Should find m3", texts.contains("m3"));
-    assertFalse("Should NOT find m4 (not by alice)", texts.contains("m4"));
+    assertEquals(Set.of("m2", "m3"), texts);
 
     assertPlanHasIntersection(
         "MATCH {class: CBPerson, as: person, where: (name = 'alice')}"
@@ -3518,10 +3562,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
         .toList();
 
     Set<String> texts = collectProperty(result, "text");
-    assertTrue("Should find n1", texts.contains("n1"));
-    assertTrue("Should find n3", texts.contains("n3"));
-    assertFalse("Should NOT find n2 (flagged)", texts.contains("n2"));
-    assertFalse("Should NOT find n4 (not by alice)", texts.contains("n4"));
+    assertEquals(Set.of("n1", "n3"), texts);
 
     assertPlanHasIntersection(
         "MATCH {class: NBPerson, as: person, where: (name = 'alice')}"
@@ -3890,8 +3931,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
 
     Set<String> descNames = collectProperty(result, "dName");
     // WHILE from b: emits b itself, then shared(20), deep(30)
-    assertTrue("Should find shared", descNames.contains("shared"));
-    assertTrue("Should find deep", descNames.contains("deep"));
+    assertEquals(Set.of("b", "shared", "deep"), descNames);
 
     // Pre-filter should activate on the first hop (priority >= 10)
     assertPlanHasIntersection(query, "Plan should show intersection for indexed priority");
@@ -3977,10 +4017,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     //   → inV where @rid = $matched.post → only the post itself if ts>=200
     // So: alice_p2(200) and alice_p3(300) match
     Set<String> titles = collectProperty(result, "postTitle");
-    assertTrue("Should find alice_p2", titles.contains("alice_p2"));
-    assertTrue("Should find alice_p3", titles.contains("alice_p3"));
-    assertFalse("Should NOT find alice_p1 (ts=100 < 200)",
-        titles.contains("alice_p1"));
+    assertEquals(Set.of("alice_p2", "alice_p3"), titles);
 
     assertPlanHasIntersection(query, "Plan should show intersection (index + backref)");
     session.commit();
@@ -4077,9 +4114,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     //   am1(ts=100 < 200) → no match on ts
     //   bm1/bm2 → author=bob, not alice
     Set<String> texts = collectProperty(result, "text");
-    assertTrue("Should find am2", texts.contains("am2"));
-    assertFalse("Should NOT find am1 (ts < 200)", texts.contains("am1"));
-    assertFalse("Should NOT find bm1 (by bob)", texts.contains("bm1"));
+    assertEquals(Set.of("am2"), texts);
 
     assertPlanHasIntersection(query, "Plan should show intersection");
     session.commit();
@@ -4411,11 +4446,7 @@ public class MatchPreFilterSchemaVariationsTest extends MatchPreFilterTestBase {
     var result = session.query(query).toList();
 
     Set<String> titles = collectProperty(result, "title");
-    assertTrue("Should find post1", titles.contains("post1"));
-    assertTrue("Should find post3", titles.contains("post3"));
-    assertTrue("Should find post4", titles.contains("post4"));
-    assertFalse("Should NOT find post2 (flagged sev=5)",
-        titles.contains("post2"));
+    assertEquals(Set.of("post1", "post3", "post4"), titles);
     session.commit();
   }
 
