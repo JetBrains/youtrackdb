@@ -1914,4 +1914,307 @@ public class MatchPreFilterComprehensiveTest extends MatchPreFilterTestBase {
         "No index on CForum.title, no back-ref — no intersection");
     session.rollback();
   }
+
+  // ========================================================================
+  // 21. BETWEEN keyword — flatten() rewrites to >= AND <=
+  //     Verifies that the SQL BETWEEN keyword triggers the same index
+  //     pre-filter as the hand-written >= AND <= equivalent.
+  // ========================================================================
+
+  /**
+   * Basic BETWEEN with literal bounds on an indexed vertex property.
+   * {@code creationDate BETWEEN 1400 AND 1700} should activate the index
+   * pre-filter via {@code SQLBetweenCondition.flatten()}, producing the
+   * same results as the explicit {@code >= 1400 AND <= 1700} form tested
+   * in {@link #indexFilter_multiSource_perSourceIndependence}.
+   */
+  @Test
+  public void between_literalBounds_indexPreFilter() {
+    session.begin();
+    // creationDate: m0=1000 .. m11=2100
+    // general: m0..m5, tech: m6..m11
+    // BETWEEN 1400 AND 1700 → m4(1400), m5(1500), m6(1600), m7(1700)
+    var result = session.query(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1400 AND 1700)}"
+            + " RETURN forum.title as forumTitle, msg.content as content")
+        .toList();
+
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m4", "m5", "m6", "m7"), contents);
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1400 AND 1700)}"
+            + " RETURN forum.title as forumTitle, msg.content as content",
+        "BETWEEN should activate index pre-filter via flatten()");
+    session.commit();
+  }
+
+  /**
+   * Degenerate BETWEEN where low == high ({@code BETWEEN 1500 AND 1500}).
+   * Effectively an equality check — should return exactly one message and
+   * still activate the index pre-filter.
+   */
+  @Test
+  public void between_singleValue_degenerateRange() {
+    session.begin();
+    // creationDate=1500 → m5 only
+    var result = session.query(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1500 AND 1500)}"
+            + " RETURN msg.content as content")
+        .toList();
+
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m5"), contents);
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1500 AND 1500)}"
+            + " RETURN msg.content as content",
+        "Degenerate BETWEEN (lo == hi) should still use index");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with named parameters ({@code BETWEEN :low AND :high}).
+   * Verifies that flatten() correctly copies parameter references into
+   * the rewritten >= / <= conditions.
+   */
+  @Test
+  public void between_namedParameters_indexPreFilter() {
+    session.begin();
+    String query =
+        "MATCH {class: CForum, as: forum, where: (title = 'tech')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN :low AND :high)}"
+            + " RETURN msg.content as content";
+    Map<String, Object> params = new HashMap<>(
+        Map.of("low", 1800L, "high", 2000L));
+
+    var result = session.query(query, params).toList();
+
+    // tech: m6(1600)..m11(2100); BETWEEN 1800 AND 2000 → m8(1800),
+    // m9(1900), m10(2000)
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m8", "m9", "m10"), contents);
+
+    assertPlanHasIndexIntersection(query, params,
+        "Parameterized BETWEEN should activate index pre-filter");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with null lower bound ({@code :low = null}).
+   * {@code evaluate()} returns false for null operands, so no rows match.
+   * The index path may produce a wider result set (open-ended range), but
+   * the post-filter eliminates everything. Verifies no crash/NPE.
+   */
+  @Test
+  public void between_nullLowerBound_emptyResult() {
+    session.begin();
+    String query =
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN :low AND :high)}"
+            + " RETURN msg.content as content";
+    Map<String, Object> params = new HashMap<>();
+    params.put("low", null);
+    params.put("high", 1500L);
+
+    var result = session.query(query, params).toList();
+
+    // evaluate() returns false when any operand is null → empty result
+    assertEquals("Null lower bound → no rows should match", 0, result.size());
+
+    // The planner sees BETWEEN :low AND :high on an indexed property and
+    // activates the index pre-filter (flatten → >= AND <=). At runtime the
+    // null key produces an open-ended range, but evaluate() post-filters
+    // everything out. The plan still shows the intersection descriptor.
+    assertPlanHasIndexIntersection(query, params,
+        "Null param does not prevent plan-time index detection");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with null upper bound ({@code :high = null}).
+   * Same as null lower bound — evaluate() returns false, empty result.
+   */
+  @Test
+  public void between_nullUpperBound_emptyResult() {
+    session.begin();
+    String query =
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN :low AND :high)}"
+            + " RETURN msg.content as content";
+    Map<String, Object> params = new HashMap<>();
+    params.put("low", 1000L);
+    params.put("high", null);
+
+    var result = session.query(query, params).toList();
+
+    assertEquals("Null upper bound → no rows should match", 0, result.size());
+
+    // Same reasoning as between_nullLowerBound: planner detects index at
+    // plan time; runtime null key is harmless (open-ended range filtered
+    // out by evaluate()).
+    assertPlanHasIndexIntersection(query, params,
+        "Null param does not prevent plan-time index detection");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with both bounds null. Verifies graceful handling — no crash,
+   * empty result because evaluate() returns false for null operands.
+   */
+  @Test
+  public void between_bothBoundsNull_emptyResult() {
+    session.begin();
+    String query =
+        "MATCH {class: CForum, as: forum, where: (title = 'general')}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN :low AND :high)}"
+            + " RETURN msg.content as content";
+    Map<String, Object> params = new HashMap<>();
+    params.put("low", null);
+    params.put("high", null);
+
+    var result = session.query(query, params).toList();
+
+    assertEquals("Both bounds null → no rows should match",
+        0, result.size());
+
+    // Both keys resolve to null at runtime → index returns null-key
+    // entries (or empty if nulls are ignored). The plan-time decision
+    // is still index-aware because flatten() produces valid >= / <=
+    // AST nodes.
+    assertPlanHasIndexIntersection(query, params,
+        "Both-null params: planner still detects index");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN on an indexed edge property (CWorksAt.workFrom).
+   * Verifies that flatten() works for edge properties, not just vertex
+   * properties.
+   */
+  @Test
+  public void between_edgeProperty_indexPreFilter() {
+    session.begin();
+    // workFrom: p0=2010, p1=2012, p2=2015, p3=2011, p4=2018,
+    //           p5=2013, p6=2016, p7=2020
+    // BETWEEN 2013 AND 2016 → p2(2015), p5(2013), p6(2016)
+    var result = session.query(
+        "MATCH {class: CPerson, as: person}"
+            + ".outE('CWorksAt'){as: wa,"
+            + "  where: (workFrom BETWEEN 2013 AND 2016)}"
+            + ".inV(){as: company}"
+            + " RETURN person.name as personName")
+        .toList();
+
+    Set<String> persons = collectProperty(result, "personName");
+    assertEquals(Set.of("p2", "p5", "p6"), persons);
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CPerson, as: person}"
+            + ".outE('CWorksAt'){as: wa,"
+            + "  where: (workFrom BETWEEN 2013 AND 2016)}"
+            + ".inV(){as: company}"
+            + " RETURN person.name as personName",
+        "BETWEEN on indexed edge property should use index");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with no matching records — bounds outside data range.
+   * Verifies correct empty result with index pre-filter active.
+   */
+  @Test
+  public void between_noMatchingRecords_emptyResult() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 5000 AND 6000)}"
+            + " RETURN msg.content as content")
+        .toList();
+
+    assertEquals(0, result.size());
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 5000 AND 6000)}"
+            + " RETURN msg.content as content",
+        "BETWEEN with no matches should still activate index pre-filter");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN with inverted bounds (low > high). No rows should match
+   * because no value can satisfy {@code val >= 2000 AND val <= 1000}.
+   */
+  @Test
+  public void between_invertedBounds_emptyResult() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 2000 AND 1000)}"
+            + " RETURN msg.content as content")
+        .toList();
+
+    assertEquals("Inverted bounds (low > high) → empty result",
+        0, result.size());
+
+    // flatten() rewrites to >= 2000 AND <= 1000 — the planner still sees
+    // two range conditions on an indexed property and attaches the
+    // descriptor. At runtime the index returns an empty stream because
+    // from > to, and evaluate() confirms no match.
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 2000 AND 1000)}"
+            + " RETURN msg.content as content",
+        "Inverted bounds: planner still attaches index descriptor");
+    session.commit();
+  }
+
+  /**
+   * BETWEEN combined with a non-indexed predicate in the same WHERE.
+   * The index pre-filter activates for the BETWEEN part; the non-indexed
+   * predicate is evaluated as a post-filter.
+   */
+  @Test
+  public void between_compoundWhere_withNonIndexedPredicate() {
+    session.begin();
+    // BETWEEN 1400 AND 1800 → m4(1400), m5(1500), m6(1600), m7(1700),
+    // m8(1800)
+    // content LIKE 'm7' → m7
+    var result = session.query(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1400 AND 1800"
+            + "          AND content = 'm7')}"
+            + " RETURN msg.content as content")
+        .toList();
+
+    Set<String> contents = collectProperty(result, "content");
+    assertEquals(Set.of("m7"), contents);
+
+    assertPlanHasIndexIntersection(
+        "MATCH {class: CForum, as: forum}"
+            + ".out('CContainerOf'){as: msg,"
+            + "  where: (creationDate BETWEEN 1400 AND 1800"
+            + "          AND content = 'm7')}"
+            + " RETURN msg.content as content",
+        "BETWEEN + non-indexed predicate should still use index");
+    session.commit();
+  }
 }
