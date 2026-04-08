@@ -219,4 +219,12 @@ public final class WALRecordTypes {
   // FreeSpaceMapPage operations
   public static final int FREE_SPACE_MAP_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 13;
   public static final int FREE_SPACE_MAP_PAGE_UPDATE_OP = PAGE_OPERATION_ID_BASE + 14;
+
+  // DirtyPageBitSetPage operations
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 15;
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_SET_BIT_OP = PAGE_OPERATION_ID_BASE + 16;
+  public static final int DIRTY_PAGE_BIT_SET_PAGE_CLEAR_BIT_OP = PAGE_OPERATION_ID_BASE + 17;
+
+  // MapEntryPoint (v2) operations
+  public static final int MAP_ENTRY_POINT_SET_FILE_SIZE_OP = PAGE_OPERATION_ID_BASE + 18;
 }
