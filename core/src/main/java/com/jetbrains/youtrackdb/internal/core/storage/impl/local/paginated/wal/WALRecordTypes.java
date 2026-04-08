@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 public final class WALRecordTypes {
 
+  // --- Active record types (0–18) ---
   public static final int UPDATE_PAGE_RECORD = 0;
   public static final int ATOMIC_UNIT_START_RECORD = 8;
   public static final int ATOMIC_UNIT_END_RECORD = 9;
@@ -13,6 +14,11 @@ public final class WALRecordTypes {
   public static final int ATOMIC_UNIT_START_METADATA_RECORD = 15;
   public static final int HIGH_LEVEL_TRANSACTION_CHANGE_RECORD = 18;
 
+  // --- Tombstoned old page operation IDs (35–198) ---
+  // These IDs belonged to a previous physiological logging system that was removed.
+  // They are tombstoned in WALRecordsFactory.walRecordById() with an IllegalStateException
+  // so that recovery correctly rejects any old WAL files containing them.
+  // Do NOT reuse these IDs — allocate new ones starting at PAGE_OPERATION_ID_BASE.
   public static final int COLLECTION_POSITION_MAP_INIT_PO = 35;
   public static final int COLLECTION_POSITION_MAP_ADD_PO = 36;
   public static final int COLLECTION_POSITION_MAP_ALLOCATE_PO = 37;
@@ -184,4 +190,9 @@ public final class WALRecordTypes {
   public static final int CELL_BTREE_ENTRY_POINT_SINGLE_VALUE_V3_SET_FREE_LIST_HEAD_PO = 197;
 
   public static final int CELL_BTREE_BUCKET_SINGLE_VALUE_V3_SET_NEXT_FREE_LIST_PAGE_PO = 198;
+
+  // --- New physiological page operation IDs (200+) ---
+  // New PageOperation subclasses use IDs starting at PAGE_OPERATION_ID_BASE.
+  // Each concrete subclass is registered in WALRecordsFactory via registerNewRecord().
+  public static final int PAGE_OPERATION_ID_BASE = 200;
 }
