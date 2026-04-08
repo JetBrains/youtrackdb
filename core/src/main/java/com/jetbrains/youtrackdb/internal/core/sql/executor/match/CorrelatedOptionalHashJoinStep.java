@@ -10,8 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -27,7 +27,7 @@ import javax.annotation.Nullable;
  * <ol>
  *   <li><b>Build phase</b>: Read the correlated alias vertex from the first upstream
  *       row. Traverse its edges (e.g., {@code startPerson.in('KNOWS')}) to collect
- *       all neighbor RIDs into a {@link HashSet}.</li>
+ *       all neighbor RIDs into a {@link RidSet}.</li>
  *   <li><b>Probe phase</b>: For each upstream row, check if the probe alias's RID
  *       (e.g., liker) is in the set. On hit, set the target alias to the correlated
  *       vertex. On miss, set the target alias to {@code null} (LEFT/optional semantics —
@@ -117,7 +117,7 @@ class CorrelatedOptionalHashJoinStep extends AbstractExecutionStep {
    * equivalent to: is liker in startPerson.in('KNOWS')?
    */
   private Set<RID> buildNeighborSet(Result firstRow, DatabaseSessionEmbedded session) {
-    var set = new HashSet<RID>();
+    var set = new RidSet();
     var correlatedValue = firstRow.getProperty(correlatedAlias);
     var correlatedRid = InvertedWhileHashJoinStep.extractRid(correlatedValue);
     if (correlatedRid == null) {

@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
@@ -18,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -31,7 +31,7 @@ import javax.annotation.Nullable;
  * <ol>
  *   <li><b>Build phase</b>: Find the anchor vertex (e.g., TagClass WHERE name = :param),
  *       then BFS via the inverse edge direction to collect ALL reachable descendant
- *       RIDs into a {@link HashSet}.</li>
+ *       RIDs into a {@link RidSet}.</li>
  *   <li><b>Probe phase</b>: For each upstream row, check if the probe alias's RID
  *       (e.g., directClass) is in the set. On hit, set the target alias to the anchor
  *       vertex. On miss, discard the row.</li>
@@ -93,7 +93,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
     }
 
     var ridToAnchor = new java.util.HashMap<RID, Result>();
-    reachableRids = new java.util.HashSet<>();
+    reachableRids = new RidSet();
     for (var anchor : anchors) {
       var anchorRid = extractRid(anchor);
       if (anchorRid != null) {
@@ -160,7 +160,7 @@ class InvertedWhileHashJoinStep extends AbstractExecutionStep {
    * Size is bounded by the hash join threshold to prevent OOM on large graphs.
    */
   private Set<RID> collectDescendantRids(Result anchor, DatabaseSessionEmbedded session) {
-    var rids = new HashSet<RID>();
+    var rids = new RidSet();
     var anchorRid = extractRid(anchor);
     if (anchorRid == null) {
       return rids;
