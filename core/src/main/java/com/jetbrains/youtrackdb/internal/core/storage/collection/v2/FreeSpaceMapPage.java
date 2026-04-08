@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 /**
@@ -110,6 +111,14 @@ public final class FreeSpaceMapPage extends DurablePage {
   public void init() {
     final var zeros = new byte[MAX_PAGE_SIZE_BYTES - NEXT_FREE_POSITION];
     setBinaryValue(NEXT_FREE_POSITION, zeros);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new FreeSpaceMapPageInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   /**
@@ -201,6 +210,17 @@ public final class FreeSpaceMapPage extends DurablePage {
 
     if (pageIndex >= CELLS_PER_PAGE) {
       throw new IllegalArgumentException("Page index " + pageIndex + " exceeds tree capacity");
+    }
+
+    // Register the page operation unconditionally before the short-circuit check.
+    // Redo is naturally idempotent — calling updatePageMaxFreeSpace with the same value
+    // on a page that already has that value is a no-op.
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new FreeSpaceMapPageUpdateOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pageIndex, freeSpace));
     }
 
     // Start at the leaf level and walk upward to the root.

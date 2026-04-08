@@ -215,4 +215,8 @@ public final class WALRecordTypes {
   public static final int POSITION_MAP_BUCKET_SET_OP = PAGE_OPERATION_ID_BASE + 10;
   public static final int POSITION_MAP_BUCKET_REMOVE_OP = PAGE_OPERATION_ID_BASE + 11;
   public static final int POSITION_MAP_BUCKET_UPDATE_VERSION_OP = PAGE_OPERATION_ID_BASE + 12;
+
+  // FreeSpaceMapPage operations
+  public static final int FREE_SPACE_MAP_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 13;
+  public static final int FREE_SPACE_MAP_PAGE_UPDATE_OP = PAGE_OPERATION_ID_BASE + 14;
 }
