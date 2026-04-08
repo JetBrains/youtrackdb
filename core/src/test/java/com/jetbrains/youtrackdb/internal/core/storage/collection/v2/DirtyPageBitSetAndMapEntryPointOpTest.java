@@ -128,6 +128,25 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
   // --- WALRecordsFactory roundtrip tests ---
 
   @Test
+  public void testInitOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(10, 500);
+    var original = new DirtyPageBitSetPageInitOp(5, 15, 25, initialLsn);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+
+    Assert.assertTrue(deserialized instanceof DirtyPageBitSetPageInitOp);
+    var result = (DirtyPageBitSetPageInitOp) deserialized;
+    Assert.assertEquals(original.getPageIndex(), result.getPageIndex());
+    Assert.assertEquals(original.getFileId(), result.getFileId());
+    Assert.assertEquals(original.getInitialLsn(), result.getInitialLsn());
+    Assert.assertEquals(DirtyPageBitSetPageInitOp.RECORD_ID, result.getId());
+  }
+
+  @Test
   public void testSetBitOpFactoryRoundtrip() {
     var initialLsn = new LogSequenceNumber(42, 1024);
     var original = new DirtyPageBitSetPageSetBitOp(10, 20, 30, initialLsn, 777);
@@ -315,6 +334,12 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
 
       Assert.assertEquals(42, page1.getFileSize());
       Assert.assertEquals(42, page2.getFileSize());
+
+      // Byte-level buffer comparison
+      var buf1 = cachePointer1.getBuffer();
+      var buf2 = cachePointer2.getBuffer();
+      Assert.assertEquals(
+          "Page buffers must be identical after redo", 0, buf1.compareTo(buf2));
     } finally {
       entry1.releaseExclusiveLock();
       entry2.releaseExclusiveLock();
@@ -351,6 +376,10 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
           opCaptor.capture());
 
       Assert.assertTrue(opCaptor.getValue() instanceof DirtyPageBitSetPageInitOp);
+      var initOp = (DirtyPageBitSetPageInitOp) opCaptor.getValue();
+      Assert.assertEquals(7, initOp.getPageIndex());
+      Assert.assertEquals(42, initOp.getFileId());
+      Assert.assertEquals(new LogSequenceNumber(1, 100), initOp.getInitialLsn());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
@@ -389,6 +418,7 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
       Assert.assertEquals(55, op.getBitIndex());
       Assert.assertEquals(7, op.getPageIndex());
       Assert.assertEquals(42, op.getFileId());
+      Assert.assertEquals(new LogSequenceNumber(2, 200), op.getInitialLsn());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
@@ -426,6 +456,9 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
 
       var op = (DirtyPageBitSetPageClearBitOp) opCaptor.getValue();
       Assert.assertEquals(77, op.getBitIndex());
+      Assert.assertEquals(7, op.getPageIndex());
+      Assert.assertEquals(42, op.getFileId());
+      Assert.assertEquals(new LogSequenceNumber(3, 300), op.getInitialLsn());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();
@@ -461,6 +494,7 @@ public class DirtyPageBitSetAndMapEntryPointOpTest {
       Assert.assertEquals(88, op.getSize());
       Assert.assertEquals(7, op.getPageIndex());
       Assert.assertEquals(42, op.getFileId());
+      Assert.assertEquals(new LogSequenceNumber(4, 400), op.getInitialLsn());
     } finally {
       delegate.releaseExclusiveLock();
       cachePointer.decrementReferrer();

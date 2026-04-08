@@ -24,6 +24,7 @@ public final class MapEntryPointSetFileSizeOp extends PageOperation {
       long pageIndex, long fileId, long operationUnitId,
       LogSequenceNumber initialLsn, int size) {
     super(pageIndex, fileId, operationUnitId, initialLsn);
+    assert size >= 0 : "size must be non-negative, got: " + size;
     this.size = size;
   }
 
@@ -59,6 +60,7 @@ public final class MapEntryPointSetFileSizeOp extends PageOperation {
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
     size = buffer.getInt();
+    assert size >= 0 : "Deserialized size must be non-negative, got: " + size;
   }
 
   @Override
