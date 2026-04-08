@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
 import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.Objects;
@@ -172,16 +173,8 @@ public class IndexesSnapshot {
       // lowerEntry may return a foreign key's TombstoneRID during the narrow
       // window when addSnapshotPair has written the TombstoneRID but not yet
       // the RecordId guard (see write-order comment in addSnapshotPair).
-      // Verify the user-key prefix matches (skip indexId at [0] and version
-      // at last).
-      int userKeyLen = keys.size() - 1;
-      if (snapshotKeys.size() - 2 != userKeyLen) {
+      if (!snapshotUserKeyMatches(keys, snapshotKeys)) {
         return null;
-      }
-      for (int i = 0; i < userKeyLen; i++) {
-        if (!Objects.equals(keys.get(i), snapshotKeys.get(i + 1))) {
-          return null;
-        }
       }
 
       return latestSnapshotEntry.getValue().getIdentity();
@@ -191,6 +184,35 @@ public class IndexesSnapshot {
 
   public Set<Entry<CompositeKey, RID>> allEntries() {
     return indexesSnapshot.entrySet();
+  }
+
+  /**
+   * Checks whether the snapshot entry's user-key prefix matches the B-tree entry's
+   * user-key prefix. The B-tree key layout is {@code [userKey..., version]}, while
+   * the snapshot key layout is {@code [indexId, userKey..., version]} — so snapshot
+   * elements are offset by 1.
+   *
+   * <p>Similar to {@code BTree.userKeyPrefixMatches()}, but accounts for the
+   * {@code indexId} prefix in snapshot keys.
+   *
+   * @param btreeKeyElements the B-tree entry's key elements {@code [userKey..., version]}
+   * @param snapshotKeyElements the snapshot entry's key elements
+   *     {@code [indexId, userKey..., version]}
+   * @return true if all user-key elements match
+   */
+  private static boolean snapshotUserKeyMatches(
+      List<?> btreeKeyElements,
+      List<?> snapshotKeyElements) {
+    int userKeyLen = btreeKeyElements.size() - 1;
+    if (snapshotKeyElements.size() - 2 != userKeyLen) {
+      return false;
+    }
+    for (int i = 0; i < userKeyLen; i++) {
+      if (!Objects.equals(btreeKeyElements.get(i), snapshotKeyElements.get(i + 1))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // Prepend indexId without varargs allocation and without the recursive
