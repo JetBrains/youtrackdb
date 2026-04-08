@@ -732,4 +732,32 @@ public class BTreeGetVisibleTest {
           .isEqualTo(RID_2);
     });
   }
+
+  // ---- Partial key (fewer user elements than expected) → null ----
+
+  /**
+   * A CompositeKey with fewer user elements than the index expects (e.g., raw null
+   * passed for a composite index) must return null immediately. Composite indexes
+   * have no "null key" concept — only composite keys with individually-null fields.
+   * This tests the early-return guard in getVisible().
+   */
+  @Test
+  public void getVisible_partialKey_returnsNull() throws Exception {
+    // Insert an entry with a full 2-element user key (simulating a composite index).
+    // We reuse the existing single-field tree (keySize=2), so a CompositeKey with 0
+    // user elements (empty) is "partial" — it has fewer than keySize-1 = 1 user elements.
+    var snapshot = newSnapshot();
+    var partialKey = new CompositeKey(); // 0 elements — fewer than expected 1
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      tree.put(atomicOperation, new CompositeKey("Foo", 0L), RID_1);
+    });
+
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      var result = tree.getVisible(partialKey, snapshot, atomicOperation);
+      assertThat(result)
+          .as("Partial key with fewer user elements than expected must return null")
+          .isNull();
+    });
+  }
 }

@@ -242,24 +242,15 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation) {
     var compositeKey = convertToCompositeKey(key);
-
-    if (key != null) {
-      // Direct leaf-page lookup — avoids cursor/spliterator/stream overhead.
-      var rid = sbTree.getVisible(compositeKey, indexesSnapshot, atomicOperation);
-      return rid != null ? Stream.of(rid) : Stream.empty();
-    }
-
-    // Null key path: retain stream pipeline because buildSearchKey() pads with
-    // Long.MIN_VALUE which causes ClassCastException for composite indexes where
-    // non-version slots have non-Long types. The null path returns at most 1 entry
-    // so stream overhead is negligible.
-    var stream = sbTree
-        .iterateEntriesBetween(compositeKey, true, compositeKey, true, true, atomicOperation);
-    var filtered = indexesSnapshot.visibilityFilter(atomicOperation, stream);
-    // Avoid matching composite keys with null first field (e.g., CompositeKey(null, "Smith")).
-    // A true null key is stored as CompositeKey(null, version), which extractKey returns as null.
-    filtered = filtered.filter(pair -> extractKey(pair.first()) == null);
-    return filtered.map(RawPair::second);
+    // Direct leaf-page lookup — avoids cursor/spliterator/stream overhead.
+    // Null keys are handled uniformly: for single-field indexes,
+    // CompositeKey(null) is padded with Long.MIN_VALUE for the version slot
+    // and matched normally. For composite indexes, getVisible() returns null
+    // immediately because the key has fewer user elements than expected
+    // (composite indexes have no "null key" — only composite keys with
+    // individually-null fields).
+    var rid = sbTree.getVisible(compositeKey, indexesSnapshot, atomicOperation);
+    return rid != null ? Stream.of(rid) : Stream.empty();
   }
 
   @Override

@@ -321,8 +321,15 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       @Nonnull AtomicOperation atomicOperation) {
     assert key instanceof CompositeKey
         : "getVisible() requires CompositeKey, got " + (key == null ? "null" : key.getClass());
-    // Null keys are stored as CompositeKey(null, version) in the main B-tree,
-    // so they are handled uniformly by the same prefix-matching code path.
+    // If the key has fewer user elements than the index expects (e.g., raw null
+    // passed for a composite index becomes CompositeKey(null) with 1 element,
+    // but a 2-field composite index expects 2 user elements), no entry can match.
+    // Composite indexes have no "null key" concept — only composite keys with
+    // individually-null fields.
+    final var userKeyElements = ((CompositeKey) key).getKeys().size();
+    if (userKeyElements < keySize - 1) {
+      return null;
+    }
     try {
       // Build a search key padded with Long.MIN_VALUE as the version component.
       // This ensures the serialized key has the full number of elements that
@@ -362,6 +369,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    * as the version component. This ensures the search key is serializable with the full
    * {@code keyTypes} array and sorts before any real versioned entry with the same user-key
    * prefix, so {@code bucket.find()} returns the insertion point at the first matching entry.
+   *
+   * <p>Creates a defensive copy — the caller's key is not mutated.
    */
   @SuppressWarnings("unchecked")
   private K buildSearchKey(K prefixKey) {
@@ -573,7 +582,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
    * @param entryComposite the entry's CompositeKey to check against
    */
   private static boolean userKeyPrefixMatches(
-      java.util.List<?> searchPrefixKeys, int prefixLen,
+      List<?> searchPrefixKeys, int prefixLen,
       CompositeKey entryComposite) {
     var entryKeys = entryComposite.getKeys();
     if (entryKeys.size() - 1 != prefixLen) {
