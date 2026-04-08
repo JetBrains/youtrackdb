@@ -208,4 +208,11 @@ public final class WALRecordTypes {
   public static final int COLLECTION_PAGE_SET_RECORD_VERSION_OP = PAGE_OPERATION_ID_BASE + 5;
   public static final int COLLECTION_PAGE_DO_DEFRAGMENTATION_OP = PAGE_OPERATION_ID_BASE + 6;
   public static final int COLLECTION_PAGE_APPEND_RECORD_OP = PAGE_OPERATION_ID_BASE + 7;
+
+  // CollectionPositionMapBucket operations
+  public static final int POSITION_MAP_BUCKET_INIT_OP = PAGE_OPERATION_ID_BASE + 8;
+  public static final int POSITION_MAP_BUCKET_ALLOCATE_OP = PAGE_OPERATION_ID_BASE + 9;
+  public static final int POSITION_MAP_BUCKET_SET_OP = PAGE_OPERATION_ID_BASE + 10;
+  public static final int POSITION_MAP_BUCKET_REMOVE_OP = PAGE_OPERATION_ID_BASE + 11;
+  public static final int POSITION_MAP_BUCKET_UPDATE_VERSION_OP = PAGE_OPERATION_ID_BASE + 12;
 }

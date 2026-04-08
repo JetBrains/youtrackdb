@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializ
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -64,6 +65,14 @@ public final class CollectionPositionMapBucket extends DurablePage {
 
   public void init() {
     setIntValue(SIZE_OFFSET, 0);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPositionMapBucketInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public int add(long pageIndex, int recordPosition, long recordVersion, byte status) {
@@ -92,6 +101,14 @@ public final class CollectionPositionMapBucket extends DurablePage {
     setLongValue(position, 0);
 
     setIntValue(SIZE_OFFSET, size + 1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPositionMapBucketAllocateOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
 
     return size;
   }
@@ -150,6 +167,15 @@ public final class CollectionPositionMapBucket extends DurablePage {
     }
 
     updateEntry(index, entry.pageIndex, entry.recordPosition, entry.recordVersion, flag);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPositionMapBucketSetOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(),
+              index, entry.pageIndex, entry.recordPosition, entry.recordVersion));
+    }
   }
 
   public void updateEntry(
@@ -191,7 +217,20 @@ public final class CollectionPositionMapBucket extends DurablePage {
     }
 
     updateStatus(index, REMOVED);
-    updateVersion(index, deletionVersion);
+    // Write version directly instead of calling updateVersion() to prevent
+    // double registration — updateVersion() registers its own op independently.
+    setLongValue(
+        position + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE
+            + IntegerSerializer.INT_SIZE,
+        deletionVersion);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPositionMapBucketRemoveOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, deletionVersion));
+    }
   }
 
   public void updateStatus(int index, byte status) {
@@ -249,6 +288,14 @@ public final class CollectionPositionMapBucket extends DurablePage {
         position + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE
             + IntegerSerializer.INT_SIZE,
         recordVersion);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPositionMapBucketUpdateVersionOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), index, recordVersion));
+    }
   }
 
   public static final class PositionEntry {
