@@ -884,6 +884,20 @@
                   <youtrackdb.test.env>ci</youtrackdb.test.env>
                   <youtrackdb.test.deadlock.timeout.minutes>60
                   </youtrackdb.test.deadlock.timeout.minutes>
+                  <!-- Reduce disk cache from the default 4096 MB to 2048 MB for
+                       integration tests. The fork JVM uses -Xms4096m -Xmx4096m
+                       (4 GB committed heap) plus up to diskCache.bufferSize MB of
+                       native memory for page cache. With 4096 MB, the fork alone
+                       needs ~8 GB RSS; combined with Maven's JVM (~2-3 GB RSS),
+                       total memory exceeds the 16 GB available on CPX42 runners,
+                       triggering the OOM killer (exit code 137) late in the
+                       integration test run. 2048 MB is sufficient for all current
+                       integration tests (heaviest: BTreeTestIT with 1M keys uses
+                       ~400 MB of pages). This override takes precedence over the
+                       argLine -D flag because systemPropertyVariables are applied
+                       via System.setProperty() after JVM start. -->
+                  <youtrackdb.storage.diskCache.bufferSize>2048
+                  </youtrackdb.storage.diskCache.bufferSize>
                 </systemPropertyVariables>
               </configuration>
             </plugin>
