@@ -320,7 +320,10 @@ jobs:
   test-small-cache-linux:
     name: Small Cache IT (Linux x86)
     needs: [ detect-changes ]
-    if: needs.detect-changes.outputs.should_build == 'true'
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop' &&
+      needs.detect-changes.outputs.should_build == 'true'
     runs-on:
       - self-hosted
       - in-nbg1
@@ -365,6 +368,16 @@ jobs:
             **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
+      - name: Dispatch CI Fix Agent
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.CI_FIX_AGENT_TOKEN }}
+        run: |
+          gh workflow run ci-failure-fix-agent.yml \
+            --repo "${{ github.repository }}" \
+            -f failed_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f failed_workflow_name="${{ github.workflow }}" \
+            -f trigger_sha="${{ github.sha }}"
       - name: Send Zulip notification on failure
         if: failure()
         uses: zulip/github-actions-zulip/send-message@v1
