@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.RecordVersionHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Objects;
@@ -104,6 +105,14 @@ public final class CollectionPage extends DurablePage {
 
     setFreePosition(PAGE_SIZE);
     setFreeSpace(PAGE_SIZE - PAGE_INDEXES_OFFSET);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageInitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public int appendRecord(
@@ -482,6 +491,15 @@ public final class CollectionPage extends DurablePage {
     }
 
     setVersionAt(entryIndexPosition, version);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageSetRecordVersionOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), position, version));
+    }
+
     return true;
   }
 
@@ -536,6 +554,14 @@ public final class CollectionPage extends DurablePage {
     setFreeSpace(getFreeSpace() + entrySize);
 
     decrementEntriesCount();
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageDeleteRecordOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), position, preserveFreeListPointer));
+    }
 
     return getRecordEntryBytes(entryPosition, recordSize);
   }
@@ -889,6 +915,14 @@ public final class CollectionPage extends DurablePage {
     // 3. Update free position.
 
     setFreePosition(freePosition + shift);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new CollectionPageDoDefragmentationOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public int getFreePosition() {

@@ -201,4 +201,10 @@ public final class WALRecordTypes {
       PAGE_OPERATION_ID_BASE + 1;
   public static final int PAGINATED_COLLECTION_STATE_V2_SET_APPROX_RECORDS_COUNT_OP =
       PAGE_OPERATION_ID_BASE + 2;
+
+  // CollectionPage operations
+  public static final int COLLECTION_PAGE_INIT_OP = PAGE_OPERATION_ID_BASE + 3;
+  public static final int COLLECTION_PAGE_DELETE_RECORD_OP = PAGE_OPERATION_ID_BASE + 4;
+  public static final int COLLECTION_PAGE_SET_RECORD_VERSION_OP = PAGE_OPERATION_ID_BASE + 5;
+  public static final int COLLECTION_PAGE_DO_DEFRAGMENTATION_OP = PAGE_OPERATION_ID_BASE + 6;
 }
