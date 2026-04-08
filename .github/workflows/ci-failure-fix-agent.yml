@@ -682,13 +682,13 @@ jobs:
           fi
 
           # Write to file for the Zulip step (avoids escaping issues)
-          cat > /tmp/zulip-message-$$.md <<EOF
-**CI Fix Agent Report** :robot:
-Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`.
-[Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-${SUMMARY}
-EOF
+          {
+            echo "**CI Fix Agent Report** :robot:"
+            echo "Investigated failure in **${FAILED_WORKFLOW_NAME}** for commit \`${TRIGGER_SHA}\`."
+            echo "[Failed Run](${FAILED_RUN_URL}) | [Agent Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo ""
+            echo "${SUMMARY}"
+          } > /tmp/zulip-message-$$.md
 
           echo "zulip_message_file=/tmp/zulip-message-$$.md" >> "$GITHUB_OUTPUT"
 
