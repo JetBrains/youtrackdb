@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -218,23 +219,39 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     if (matches == null) {
       return ExecutionStream.empty();
     }
+    // Cache upstream property values once to avoid repeated getProperty() calls
+    // through the MatchResultRow parent chain (O(depth × properties) per call).
+    var upstreamCache = cacheProperties(upstream);
     var merged = new ArrayList<Result>(matches.size());
     for (var buildRow : matches) {
-      merged.add(mergeRow(upstream, buildRow, mergeCtx.getDatabaseSession()));
+      merged.add(mergeRow(upstreamCache, buildRow, mergeCtx.getDatabaseSession()));
     }
     return ExecutionStream.resultIterator(merged.iterator());
   }
 
   /**
-   * Creates a merged row containing all upstream properties plus non-overlapping
+   * Caches all property name→value pairs from a Result into a flat map.
+   * This avoids repeated {@code getProperty()} calls through the MatchResultRow
+   * parent chain, which is O(depth × properties) per call for deep MATCH chains.
+   */
+  private static Map<String, Object> cacheProperties(Result row) {
+    var props = row.getPropertyNames();
+    var cache = new LinkedHashMap<String, Object>(props.size() * 2);
+    for (var prop : props) {
+      cache.put(prop, row.getProperty(prop));
+    }
+    return cache;
+  }
+
+  /**
+   * Creates a merged row from pre-cached upstream properties plus non-overlapping
    * build-side properties. Upstream properties take precedence on name collision.
    */
   private static ResultInternal mergeRow(
-      Result upstream, Result buildRow, DatabaseSessionEmbedded session) {
+      Map<String, Object> upstreamCache, Result buildRow,
+      DatabaseSessionEmbedded session) {
     var result = new ResultInternal(session);
-    for (var prop : upstream.getPropertyNames()) {
-      result.setProperty(prop, upstream.getProperty(prop));
-    }
+    upstreamCache.forEach(result::setProperty);
     for (var prop : buildRow.getPropertyNames()) {
       if (!result.hasProperty(prop)) {
         result.setProperty(prop, buildRow.getProperty(prop));
@@ -363,12 +380,17 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     var plan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
     var stream = plan.start();
     var merged = new ArrayList<Result>();
+    // Lazy-init: only cache upstream properties if at least one match is found
+    Map<String, Object> upstreamCache = null;
     try {
       while (stream.hasNext(isolatedCtx)) {
         var buildRow = stream.next(isolatedCtx);
         var buildKey = extractKey(buildRow);
         if (upstreamKey.equals(buildKey)) {
-          merged.add(mergeRow(row, buildRow, ctx.getDatabaseSession()));
+          if (upstreamCache == null) {
+            upstreamCache = cacheProperties(row);
+          }
+          merged.add(mergeRow(upstreamCache, buildRow, ctx.getDatabaseSession()));
         }
       }
     } finally {
