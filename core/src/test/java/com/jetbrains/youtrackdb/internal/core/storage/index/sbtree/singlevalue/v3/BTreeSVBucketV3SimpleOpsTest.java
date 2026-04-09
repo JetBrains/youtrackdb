@@ -744,4 +744,94 @@ public class BTreeSVBucketV3SimpleOpsTest {
     var op3 = new BTreeSVBucketV3SetLeftSiblingOp(5, 10, 15, lsn, 99);
     Assert.assertNotEquals(op1, op3);
   }
+
+  // ---------- Review fix: missing registration tests ----------
+
+  @Test
+  public void testSetRightSiblingRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(2, 200));
+
+      var page = new CellBTreeSingleValueBucketV3<>(changes);
+      page.init(true);
+      org.mockito.Mockito.reset(atomicOp);
+
+      page.setRightSibling(456);
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = (BTreeSVBucketV3SetRightSiblingOp) opCaptor.getValue();
+      Assert.assertEquals(456, registeredOp.getSiblingPageIndex());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  @Test
+  public void testSetNextFreeListPageRegistersOp() {
+    var atomicOp = mock(AtomicOperation.class);
+    var changes = new CacheEntryChanges(false, atomicOp);
+
+    var bufferPool = ByteBufferPool.instance(null);
+    var pointer = bufferPool.acquireDirect(true, Intention.TEST);
+    var cachePointer = new CachePointer(pointer, bufferPool, 0, 0);
+    cachePointer.incrementReferrer();
+    CacheEntry delegate = new CacheEntryImpl(42, 7, cachePointer, false, null);
+    delegate.acquireExclusiveLock();
+
+    try {
+      changes.setDelegate(delegate);
+      changes.setInitialLSN(new LogSequenceNumber(3, 300));
+
+      var page = new CellBTreeSingleValueBucketV3<>(changes);
+      page.setNextFreeListPage(88);
+
+      var opCaptor = ArgumentCaptor.forClass(PageOperation.class);
+      verify(atomicOp).registerPageOperation(
+          org.mockito.ArgumentMatchers.eq(42L),
+          org.mockito.ArgumentMatchers.eq(7L),
+          opCaptor.capture());
+
+      var registeredOp = (BTreeSVBucketV3SetNextFreeListPageOp) opCaptor.getValue();
+      Assert.assertEquals(88, registeredOp.getNextFreeListPage());
+    } finally {
+      delegate.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+    }
+  }
+
+  // ---------- Review fix: missing factory roundtrip ----------
+
+  @Test
+  public void testSetRightSiblingOpFactoryRoundtrip() {
+    var initialLsn = new LogSequenceNumber(88, 880);
+    var original =
+        new BTreeSVBucketV3SetRightSiblingOp(5, 10, 15, initialLsn, Long.MAX_VALUE);
+
+    ByteBuffer serialized = WALRecordsFactory.toStream(original);
+    var content = new byte[serialized.limit()];
+    serialized.get(0, content);
+
+    var deserialized = WALRecordsFactory.INSTANCE.fromStream(content);
+    Assert.assertTrue(deserialized instanceof BTreeSVBucketV3SetRightSiblingOp);
+    Assert.assertEquals(Long.MAX_VALUE,
+        ((BTreeSVBucketV3SetRightSiblingOp) deserialized).getSiblingPageIndex());
+  }
+
 }
