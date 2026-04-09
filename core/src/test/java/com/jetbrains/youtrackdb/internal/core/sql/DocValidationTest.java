@@ -6517,4 +6517,62 @@ public class DocValidationTest {
     g.command("DROP SEQUENCE docSeqVertex");
   }
 
+  // ===== YQL-Grant.md =====
+
+  // YQL-Grant.md line 8: GRANT <permission> ON <resource> TO <role>
+  @Test
+  public void testGrantDocBasicPermissionSyntax() {
+    g.command("CREATE CLASS GrantDocCity EXTENDS V");
+    // GRANT READ on a class resource to the admin role (admin exists from DB creation)
+    g.command("GRANT READ ON database.class.GrantDocCity TO admin");
+  }
+
+  // YQL-Grant.md line 8: GRANT POLICY <policyName> ON <resource> TO <role>
+  @Test
+  public void testGrantDocPolicySyntax() {
+    g.command("CREATE CLASS GrantDocPolicyPerson EXTENDS V");
+    g.command("CREATE SECURITY POLICY grantDocPolicy1 SET read = (name = 'test')");
+    g.command(
+        "GRANT POLICY grantDocPolicy1 ON database.class.GrantDocPolicyPerson TO admin");
+  }
+
+  // YQL-Grant.md line 22: Example — GRANT POLICY policy1 ON database.class.Person TO backoffice
+  // Validates the documented example parses correctly (using admin role instead of backoffice)
+  @Test
+  public void testGrantDocExamplePolicyOnClass() {
+    g.command("CREATE CLASS GrantDocPerson EXTENDS V");
+    g.command("CREATE SECURITY POLICY grantDocExPolicy1 SET read = (name = 'foo')");
+    g.command("GRANT POLICY grantDocExPolicy1 ON database.class.GrantDocPerson TO admin");
+  }
+
+  // YQL-Grant.md: Verify all documented permissions are valid (lines 36-41)
+  @Test
+  public void testGrantDocAllPermissionKeywords() {
+    g.command("CREATE CLASS GrantDocPermTest EXTENDS V");
+    g.command("GRANT NONE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT CREATE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT READ ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT UPDATE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT DELETE ON database.class.GrantDocPermTest TO admin");
+    g.command("GRANT ALL ON database.class.GrantDocPermTest TO admin");
+  }
+
+  // YQL-Grant.md: EXECUTE permission is missing from the doc but supported by the engine
+  @Test
+  public void testGrantDocExecutePermissionSupported() {
+    g.command("GRANT EXECUTE ON database TO admin");
+  }
+
+  // YQL-Grant.md lines 50-52: Verify documented resource patterns
+  @Test
+  public void testGrantDocResourcePatterns() {
+    g.command("CREATE CLASS GrantDocResClass EXTENDS V");
+    // database resource
+    g.command("GRANT READ ON database TO admin");
+    // database.class.<class> resource
+    g.command("GRANT READ ON database.class.GrantDocResClass TO admin");
+    // database.class.* (all classes) resource
+    g.command("GRANT READ ON database.class.* TO admin");
+  }
+
 }

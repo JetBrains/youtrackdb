@@ -1,6 +1,6 @@
 # YQL - `GRANT`
 
-Changes the permission of a role, granting it access to one or more resources.  To remove access to a resource from the role, see the [`REVOKE`](YQL-Revoke.md) command.
+Changes the permission of a role, granting it access to a resource.  To remove access to a resource from a role, see the [`REVOKE`](YQL-Revoke.md) command.
 
 **Syntax**
 
@@ -15,11 +15,10 @@ GRANT [ <permission> | POLICY <policyName> ] ON <resource> TO <role>
 
 **Examples**
 
-
 - Bind a security policy called `policy1` to Person class records, for the role `backoffice`:
 
 ```sql
- GRANT POLICY policy1 ON database.class.Person TO backoffice
+GRANT POLICY policy1 ON database.class.Person TO backoffice
 ```
 
 >For more information, see
@@ -34,9 +33,9 @@ Using this command, you can grant the following permissions to a role.
 | Permission | Description                                                                                                                                   |
 |---|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `NONE` | Grants no permissions on the resource.                                                                                                        |
-| `CREATE` | Grants create permissions on the resource, such as the [`CREATE CLASS`](YQL-Create-Class.md)                                                  |
+| `CREATE` | Grants create permissions on the resource, such as the [`CREATE CLASS`](YQL-Create-Class.md) command.                                             |
 | `READ` | Grants read permissions on the resource, such as the [`SELECT`](YQL-Query.md) query.                                                          |
-| `UPDATE` | Grants update permissions on the resource, such as the [`UPDATE`](YQL-Update.md) or [`UPDATE EDGE`](YQL-Update.md) commands.                  |
+| `UPDATE` | Grants update permissions on the resource, such as the [`UPDATE`](YQL-Update.md) or [`UPDATE EDGE`](YQL-Update-Edge.md) commands.               |
 | `DELETE` | Grants delete permissions on the resource, such as the [`DROP INDEX`](YQL-Drop-Index.md) or [`DROP SEQUENCE`](YQL-Drop-Sequence.md) commands. |
 | `ALL` | Grants all permissions on the resource.                                                                                                       |
 
@@ -47,7 +46,7 @@ Using this command, you can grant permissions on the following resources.
 
 | Resource | Description                                                                                                                                                                                                                                       |
 |---|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `database` | Grants access on the current database.                                                                                                                                                                                                            |
+| `database` | Grants access to the current database.                                                                                                                                                                                                            |
 | `database.class.<class>` | Grants access on records contained in the indicated class.  Use `*` to indicate all classes.                                                                                                                                                      |
 | `database.class.<class>.<property>` | Grants access on a single property in the indicated class (this is intended only for security policies).                                                                                                                                          |
 
