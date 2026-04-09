@@ -149,7 +149,8 @@ public class BTreeEngineHistogramWiringTest {
     var existingRid = new RecordId(2, 2);
     when(fixture.sbTree.iterateEntriesBetween(
         any(), eq(true), any(), eq(true), eq(true), any()))
-        .thenReturn(Stream.of(new RawPair<>(existingKey, existingRid)));
+        .thenAnswer(
+            inv -> Stream.of(new RawPair<>(existingKey, existingRid)));
     when(fixture.sbTree.remove(any(), eq(existingKey))).thenReturn(existingRid);
     when(fixture.sbTree.put(any(), eq(new CompositeKey("key1", 1L)), any(RID.class)))
         .thenReturn(true);

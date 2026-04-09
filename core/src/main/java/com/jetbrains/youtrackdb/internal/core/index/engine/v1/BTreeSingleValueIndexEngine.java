@@ -289,55 +289,19 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public boolean put(@Nonnull AtomicOperation atomicOperation, Object key, RID value) {
     try {
-      boolean wasInserted;
-
-      var newKey = convertToCompositeKey(key);
-      Optional<RawPair<CompositeKey, RID>> existing;
-      try (var stream = sbTree.iterateEntriesBetween(
-          newKey, true, newKey, true, true, atomicOperation)) {
-        existing = stream.findAny();
-      }
-      var version = atomicOperation.getCommitTs();
-      if (existing.isPresent()) {
-        var pair = existing.get();
-        var removedRID = pair.second();
-        var oldKey = pair.first();
-        long oldVersion = (Long) oldKey.getKeys().getLast();
-
-        if (removedRID instanceof RecordId && oldVersion == version) {
-          // Same TX re-put.
-          // Entry is already correct — skip remove+re-insert.
-          wasInserted = false;
-        } else {
-          sbTree.remove(atomicOperation, oldKey);
-          newKey.addKey(version);
-          wasInserted =
-              sbTree.put(atomicOperation, newKey, new SnapshotMarkerRID(value));
-          if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
-            indexesSnapshot.addSnapshotPair(oldKey, newKey, removedRID.getIdentity());
-          }
-          if (removedRID instanceof TombstoneRID) {
-            IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-          }
-        }
-      } else {
-        newKey.addKey(version);
-        wasInserted = sbTree.put(atomicOperation, newKey, value);
-        IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-      }
+      var compositeKey = convertToCompositeKey(key);
+      boolean wasInserted = doPutSingleValue(atomicOperation, compositeKey, value, key);
 
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.onPut(atomicOperation, key, true, wasInserted);
       }
-
       return wasInserted;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
               "Error during insertion of key " + key + " into index " + name),
-          e,
-          storage.getName());
+          e, storage.getName());
     }
   }
 
@@ -348,65 +312,93 @@ public final class BTreeSingleValueIndexEngine
       RID value,
       IndexEngineValidator<Object, RID> validator) {
     try {
-      boolean wasInserted;
-
       var compositeKey = convertToCompositeKey(key);
-      Optional<RawPair<CompositeKey, RID>> existing;
-      try (var stream = sbTree.iterateEntriesBetween(
-          compositeKey, true, compositeKey, true, true, atomicOperation)) {
-        existing = stream.findAny();
-      }
-      RID removedRID = null;
-      if (existing.isPresent()) {
-        removedRID = existing.get().second();
-      }
 
-      // Validate at engine level with the captured old value.
-      // Tombstone means logically deleted — treat as no occupant.
-      if (validator != null && removedRID != null && !(removedRID instanceof TombstoneRID)) {
-        var result = validator.validate(key, removedRID.getIdentity(), value);
-        if (result == IndexEngineValidator.IGNORE) {
-          return false;
+      // Validate at engine level before mutation
+      if (validator != null) {
+        Optional<RawPair<CompositeKey, RID>> existing;
+        try (var stream = sbTree.iterateEntriesBetween(
+            compositeKey, true, compositeKey, true, true, atomicOperation)) {
+          existing = stream.findAny();
+        }
+        if (existing.isPresent()) {
+          var removedRID = existing.get().second();
+          // Tombstone means logically deleted — treat as no occupant
+          if (!(removedRID instanceof TombstoneRID)) {
+            var result = validator.validate(key, removedRID.getIdentity(), value);
+            if (result == IndexEngineValidator.IGNORE) {
+              return false;
+            }
+          }
         }
       }
 
-      var version = atomicOperation.getCommitTs();
-
-      if (removedRID != null) {
-        var oldKey = existing.get().first();
-        sbTree.remove(atomicOperation, oldKey);
-        compositeKey.addKey(version);
-        wasInserted =
-            sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
-
-        if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
-          // Preserve the old value for snapshot readers that started before
-          // this TX. getIdentity() unwraps SnapshotMarkerRID to the inner RID;
-          // for RecordId it returns itself.
-          indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
-        }
-        if (removedRID instanceof TombstoneRID) {
-          IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-        }
-      } else {
-        compositeKey.addKey(version);
-        wasInserted = sbTree.put(atomicOperation, compositeKey, value);
-        IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
-      }
+      boolean wasInserted = doPutSingleValue(atomicOperation, compositeKey, value, key);
 
       var mgr = histogramManager;
       if (mgr != null) {
         mgr.onPut(atomicOperation, key, true, wasInserted);
       }
-
       return wasInserted;
     } catch (IOException e) {
       throw BaseException.wrapException(
           new IndexException(storage.getName(),
               "Error during insertion of key " + key + " into index " + name),
-          e,
-          storage.getName());
+          e, storage.getName());
     }
+  }
+
+  /**
+   * Core put logic shared by put() and validatedPut(). Handles versioning,
+   * snapshot pairs, and count delta accumulation.
+   *
+   * @param atomicOperation current atomic operation
+   * @param compositeKey defensive copy of the user key (will be mutated by addKey)
+   * @param value the RID to insert
+   * @param key the original (unmapped) key, used for null-key detection in delta accumulation
+   * @return true if a new B-tree entry was inserted
+   */
+  private boolean doPutSingleValue(
+      @Nonnull AtomicOperation atomicOperation,
+      CompositeKey compositeKey,
+      RID value,
+      Object key) throws IOException {
+    boolean wasInserted;
+
+    Optional<RawPair<CompositeKey, RID>> existing;
+    try (var stream = sbTree.iterateEntriesBetween(
+        compositeKey, true, compositeKey, true, true, atomicOperation)) {
+      existing = stream.findAny();
+    }
+    var version = atomicOperation.getCommitTs();
+    if (existing.isPresent()) {
+      var pair = existing.get();
+      var removedRID = pair.second();
+      var oldKey = pair.first();
+      long oldVersion = (Long) oldKey.getKeys().getLast();
+
+      if ((removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID)
+          && oldVersion == version) {
+        // Same TX re-put — entry is already correct, skip remove+re-insert.
+        wasInserted = false;
+      } else {
+        sbTree.remove(atomicOperation, oldKey);
+        compositeKey.addKey(version);
+        wasInserted =
+            sbTree.put(atomicOperation, compositeKey, new SnapshotMarkerRID(value));
+        if (removedRID instanceof RecordId || removedRID instanceof SnapshotMarkerRID) {
+          indexesSnapshot.addSnapshotPair(oldKey, compositeKey, removedRID.getIdentity());
+        }
+        if (removedRID instanceof TombstoneRID) {
+          IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
+        }
+      }
+    } else {
+      compositeKey.addKey(version);
+      wasInserted = sbTree.put(atomicOperation, compositeKey, value);
+      IndexCountDelta.accumulate(atomicOperation, id, +1, key == null);
+    }
+    return wasInserted;
   }
 
   @Override
