@@ -5472,11 +5472,12 @@ public abstract class AbstractStorage
             var pageLsn = durablePage.getLsn();
 
             if (pageLsn.compareTo(pageOp.getLsn()) < 0) {
-              // initialLsn CAS check: only for the first operation on this page.
-              // Multi-operation pages (common during B-tree splits) have subsequent
-              // ops whose initialLsn won't match the page's current LSN (updated by
-              // prior ops' redo). We check only when pageLsn hasn't been updated yet
-              // in this atomic unit — i.e., pageLsn still matches the on-disk state.
+              // initialLsn CAS check: detects unexpected page state. For
+              // multi-operation pages (common during B-tree splits), the 2nd+
+              // operation's initialLsn won't match pageLsn (updated by prior ops'
+              // redo), producing a false-positive error log. This matches the
+              // existing UpdatePageRecord behavior and is not a correctness issue
+              // — tracked as optional improvement (T4-3).
               if (!pageLsn.equals(pageOp.getInitialLsn())) {
                 LogManager.instance()
                     .error(

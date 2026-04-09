@@ -315,4 +315,79 @@ public class PageOperationAccumulationLifecycleTest {
         .count();
     Assert.assertEquals(1, endRecords);
   }
+
+  /**
+   * Mixed-mode D7 transition: an atomic unit with both a converted page (logical ops
+   * flushed at component boundary, changeLSN set) and an unconverted page (overlay
+   * changes only, no PageOperation registered). The converted page must be skipped in
+   * commitChanges (no UpdatePageRecord), while the unconverted page must still produce
+   * an UpdatePageRecord. Both pages must have their changes applied to cache.
+   */
+  @Test
+  public void testMixedConvertedAndUnconvertedPagesInSameAtomicUnit() throws IOException {
+    var op = createOperation();
+
+    // File 1: converted page — register a PageOperation and flush
+    long convertedFileId = setupNewFileWithPage(op, "converted.dat");
+    op.registerPageOperation(convertedFileId, 0,
+        new TestPageOperation(0, convertedFileId, 0, new LogSequenceNumber(0, 0), 42));
+    op.flushPendingOperations();
+
+    // File 2: unconverted page — overlay changes only, no PageOperation
+    long unconvertedFileId = setupNewFileWithPage(op, "unconverted.dat");
+    // No registerPageOperation — simulates an unconverted page type
+
+    // Set up cache entries for both files' pages during commit
+    var convertedBuffer =
+        ByteBuffer.allocateDirect(PAGE_SIZE).order(ByteOrder.nativeOrder());
+    var convertedPointer =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+    when(convertedPointer.getBuffer()).thenReturn(convertedBuffer);
+    var convertedEntry =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    when(convertedEntry.getPageIndex()).thenReturn(0);
+    when(convertedEntry.getFileId()).thenReturn(convertedFileId);
+    when(convertedEntry.getCachePointer()).thenReturn(convertedPointer);
+
+    var unconvertedBuffer =
+        ByteBuffer.allocateDirect(PAGE_SIZE).order(ByteOrder.nativeOrder());
+    var unconvertedPointer =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+    when(unconvertedPointer.getBuffer()).thenReturn(unconvertedBuffer);
+    var unconvertedEntry =
+        mock(com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
+    when(unconvertedEntry.getPageIndex()).thenReturn(0);
+    when(unconvertedEntry.getFileId()).thenReturn(unconvertedFileId);
+    when(unconvertedEntry.getCachePointer()).thenReturn(unconvertedPointer);
+
+    // Return appropriate cache entry based on which file is being allocated
+    when(readCache.allocateNewPage(anyLong(), any(), any()))
+        .thenReturn(convertedEntry)
+        .thenReturn(unconvertedEntry);
+
+    var txEndLsn = op.commitChanges(42L, wal);
+    Assert.assertNotNull(txEndLsn);
+
+    // Verify: only the unconverted page produces an UpdatePageRecord
+    var updatePageRecords = loggedRecords.stream()
+        .filter(r -> r instanceof UpdatePageRecord)
+        .map(r -> (UpdatePageRecord) r)
+        .toList();
+    Assert.assertEquals(
+        "Only unconverted page should produce UpdatePageRecord",
+        1, updatePageRecords.size());
+    Assert.assertEquals(unconvertedFileId, updatePageRecords.get(0).getFileId());
+
+    // Verify: the converted page's logical operation was flushed earlier
+    var pageOps = loggedRecords.stream()
+        .filter(r -> r instanceof TestPageOperation)
+        .count();
+    Assert.assertEquals("Converted page should have flushed its PageOperation", 1, pageOps);
+
+    // Verify: end record present (commit succeeded)
+    var endRecords = loggedRecords.stream()
+        .filter(r -> r instanceof AtomicUnitEndRecord)
+        .count();
+    Assert.assertEquals(1, endRecords);
+  }
 }

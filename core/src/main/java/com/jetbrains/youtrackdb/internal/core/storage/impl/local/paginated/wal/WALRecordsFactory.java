@@ -168,10 +168,10 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.ConcurrentHashMap;
 import net.jpountz.lz4.LZ4Factory;
 
 /**
@@ -194,7 +194,14 @@ public final class WALRecordsFactory {
   private static final int COMPRESSED_METADATA_SIZE =
       RECORD_ID_SIZE + OPERATION_ID_SIZE + ORIGINAL_CONTENT_SIZE;
 
-  private final Int2ObjectOpenHashMap<Class<?>> idToTypeMap = new Int2ObjectOpenHashMap<>();
+  // ConcurrentHashMap for thread safety: registerNewRecord() (called from
+  // PageOperationRegistry.registerAll() during storage open/create) may run
+  // concurrently with fromStream() (called during WAL recovery on another
+  // already-opened storage sharing this singleton). Int2ObjectOpenHashMap is
+  // not thread-safe — concurrent put + get during rehash can corrupt internal
+  // state.
+  private final ConcurrentHashMap<Integer, Class<?>> idToTypeMap =
+      new ConcurrentHashMap<>();
 
   public static final WALRecordsFactory INSTANCE = new WALRecordsFactory();
 
@@ -420,11 +427,11 @@ public final class WALRecordsFactory {
               "Cannot deserialize passed in wal record not exists anymore.");
       case TX_METADATA -> walRecord = new MetaDataRecord();
       default -> {
-        if (idToTypeMap.containsKey(recordId)) {
+        var type = idToTypeMap.get(recordId);
+        if (type != null) {
           try {
             walRecord =
-                (WriteableWALRecord) idToTypeMap.get(recordId).getDeclaredConstructor()
-                    .newInstance();
+                (WriteableWALRecord) type.getDeclaredConstructor().newInstance();
           } catch (final InstantiationException
               | NoSuchMethodException
               | InvocationTargetException
