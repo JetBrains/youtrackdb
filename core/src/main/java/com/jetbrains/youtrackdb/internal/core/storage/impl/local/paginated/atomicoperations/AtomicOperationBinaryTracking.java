@@ -741,20 +741,24 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
           final var filePageChanges = filePageChangesEntry.getValue();
 
-          // After component-boundary flush is wired, all pending operations should
-          // have been flushed before commitChanges(). This assertion guards against
-          // a page type that registers operations but whose component operation
-          // does not go through executeInsideComponentOperation/calculate.
-          assert filePageChanges.getPendingOperations().isEmpty()
-              : "Pending operations should have been flushed at component boundaries"
-                  + " for page " + filePageChangesEntry.getLongKey()
-                  + " in file " + fileId;
-
           if (filePageChanges.getChangeLSN() != null) {
             // Converted page type: logical operations were already flushed at
             // component boundaries by flushPendingOperations(). changeLSN was set
             // to the LSN of the last logged PageOperation. Skip binary diff.
+            // Pending ops must be empty after flush.
+            assert filePageChanges.getPendingOperations().isEmpty()
+                : "Pending operations remain after flush for page "
+                    + filePageChangesEntry.getLongKey() + " in file " + fileId;
             continue;
+          }
+
+          // changeLSN is null — this page was not flushed at component boundaries.
+          // This is expected during D7 transition for page mutations that occur
+          // outside executeInsideComponentOperation (e.g., direct internal usage,
+          // tests). Clear any pending ops — the UpdatePageRecord below captures
+          // the binary diff covering these mutations.
+          if (!filePageChanges.getPendingOperations().isEmpty()) {
+            filePageChanges.clearPendingOperations();
           }
 
           if (filePageChanges.changes.hasChanges()) {
