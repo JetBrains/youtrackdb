@@ -227,4 +227,19 @@ public final class WALRecordTypes {
 
   // MapEntryPoint (v2) operations
   public static final int MAP_ENTRY_POINT_SET_FILE_SIZE_OP = PAGE_OPERATION_ID_BASE + 18;
+
+  // CellBTreeSingleValueEntryPointV3 operations (Track 5)
+  public static final int BTREE_SV_ENTRY_POINT_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 19;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_TREE_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 20;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_PAGES_SIZE_OP =
+      PAGE_OPERATION_ID_BASE + 21;
+  public static final int BTREE_SV_ENTRY_POINT_V3_SET_FREE_LIST_HEAD_OP =
+      PAGE_OPERATION_ID_BASE + 22;
+
+  // CellBTreeSingleValueV3NullBucket operations (Track 5)
+  public static final int BTREE_SV_NULL_BUCKET_V3_INIT_OP = PAGE_OPERATION_ID_BASE + 23;
+  public static final int BTREE_SV_NULL_BUCKET_V3_SET_VALUE_OP = PAGE_OPERATION_ID_BASE + 24;
+  public static final int BTREE_SV_NULL_BUCKET_V3_REMOVE_VALUE_OP =
+      PAGE_OPERATION_ID_BASE + 25;
 }

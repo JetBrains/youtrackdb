@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 
 public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
@@ -45,10 +46,26 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
     setLongValue(APPROXIMATE_ENTRIES_COUNT_OFFSET, 0);
     setIntValue(PAGES_SIZE_OFFSET, 1);
     setIntValue(FREE_LIST_HEAD_OFFSET, -1);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVEntryPointV3InitOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN()));
+    }
   }
 
   public void setTreeSize(final long size) {
     setLongValue(TREE_SIZE_OFFSET, size);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVEntryPointV3SetTreeSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), size));
+    }
   }
 
   public long getTreeSize() {
@@ -66,6 +83,14 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
 
   public void setPagesSize(final int pages) {
     setIntValue(PAGES_SIZE_OFFSET, pages);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVEntryPointV3SetPagesSizeOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), pages));
+    }
   }
 
   public int getPagesSize() {
@@ -84,5 +109,13 @@ public final class CellBTreeSingleValueEntryPointV3<K> extends DurablePage {
 
   public void setFreeListHead(int freeListHead) {
     setIntValue(FREE_LIST_HEAD_OFFSET, freeListHead);
+
+    var cacheEntry = getCacheEntry();
+    if (cacheEntry instanceof CacheEntryChanges cec) {
+      cec.registerPageOperation(
+          new BTreeSVEntryPointV3SetFreeListHeadOp(
+              cacheEntry.getPageIndex(), cacheEntry.getFileId(),
+              0, cec.getInitialLSN(), freeListHead));
+    }
   }
 }
