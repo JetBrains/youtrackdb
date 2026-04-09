@@ -71,6 +71,13 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
 
   @After
   public void afterMethod() {
+    threadExecutor.shutdownNow();
+    try {
+      threadExecutor.awaitTermination(30, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+
     youTrackDB.drop(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName());
 
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
@@ -121,12 +128,14 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
         TimeUnit.SECONDS.sleep(60);
         cont = false;
 
+        // Use bounded get() so that any unexpected hang produces a clear
+        // TimeoutException instead of an uninformative CI runner timeout.
         for (var future : addFutures) {
-          future.get();
+          future.get(120, TimeUnit.SECONDS);
         }
 
         for (var future : remoteFutures) {
-          var ridsToDelete = future.get();
+          var ridsToDelete = future.get(120, TimeUnit.SECONDS);
 
           for (var rid : ridsToDelete) {
             Assert.assertTrue(ridSet.remove(rid));
@@ -183,7 +192,10 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
               }
             });
 
-            while (true) {
+            // Check cont in the retry loop to avoid livelocking when the test
+            // is shutting down and multiple threads compete for the same entity.
+            var addedToLinkBag = false;
+            while (cont) {
               try {
                 db.executeInTx(transaction -> {
                   var entity = transaction.loadEntity(entityContainerRid);
@@ -193,10 +205,19 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                     linkBag.add(rid);
                   }
                 });
+                addedToLinkBag = true;
               } catch (ConcurrentModificationException e) {
                 continue;
               }
 
+              break;
+            }
+
+            // Only track RIDs in ridSet if they were actually committed to
+            // the LinkBag. When the loop exits because cont became false,
+            // the entities exist in the DB but are not in the LinkBag —
+            // adding them to ridSet would break the final consistency check.
+            if (!addedToLinkBag) {
               break;
             }
 
@@ -242,7 +263,12 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
               continue;
             }
 
-            while (true) {
+            // Check cont in the retry loop to avoid livelocking when the test
+            // is shutting down. Without this check, 5 RidDeleter threads competing
+            // for the same entity can livelock indefinitely — each gets
+            // ConcurrentModificationException from the others and retries forever,
+            // never reaching the outer while(cont) check.
+            while (cont) {
               try {
                 var triple = db.computeInTx(transaction -> {
                   var entity = transaction.loadEntity(entityContainerRid);
@@ -301,6 +327,8 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
                 //retry
               }
             }
+            // If the inner loop exited because cont became false (not via break),
+            // the outer while(cont) will also exit — no bookkeeping needed.
           }
         }
 
