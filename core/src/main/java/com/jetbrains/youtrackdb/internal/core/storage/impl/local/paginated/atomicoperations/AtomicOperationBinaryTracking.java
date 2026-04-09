@@ -739,17 +739,26 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           final var filePageChangesEntry =
               filePageChangesIterator.next();
 
-          // Transition period (D7): clear any unflushed pending logical operations.
-          // During incremental conversion, some page types register PageOperations
-          // but the component boundary flush (Track 4) is not yet wired. The
-          // UpdatePageRecord below already captures the binary diff covering these
-          // mutations. Once all page types are converted and the component boundary
-          // flush is active, pending operations will always be empty here.
-          filePageChangesEntry.getValue().clearPendingOperations();
+          final var filePageChanges = filePageChangesEntry.getValue();
 
-          if (filePageChangesEntry.getValue().changes.hasChanges()) {
+          // After component-boundary flush is wired, all pending operations should
+          // have been flushed before commitChanges(). This assertion guards against
+          // a page type that registers operations but whose component operation
+          // does not go through executeInsideComponentOperation/calculate.
+          assert filePageChanges.getPendingOperations().isEmpty()
+              : "Pending operations should have been flushed at component boundaries"
+                  + " for page " + filePageChangesEntry.getLongKey()
+                  + " in file " + fileId;
+
+          if (filePageChanges.getChangeLSN() != null) {
+            // Converted page type: logical operations were already flushed at
+            // component boundaries by flushPendingOperations(). changeLSN was set
+            // to the LSN of the last logged PageOperation. Skip binary diff.
+            continue;
+          }
+
+          if (filePageChanges.changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();
-            final var filePageChanges = filePageChangesEntry.getValue();
 
             final var initialLSN = filePageChanges.getInitialLSN();
             Objects.requireNonNull(initialLSN);
@@ -865,6 +874,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               // updateDirtyPagesTable (Track 4) ensures these pages
               // don't block WAL truncation.
               if (!nonDurable) {
+                // Both paths (flushPendingOperations for converted pages,
+                // UpdatePageRecord for unconverted pages) set changeLSN.
+                assert filePageChanges.getChangeLSN() != null
+                    : "Durable page must have changeLSN set — neither flush"
+                        + " nor UpdatePageRecord set it for page "
+                        + cacheEntry.getPageIndex();
                 cacheEntry.setEndLSN(txEndLsn);
                 durablePage.setLsn(filePageChanges.getChangeLSN());
               }

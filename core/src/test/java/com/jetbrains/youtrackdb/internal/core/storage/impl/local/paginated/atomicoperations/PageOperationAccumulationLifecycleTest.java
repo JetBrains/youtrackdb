@@ -275,12 +275,13 @@ public class PageOperationAccumulationLifecycleTest {
   }
 
   /**
-   * Full lifecycle through commit: flush logical records, then commitChanges which
-   * also produces UpdatePageRecord for the WALPageChangesPortion and the end record.
-   * Verifies that both record types coexist in the same atomic unit.
+   * Full lifecycle: flush logical records, then commitChanges. The converted page
+   * (with changeLSN set by flush) is skipped in commitChanges — no UpdatePageRecord
+   * is created for it. Only the logical PageOperation (from flush) and the
+   * AtomicUnitEndRecord (from commit) appear.
    */
   @Test
-  public void testFlushThenCommitProducesMixedRecords() throws IOException {
+  public void testFlushThenCommitSkipsUpdatePageRecordForConvertedPage() throws IOException {
     var op = createOperation();
     long fileId = setupNewFileWithPage(op, "test.dat");
 
@@ -288,16 +289,16 @@ public class PageOperationAccumulationLifecycleTest {
     op.registerPageOperation(fileId, 0,
         new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 42));
 
-    // Flush the logical operation
+    // Flush the logical operation — sets changeLSN on the page
     op.flushPendingOperations();
 
-    // Commit — should also produce UpdatePageRecord for the WALPageChangesPortion
+    // Commit — should skip UpdatePageRecord for the converted page (changeLSN != null)
     mockAllocateNewPage(fileId, 0);
     var txEndLsn = op.commitChanges(42L, wal);
     Assert.assertNotNull(txEndLsn);
 
     // Records should be: start, TestPageOperation (flushed), FileCreatedWALRecord,
-    // UpdatePageRecord (from commitChanges), AtomicUnitEndRecord
+    // AtomicUnitEndRecord — no UpdatePageRecord for the converted page
     var testOps = loggedRecords.stream()
         .filter(r -> r instanceof TestPageOperation)
         .count();
@@ -306,7 +307,8 @@ public class PageOperationAccumulationLifecycleTest {
     var updatePageRecords = loggedRecords.stream()
         .filter(r -> r instanceof UpdatePageRecord)
         .count();
-    Assert.assertEquals(1, updatePageRecords);
+    Assert.assertEquals(
+        "Converted page should not produce UpdatePageRecord", 0, updatePageRecords);
 
     var endRecords = loggedRecords.stream()
         .filter(r -> r instanceof AtomicUnitEndRecord)
