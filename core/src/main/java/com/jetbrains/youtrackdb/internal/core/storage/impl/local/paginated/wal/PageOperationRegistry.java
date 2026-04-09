@@ -45,7 +45,7 @@ public final class PageOperationRegistry {
    *   <li>MapEntryPoint v2 (1 op)</li>
    * </ul>
    */
-  public static void registerAll(WALRecordsFactory factory) {
+  public static synchronized void registerAll(WALRecordsFactory factory) {
     // PaginatedCollectionStateV2 operations (Track 2)
     factory.registerNewRecord(
         WALRecordTypes.PAGINATED_COLLECTION_STATE_V2_SET_FILE_SIZE_OP,

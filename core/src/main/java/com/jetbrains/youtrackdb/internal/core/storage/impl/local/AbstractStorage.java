@@ -1075,6 +1075,9 @@ public abstract class AbstractStorage
 
     initWalAndDiskCache(contextConfiguration);
 
+    // Register all PageOperation types — symmetric with open() path.
+    PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
+
     atomicOperationsTable =
         new AtomicOperationsTable(
             contextConfiguration.getValueAsInteger(

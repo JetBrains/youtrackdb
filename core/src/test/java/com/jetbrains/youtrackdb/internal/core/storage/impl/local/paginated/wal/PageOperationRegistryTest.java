@@ -37,33 +37,40 @@ public class PageOperationRegistryTest {
 
   /**
    * Verifies that all 18 registered record IDs survive a full WALRecordsFactory roundtrip:
-   * toStream → fromStream. Each type is instantiated with its no-arg constructor,
-   * serialized, deserialized, and verified to be the correct class.
+   * toStream → fromStream. Uses non-zero field values for all parameters (including parent
+   * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
   @Test
   public void testAllRegisteredTypesRoundtrip() {
     var initialLsn = new LogSequenceNumber(1, 100);
+    // Use non-zero values for parent fields to verify they survive the factory pipeline
+    long pageIndex = 7;
+    long fileId = 13;
+    long opUnitId = 99;
 
-    // Build an array of (id, instance) pairs for all 18 types
     PageOperation[] ops = {
-        new PaginatedCollectionStateV2SetFileSizeOp(0, 0, 0, initialLsn, 42),
-        new PaginatedCollectionStateV2SetApproxRecordsCountOp(0, 0, 0, initialLsn, 100),
-        new CollectionPageInitOp(0, 0, 0, initialLsn),
-        new CollectionPageDeleteRecordOp(0, 0, 0, initialLsn, 5, false),
-        new CollectionPageSetRecordVersionOp(0, 0, 0, initialLsn, 3, 7),
-        new CollectionPageDoDefragmentationOp(0, 0, 0, initialLsn),
-        new CollectionPageAppendRecordOp(0, 0, 0, initialLsn, 1, new byte[] {1, 2, 3}, 0),
-        new CollectionPositionMapBucketInitOp(0, 0, 0, initialLsn),
-        new CollectionPositionMapBucketAllocateOp(0, 0, 0, initialLsn),
-        new CollectionPositionMapBucketSetOp(0, 0, 0, initialLsn, 0, 0, 0, 0),
-        new CollectionPositionMapBucketRemoveOp(0, 0, 0, initialLsn, 1, 0),
-        new CollectionPositionMapBucketUpdateVersionOp(0, 0, 0, initialLsn, 2, 5),
-        new FreeSpaceMapPageInitOp(0, 0, 0, initialLsn),
-        new FreeSpaceMapPageUpdateOp(0, 0, 0, initialLsn, 0, 0),
-        new DirtyPageBitSetPageInitOp(0, 0, 0, initialLsn),
-        new DirtyPageBitSetPageSetBitOp(0, 0, 0, initialLsn, 0),
-        new DirtyPageBitSetPageClearBitOp(0, 0, 0, initialLsn, 0),
-        new MapEntryPointSetFileSizeOp(0, 0, 0, initialLsn, 10),
+        new PaginatedCollectionStateV2SetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 42),
+        new PaginatedCollectionStateV2SetApproxRecordsCountOp(
+            pageIndex, fileId, opUnitId, initialLsn, 100),
+        new CollectionPageInitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new CollectionPageDeleteRecordOp(pageIndex, fileId, opUnitId, initialLsn, 5, true),
+        new CollectionPageSetRecordVersionOp(pageIndex, fileId, opUnitId, initialLsn, 3, 7),
+        new CollectionPageDoDefragmentationOp(pageIndex, fileId, opUnitId, initialLsn),
+        new CollectionPageAppendRecordOp(
+            pageIndex, fileId, opUnitId, initialLsn, 1, new byte[] {1, 2, 3}, 4),
+        new CollectionPositionMapBucketInitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new CollectionPositionMapBucketAllocateOp(pageIndex, fileId, opUnitId, initialLsn),
+        new CollectionPositionMapBucketSetOp(
+            pageIndex, fileId, opUnitId, initialLsn, 2, 3, 4, 5),
+        new CollectionPositionMapBucketRemoveOp(pageIndex, fileId, opUnitId, initialLsn, 1, 6),
+        new CollectionPositionMapBucketUpdateVersionOp(
+            pageIndex, fileId, opUnitId, initialLsn, 2, 5),
+        new FreeSpaceMapPageInitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new FreeSpaceMapPageUpdateOp(pageIndex, fileId, opUnitId, initialLsn, 3, 128),
+        new DirtyPageBitSetPageInitOp(pageIndex, fileId, opUnitId, initialLsn),
+        new DirtyPageBitSetPageSetBitOp(pageIndex, fileId, opUnitId, initialLsn, 17),
+        new DirtyPageBitSetPageClearBitOp(pageIndex, fileId, opUnitId, initialLsn, 23),
+        new MapEntryPointSetFileSizeOp(pageIndex, fileId, opUnitId, initialLsn, 10),
     };
 
     for (PageOperation op : ops) {
@@ -76,30 +83,22 @@ public class PageOperationRegistryTest {
       Assert.assertNotNull(
           "Deserialization returned null for " + op.getClass().getSimpleName(), deserialized);
       Assert.assertEquals(
-          "Roundtrip class mismatch for ID " + op.getId(),
-          op.getClass(), deserialized.getClass());
-      Assert.assertEquals(
-          "Roundtrip ID mismatch", op.getId(), deserialized.getId());
+          "Full field-level equality failed for " + op.getClass().getSimpleName(),
+          op, deserialized);
     }
   }
 
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-218 = 18 types
+    // IDs 201-218 = 18 types. Each ID must have both a createOpForId entry and a factory
+    // registration. createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
         id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 18; id++) {
-      try {
-        // Construct a minimal serialized record with this ID to test if factory can handle it
-        var testOp = createMinimalRecord(id);
-        if (testOp != null) {
-          registeredCount++;
-        }
-      } catch (IllegalStateException e) {
-        // Not registered — this is a gap
-        Assert.fail("WAL record ID " + id + " is not registered: " + e.getMessage());
-      }
+      var testOp = createMinimalRecord(id);
+      Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
+      registeredCount++;
     }
     Assert.assertEquals("Expected 18 registered PageOperation types", 18, registeredCount);
   }
@@ -181,7 +180,7 @@ public class PageOperationRegistryTest {
           new DirtyPageBitSetPageClearBitOp(0, 0, 0, lsn, 0);
       case WALRecordTypes.MAP_ENTRY_POINT_SET_FILE_SIZE_OP ->
           new MapEntryPointSetFileSizeOp(0, 0, 0, lsn, 0);
-      default -> null;
+      default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
   }
 }

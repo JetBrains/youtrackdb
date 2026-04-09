@@ -423,12 +423,12 @@ public final class WALRecordsFactory {
         if (idToTypeMap.containsKey(recordId)) {
           try {
             walRecord =
-                (WriteableWALRecord)
-                    idToTypeMap.get(recordId).getDeclaredConstructor().newInstance();
+                (WriteableWALRecord) idToTypeMap.get(recordId).getDeclaredConstructor()
+                    .newInstance();
           } catch (final InstantiationException
-                         | NoSuchMethodException
-                         | InvocationTargetException
-                         | IllegalAccessException e) {
+              | NoSuchMethodException
+              | InvocationTargetException
+              | IllegalAccessException e) {
             throw new IllegalStateException("Cannot deserialize passed in record", e);
           }
         } else {
@@ -440,6 +440,9 @@ public final class WALRecordsFactory {
   }
 
   public void registerNewRecord(final int id, final Class<? extends WriteableWALRecord> type) {
+    assert id >= WALRecordTypes.PAGE_OPERATION_ID_BASE
+        : "Registered ID " + id + " must be >= PAGE_OPERATION_ID_BASE ("
+            + WALRecordTypes.PAGE_OPERATION_ID_BASE + ") to avoid collision with switch-case IDs";
     idToTypeMap.put(id, type);
   }
 }
