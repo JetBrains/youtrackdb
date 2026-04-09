@@ -337,6 +337,7 @@ public final class LockFreeReadCache implements ReadCache {
           "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
     }
 
+    cacheSize.incrementAndGet();
     afterAdd(cacheEntry);
 
     return cacheEntry;
@@ -595,9 +596,9 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      // Guard against negative cacheSize — a counter drift can occur under heavy
-      // concurrent load/evict/clearFile activity. Using the actual data map size
-      // as the capacity hint ensures we never pass a negative value to ArrayList.
+      // Guard against negative cacheSize — the counter can drift negative under heavy
+      // concurrent load/evict/clearFile activity because increments and decrements use
+      // different locks. Clamp to zero to avoid IllegalArgumentException from ArrayList.
       var currentCacheSize = cacheSize.get();
       var entries = new ArrayList<CacheEntry>(Math.max(0, currentCacheSize));
       data.forEachValue(entries::add);
