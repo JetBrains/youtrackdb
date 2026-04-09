@@ -18,6 +18,41 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+/**
+ * Per-index in-memory snapshot store for snapshot isolation. Preserves historical
+ * versions of index entries so that concurrent readers see a consistent point-in-time
+ * view regardless of concurrent writes.
+ *
+ * <h3>Data structures</h3>
+ * <ul>
+ *   <li>{@code indexesSnapshot} — a sub-map view of the global
+ *       {@code ConcurrentSkipListMap<CompositeKey, RID>}, scoped to this index's
+ *       entries by the {@code [indexId, indexId+1)} key range. Stores pairs of
+ *       entries per version change: a {@link TombstoneRID} at the old version and
+ *       a plain {@link com.jetbrains.youtrackdb.internal.core.id.RecordId} guard
+ *       at the new version.</li>
+ *   <li>{@code visibilityIndex} — maps newVersion keys to oldVersion keys for
+ *       LWM-based eviction. Keyed by the RecordId guard entry's key (newVersion)
+ *       so that eviction can process entries in commit-timestamp order.</li>
+ * </ul>
+ *
+ * <h3>Key layout</h3>
+ * <p>Snapshot keys have the layout {@code [indexId, userKey..., version]}, where
+ * {@code indexId} is prepended by {@link #enhanceIndexId} to namespace entries
+ * across indexes in the shared global map.
+ *
+ * <h3>Visibility rules</h3>
+ * <p>{@link #checkVisibility} implements the visibility decision: entries from
+ * in-progress or phantom (future) transactions fall back to
+ * {@link #lookupSnapshotRid} for historical state; committed entries are returned
+ * directly (with {@link SnapshotMarkerRID} unwrapped to its identity).
+ *
+ * <h3>Thread safety</h3>
+ * <p>All operations are safe for concurrent use. The underlying
+ * {@code ConcurrentSkipListMap} provides thread-safe reads and writes.
+ * {@link #addSnapshotPair} writes are not atomic (two puts), but
+ * {@link #lookupSnapshotRid} handles partial state via prefix validation.
+ */
 public class IndexesSnapshot {
 
   private final NavigableMap<CompositeKey, RID> indexesSnapshot;
@@ -167,6 +202,7 @@ public class IndexesSnapshot {
    * @return the visible RID (always a plain RecordId), or null if no historical
    *     version is visible
    */
+  // Package-private for direct unit testing in IndexesSnapshotVisibilityFilterTest.
   @Nullable RID lookupSnapshotRid(CompositeKey key, long snapshotTs) {
     var keys = key.getKeys();
     // Build the search key in one allocation: CompositeKey(indexId, userKey..., snapshotTs+1)
