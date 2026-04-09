@@ -20,14 +20,14 @@ PROFILE <command>
 ```sql
 PROFILE SELECT sum(Amount), OrderDate 
 FROM Orders 
-WHERE OrderDate > date("2012-12-09", "yyyy-MM-dd") 
-GROUP BY OrderDate  
+WHERE OrderDate > date('2012-12-09', 'yyyy-MM-dd')
+GROUP BY OrderDate
 ```
-result:
+Result:
 
 ```
 + FETCH FROM INDEX Orders.OrderDate (1.445μs)
-  OrderDate > date("2012-12-09", "yyyy-MM-dd")
+  OrderDate > date('2012-12-09', 'yyyy-MM-dd')
 + EXTRACT VALUE FROM INDEX ENTRY
 + FILTER ITEMS BY CLASS 
   Orders
@@ -40,7 +40,7 @@ result:
   _$$$OALIAS$$_0 AS `sum(Amount)`, OrderDate
 ```
 
-You can see the `(1.445μs)` at the end of the first line, it means that fetching from index `Orders.OrderDate` took 1.445 microseconds
+You can see the `(1.445μs)` at the end of the first line. It means that fetching from index `Orders.OrderDate` took 1.445 microseconds.
 
 >For more information, see
 >- [YQL Commands](YQL-Commands.md)
