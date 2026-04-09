@@ -332,7 +332,7 @@ public class MatchExecutionPlanner {
    * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
    */
   static long getHashJoinThreshold() {
-    return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong();
+    return Math.max(0, GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValueAsLong());
   }
 
   /**
